@@ -12,8 +12,9 @@
 -- quests and the rest; a search over names, places and the text.
 --
 -- Rules (WoW: Forever): only chat lines the game hands to addons are read,
--- and a secret line is never read (in dungeons and raids the game hides
--- chat from addons; the window says so). Nothing is sent: whisper and
+-- and a secret line is never read (while the game holds chat back from
+-- addons, in boss fights, PvP matches or a chat lockdown, the window says
+-- so). Nothing is sent: whisper and
 -- invite are the player's clicks (the game's own whisper box and
 -- C_PartyInfo.InviteUnit, out of combat). The notice is off by default and
 -- stays quiet in combat. Posts live for the session only.
@@ -147,7 +148,7 @@ function Board:Add(sender, info, extra)
 	post.name = ShortName(sender)
 	post.class = extra.class or post.class
 	post.channel = extra.channel or post.channel
-	post.kind, post.category, post.places = info.kind, info.category, info.places
+	post.kind, post.category, post.places, post.maybe = info.kind, info.category, info.places, info.maybe
 	post.roles, post.need, post.have, post.size = info.roles, info.need, info.have, info.size
 	post.text, post.signature = info.text, signature
 	post.last = Now()
@@ -220,10 +221,20 @@ local function AnyOn(filter, keys)
 	return false
 end
 
+-- The places a post may mean: its places, and the other reading of a bare
+-- "DM" (Dire Maul).
+local function PostPlaces(post)
+	local places = post.places or {}
+	if not post.maybe then return places end
+	local list = { unpack(places) }
+	list[#list + 1] = post.maybe
+	return list
+end
+
 -- Place names, folded, for the search.
 local function PlaceText(post)
 	local names = {}
-	for _, key in ipairs(post.places or {}) do
+	for _, key in ipairs(PostPlaces(post)) do
 		local entry = Catalog:Get(key)
 		names[#names + 1] = Catalog:Name(key)
 		if entry then
@@ -243,7 +254,7 @@ function Board:Passes(post, filter, search, level)
 	if AnyOn(filter, categories) and not filter[CATEGORY_CHIP[post.category] or "other"] then return false end
 	if filter.fit and level and #post.places > 0 then
 		local fits = false
-		for _, key in ipairs(post.places) do
+		for _, key in ipairs(PostPlaces(post)) do
 			if Catalog:Fits(key, level) then fits = true end
 		end
 		if not fits then return false end
@@ -295,6 +306,9 @@ function Board.PlacesText(post, limit)
 		if post.category == "pvp" then return L["PvP"] end
 		return L["Group"]
 	end
+	if post.maybe and #places == 1 then
+		return L["%s or %s"]:format(Catalog:Name(places[1]), Catalog:Name(post.maybe))
+	end
 	limit = limit or 2
 	local names = {}
 	for index = 1, math.min(#places, limit) do names[index] = Catalog:Name(places[index]) end
@@ -342,8 +356,8 @@ function Board.NameText(post)
 	return name
 end
 
--- Why the list may be empty right now: the game hides chat in dungeons and
--- raids; else nil.
+-- True while the game holds chat back from addons (boss fights, PvP
+-- matches, a chat lockdown: E:CommRestricted), so the list may stay empty.
 function Board.Hidden()
 	return E.CommRestricted and E:CommRestricted() or false
 end
@@ -442,7 +456,13 @@ end
 ---------------------------------------------------------------------------
 -- Options
 ---------------------------------------------------------------------------
-local function Open() if ns.Window then ns.Window:Open() end end
+local function Open()
+	if not M.active then
+		E:Print(L["The group board is off. Turn it on on the Plugins page."])
+		return
+	end
+	if ns.Window then ns.Window:Open() end
+end
 
 M.options = {
 	{ type = "execute", label = "Open the group board", func = Open,
@@ -504,7 +524,7 @@ if E.RegisterDataText then
 			end
 			local list = Board:Matching()
 			if #list == 0 then
-				Kit.TipText(tooltip, Board.Hidden() and L["The game hides chat from addons in dungeons and raids."]
+				Kit.TipText(tooltip, Board.Hidden() and L["The game holds chat back from addons right now, in boss fights for example."]
 					or L["No group posts that pass your filters yet."])
 				return
 			end
@@ -512,7 +532,7 @@ if E.RegisterDataText then
 				local post = list[index]
 				tooltip:AddDoubleLine(Board.NameText(post), Board.PlacesText(post, 1), 1, 1, 1, 1, 1, 1)
 			end
-			if #list > 8 then Kit.TipText(tooltip, L["and %d more"]:format(#list - 8)) end
+			if #list > 8 then Kit.TipText(tooltip, E:Plural(#list - 8, "and %d more", "and %d more"):format(#list - 8)) end
 		end,
 		hint = function() return { L["Click"], L["open the group board"] } end,
 		onClick = function() if M.active and ns.Window then ns.Window:Toggle() end end,
@@ -533,8 +553,12 @@ if E.RegisterDiagnostics then
 		for _, key in ipairs({ "lfg", "general", "trade", "custom" }) do
 			if M.db and M.db.channels[key] then channels[#channels + 1] = key end
 		end
-		return { ("   Group Board: %d posts, channels %s, %d places known"):format(Board:Count(),
-			#channels > 0 and table.concat(channels, ",") or "none", #Catalog.order) }
+		local client = 0
+		for _, key in ipairs(Catalog.order) do
+			if Catalog:Get(key).client then client = client + 1 end
+		end
+		return { ("   Group Board: %d posts, channels %s, %d places known, %d named by the client"):format(Board:Count(),
+			#channels > 0 and table.concat(channels, ",") or "none", #Catalog.order, client) }
 	end)
 end
 

@@ -94,9 +94,9 @@ E:RegisterLocale("deDE", function()
 		["%d of %d posts"] = "%d von %d Beiträgen",
 		["Invite after combat."] = "Einladen nach dem Kampf.",
 		["The game did not send the invite."] = "Das Spiel hat die Einladung nicht verschickt.",
-		["Chat is hidden here"] = "Chat hier verborgen",
-		["The game hides chat from addons in dungeons and raids. The board fills again outside."] =
-			"In Dungeons und Schlachtzügen verbirgt das Spiel den Chat vor Addons. Draußen füllt sich die Pinnwand wieder.",
+		["Chat is held back"] = "Chat zurückgehalten",
+		["The game holds chat back from addons right now, in boss fights or PvP matches for example. The board fills again afterwards."] =
+			"Das Spiel hält den Chat gerade vor Addons zurück, etwa in Bosskämpfen oder PvP-Matches. Danach füllt sich die Pinnwand wieder.",
 		["Nothing matches"] = "Nichts passt",
 		["No post passes the filters. Turn off a chip or clear the search to see more."] =
 			"Kein Beitrag kommt durch die Filter. Schaltet einen Filter ab oder leert die Suche, um mehr zu sehen.",
@@ -120,6 +120,7 @@ E:RegisterLocale("deDE", function()
 		["Raid"] = "Schlachtzug",
 		["PvP"] = "PvP",
 		["+%d more"] = "+%d weitere",
+		["%s or %s"] = "%s oder %s",
 		["Group, needs %d: %s"] = "Gruppe, braucht %d: %s",
 		["Group, needs %d"] = "Gruppe, braucht %d",
 		["Group, needs %s"] = "Gruppe, braucht %s",
@@ -134,8 +135,8 @@ E:RegisterLocale("deDE", function()
 		["LFG"] = "LFG",
 		["Off"] = "Aus",
 		["%d groups"] = { one = "%d Gruppe", other = "%d Gruppen" },
-		["The game hides chat from addons in dungeons and raids."] =
-			"In Dungeons und Schlachtzügen verbirgt das Spiel den Chat vor Addons.",
+		["The game holds chat back from addons right now, in boss fights for example."] =
+			"Das Spiel hält den Chat gerade vor Addons zurück, etwa in Bosskämpfen.",
 		["No group posts that pass your filters yet."] = "Noch keine Gruppenbeiträge, die durch Eure Filter kommen.",
 		["and %d more"] = { one = "und %d weiterer", other = "und %d weitere" },
 		["open the group board"] = "Gruppen-Pinnwand öffnen",

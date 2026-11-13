@@ -51,10 +51,14 @@ function tip:SetOwner() end
 local LFG = {
 	[18] = { "Die Todesminen", 1, 0, 18, 23, 5, 36 },
 	[30] = { "Kloster: Bibliothek", 1, 0, 29, 39, 5, 189 },
+	[31] = { "Stratholme - Haupttor", 1, 0, 58, 60, 5, 329 },
+	[32] = { "Lower Blackrock Spire", 1, 0, 55, 60, 5, 229 },
+	[33] = { "Obere Schwarzfelsspitze", 1, 0, 55, 60, 10, 229 },
 	[900] = { "Schwarzschlundfeste", 1, 0, 30, 36, 5, 2974 },
+	[902] = { "Schwarzschlundfeste", 1, 0, 58, 60, 5, 2974 },
 	[901] = { "Das Grabmal der Sterne", 1, 0, 58, 60, 10, 4242 },
 }
-function GetLFDChoiceOrder() return { 18, 30, 900, 901 } end
+function GetLFDChoiceOrder() return { 18, 30, 31, 32, 33, 900, 902, 901 } end
 function GetLFGDungeonInfo(id)
 	local d = LFG[id]
 	if not d then return nil end
@@ -219,7 +223,14 @@ Check(Catalog:Get("deadmines").client == "Die Todesminen", "client name of the D
 Check(Catalog:Get("deadmines").min == 18, "client level range wins")
 Check(Catalog:Get("f_blackmaw").client == "Schwarzschlundfeste", "Forever dungeon gets its client name")
 Check(Catalog:Get("lfg:901") ~= nil and Catalog:Get("lfg:901").kind == "raid", "unknown dungeon finder entry added as a raid")
-Check(Catalog:Get("sm_lib").client == nil, "wings sharing a map are not guessed")
+Check(Catalog:Get("sm_lib").client == "Kloster: Bibliothek", "a wing found by its name")
+Check(Catalog:Get("lbrs").client == "Lower Blackrock Spire", "a wing found by its words")
+Check(Catalog:Get("strat_live").client == nil and Catalog:Get("strat_ud").client == nil, "a wing the name doesn't tell gets nothing")
+local extra = 0
+for _, key in ipairs(Catalog.order) do if key:find("^lfg:") then extra = extra + 1 end end
+Check(extra == 1, "only the unknown dungeon is added (got " .. extra .. ")")
+Check(Catalog:Get("ubrs").kind == "dungeon", "UBRS stays a dungeon of ten")
+Check(Catalog:Get("f_blackmaw").min == 30 and Catalog:Get("f_blackmaw").max == 60, "a second level band widens the range")
 
 -- Channels
 Say("LF2M DM need tank and heal", "Kalio-Realm", 26, "LookingForGroup", "Player-1-WARRIOR")
@@ -291,6 +302,19 @@ Check(#E.printed == 1, "no notice for a group the filters leave out (raid at 50)
 level = 20
 M.db.notify.on = false
 
+-- A bare "DM": the Deadmines or Dire Maul, fits both level ranges.
+level = 58
+Say("LFM DM need heal", "Dmguy-Realm", 26, "LookingForGroup")
+local dmPost = Board.posts["dmguy-realm"]
+Check(dmPost and dmPost.maybe == "diremaul", "bare DM keeps Dire Maul as the other reading")
+Check(Board.PlacesText(dmPost) == "The Deadmines or Dire Maul", "bare DM shows both: " .. tostring(Board.PlacesText(dmPost)))
+local fitsAt58 = false
+for _, post in ipairs(Board:Matching()) do if post.key == "dmguy-realm" then fitsAt58 = true end end
+Check(fitsAt58, "bare DM passes the level filter at 58")
+Check(#Board:Matching("dire maul") >= 1, "search finds Dire Maul for a bare DM")
+Board:Remove("dmguy-realm")
+level = 20
+
 -- The window
 E.commands.board.fn("")
 local win = Window.frame
@@ -325,7 +349,7 @@ win.search.opts.onChange("")
 restricted = true
 Board:Clear()
 RunTimers()
-Check(list.opts.empty[1] == "Chat is hidden here", "empty state while the game hides chat")
+Check(list.opts.empty[1] == "Chat is held back", "empty state while the game holds chat back")
 restricted = false
 
 -- Expiry

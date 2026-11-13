@@ -96,7 +96,9 @@ local function Tooltip(row)
 	if #post.places > 0 then
 		Kit.TipPair(tip, L["Place"], Board.PlacesText(post, 4))
 		local min, max = Catalog:Levels(post.places[1])
-		if min then Kit.TipPair(tip, L["Levels"], min == max and tostring(min) or ("%d-%d"):format(min, max or min)) end
+		if min and not post.maybe then
+			Kit.TipPair(tip, L["Levels"], min == max and tostring(min) or ("%d-%d"):format(min, max or min))
+		end
 	end
 	if post.channel then Kit.TipPair(tip, L["Channel"], post.channel) end
 	Kit.TipPair(tip, L["Last posted"], Board.AgeText(post))
@@ -204,7 +206,7 @@ end
 
 local function EmptyState(total)
 	if Board.Hidden() then
-		return L["Chat is hidden here"], L["The game hides chat from addons in dungeons and raids. The board fills again outside."]
+		return L["Chat is held back"], L["The game holds chat back from addons right now, in boss fights or PvP matches for example. The board fills again afterwards."]
 	end
 	if total > 0 then
 		return L["Nothing matches"], L["No post passes the filters. Turn off a chip or clear the search to see more."]

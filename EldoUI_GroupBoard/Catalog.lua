@@ -80,12 +80,12 @@ local PLACES = {
 	{ "diremaul", "Dire Maul", "Düsterbruch", "dungeon", 55, 60, 5, 429, nil,
 		{ "dire maul", "diremaul", "dusterbruch", "db" } },
 	{ "dm_east", "Dire Maul: East", "Düsterbruch: Ost", "dungeon", 55, 60, 5, 429, "diremaul",
-		{ "dme", "dm e", "dm east", "dm ost", "dire maul east", "dbo", "db o", "db ost", "dusterbruch ost" }, { "east", "ost" } },
+		{ "dme", "dm east", "dm ost", "dire maul east", "dbo", "db ost", "dusterbruch ost" }, { "east", "ost" } },
 	{ "dm_west", "Dire Maul: West", "Düsterbruch: West", "dungeon", 55, 60, 5, 429, "diremaul",
-		{ "dmw", "dm w", "dm west", "dire maul west", "dbw", "db w", "db west", "dusterbruch west" }, { "west" } },
+		{ "dmw", "dm west", "dire maul west", "dbw", "db west", "dusterbruch west" }, { "west" } },
 	{ "dm_north", "Dire Maul: North", "Düsterbruch: Nord", "dungeon", 55, 60, 5, 429, "diremaul",
-		{ "dmn", "dm n", "dm north", "dm nord", "dm tribute", "dm trib", "tribute", "trib", "dire maul north",
-			"dbn", "db n", "db nord", "dusterbruch nord" }, { "north", "nord" } },
+		{ "dmn", "dm north", "dm nord", "dm tribute", "dm trib", "tribute", "trib", "dire maul north",
+			"dbn", "db nord", "dusterbruch nord" }, { "north", "nord" } },
 	{ "strat", "Stratholme", "Stratholme", "dungeon", 58, 60, 5, 329, nil,
 		{ "strat", "strath", "stratholme" } },
 	{ "strat_live", "Stratholme: Main Gate", "Stratholme (lebend)", "dungeon", 58, 60, 5, 329, "strat",
@@ -155,6 +155,7 @@ for _, place in ipairs(PLACES) do
 		key = place[1], en = place[2], de = place[3], kind = place[4],
 		min = place[5], max = place[6], size = place[7], map = place[8], parent = place[9],
 		strong = {}, weak = {}, solo = {}, children = {},
+		guess = place[5] == nil, -- no levels known here: size and kind come from the client
 	}
 	for _, word in ipairs(place[10] or {}) do entry.strong[#entry.strong + 1] = word end
 	for _, word in ipairs(place[11] or {}) do entry.weak[#entry.weak + 1] = word end
@@ -177,17 +178,36 @@ local function Number(value)
 	return tonumber(value)
 end
 
--- Entries that share a map (wings) can't be told apart by the map alone.
-local function OnlyEntryForMap(map)
-	local found
+local function HasWord(folded, word)
+	return (" " .. folded .. " "):find(" " .. word .. " ", 1, true) ~= nil
+end
+
+-- The catalog entry a dungeon finder entry stands for, and whether its map
+-- is one this table knows. A map with wings (Scarlet Monastery, Dire Maul,
+-- Blackrock Spire, Stratholme) goes to the wing whose name or words the
+-- client's name has ("Scarlet Monastery - Library" -> the library, the
+-- longest word wins); a wing the name doesn't tell gets nothing, never a
+-- second place for the same dungeon.
+local function EntryForClient(map, folded)
+	local family = {}
 	for _, key in ipairs(Catalog.order) do
 		local entry = Catalog.entries[key]
-		if entry.map == map and not entry.lfgOnly then
-			if found or #entry.children > 0 then return nil end
-			found = entry
+		if entry.map == map and not entry.lfgOnly then family[#family + 1] = entry end
+	end
+	if #family == 0 then return nil, false end
+	if #family == 1 then return family[1], true end
+	local best, bestLength
+	for _, entry in ipairs(family) do
+		if entry.parent then
+			if Fold(entry.en) == folded or (entry.de and Fold(entry.de) == folded) then return entry, true end
+			for _, list in ipairs({ entry.strong, entry.weak, entry.solo }) do
+				for _, word in ipairs(list) do
+					if HasWord(folded, word) and (not bestLength or #word > bestLength) then best, bestLength = entry, #word end
+				end
+			end
 		end
 	end
-	return found
+	return best, true
 end
 
 local function AddWord(entry, word)
@@ -206,7 +226,7 @@ function Catalog:ReadClient()
 	if type(order) ~= "function" or type(info) ~= "function" then return false end
 	local ok, ids = pcall(order)
 	if not ok or type(ids) ~= "table" then return false end
-	local any = false
+	local any, seen = false, {}
 	for _, id in ipairs(ids) do
 		-- name, typeID, subtypeID, minLevel, maxLevel, ..., maxPlayers (13th
 		-- value), ..., mapID (22nd value); pcall adds one in front.
@@ -215,22 +235,37 @@ function Catalog:ReadClient()
 		if r[1] and type(name) == "string" and not Secret(name) and name ~= "" then
 			any = true
 			local min, max, size, map = Number(r[5]), Number(r[6]), Number(r[14]), Number(r[23])
-			local entry = map and OnlyEntryForMap(map)
-			if not entry then
+			local folded = Fold(name)
+			local entry, known = nil, false
+			if map then entry, known = EntryForClient(map, folded) end
+			if not entry and not known then
 				entry = AddEntry({ key = "lfg:" .. tostring(id), en = name, kind = (size and size > 5) and "raid" or "dungeon",
 					size = size, map = map, strong = {}, weak = {}, solo = {}, children = {}, lfgOnly = true })
 			end
-			entry.client = name
-			if min and min > 0 then entry.min = min end
-			if max and max > 0 then entry.max = max end
-			if size and size > 0 then
-				entry.size = size
-				entry.kind = size > 5 and "raid" or "dungeon"
+			if entry then
+				entry.client = entry.client or name
+				-- The first finder entry of a place sets its levels; more
+				-- entries (another level band) widen them.
+				if not seen[entry] then
+					seen[entry] = true
+					if min and min > 0 then entry.min = min end
+					if max and max > 0 then entry.max = max end
+				else
+					if min and min > 0 and (not entry.min or min < entry.min) then entry.min = min end
+					if max and max > 0 and (not entry.max or max > entry.max) then entry.max = max end
+				end
+				-- Group size and kind only where this table had to guess
+				-- them (Forever's own dungeons, entries from the list):
+				-- UBRS stays a dungeon of ten.
+				if size and size > 0 and (entry.lfgOnly or entry.guess) then
+					entry.size = size
+					entry.kind = size > 5 and "raid" or "dungeon"
+				end
+				AddWord(entry, folded)
+				-- "The Drowned City" is also written without the article.
+				local bare = folded:gsub("^the ", ""):gsub("^die ", ""):gsub("^der ", ""):gsub("^das ", "")
+				if bare ~= folded and #bare >= 5 then AddWord(entry, bare) end
 			end
-			AddWord(entry, Fold(name))
-			-- "The Drowned City" is also written without the article.
-			local bare = Fold(name):gsub("^the ", ""):gsub("^die ", ""):gsub("^der ", ""):gsub("^das ", "")
-			if bare ~= Fold(name) and #bare >= 5 then AddWord(entry, bare) end
 		end
 	end
 	self.version = (self.version or 0) + 1
@@ -300,10 +335,13 @@ function Catalog:Words()
 		for part in item.word:gmatch("%S+") do parts[#parts + 1] = part end
 		item.parts = parts
 	end
+	-- Equal words: the entry this table lists first (before entries from
+	-- the client's list) wins.
 	table.sort(list, function(a, b)
 		if #a.parts ~= #b.parts then return #a.parts > #b.parts end
 		if #a.word ~= #b.word then return #a.word > #b.word end
-		return a.word < b.word
+		if a.word ~= b.word then return a.word < b.word end
+		return self.entries[a.key].index < self.entries[b.key].index
 	end)
 	self.words, self.wordsVersion = list, self.version
 	return list
