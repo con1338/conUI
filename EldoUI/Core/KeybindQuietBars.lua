@@ -302,7 +302,7 @@ end
 -- At login: a character whose profile has the setting on (a synced
 -- profile, another character) gets its first fill once.
 local owner = {}
-E:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, isLogin, isReload)
+E:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, _, isLogin, isReload)
 	if not (isLogin or isReload) then return end
 	lastOn = E:QuietFillOn()
 	if C_Timer then

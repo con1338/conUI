@@ -506,7 +506,7 @@ E:RegisterEvent("SPELLS_CHANGED", Changed, owner)
 -- The game asks the player to confirm a talent reset: save the buttons
 -- now, while the talent spells are still on them.
 E:RegisterEvent("CONFIRM_TALENT_WIPE", function() E:SaveTalentResetSlots() end, owner)
-E:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, isLogin, isReload)
+E:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, _, isLogin, isReload)
 	if not (isLogin or isReload) then return end
 	-- What the player knows at login is the starting point: only spells
 	-- learned from here on are new.
