@@ -14,7 +14,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | 2 | CI: Syntaxcheck, luacheck mit `.luacheckrc`, TOC-Check, Release-ZIP | klein–mittel |
 | 3 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | Struktur klein, Inhalt groß |
 | 4 | Versionscheck und Fehler-Links an den privaten Fork anpassen | klein |
-| 5 | Erstes eigenes Feature: Gruppensuche-Board aus dem LFG-Chat | mittel |
+| 5 | Erstes eigenes Feature: Gruppensuche-Board aus dem LFG-Chat (umgesetzt: `EldoUI_GroupBoard`) | mittel |
 
 ## A – Deutsche Übersetzung
 
@@ -49,6 +49,15 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
   einen eigenen Extraktor, einen Platzhalter-Check (`%s`, `%d`, `|c…|r`) und eine Pseudo-Locale mit +30 % Länge.
 
 ## B – Fehlende Features (per Codesuche geprüft)
+
+> **Gruppensuche-Board umgesetzt** als Plugin `EldoUI_GroupBoard` („Gruppen-Pinnwand“, nach D1 über die öffentliche
+> Plugin-API, nichts in `EldoUI/` geändert). Liest LFM/LFG-Beiträge aus SucheNachGruppe, Allgemein, Handel (aus)
+> und Kanälen nach Name („World, Welt“), erkennt Orte (klassisch EN/DE mit Kürzeln, Forever-Dungeons, Dungeonliste
+> des Clients), Rollen und Anzahl; Fenster mit Filter-Chips, Suche, Flüstern/Einladen per Klick; Infoleisten-Block,
+> `/eui board`, Finder, Hinweis (aus). Deutsche Texte im Plugin. Offline geprüft (`tools/groupboard/`), **im Spiel
+> nicht getestet**. Ordnername mit `EldoUI_`-Präfix wie das deutsche Paket: Fehler landen so im EldoUI-Fehlerlog;
+> `docs/PLUGINS.md` reserviert das Präfix eigentlich für EldoUIs eigene Modul-Addons. Details:
+> `EldoUI_GroupBoard/README.md`.
 
 | Feature | Beleg (Suche) | Aufwand |
 |---|---|---|
