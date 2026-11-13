@@ -2820,6 +2820,11 @@ function M:CheckHeaders(attempt)
 	local section = IsInRaid() and "raid" or "party"
 	if not self.db[section].enabled then return end
 	local header = self.headers[section]
+	-- A header its visibility rule hides (only in combat, hidden while
+	-- mounted, resting ...) makes no buttons until it shows, which says
+	-- nothing about this client: the next roster change or combat end
+	-- checks again.
+	if header and not header:IsVisible() then return end
 	local visible = 0
 	if header then
 		for _, button in ipairs(HeaderButtons(header)) do
