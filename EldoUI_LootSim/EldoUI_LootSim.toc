@@ -1,0 +1,25 @@
+## Interface: 16001
+## Title: |cff33aaffEldo|rUI Loot Sim
+## Notes: The Loot Guide's simulator: estimates your DPS against a target dummy from your own character sheet and public Classic combat rules. Loads only when you press a sim button.
+## Author: Eldodeldo
+## Version: 0.7.2001
+## Group: EldoUI
+## Category: User Interface
+## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
+## Dependencies: EldoUI
+## LoadOnDemand: 1
+## X-License: Apache-2.0
+## X-Copyright: Copyright 2026 Eldodeldo
+
+Rng.lua
+Combat.lua
+Data.lua
+Engine.lua
+Classes\Melee.lua
+Classes\Ranged.lua
+Classes\Casters.lua
+Reader.lua
+Gear.lua
+Scheduler.lua
+Jobs.lua
+UI\SimWindow.lua

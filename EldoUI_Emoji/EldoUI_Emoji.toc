@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: |cff33aaffEldo|rUI Emoji
+## Notes: Emoji pictures and names for EldoUI chat. Loaded by EldoUI when chat emoji are on. Graphics: Twemoji (CC-BY 4.0).
+## Author: Eldodeldo
+## X-Credits: graphics by the Twemoji contributors; names and shortcodes from emojibase
+## Version: 1.0.0
+## Group: EldoUI
+## Category: User Interface
+## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
+## Dependencies: EldoUI
+## LoadOnDemand: 1
+## X-License: CC-BY-4.0 (graphics), MIT (names and shortcodes), Apache-2.0 (generator)
+## X-Data-Source: https://github.com/jdecked/twemoji @ v17.0.3 (b6b55fef1e8636b540a6d016a4729ca8cdf2e60b); emojibase-data 17.0.0
+## X-Generator: tools/emoji/gen_emoji.py 1.0.0
+
+Data.lua

@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: |cff33aaffEldo|rUI Guide Data
+## Notes: Leveling routes, class quests, professions, reputation and collection guides for EldoUI's guide window. Loads only when the guide window needs it. Guide texts by the Polestar authors (GPL-3.0).
+## Author: Eldodeldo
+## X-Credits: guides by the Polestar authors
+## Version: 1.0.0
+## Group: EldoUI
+## Category: User Interface
+## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
+## Dependencies: EldoUI
+## LoadOnDemand: 1
+## X-License: GPL-3.0-only
+## X-Data-Source: https://github.com/fitzforge/polestar @ v0.2.6 (39f0b8b2be9b9330b2a3617ab54b7c034169aedd)
+## X-Generator: tools/guidedata/gen_guidedata.py 1.0.0
+
+Guides.lua

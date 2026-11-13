@@ -1,0 +1,85 @@
+<Bindings>
+	<Binding name="ELDOUI_METER_TOGGLE" header="ELDOUI" category="ADDONS">
+		EldoUI:RunBinding("METER_TOGGLE")
+	</Binding>
+	<Binding name="ELDOUI_METER_RESET" category="ADDONS">
+		EldoUI:RunBinding("METER_RESET")
+	</Binding>
+	<Binding name="ELDOUI_INFOBAR_TOGGLE" category="ADDONS">
+		EldoUI:RunBinding("INFOBAR_TOGGLE")
+	</Binding>
+	<Binding name="ELDOUI_LOOTGUIDE" category="ADDONS">
+		EldoUI:RunBinding("LOOTGUIDE")
+	</Binding>
+	<Binding name="ELDOUI_LOOTGUIDE_BIS" category="ADDONS">
+		EldoUI:RunBinding("LOOTGUIDE_BIS")
+	</Binding>
+	<Binding name="ELDOUI_ALTS" category="ADDONS">
+		EldoUI:RunBinding("ALTS")
+	</Binding>
+	<Binding name="ELDOUI_MAPNOTES_TOGGLE" category="ADDONS">
+		EldoUI:RunBinding("MAPNOTES_TOGGLE")
+	</Binding>
+	<Binding name="ELDOUI_ADVENTURE" category="ADDONS">
+		EldoUI:RunBinding("ADVENTURE")
+	</Binding>
+	<Binding name="ELDOUI_ADVENTURE_NOTE" category="ADDONS">
+		EldoUI:RunBinding("ADVENTURE_NOTE")
+	</Binding>
+	<Binding name="ELDOUI_ADVENTURE_TRACKER" category="ADDONS">
+		EldoUI:RunBinding("ADVENTURE_TRACKER")
+	</Binding>
+	<Binding name="ELDOUI_ADVENTURE_NEXT" category="ADDONS">
+		EldoUI:RunBinding("ADVENTURE_NEXT")
+	</Binding>
+	<Binding name="ELDOUI_TALENTS" category="ADDONS">
+		EldoUI:ToggleTalentPlanner()
+	</Binding>
+	<Binding name="ELDOUI_SHOW_HUD" runOnUp="true" category="ADDONS">
+		EldoUI:SetHUDHold(keystate == "down")
+	</Binding>
+	<Binding name="CLICK EldoUI_QuestItemButton:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw1:LeftButton" header="ELDOUIQUICKDRAW" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw5:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw6:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw7:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw8:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw9:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw10:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw11:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw12:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw13:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw14:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw15:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_Quickdraw16:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_PingKey1:LeftButton" header="ELDOUIPINGS" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_PingKey2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_PingKey3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_PingKey4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton1:LeftButton" header="ELDOUICONSUMABLES" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton5:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton6:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton7:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton8:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton9:LeftButton" category="ADDONS"/>
+	<Binding name="ELDOUI_WHISPER_TARGET" category="ADDONS">
+		EldoUI:RunBinding("WHISPER_TARGET")
+	</Binding>
+	<Binding name="CLICK EldoUI_RareTargetButton:LeftButton" header="ELDOUIRARES" category="ADDONS"/>
+	<Binding name="ELDOUI_FISHING_TOGGLE" header="ELDOUIFISHING" category="ADDONS">
+		EldoUI:ToggleFishingMode()
+	</Binding>
+	<Binding name="CLICK EldoUI_FishingCast:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_TotemButton1:LeftButton" header="ELDOUITOTEMS" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_TotemButton2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_TotemButton3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_TotemButton4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_TotemDropAll:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_TotemRecall:LeftButton" category="ADDONS"/>
+</Bindings>

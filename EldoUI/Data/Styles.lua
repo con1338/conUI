@@ -1,0 +1,4 @@
+-- EldoUI style presets live with their modules: every module registers
+-- its own looks in its own files (E:RegisterStyles, Core/Styles.lua). The
+-- unit frame styles are in Modules/UnitFrames/Options.lua; nothing is
+-- registered here any more.
