@@ -37,24 +37,30 @@ Das Plugin erscheint unter **Plugins** in den EldoUI-Optionen und lässt sich do
 
 ## Was erkannt wird
 
-- **LFM/LFG:** `LFM`, `LF2M`, `need`, `x/5`, „suchen noch“, „brauchen“, „Gruppe sucht Tank“ gegen `LFG`,
-  „LF group“, „suche Gruppe“, „Tank sucht Gruppe“. `LF`/„suche“ vor einer Rolle oder Zahl heißt Gruppe,
-  vor einem Ort oder „Gruppe“ heißt Spieler.
+- **LFM/LFG:** `LFM`, `LF2M`, `LF 2M`, `x/5`, „Gruppe sucht Tank“ gegen `LFG`, „LF group“, „LF raid“,
+  „suche Gruppe“, „Tank sucht Gruppe“. `LF`/„suche“ vor einer Rolle oder Zahl heißt Gruppe, vor einem Ort,
+  „Gruppe“ oder „raid“ heißt Spieler. `need`, „sucht“, „brauchen“, „fehlt“ zählen nur vor einer Rolle oder
+  Zahl („need tank“) oder wenn die Zeile sonst einen Ort, eine Rolle oder eine Gruppenart nennt; „I need
+  gold“ oder „Wer sucht noch Leinenstoff?“ sind keine Beiträge. „need group“ heißt Spieler, „anyone need a
+  healer?“ ist ein Angebot. Ein ausdrückliches `LFG` gewinnt gegen ein schwaches `need`.
 - **Orte:** alle klassischen Dungeons und Schlachtzüge mit englischen und deutschen Namen und den üblichen
   Kürzeln (RFC, DM/Todesminen, SM Lib/Kloster Bibliothek, BRD/BRT, DM Ost/DB Ost, UBRS, Strat UD …), die
   neuen Forever-Dungeons mit ihren englischen Namen. Beim Login liest das Plugin die Dungeonliste des
   Clients: Namen in der Sprache des Clients, Stufenbereiche von Forever und Dungeons, die die Tabelle
-  nicht kennt. Der längste Treffer gewinnt („DM East“ vor „DM“); Flügelwörter wie „lib“ oder „arm“
-  zählen allein nur, wenn kein anderer Ort genannt ist, Richtungswörter („west“, „lower“) nur neben ihrem
-  Hauptnamen.
+  nicht kennt; Flügel (Kloster, Düsterbruch, Schwarzfelsspitze, Stratholme) werden über ihren Namen
+  zugeordnet, nie doppelt angelegt. Der längste Treffer gewinnt („DM East“ vor „DM“, „DM:N“ = Nord, aber
+  „DM w/ tank“ bleibt Todesminen); Flügelwörter wie „lib“ oder „arm“ zählen allein nur, wenn kein anderer
+  Ort genannt ist, Richtungswörter („west“, „lower“, „UD“) nur neben ihrer Familie („DM West + North“,
+  „Strat Live/UD“). Ein nacktes „DM“ zeigt „Die Todesminen oder Düsterbruch“ und passt zu beiden
+  Stufenbereichen.
 - **Rollen:** Tank, Heiler/Healer, DPS/DD/Schaden, mit Anzahl („2 dps“, „2x DD“, „LF2dps“).
 - **Keine Gruppenbeiträge:** Handel (WTS/WTB/VK), Gildenwerbung ohne Ort, Dienste (Portale, Beschwörungen,
-  Verzauberungen, Schlossknacken, Boosts).
+  Verzauberungen, Schlossknacken, Boosts) ohne klares LFM/LFG – „LFM UBRS, summons ready“ bleibt.
 
 ## Regeln (WoW: Forever)
 
-- Gelesen wird nur, was das Spiel Addons gibt; geheime Werte werden nie gelesen. In Dungeons und
-  Schlachtzügen verbirgt das Spiel den Chat vor Addons, das Fenster sagt das dann.
+- Gelesen wird nur, was das Spiel Addons gibt; geheime Werte werden nie gelesen. Hält das Spiel den Chat
+  zurück (Bosskämpfe, PvP-Matches, Chatsperre; erkannt über `E:CommRestricted`), sagt das Fenster das.
 - Nichts wird gesendet: Flüstern und Einladen sind immer ein Klick des Spielers.
 - Beiträge gibt es nur für die laufende Sitzung; gespeichert werden nur Optionen, Filter und Fensterplatz.
 - Links und Textcodes aus fremden Zeilen werden entfernt, nicht angezeigt.
@@ -79,9 +85,10 @@ Nach dem Login mit `/eui errors` auf neue Fehler schauen; `/eui diag` zeigt eine
 | „Meine Stufe“ an- und abschalten | Ohne den Filter mehr Beiträge (auch Orte weit über/unter der Stufe) |
 | Einen Beitrag anklicken | Chatfeld öffnet ein Flüstern an den Absender |
 | Bei einem LFG-Beitrag „Einladen“ | Einladung geht raus; im Kampf nur ein Hinweis im Fenster |
-| Einen Dungeon betreten | Fenster sagt „Chat hier verborgen“, keine Fehler |
+| Einen Dungeon betreten, einen Boss angreifen | Keine Fehler; im Bosskampf sagt das Fenster „Chat zurückgehalten“ |
 | Optionen > Hinweis an, auf eine passende Gruppe warten | Eine Chatzeile und ein Sound, kein zweiter bei Wiederholung |
 | Plugins-Seite: Plugin aus- und wieder einschalten | Fenster schließt, Liste leer, danach füllt sie sich wieder |
+| `/eui diag` | Zeile „Group Board“; „named by the client“ über 0, sonst wurde die Dungeonliste nicht gelesen |
 
 ## Prüfen (offline)
 
