@@ -5,7 +5,7 @@ Drei GitHub-Workflows in `.github/workflows/`, die Skripte dazu liegen hier.
 | Workflow | Wann | Was |
 |---|---|---|
 | `ci.yml` (Prüfungen) | jeder Push, jeder Pull Request | alle Prüfungen, danach das Addon-ZIP als Download (Actions → Lauf → Artifacts, 14 Tage) |
-| `release.yml` (Release) | ein Tag `v*` | alle Prüfungen, ZIP bauen, GitHub-Release mit dem ZIP |
+| `release.yml` (Release) | ein Tag `v*`, oder von Hand mit dem Tag als Eingabe | alle Prüfungen, ZIP bauen, GitHub-Release mit dem ZIP |
 | `watch.yml` (Versionswächter) | täglich 05:23 UTC, oder von Hand | neuer WoW: Forever-Patch oder neue EldoUI-Version → Issue |
 
 ## Prüfungen
@@ -39,10 +39,14 @@ mit in die Liste zu rutschen.
 
 ## Release
 
-1. In `EldoUI/EldoUI.toc` (und `EldoUI_Locale_deDE/EldoUI_Locale_deDE.toc`) `## Version:` setzen, z. B. `0.7.2001-p2`, und committen.
-2. Tag pushen: `git tag v0.7.2001-p2 && git push origin v0.7.2001-p2`
+1. In `EldoUI/EldoUI.toc` (und `EldoUI_Locale_deDE/EldoUI_Locale_deDE.toc`) `## Version:` setzen, z. B. `0.7.2001-p2`, und nach `main` bringen.
+2. Release starten, auf einem der zwei Wege:
+   - **Auf GitHub, ohne git:** Actions → **Release** → **Run workflow**, Branch `main`, Tag `v0.7.2001-p2` eintragen → Run.
+     Der Workflow legt den Tag auf den neuesten Commit von `main` und das Release dazu.
+   - **Mit git:** `git tag v0.7.2001-p2 && git push origin v0.7.2001-p2`
 
-Der Workflow bricht ab, wenn der Tag nicht zur Version passt oder eine Prüfung fehlschlägt. Das ZIP heißt
+Der Workflow bricht ab, wenn der Tag nicht zur Version passt, es den Tag schon für einen anderen Stand gibt oder
+eine Prüfung fehlschlägt. Das ZIP heißt
 `EldoUI-<Version>.zip` und enthält alle `EldoUI*`-Ordner, die git kennt: entpacken nach `Interface\AddOns`, fertig.
 Lokal: `python3 tools/ci/build_zip.py` → `dist/`.
 
