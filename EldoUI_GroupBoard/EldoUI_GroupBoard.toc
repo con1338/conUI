@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: |cff33aaffEldo|rUI Group Board
+## Notes: Group posts from the chat channels in one window: dungeon, roles needed, how long ago. Needs EldoUI.
+## Notes-deDE: Gruppensuche aus den Chat-Kanälen in einem Fenster: Dungeon, gesuchte Rollen, wie lange her. Braucht EldoUI.
+## Author: WoW-UI-Addon (EldoUI fork)
+## Version: 0.1.0
+## Group: EldoUI
+## Category: User Interface
+## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
+## Dependencies: EldoUI
+## X-Min-EldoUI: 0.7.2001
+## X-License: Apache-2.0
+
+Locale\deDE.lua
+Catalog.lua
+Parse.lua
+Board.lua
+Window.lua
