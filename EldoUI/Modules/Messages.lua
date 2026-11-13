@@ -356,8 +356,26 @@ end
 
 -- A Battle.net contact is saved under its BattleTag: the account name the
 -- game gives addons is only valid in this session.
+-- Saved conversations stop at MAX_CONTACTS: past that, the ones quiet the
+-- longest go (never one with its window open). Without a limit every
+-- whisper from a new name, gold spam included, stayed for good.
+local MAX_CONTACTS = 200
+local function PruneContacts()
+	local db = Store()
+	local keys = {}
+	for key in pairs(db.contacts) do keys[#keys + 1] = key end
+	if #keys <= MAX_CONTACTS then return end
+	local function Last(key) return tonumber(db.meta[key] and db.meta[key].last) or 0 end
+	table.sort(keys, function(a, b) return Last(a) < Last(b) end)
+	for index = 1, #keys - MAX_CONTACTS do
+		local key = keys[index]
+		if not windows[key] then db.contacts[key], db.meta[key] = nil, nil end
+	end
+end
+
 local function StoreLine(key, incoming, text, title)
 	if not KeepHistory(key) then return end
+	local fresh = Store().contacts[key] == nil
 	local history = History(key)
 	table.insert(history, { time(), incoming and 1 or 0, E.MaskProtectedNames(text) })
 	while #history > M.db.history do table.remove(history, 1) end
@@ -368,6 +386,7 @@ local function StoreLine(key, incoming, text, title)
 	elseif title then
 		meta.title = E.MaskProtectedNames(title)
 	end
+	if fresh then PruneContacts() end
 end
 
 -- who: the name to show (nil = you), colorHex: rrggbb for the name.

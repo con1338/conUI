@@ -45,6 +45,7 @@ local PREFIX = "EUI_BLS"
 local FORMAT = "1"
 M.PREFIX = PREFIX
 local MAX_PALADINS = 8
+local PLAN_KEEP = 40 -- names the saved plan holds before old groups' paladins go
 
 -- The classes, in the order of the columns and of the payload.
 M.CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
@@ -289,12 +290,16 @@ end
 function M:OnPlan(fields, sender)
 	local senderKey, leads = self:SenderInGroup(sender)
 	if not senderKey then return end
+	-- Rows only for paladins in the group now: any other name would just
+	-- pile up in the saved plan.
+	local paladins = {}
+	for _, name in ipairs(self:Paladins()) do paladins[name] = true end
 	local rows, count = {}, 0
 	for _, field in ipairs(fields) do
 		if count >= MAX_PALADINS then break end
 		local name, codes = tostring(field):match("^([^=]+)=([%-%u]+)$")
 		name = Clean(name)
-		if name and #codes == #self.CLASSES and (leads or name == senderKey) then
+		if name and paladins[name] and #codes == #self.CLASSES and (leads or name == senderKey) then
 			local row = {}
 			for index, class in ipairs(self.CLASSES) do
 				local blessing = BY_CODE[codes:sub(index, index)]
@@ -306,6 +311,15 @@ function M:OnPlan(fields, sender)
 	end
 	if next(rows) == nil then return end
 	for name, row in pairs(rows) do self.db.plan[name] = next(row) and row or nil end
+	-- Plans of paladins from earlier groups stay for the next raid with
+	-- them, up to PLAN_KEEP names; past that, those not in the group go.
+	local kept = 0
+	for _ in pairs(self.db.plan) do kept = kept + 1 end
+	if kept > PLAN_KEEP then
+		for name in pairs(self.db.plan) do
+			if not paladins[name] then self.db.plan[name] = nil end
+		end
+	end
 	self.from = Clean(sender and sender:gsub("%-.*$", "") or nil)
 	self:Changed()
 	if self.db.announce and M.IsPaladin() and rows[self:MyName()] then
