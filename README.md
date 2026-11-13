@@ -7,8 +7,10 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > [EldoUI 0.7.2001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.2001) (Ordner `EldoUI*/`).
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
 > Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 20.827 Texte,
-> Werkzeuge und Glossar in `tools/locale/`) und die Code-Review-Notizen in `review/`.
-> Das Original-README folgt; geändert sind nur die Installationshinweise zum deutschen Paket.
+> Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
+> aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
+> `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
+> Das Original-README folgt; geändert sind nur die Installationshinweise zum deutschen Paket und zum Plugin.
 
 ---
 
@@ -59,7 +61,7 @@ The [module list](docs/wiki/modules.md) describes every module and shows which o
 
 1. Download `EldoUI-<version>.zip` from the [releases page](https://github.com/Eldodeldo/EldoUI/releases).
 2. Close the game and unzip the file into `World of Warcraft\_forever_\Interface\AddOns`. The WoW: Forever beta used the folder `_classic_beta_`; if you played the beta, install EldoUI again into `_forever_`.
-3. Check that these folders sit directly in `AddOns`: `EldoUI`, `EldoUI_LootData`, `EldoUI_GuideData`, `EldoUI_LootSim`, `EldoUI_Emoji`, `EldoUI_Locale_daDK`, and `EldoUI_Locale_deDE`.
+3. Check that these folders sit directly in `AddOns`: `EldoUI`, `EldoUI_LootData`, `EldoUI_GuideData`, `EldoUI_LootSim`, `EldoUI_Emoji`, `EldoUI_Locale_daDK`, and `EldoUI_Locale_deDE`. The fork's group board plugin, `EldoUI_GroupBoard`, goes there too if you want it.
 4. Start the game, make sure **EldoUI** is ticked in the AddOns list, and log in.
 
 The six companion folders load only when you need them: the Loot Guide data, the guides, the gear simulator, the chat emoji, and the Danish and German texts.
