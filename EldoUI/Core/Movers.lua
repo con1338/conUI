@@ -1648,8 +1648,19 @@ function E:CreateMover(frame, name, title, defaultPoint, opts)
 		E:UpdateMoverGuides(nil)
 		if m.dragging then
 			m.dragging = nil
-			m:StopMovingOrSizing()
-			SavePosition(m)
+			if InCombatLockdown() then
+				-- Combat began mid-drag (the combat handler below normally
+				-- drops the box first): where it was let go is kept and
+				-- saved once combat ends, when protected frames may move.
+				pcall(m.StopMovingOrSizing, m)
+				local left, bottom = m:GetLeft(), m:GetBottom()
+				E:RunOutOfCombat(function()
+					if left and bottom then SetMoverPosition(m, Snap(m, left, bottom)) end
+				end, "Movers:drop:" .. tostring(m.name))
+			else
+				m:StopMovingOrSizing()
+				SavePosition(m)
+			end
 		end
 		E:SelectMover(m)
 		QueueShare()
@@ -2317,8 +2328,20 @@ function E:ToggleMoveMode(state, filter)
 	end
 end
 
--- Leaving move mode when combat starts keeps protected frames safe.
+-- Leaving move mode when combat starts keeps protected frames safe. A box
+-- still being dragged is dropped and saved first: during this event
+-- protected frames can still move, right after it they can't.
 E:RegisterEvent("PLAYER_REGEN_DISABLED", function()
+	local dropped = false
+	for _, mover in pairs(E.movers) do
+		if mover.dragging then
+			mover.dragging = nil
+			mover:SetScript("OnUpdate", nil)
+			if pcall(mover.StopMovingOrSizing, mover) then pcall(SavePosition, mover) end
+			dropped = true
+		end
+	end
+	if dropped then E:UpdateMoverGuides(nil) end
 	if moveMode then E:ToggleMoveMode(false) end
 end, {})
 
