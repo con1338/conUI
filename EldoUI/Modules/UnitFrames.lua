@@ -1701,7 +1701,9 @@ end
 
 local function CastOnUpdate(castbar, elapsed)
 	castbar.throttle = (castbar.throttle or 0) + elapsed
-	if castbar.duration then
+	-- The duration object may be secret (StartCast keeps it via Present()):
+	-- a plain truth test here would fail on every tick.
+	if Present(castbar.duration) then
 		if castbar.throttle < 0.05 then return end
 		castbar.throttle = 0
 		if not castbar.showTime then castbar.time:SetText("") return end
