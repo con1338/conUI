@@ -1677,7 +1677,7 @@ local IconCog = {
 }
 for _, entry in ipairs({ { "say", "Say and emote" }, { "yell", E.Key("Yell") }, { "whisper", "Whispers" }, { "guild", E.Key("Guild and officer") },
 	{ "party", "Party" }, { "raid", "Raid" }, { "instance", "Instance" }, { "channel", E.Key("Numbered channels") }, { "other", E.Key("Everything else") } }) do
-	local function What() return E:Translate(entry[2]):lower() end
+	local function What() return E:InSentence(E:Translate(entry[2])) end
 	IconCog[#IconCog + 1] = { type = "toggle", key = "nameIconScope.types." .. entry[1], label = "Icons in %s", labelFill = What, disabled = NoIcons,
 		desc = "Show the name icons in %s lines.", descFill = What }
 end

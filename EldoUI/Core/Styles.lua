@@ -307,7 +307,7 @@ function E:StyleFits(layoutKey, moduleName, styleKey, descriptor)
 	local title = mover and mover.title and L[mover.title]
 	local layoutTitle = self:LayoutTitle(layoutKey)
 	if title then
-		return false, L["Too large for the %s layout: it would cover the %s."]:format(layoutTitle, title:lower())
+		return false, L["Too large for the %s layout: it would cover the %s."]:format(layoutTitle, E:InSentence(title))
 	end
 	return false, L["Too large for the %s layout's spots."]:format(layoutTitle)
 end
