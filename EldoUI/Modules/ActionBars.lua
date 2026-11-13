@@ -1854,10 +1854,12 @@ local function HideBlizzardBar(index)
 	end
 end
 
+-- True when it brought back a bar hidden this session: its buttons lost
+-- their events (UnregisterAllEvents above), so it needs a reload.
 local function ShowBlizzardBar(index)
 	local info = BARS[index]
 	local bar = _G[info.blizzard]
-	if not bar or not hiddenBars[bar] then return end
+	if not bar or not hiddenBars[bar] then return false end
 	hiddenBars[bar] = nil
 	for _, event in ipairs(gridEvents[bar] or {}) do bar:RegisterEvent(event) end
 	gridEvents[bar] = nil
@@ -1869,17 +1871,22 @@ local function ShowBlizzardBar(index)
 		end
 	end
 	if bar.UpdateShownButtons then bar:UpdateShownButtons() end
+	return true
 end
 
 function M:UpdateBlizzardBars()
+	local returned = false
 	for index = 1, NUM_BARS do
 		if self.active and self:BlizzardBarHidden(index) then
 			HideBlizzardBar(index)
-		else
-			ShowBlizzardBar(index)
+		elseif ShowBlizzardBar(index) then
+			returned = true
 		end
 	end
 	if self.UpdateBlizzardButtonSkins then self:UpdateBlizzardButtonSkins() end
+	-- A bar that comes back shows, but its buttons stay still (no cooldowns,
+	-- range or usability) until a reload; the same note OnDisable gives.
+	if returned then E:ShowReloadPrompt(L["Blizzard's action bars come fully back after a reload."]) end
 end
 
 -- Never two bars in one place (design decision): EldoUI's bar shows
