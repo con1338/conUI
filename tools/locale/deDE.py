@@ -96,6 +96,15 @@ def lua_value(value):
     return lua_string(value)
 
 
+def write_all(de):
+    """Writes every section; the core marks German complete once each
+    Danish key has a German text."""
+    da = danish_sections()
+    complete = all(k in de[s] for s in SECTIONS for k in da[s])
+    for s in SECTIONS:
+        write_section(s, de[s], complete)
+
+
 def write_section(section, entries, complete=False):
     os.makedirs(DE, exist_ok=True)
     lines = [
@@ -297,8 +306,7 @@ def cmd_import(args):
     accepted, bad, unanswered = read_answers(args.files)
     for key, value in accepted:
         de[section_of[key]][key] = value
-    for s in SECTIONS:
-        write_section(s, de[s])
+    write_all(de)
     print("imported %d, rejected %d, unanswered %d" % (len(accepted), bad, unanswered))
 
 
@@ -311,8 +319,7 @@ def cmd_seed_lootguide(_):
         if key in section_of and key not in de[section_of[key]]:
             de[section_of[key]][key] = value
             added += 1
-    for s in SECTIONS:
-        write_section(s, de[s])
+    write_all(de)
     print("seeded %d of %d Loot Guide texts" % (added, len(table)))
 
 
@@ -385,16 +392,14 @@ def cmd_apply(args):
             continue
         de[section_of[key]][key] = value
         applied += 1
-    for s in SECTIONS:
-        write_section(s, de[s])
+    write_all(de)
     print("applied %d, rejected %d" % (applied, bad))
     return 1 if bad else 0
 
 
 def cmd_build(_):
     de = german_sections()
-    for s in SECTIONS:
-        write_section(s, de[s])
+    write_all(de)
     print("rewrote %d files" % len(SECTIONS))
 
 

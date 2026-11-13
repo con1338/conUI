@@ -8,6 +8,9 @@
 -- so EldoUI comes from its global.
 local E = EldoUI
 if not E then return end
+-- German is complete: General > EldoUI language offers it.
+E.completeLanguages = E.completeLanguages or {}
+E.completeLanguages.deDE = true
 E:RegisterLocale("deDE", function() return {
 	["   ... and %d more"] = "   ... und %d weitere",
 	["  fill the empty buttons of bars 4 and 5 with your out-of-combat class spells now; undo takes the last fill off again"] = "  die leeren Aktionstasten der Leisten 4 und 5 jetzt mit Euren Klassenzaubern für außerhalb des Kampfes füllen; undo nimmt die letzte Füllung wieder herunter",

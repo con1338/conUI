@@ -6,8 +6,8 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
 > [EldoUI 0.7.2001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.2001) (Ordner `EldoUI*/`).
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
-> Eigene Ergänzungen des Forks: das deutsche Sprachpaket `EldoUI_Locale_deDE` (in Arbeit, Stand siehe
-> `python3 tools/locale/deDE.py status`) und die Code-Review-Notizen in `review/`.
+> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 20.827 Texte,
+> Werkzeuge und Glossar in `tools/locale/`) und die Code-Review-Notizen in `review/`.
 > Das Original-README folgt; geändert sind nur die Installationshinweise zum deutschen Paket.
 
 ---

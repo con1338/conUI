@@ -305,3 +305,19 @@ stehen – `deDE.py xref` prüft das.
 | In / Out (Handelsprotokoll) | Erhalten / Gegeben |
 
 **Bleibt englisch, weil der Code den Namen so speichert:** „Profession Planner“ (Name der Einkaufsliste).
+
+## Festgelegt in Welle 5 (Rest M–Z und Loot Guide)
+
+| Englisch | Deutsch |
+|---|---|
+| Targeted by | Im Ziel von |
+| Resets (Reiter in Instanzen) | Zurücksetzungen |
+| Zone Toast / Zone text | Gebietshinweis / Gebietstext |
+| tracker / track / untrack | Verfolgung / verfolgen / nicht mehr verfolgen |
+| talent loadout | Talentkonfiguration (Totem-Loadouts: Zusammenstellung) |
+| Split Timer / splits | Split-Timer / Zwischenzeiten |
+| Summon / resurrection prompt | Beschwörungsanfrage / Wiederbelebungsanfrage |
+| Quest difficulty (QuestTint) | trivial / leicht / mittel / schwer / sehr schwer |
+| Who list | Wer-Liste |
+| ToT (target of target) | ZdZ |
+| Skin X (Schalter) | „X mit Skin“ |

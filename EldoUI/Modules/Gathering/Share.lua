@@ -117,7 +117,7 @@ function M:DescribeShareData(data)
 		for _, row in ipairs(list) do byKind[row.k] = (byKind[row.k] or 0) + 1 end
 		local parts = {}
 		for _, kind in ipairs(self.KINDS) do
-			if byKind[kind.key] then parts[#parts + 1] = ("%d %s"):format(byKind[kind.key], L[kind.label]:lower()) end
+			if byKind[kind.key] then parts[#parts + 1] = ("%d %s"):format(byKind[kind.key], E:InSentence(L[kind.label])) end
 		end
 		maps[#maps + 1] = { name = WP.MapName(mapID), text = table.concat(parts, ", ") }
 	end

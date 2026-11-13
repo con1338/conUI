@@ -6760,7 +6760,7 @@ E:RegisterLocale("deDE", function() return {
 	["Turn modules on or off, and run a typed /eui command."] = "Schaltet Module ein oder aus und führt einen eingetippten /eui-Befehl aus.",
 	["Turn off \"%s\" first."] = "Schaltet zuerst \"%s\" aus.",
 	["Turn on \"%s\" on the General tab first."] = "Schaltet zuerst \"%s\" auf dem Reiter Allgemein ein.",
-	["Turn on \"Announce reset\" under Instances > Resets first."] = "Schaltet zuerst „Reset ankündigen“ unter Instanzen > Resets ein.",
+	["Turn on \"Announce reset\" under Instances > Resets first."] = "Schaltet zuerst „Reset ankündigen“ unter Instanzen > Zurücksetzungen ein.",
 	["Turn on \"Get routes your group sends\" (top right) to see routes people in your group send you."] = "Schaltet „Routen Eurer Gruppe empfangen“ (oben rechts) ein, um Routen zu sehen, die Euch Spieler aus Eurer Gruppe senden.",
 	["Turn on \"Let EldoUI change this\" and Improve for the Legacy window under Blizzard UI"] = "Schaltet unter Blizzard-UI für das Vermächtnisfenster „EldoUI dies ändern lassen“ und „Verbessern“ ein",
 	["Turn on \"Let EldoUI change this\" for the damage meter first (Combat HUD > Damage meter)."] = "Schaltet zuerst „EldoUI dies ändern lassen“ für den Schadensmesser ein (Kampf-HUD > Schadensmesser).",
