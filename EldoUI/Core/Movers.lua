@@ -1849,7 +1849,15 @@ local function PlaceAll()
 	-- stopped the loop and left every later mover off screen.
 	for _, mover in pairs(E.movers) do
 		local ok, err = pcall(ApplyPosition, mover)
-		if not ok then geterrorhandler()(err) end
+		if not ok then
+			geterrorhandler()(err)
+			-- Left without any point the box and its frame stay off screen:
+			-- the screen's center keeps them in sight, to be dragged back.
+			local okCount, count = pcall(mover.GetNumPoints, mover)
+			if okCount and count == 0 then
+				pcall(OwnedPositionWrite, mover, "SetPoint", "CENTER", UIParent, "CENTER", 0, 0)
+			end
+		end
 	end
 end
 
