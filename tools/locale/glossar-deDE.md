@@ -169,3 +169,53 @@ Spalte „fest“: so in der Loot-Guide-Übersetzung oder im Client; bitte genau
 | My Adventure | Mein Abenteuer (so in der Loot-Guide-Übersetzung) |
 | Eldostar | Eldostar (Eigenname) |
 | Loot Guide | Loot Guide (Eigenname) |
+
+## Festgelegt in Welle 1 (Core)
+
+Diese Entscheidungen gelten für alle weiteren Texte.
+
+| Englisch | Deutsch |
+|---|---|
+| box (im Verschiebemodus) / Hidden boxes | Feld / „Ausgeblendete Felder“ (Verschiebefeld, wo Verwechslung droht) |
+| key set (Tastenvorlage eines Profils) | Tastensatz (der), Mehrzahl Tastensätze |
+| key map | Tastenbelegung |
+| keybind mode | Tastenbelegungsmodus |
+| button (Platz für Zauber/Makro auf einer Leiste) | Platz („Leiste %d, Platz %d“) |
+| button (Bedienelement) | Schaltfläche |
+| power (Mana, Wut, Energie) / power bar | Ressource / Ressourcenleiste |
+| panel | Panel (das Panel, die Panels) |
+| Finish (letzter Schritt der Einrichtung) | „Abschließen“ – auch im Satz: „beim Abschließen“, „Übernehmen oder Abschließen“ |
+| Applies at Finish | Wird beim Abschließen übernommen |
+| apply (Verb im Satz) | anwenden / übernehmen |
+| Revert / Revert this | Zurücknehmen / Dies zurücknehmen |
+| set aside / put back / kept / held (gespeicherte Daten) | beiseitelegen / zurückholen / aufbewahrt / zurückgehalten |
+| Let go (gespeicherte Daten) | Freigeben |
+| job (ein Addon übernimmt eine EldoUI-Aufgabe) | Aufgabe; „X übernimmt diese Aufgabe“ |
+| reload (Nomen) | Neuladen |
+| error log | Fehlerprotokoll |
+| outline (Schrift) | Kontur |
+| glow / tint / pulse | Leuchten / Tönung / Pulsieren |
+| accent (Farbe) | Akzent / Akzentfarbe |
+| UI amount (Essential / Moderate / Full) | UI-Umfang (Grundlegend / Mittel / Voll) |
+| Consumable Bar / Stance Bar / pet bar | Verbrauchsgüterleiste / Haltungsleiste / Begleiterleiste |
+| Cooldown Manager | Abklingzeitenmanager |
+| Appearance / Accessibility / What's new | Erscheinungsbild / Barrierefreiheit / Neuigkeiten |
+| Convenience(s) | Komfort / Komfortfunktionen |
+| alt setup / Alts window | Twink-Einrichtung / Twink-Fenster |
+| Legacy (Forever-Funktion) | Vermächtnis |
+| Group finder / gossip / Inspect | Gruppensuche / Gespräch / Betrachten |
+| Shift / Ctrl / Mouse 4 / side buttons | Umschalt / Strg / Maustaste 4 / Seitentasten |
+| string (Import/Teilen) / tag (Text-Tag) | String (der) / Tag (das) |
+| Cleanse (Tastenkategorie) | Reinigung (der Paladinzauber heißt „Reinigung des Glaubens“) |
+| thousand / million / billion | Tsd. / Mio. / Mrd. |
+| on / off als Anzeige (nicht eingetippt) | an / aus |
+
+**Namen bleiben englisch:** Layouts (EldoUI Center, Twin Orbs, Modern Center …), Skins (Infernal Stone,
+Forged Metal, Faction Heritage, Portrait Classic …) und Stile. Fraktionen darin deutsch:
+„Faction Heritage: Allianz“.
+
+**Spiel-Eigennamen** (Zauber, Gegenstände, Reagenzien, Gebiete) wie im deutschen Client. Wo unsicher: so
+belassen, wie der Code ihn zeigt – viele dieser Namen sind nur Ersatz, bis der Client den echten Namen liefert.
+
+**Kleingeschriebene Einsetzungen:** Einige Texte bekommen einen Namen per `what:lower()` kleingeschrieben
+eingesetzt. Den Satz dann so bauen, dass kein Artikel davor nötig ist („… verdecken: %s“).
