@@ -6,25 +6,30 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 
 ## Übersicht
 
-| Nr. | Kurz | Schwere | Status |
-|---|---|---|---|
-| F01 ✔ | Import „global“ ersetzt accountweite Daten ohne Prüfung | hoch | offen |
-| F02 | Mover-Positionen aus Imports ungeprüft, Frames verschwinden | mittel–hoch | offen |
-| F03 ✔ | Snapshot-Import übernimmt Makroinhalte ungeprüft | mittel | offen |
-| F04 | Settings-Angebote Fremder ohne Limit, schließen offene Dialoge | mittel | offen |
-| F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | offen |
-| F06 | Fremdtext mit Link-/Escape-Codes ungefiltert im Chat | niedrig–mittel | offen |
-| F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | offen |
-| F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | offen |
-| F09 | Segensplan und Whisper-Kontakte ohne Obergrenze | niedrig | offen |
-| F10 ✔ | RaidLoot-JSON: `null` verschiebt Array-Elemente | niedrig | offen |
-| F11 | Castbar wertet geheime Werte direkt aus | hoch (plausibel) | offen |
-| F12 | Gruppenframes fallen fälschlich auf Blizzard zurück | mittel | offen |
-| F13 ✔ | Drei Event-Handler mit falscher Signatur | mittel | offen |
-| F14 | Mover ziehen über Kampfbeginn → ADDON_ACTION_BLOCKED | mittel (plausibel) | offen |
-| F15 | Blizzard-Leiste kommt mit „toten“ Buttons zurück | mittel | offen |
-| F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | offen |
-| F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | offen |
+| Nr. | Kurz | Schwere | Status | Commit |
+|---|---|---|---|---|
+| F01 ✔ | Import „global“ ersetzt accountweite Daten ohne Prüfung | hoch | behoben | `ec8eb1a` |
+| F02 | Mover-Positionen aus Imports ungeprüft, Frames verschwinden | mittel–hoch | behoben | `723320c` |
+| F03 ✔ | Snapshot-Import übernimmt Makroinhalte ungeprüft | mittel | behoben | `9dac6fc` |
+| F04 | Settings-Angebote Fremder ohne Limit, schließen offene Dialoge | mittel | behoben | `8119cf7` |
+| F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben | `3deb369` |
+| F06 | Fremdtext mit Link-/Escape-Codes ungefiltert im Chat | niedrig–mittel | behoben | `eee687e` |
+| F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | offen | |
+| F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | offen | |
+| F09 | Segensplan und Whisper-Kontakte ohne Obergrenze | niedrig | behoben | `3b0c340` |
+| F10 ✔ | RaidLoot-JSON: `null` verschiebt Array-Elemente | niedrig | bewusst nicht | |
+| F11 | Castbar wertet geheime Werte direkt aus | hoch (plausibel) | behoben | `e5844d2` |
+| F12 | Gruppenframes fallen fälschlich auf Blizzard zurück | mittel | behoben | `5c3b9c6` |
+| F13 ✔ | Drei Event-Handler mit falscher Signatur | mittel | behoben | `1dc7a1d` |
+| F14 | Mover ziehen über Kampfbeginn → ADDON_ACTION_BLOCKED | mittel (plausibel) | behoben | `8f18ddf` |
+| F15 | Blizzard-Leiste kommt mit „toten“ Buttons zurück | mittel | behoben | `c0345a9` |
+| F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | offen | |
+| F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | teilweise | `9159f19` |
+
+**Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
+Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
+globaler Name außer `IsInInstance` (WoW-API, im Addon schon 47-mal genutzt). Reine Hilfsfunktionen
+(Makro-Erkennung, Punkt-Prüfung, Versionsformat) wurden mit Lua 5.1 getestet. **Im Spiel getestet ist nichts.**
 
 ---
 
@@ -39,6 +44,9 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   `{ BarSnapshots = {}, RaidLoot = {}, MapNotes = {}, PlayerNotes = {} }` – eingefügt oder per „Send to“
   von einem Gilden- oder Gruppenmitglied. Nach „Accept“ sind Snapshots, GDKP-Ledger, Notizen usw. weg, ohne Backup.
 - **Fix-Idee:** In `ApplyGlobal` `spec.share == true` verlangen.
+- **Umsetzung:** `ApplyGlobal` nimmt nur noch Namespaces mit `share = true` an – dieselbe Regel, nach der der
+  Export (`E:SharedGlobals`) auswählt. Da aktuell kein Namespace geteilt wird, lehnt der Import „global“ jetzt
+  alles ab („None of these lists exist in your EldoUI.“).
 
 ### F02 – Mover-Positionen aus Imports ungeprüft (mittel–hoch, bestätigt)
 - **Stelle:** `Core/Share.lua:820`, `:940`; `Core/Movers.lua:986` (`ApplyPosition`), `:1806` (`PlaceAll`)
@@ -48,6 +56,10 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   `SetPoint` wirft, alle danach platzierten Mover bleiben ohne Anker, Frames unsichtbar – bei jedem
   Profilwechsel erneut, weil es gespeichert ist.
 - **Fix-Idee:** Positionen vor dem Anwenden bereinigen; `ApplyPosition` in `PlaceAll` einzeln absichern.
+- **Umsetzung:** `ApplyPosition` prüft den Punkt (Ankerpunkte, endliche Offsets, Relativ-Frame ist ein Frame
+  oder nicht geladen) und nimmt sonst den Standardpunkt des Movers. `PlaceAll` platziert jeden Mover einzeln
+  per `pcall` und meldet Fehler an den Error-Handler. Nicht umgesetzt: Typprüfung skalarer Einstellungen
+  (`fontSize = "x"`) bei Imports.
 
 ### F03 ✔ – Snapshot-Import übernimmt Makroinhalte ungeprüft (mittel, bestätigt)
 - **Stelle:** `Modules/Snapshots.lua:980` (`CleanImport`), Vorschau `:440`, `:477`
@@ -55,6 +67,9 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 - **Szenario:** Ein geteilter `!EUS1!`-String legt ein Makro „Mount“ mit `/run …` auf Slot 1. Nach „Restore“
   und Tastendruck läuft der Code.
 - **Fix-Idee:** Makros mit Skript-Befehlen in der Vorschau deutlich markieren.
+- **Umsetzung:** Makros mit einer Zeile `/run`, `/script` oder `/dump` sind im Restore-Fenster mit „(runs Lua
+  code)“ markiert, der Import-Dialog warnt mit den Namen. Bei importierten Snapshots ist „Add missing macros“
+  dann anfangs nicht angehakt. Eigene Snapshots verhalten sich wie bisher.
 
 ### F04 – Settings-Angebote Fremder ohne Limit (mittel, bestätigt)
 - **Stelle:** `Core/Share.lua:1471` (`IsTrustedSender`), `:1508`, `:1549`
@@ -63,6 +78,13 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   Bestätigungsdialog (`CloseConfirm(false)` bricht den offenen ab).
 - **Szenario:** Jemand schickt jede Sekunde ein Angebot → kein EldoUI-Dialog lässt sich mehr bestätigen.
 - **Fix-Idee:** INSTANCE_CHAT nicht als vertrauenswürdig zählen; Abkühlzeit pro Absender; keinen offenen Dialog ersetzen.
+- **Umsetzung:**
+  - In Schlachtfeldern, Arenen und Instanz-Gruppen zählt Gruppenmitgliedschaft nicht mehr; Gilde und Freunde
+    bleiben vertrauenswürdig. Forever hat laut Code keine Instanz-Gruppen; Schlachtfelder werden deshalb
+    zusätzlich über `IsInInstance()` erkannt.
+  - Pro Absender höchstens ein Angebot alle 30 s.
+  - Ist ein Dialog offen, wird das Angebot nicht angezeigt, sondern im Chat erwähnt.
+  - Gilt auch für das Verschicken von Wunschlisten per Whisper.
 
 ### F05 ✔ – Layer-Modul antwortet jedem per Whisper (mittel, bestätigt)
 - **Stelle:** `Modules/MinimapLayer.lua:509` (`OnChosen`), `:562` (`OnMessage`)
@@ -70,6 +92,8 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   ausgeschalteter Layer-Hilfe.
 - **Szenario:** Jeder auf dem Realm kann so prüfen, wer online ist und EldoUI nutzt.
 - **Fix-Idee:** Ohne eigenes Angebot (`Layer.offered[tag]`) gar nicht antworten.
+- **Umsetzung:** Ohne eigenes Angebot keine Antwort. Wer ein (abgelaufenes) Angebot bekommen hat, erhält
+  weiterhin „busy“. Unbeantwortete Angebote werden nach 60 s aus dem Speicher entfernt.
 
 ### F06 – Fremdtext mit Link-/Escape-Codes ungefiltert (niedrig–mittel, bestätigt)
 - **Stellen:** `Modules/Instances/Reset.lua:122` (Leader-Reset-Namen), `Modules/Hardcore/Core.lua:368`
@@ -77,6 +101,10 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 - **Problem:** Text von anderen Spielern geht mit `|H…|h`-Links, Farb- und Textur-Codes in `E:Print` bzw. Alerts.
 - **Szenario:** Ein Gruppenleiter schickt `|Haddon:EldoUI:talents:learn|h[Reset-Log]|h`; ein Klick lernt Talente.
 - **Fix-Idee:** Fremdtext vor der Anzeige mit `gsub("|", "||")` entschärfen.
+- **Umsetzung:**
+  - Reset-Namen: `|` verdoppelt, auf 64 Bytes gekürzt.
+  - Hardcore: Killer und Zone werden beim Empfang mit derselben `Clean()`-Funktion bereinigt wie beim Senden.
+  - Versionscheck: nur Text im Format `1.2.3` bzw. `1.2.3-beta2` (max. 24 Zeichen) wird angezeigt.
 
 ### F07 – Strings anderer Versionen abgelehnt, Teil-Importe ohne Migration (niedrig–mittel, bestätigt)
 - **Stelle:** `Core/Share.lua:139`, `:831`; `Core/Database.lua:625`
@@ -93,11 +121,20 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 - **Stellen:** `Modules/Blessings.lua:289` (Segensplan nimmt beliebige Namen an, wird nie aufgeräumt);
   `Modules/Messages.lua:359` (jeder neue Whisper-Absender wird dauerhaft gespeichert)
 - **Fix-Idee:** Nur Paladine der Gruppe annehmen; Kontakte begrenzen und nach Alter aufräumen.
+- **Umsetzung:**
+  - Segensplan: nur Zeilen für Paladine in der Gruppe. Ab 40 gespeicherten Namen fallen die weg, die nicht in
+    der Gruppe sind.
+  - Whisper-Kontakte: höchstens 200; darüber fallen die am längsten stillen weg, nie einer mit offenem Fenster.
+  - Nicht umgesetzt: Wiederverwendung der Gesprächsfenster (betrifft nur den Speicher einer Sitzung).
 
 ### F10 ✔ – RaidLoot-JSON: `null` verschiebt Array-Elemente (niedrig, bestätigt)
 - **Stelle:** `Modules/RaidLoot/Core.lua:239`
 - **Problem:** `arr[#arr + 1] = Value()` mit `nil` erhöht den Index nicht: `[a, null, c]` wird zu `{a, c}`.
 - **Fix-Idee:** Eigenen Index mitzählen.
+- **Bewusst nicht geändert:** Der Leser verarbeitet JSON-Arrays nur als Listen von Objekten (`ipairs`,
+  Spaltensuche über Feldnamen, `Modules/RaidLoot/Core.lua:324`). Positionen spielen keine Rolle. Würden
+  `null`-Lücken erhalten, bräche `ipairs` beim ersten `null` ab und Einträge gingen verloren. Das heutige
+  Zusammenschieben ist hier das bessere Verhalten.
 
 ## Kampf und Frames
 
@@ -107,6 +144,9 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   Werte, die laut eigener Code-Doku (`:1360`) geheim sein können. Nameplates nutzt dafür `Present()` (`Modules/Nameplates.lua:409`).
 - **Szenario:** Ein Gegner castet in einer Instanz → Lua-Fehler bei jedem Cast-Event, Castbar bleibt leer.
 - **Fix-Idee:** Wie in Nameplates `Present()` verwenden; `UnitCastingInfo` in pcall.
+- **Umsetzung:** Lokales `Present()` in `UnitFrames.lua` (Secret zählt als vorhanden, sonst `~= nil`), an allen
+  vier Stellen; `UnitCastingInfo`/`UnitChannelInfo` in `UpdateCast` per pcall. Andere Wahrheitstests auf
+  Cast-Info gibt es im Code nicht (Suche).
 
 ### F12 – Gruppenframes fallen fälschlich auf Blizzard zurück (mittel, bestätigt)
 - **Stelle:** `Modules/GroupFrames.lua:2809` (`ScheduleCheck` / `CheckHeaders`)
@@ -114,6 +154,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   („nur im Kampf“, „beritten ausblenden“), ist das Ergebnis 0 → Engine „auto“ schaltet für die Sitzung auf
   Blizzard-Frames, mit irreführender Chatmeldung.
 - **Fix-Idee:** Nur werten, wenn der Header selbst sichtbar ist; sonst später erneut prüfen.
+- **Umsetzung:** Wie vorgeschlagen. Neu geprüft wird bei jeder Roster-Änderung und bei Kampfende (bestehende Aufrufe).
 
 ### F13 ✔ – Drei Event-Handler mit falscher Signatur (mittel, bestätigt)
 - **Stellen:** `Modules/ActionBars/RankCheck.lua:488`, `Core/KeybindNewSpells.lua:509`, `Core/KeybindQuietBars.lua:305`
@@ -122,18 +163,24 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
   Eine Suche über den ganzen Code fand genau diese drei.
 - **Szenario:** Die Rangprüfung im Zauberbuch greift nach dem Laden von Blizzard_PlayerSpells nicht; neu gelernte
   Zauber gehen verloren, wenn kurz danach ein Ladebildschirm kommt.
+- **Umsetzung:** Signaturen auf `(_, _, …)` korrigiert, wie bei allen anderen Handlern im Code.
 
 ### F14 – Mover ziehen über Kampfbeginn (mittel, plausibel)
 - **Stelle:** `Core/Movers.lua:1637` (`OnDragStart`/`OnDragStop`), `:2321`
 - **Problem:** Nur `OnDragStart` prüft auf Kampf. Bei Kampfbeginn wird ein laufendes Ziehen nicht gestoppt;
   `OnDragStop` setzt dann im Kampf Punkte.
 - **Szenario:** Mover einer Aktionsleiste ziehen, angegriffen werden, loslassen → ADDON_ACTION_BLOCKED.
+- **Umsetzung:** Bei `PLAYER_REGEN_DISABLED` (läuft vor der Kampfsperre) wird jeder gerade gezogene Mover
+  gestoppt und gespeichert. `OnDragStop` im Kampf merkt sich den Ablegepunkt und speichert ihn nach dem Kampf.
 
 ### F15 – Blizzard-Leiste kommt mit „toten“ Buttons zurück (mittel, bestätigt)
 - **Stelle:** `Modules/ActionBars.lua:1830` (`HideBlizzardBar`), `:1874` (`ShowBlizzardBar`)
 - **Problem:** Beim Verstecken werden die Events der Buttons abgemeldet (laut Kommentar bringt nur `/reload` sie
   zurück). Beim Wieder-Anzeigen fehlt der Reload-Hinweis.
 - **Szenario:** Eine EldoUI-Leiste abschalten → Blizzards Leiste erscheint, aktualisiert aber keine Cooldowns/Reichweite.
+- **Umsetzung:** `UpdateBlizzardBars` zeigt denselben Reload-Hinweis wie `OnDisable`, sobald eine in dieser
+  Sitzung versteckte Leiste zurückkommt. Die Events selbst werden nicht wiederhergestellt, weil unklar ist,
+  welche der Forever-Client pro Button erwartet.
 
 ### F16 – Click-Casting: Hover-Unit veraltet (niedrig–mittel, plausibel)
 - **Stelle:** `Modules/ClickCast.lua:345`
@@ -145,8 +192,27 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 - `Modules/ClassPower.lua:1720`, `:1898`: Hooks vergleichen eine evtl. geheime Textur und prüfen nicht, ob das Modul aktiv ist.
 - `Modules/Nameplates.lua:2979`: Hook auf `NamePlateDriverFrame` beim Laden der Datei statt über `E:OnBlizzardAddOn`.
 - `Modules/Auras.lua:740`: `UNIT_INVENTORY_CHANGED` ohne Unit-Filter.
+- **Umsetzung (teilweise):**
+  - ClassPower: Hook ohne Texturvergleich (Guard wie in UnitFrames), beide Hooks prüfen `M.active`.
+  - Auras: Event nur noch für `player` registriert.
+  - Offen: Click-Bindungen für im Kampf entstandene Kompaktframes, Nameplate-Hook beim Laden.
 
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
   Umbauten, keine Auswirkung.
+
+## Im Spiel prüfen (nach den Änderungen)
+
+Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehler schauen.
+
+| Fix | Was ausprobieren | Erwartung |
+|---|---|---|
+| F11 | Ziel/Fokus auf einen castenden Gegner in einem Dungeon | Castbar läuft, keine Lua-Fehler |
+| F12 | Raid-Sichtbarkeit „nur im Kampf“, außerhalb des Kampfs einer Gruppe beitreten | keine Meldung „Secure group headers did not create any frames“, EldoUI-Frames im Kampf |
+| F13 | Zauberbuch öffnen (erstes Mal nach Login) | Rangprüfung/Zauberbuch-Button sofort da |
+| F14 | `/eui move`, einen Mover ziehen und dabei in den Kampf kommen | kein ADDON_ACTION_BLOCKED; Mover bleibt dort liegen |
+| F15 | eine EldoUI-Aktionsleiste abschalten | Reload-Hinweis erscheint |
+| F03 | eigenen Snapshot exportieren, ein Makro mit `/run` darin, wieder importieren | Warnung im Import-Dialog, „Add missing macros“ nicht angehakt |
+| F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher |
+| F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
