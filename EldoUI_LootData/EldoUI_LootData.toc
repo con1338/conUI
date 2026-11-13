@@ -1,0 +1,32 @@
+## Interface: 16001
+## Title: |cff33aaffEldo|rUI Loot Data
+## Notes: Loot tables, drop chances, creatures, spawns and quests for EldoUI's Loot Guide. Classic values from CMaNGOS classic-db; WoW: Forever may differ.
+## Author: Eldodeldo
+## X-Credits: data from CMaNGOS classic-db
+## Version: 1.7.0
+## Group: EldoUI
+## Category: User Interface
+## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
+## Dependencies: EldoUI
+## LoadOnDemand: 1
+## X-License: GPL-3.0-or-later
+## X-Data-Source: https://github.com/cmangos/classic-db @ ec4f596146be6467ea93c57397858e329e2db852
+## X-Generator: tools/lootdata/gen_lootdata.py 1.7.0
+
+Core.lua
+Items.lua
+Creatures.lua
+Instances.lua
+World.lua
+Quests.lua
+Journey.lua
+Spawns.lua
+Sources.lua
+Vendors.lua
+Recipes.lua
+Events.lua
+Attunements.lua
+Services.lua
+Routes.lua
+Locale\deDE.lua
+Locale\zhCN.lua
