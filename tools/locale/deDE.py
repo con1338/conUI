@@ -13,6 +13,8 @@ loads.
   python3 tools/locale/deDE.py import FILE.out.json [...]
   python3 tools/locale/deDE.py seed-lootguide   # take the Loot Guide's deDE table
   python3 tools/locale/deDE.py check            # placeholders of every translation
+  python3 tools/locale/deDE.py xref             # quoted labels match their translation
+  python3 tools/locale/deDE.py apply FIXES.json # {English key: German text}, checked
   python3 tools/locale/deDE.py build            # rewrite the Lua files as they are
 
 A chunk (export) is a JSON list of {"id", "key", "plural", "where"}. Its answer
@@ -330,6 +332,60 @@ def cmd_check(_):
     return 1 if bad else 0
 
 
+QUOTED = re.compile(r'"([^"%{}|]{3,80})"')
+
+
+def plain(value):
+    return value["other"] if isinstance(value, dict) else value
+
+
+def cmd_xref(_):
+    """A text that quotes another one ("Turn on \"Show the clock\" first.")
+    must quote that text's German translation."""
+    de = german_sections()
+    german = {}
+    for s in SECTIONS:
+        german.update(de[s])
+    bad = 0
+    for s in SECTIONS:
+        for key, value in sorted(de[s].items()):
+            for label in QUOTED.findall(key):
+                target = german.get(label)
+                if not isinstance(target, str) or target == label:
+                    continue
+                if target not in plain(value):
+                    print("%s: %r\n    quotes %r = %r\n    but says %r" % (s, key[:90], label, target, plain(value)[:140]))
+                    bad += 1
+    print("%d texts quote a label differently" % bad)
+    return 1 if bad else 0
+
+
+def cmd_apply(args):
+    """Set translations from a JSON object {English key: German text}."""
+    da, de = danish_sections(), german_sections()
+    section_of = {k: s for s in SECTIONS for k in da[s]}
+    fixes = json.load(open(args.file, encoding="utf-8"))
+    applied = bad = 0
+    for key, value in fixes.items():
+        if key not in section_of:
+            print("unknown key %r" % key[:80])
+            bad += 1
+            continue
+        if isinstance(da[section_of[key]][key], dict) and isinstance(value, str):
+            value = {"one": value, "other": value}
+        found = entry_problems(key, value)
+        if found:
+            print("%r: %s" % (key[:80], "; ".join(found)))
+            bad += 1
+            continue
+        de[section_of[key]][key] = value
+        applied += 1
+    for s in SECTIONS:
+        write_section(s, de[s])
+    print("applied %d, rejected %d" % (applied, bad))
+    return 1 if bad else 0
+
+
 def cmd_build(_):
     de = german_sections()
     for s in SECTIONS:
@@ -351,10 +407,14 @@ def main():
     val.add_argument("files", nargs="+")
     sub.add_parser("seed-lootguide")
     sub.add_parser("check")
+    sub.add_parser("xref")
+    app = sub.add_parser("apply")
+    app.add_argument("file")
     sub.add_parser("build")
     args = parser.parse_args()
     handler = {"status": cmd_status, "export": cmd_export, "import": cmd_import, "validate": cmd_validate,
-               "seed-lootguide": cmd_seed_lootguide, "check": cmd_check, "build": cmd_build}[args.command]
+               "seed-lootguide": cmd_seed_lootguide, "check": cmd_check, "build": cmd_build,
+               "xref": cmd_xref, "apply": cmd_apply}[args.command]
     sys.exit(handler(args) or 0)
 
 

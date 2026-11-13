@@ -253,3 +253,34 @@ eingesetzt. Den Satz dann so bauen, dass kein Artikel davor nötig ist („… v
 | Mill (Taschenaktion; derselbe Schlüssel ist das Spiel „Mühle“) | Mahlen |
 | yd | m (wie der deutsche Client) |
 | Zeiteinheiten kurz | Sek. / Min. / Std. |
+
+## Festgelegt in Welle 3 (Module A–L, zweite Hälfte)
+
+| Englisch | Deutsch |
+|---|---|
+| Let EldoUI change this (Schalter) | „EldoUI dies ändern lassen“ – Verweise genau so |
+| Tell the guild (Schaltfläche) | „Der Gilde sagen“ |
+| Boss Timers | Boss-Timer |
+| Safe to sell | Sicher verkaufbar |
+| Post to group / Post to guild | An Gruppe posten / An Gilde posten |
+| post (Chat) / post (Auktionshaus) | posten / einstellen |
+| Qualitätsstufen | Schlecht / Verbreitet / Selten / Rar / Episch / Legendär („Uncommon+“ → „Selten+“) |
+| NPC | NSC |
+| trinket / trinket slot | Schmuckstück / Schmuckplatz |
+| undercut | unterbieten / Unterbietung |
+| withdraw (Gildenbank) | abheben / Abhebung |
+| tray (Aktionsleisten) | Ablage |
+| pip (Kombopunkt) | Punkt |
+| queue | Warteschlange |
+| patrol | Patrouille |
+| sticky lines (Kampftext) | haftende Zeilen |
+| session (Farming) | Sitzung |
+| tracking bar | Verfolgungsleiste |
+| possess bar | Besessenheitsleiste |
+| tick marks / stage (Timer) | Teilstriche / Phase |
+| Stat-Kürzel Spi / Sta / Str / SP / RAP | Wil / Aus / Stä / ZM / DAK |
+| Usage: | Verwendung: |
+| Klick-Hinweise in Tooltips | Infinitiv klein („im Chat verlinken“) oder Substantiv; Ziele ohne Artikel |
+
+**Querverweise:** Zitiert ein Text eine Beschriftung in Anführungszeichen, muss genau deren Übersetzung
+stehen – `deDE.py xref` prüft das.
