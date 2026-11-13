@@ -9,6 +9,7 @@ loads.
 
   python3 tools/locale/deDE.py status
   python3 tools/locale/deDE.py export --section Core --size 350 --out DIR
+  python3 tools/locale/deDE.py validate FILE.out.json [...]   # check answers, write nothing
   python3 tools/locale/deDE.py import FILE.out.json [...]
   python3 tools/locale/deDE.py seed-lootguide   # take the Loot Guide's deDE table
   python3 tools/locale/deDE.py check            # placeholders of every translation
@@ -240,32 +241,63 @@ def cmd_export(args):
     print("%d keys in %d chunks -> %s" % (len(keys), count, args.out))
 
 
-def cmd_import(args):
-    da, de = danish_sections(), german_sections()
-    section_of = {k: s for s in SECTIONS for k in da[s]}
-    added = rejected = 0
-    for answer in args.files:
+def read_answers(files):
+    """(key, value) pairs that pass the check; prints every problem. Returns
+    (accepted, problem count, unanswered count)."""
+    accepted, bad, unanswered = [], 0, 0
+    for answer in files:
         source = re.sub(r"\.out\.json$", ".json", answer)
-        chunk = {item["id"]: item for item in json.load(open(source, encoding="utf-8"))}
-        for item in json.load(open(answer, encoding="utf-8")):
-            entry = chunk.get(item.get("id"))
+        name = os.path.basename(answer)
+        try:
+            chunk = {item["id"]: item for item in json.load(open(source, encoding="utf-8"))}
+            items = json.load(open(answer, encoding="utf-8"))
+        except (OSError, ValueError) as err:
+            print("%s: can't read (%s)" % (name, err))
+            bad += 1
+            continue
+        seen = set()
+        for item in items:
+            entry = chunk.get(item.get("id")) if isinstance(item, dict) else None
             if not entry:
-                print("%s: unknown id %r" % (answer, item.get("id")))
-                rejected += 1
+                print("%s: unknown id %r" % (name, item.get("id") if isinstance(item, dict) else item))
+                bad += 1
                 continue
+            seen.add(entry["id"])
             key, value = entry["key"], item.get("de")
             if entry["plural"] and isinstance(value, str):
                 value = {"one": value, "other": value}
+            if not entry["plural"] and isinstance(value, dict):
+                print("%s #%d %r: not a plural key, give one text" % (name, entry["id"], key[:60]))
+                bad += 1
+                continue
             found = entry_problems(key, value)
             if found:
-                print("%s #%d %r: %s" % (os.path.basename(answer), entry["id"], key[:60], "; ".join(found)))
-                rejected += 1
+                print("%s #%d %r: %s" % (name, entry["id"], key[:60], "; ".join(found)))
+                bad += 1
                 continue
-            de[section_of[key]][key] = value
-            added += 1
+            accepted.append((key, value))
+        missing = sorted(set(chunk) - seen)
+        if missing:
+            print("%s: %d ids without an answer: %s" % (name, len(missing), missing[:20]))
+            unanswered += len(missing)
+    return accepted, bad, unanswered
+
+
+def cmd_validate(args):
+    accepted, bad, unanswered = read_answers(args.files)
+    print("ok %d, problems %d, unanswered %d" % (len(accepted), bad, unanswered))
+    return 1 if bad or unanswered else 0
+
+
+def cmd_import(args):
+    da, de = danish_sections(), german_sections()
+    section_of = {k: s for s in SECTIONS for k in da[s]}
+    accepted, bad, unanswered = read_answers(args.files)
+    for key, value in accepted:
+        de[section_of[key]][key] = value
     for s in SECTIONS:
         write_section(s, de[s])
-    print("imported %d, rejected %d" % (added, rejected))
+    print("imported %d, rejected %d, unanswered %d" % (len(accepted), bad, unanswered))
 
 
 def cmd_seed_lootguide(_):
@@ -315,11 +347,13 @@ def main():
     export.add_argument("--out", required=True)
     imp = sub.add_parser("import")
     imp.add_argument("files", nargs="+")
+    val = sub.add_parser("validate")
+    val.add_argument("files", nargs="+")
     sub.add_parser("seed-lootguide")
     sub.add_parser("check")
     sub.add_parser("build")
     args = parser.parse_args()
-    handler = {"status": cmd_status, "export": cmd_export, "import": cmd_import,
+    handler = {"status": cmd_status, "export": cmd_export, "import": cmd_import, "validate": cmd_validate,
                "seed-lootguide": cmd_seed_lootguide, "check": cmd_check, "build": cmd_build}[args.command]
     sys.exit(handler(args) or 0)
 
