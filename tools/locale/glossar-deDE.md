@@ -223,3 +223,33 @@ belassen, wie der Code ihn zeigt – viele dieser Namen sind nur Ersatz, bis der
 
 **Kleingeschriebene Einsetzungen:** Einige Texte bekommen einen Namen per `what:lower()` kleingeschrieben
 eingesetzt. Den Satz dann so bauen, dass kein Artikel davor nötig ist („… verdecken: %s“).
+
+## Festgelegt in Welle 2 (Module A–L, erste Hälfte)
+
+| Englisch | Deutsch |
+|---|---|
+| Glows (Seite) | „Leuchteffekte“ – Verweise: „auf der Seite „Leuchteffekte““ (das Leuchten selbst bleibt „Leuchten“) |
+| Alerts (Chat-Reiter) | „Hinweise“ („Chatreiter „Hinweise““) |
+| run (Instanz) / runs | Durchlauf / Durchläufe |
+| lockout(s) | Instanzsperre(n), kurz Sperre(n) |
+| gathering node / fishing pool | Vorkommen / Fischschwarm |
+| camp / camp buffs / Camp Helper | Lager / Lagereffekte / Lagerhelfer |
+| pull / packs (Dungeonrouten) / floor | Pull / Gegnergruppen / Ebene |
+| guide (Eldostar) / leveling guide | Guide / Levelguide |
+| swing timer / swing bar | Schlagtimer / Schlagleiste |
+| cooldown swipe / GCD sweep | Spirale / GCD-Füllung |
+| charges / recharge | Aufladungen / Wiederaufladung |
+| mirror timers | Atem- und Erschöpfungsleisten |
+| damage meter / boss mod | Schadensmesser / Bossmod |
+| master loot / master looter | Plündermeister |
+| loot toasts / loot feed | Beutehinweise / Beuteticker |
+| main hand / off hand | Waffenhand / Schildhand |
+| rested XP / durability (kurz) | Erholungsbonus / Haltbarkeit („Haltb.“) |
+| appearance (Transmog) / look | Vorlage / Aussehen; die Wörter der Sammlung: Neu / Aussehen / Vorhanden |
+| keyword (Chat-Alarm) / edit box / mute | Stichwort / Eingabefeld / stummschalten |
+| Death Recap / Crosshair / Cursor ring | Todesrückblick / Fadenkreuz / Cursorring |
+| bank tab / account bank / junk | Bankreiter / Accountbank / Plunder |
+| Raid Tools / Bag Actions / Integrations | Schlachtzugswerkzeuge / Taschenaktionen / Integrationen |
+| Mill (Taschenaktion; derselbe Schlüssel ist das Spiel „Mühle“) | Mahlen |
+| yd | m (wie der deutsche Client) |
+| Zeiteinheiten kurz | Sek. / Min. / Std. |
