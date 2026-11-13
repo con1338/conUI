@@ -284,3 +284,24 @@ eingesetzt. Den Satz dann so bauen, dass kein Artikel davor nötig ist („… v
 
 **Querverweise:** Zitiert ein Text eine Beschriftung in Anführungszeichen, muss genau deren Übersetzung
 stehen – `deDE.py xref` prüft das.
+
+## Festgelegt in Welle 4 (Module M–Z, erste zwei Drittel)
+
+| Englisch | Deutsch |
+|---|---|
+| ledger (GDKP) / pot / cut / payout | Kassenbuch / Topf / Abzug (Abzüge vom Topf) bzw. Anteil (der eines Spielers) / Auszahlung |
+| button bin | Knopfsammler |
+| alert lane | Warnspalte |
+| restock / restock list | Auffüllen / Auffüllliste |
+| scale (Pawn/Upgrades) / weights | Skala / Gewichtung |
+| rare (Gegner) / Rares / Rare elite | rarer Gegner / Rare / Rar-Elite (nicht „selten“ – das ist die Qualitätsstufe) |
+| snapshot / Bar Snapshots | Schnappschuss / Leistenschnappschüsse |
+| plate | Plakette |
+| leader / main tank / main assist | Anführer / Haupttank / Hauptassistent |
+| map pin | Kartenmarkierung |
+| alias (Streamermodus) | Aliasname |
+| splits (Split Timer) | Zwischenzeiten |
+| Modulnamen | Berufsplaner, Schlachtzugsbeute, Gruppenquests, Spielernotizen, Questmarkierungen, Schamanentotems, Bereitschaftsbericht, Tierpflege, Gegnerfähigkeiten, Zaubereffizienz, Rar-Alarme |
+| In / Out (Handelsprotokoll) | Erhalten / Gegeben |
+
+**Bleibt englisch, weil der Code den Namen so speichert:** „Profession Planner“ (Name der Einkaufsliste).

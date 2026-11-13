@@ -333,6 +333,9 @@ def cmd_check(_):
 
 
 QUOTED = re.compile(r'"([^"%{}|]{3,80})"')
+# Quoted names that stay English on purpose: the code uses them as they are
+# (Professions Planner's shopping list, M.LIST_NAME, is saved under this name).
+XREF_KEEP = {"Profession Planner"}
 
 
 def plain(value):
@@ -350,6 +353,8 @@ def cmd_xref(_):
     for s in SECTIONS:
         for key, value in sorted(de[s].items()):
             for label in QUOTED.findall(key):
+                if label in XREF_KEEP:
+                    continue
                 target = german.get(label)
                 if not isinstance(target, str) or target == label:
                     continue
