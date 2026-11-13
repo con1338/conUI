@@ -417,14 +417,27 @@ function M:EditModePlan(snapshot)
 	return { status = blocker and "blocked" or "add", name = name, reason = blocker or nil, text = layout.text }
 end
 
--- A macro body with a line that runs Lua: /run, /script or /dump. Such a
--- macro from an imported string can do anything the player's own code can.
-local SCRIPT_COMMANDS = { ["/run"] = true, ["/script"] = true, ["/dump"] = true }
-local function RunsCode(body)
+-- A macro body with a line that runs Lua: /run, /script, /dump, /tinspect,
+-- or the client's own (localized) names for them. Such a macro from an
+-- imported string can do anything the player's own code can. The aliases
+-- are read each time: /dump and /tinspect come with an addon loaded later.
+local SCRIPT_COMMANDS = { "SCRIPT", "DUMP", "TABLEINSPECT" }
+local function ScriptCommands()
+	local set = { ["/run"] = true, ["/script"] = true, ["/dump"] = true, ["/tinspect"] = true }
+	for _, base in ipairs(SCRIPT_COMMANDS) do
+		for index = 1, 10 do
+			local alias = rawget(_G, "SLASH_" .. base .. index)
+			if type(alias) == "string" then set[alias:lower()] = true end
+		end
+	end
+	return set
+end
+local function RunsCode(body, commands)
 	if type(body) ~= "string" then return false end
-	for line in (body .. "\n"):gmatch("([^\n]*)\n") do
-		local command = line:match("^%s*(/%a+)")
-		if command and SCRIPT_COMMANDS[command:lower()] then return true end
+	commands = commands or ScriptCommands()
+	for line in body:gmatch("[^\r\n]+") do
+		local command = line:match("^%s*(/%S+)")
+		if command and commands[command:lower()] then return true end
 	end
 	return false
 end
@@ -450,10 +463,11 @@ function M:Plan(snapshot)
 			end
 		end
 	end
+	local commands = ScriptCommands()
 	for _, macro in ipairs(snapshot.macros or {}) do
 		if MacroIndex(macro.name) == 0 then
 			plan.macros[#plan.macros + 1] = macro.name
-			if RunsCode(macro.body) then
+			if RunsCode(macro.body, commands) then
 				plan.scripts[macro.name] = true
 				plan.scriptCount = plan.scriptCount + 1
 			end
@@ -844,7 +858,9 @@ function M:ShowPreview(snapshot, reason)
 	-- starts with the macros part unticked, so adding them is a choice.
 	local macroLines, macroText = {}, (L["%d missing"]):format(#plan.macros)
 	for _, name in ipairs(plan.macros) do
-		macroLines[#macroLines + 1] = plan.scripts[name] and (name .. " " .. L["(runs Lua code)"]) or name
+		-- Names come from the string: bars doubled, so a color code can't hide the note.
+		local shown = (name:gsub("|", "||"))
+		macroLines[#macroLines + 1] = plan.scripts[name] and (shown .. " " .. L["(runs Lua code)"]) or shown
 	end
 	if plan.scriptCount > 0 then macroText = macroText .. ", " .. (L["%d run Lua code"]):format(plan.scriptCount) end
 	local macrosOn = defaults.macros and not (snapshot.imported and plan.scriptCount > 0)
