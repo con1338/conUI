@@ -31,6 +31,22 @@ Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W2
 globaler Name außer `IsInInstance` (WoW-API, im Addon schon 47-mal genutzt). Reine Hilfsfunktionen
 (Makro-Erkennung, Punkt-Prüfung, Versionsformat) wurden mit Lua 5.1 getestet. **Im Spiel getestet ist nichts.**
 
+### Gegenprüfung der Fixes
+
+Ein unabhängiger Prüfer hat alle 13 Fix-Commits anhand von Code und Commit-Messages nachvollzogen, ohne diesen
+Ordner zu kennen. Ergebnis: 12 in Ordnung (teils mit Anmerkung), eins mit einem kleinen Problem. Kein schwerer
+neuer Fehler.
+
+| Befund des Prüfers | Reaktion | Commit |
+|---|---|---|
+| F04: Auch ein *angenommenes* Angebot startete die 30-s-Sperre; ein zweiter Teil („positions“ nach „general“) wurde still verworfen, der Absender wartete 90 s | Angenommene Angebote zählen nicht mehr; bei offenem Dialog bekommt der Absender eine Absage | `07c73da` |
+| F11: Ein geheimes Dauer-Objekt würde jetzt in `CastOnUpdate` bei jedem Tick einen Wahrheitstest auslösen | `CastOnUpdate` nutzt ebenfalls `Present()` | `709b42a` |
+| F03: Lokalisierte Aliase, `/tinspect` und `\r`-Zeilen wurden nicht erkannt; Makronamen im Restore-Fenster nicht entschärft | Aliase aus `SLASH_SCRIPT*`/`SLASH_DUMP*`/`SLASH_TABLEINSPECT*`, `/tinspect`, Trennung an `\r\n`, Namen entschärft | `62c114c` |
+| F02: Scheitert `SetPoint` trotz Prüfung (Anker-Schleife), bleibt der Mover ohne Punkt | Dann Bildschirmmitte, dort ist er sichtbar und lässt sich zurückziehen | `12abe29` |
+| F01: Für eine vorhandene, aber nicht teilbare Liste kam „a list your EldoUI doesn't have“ | Eigene Meldung; Name ohne Textcodes | `07c73da` |
+| F12: Mit „nur im Kampf“ wird ein wirklich defekter Client nie erkannt | bewusst so gelassen (vertretbar) | |
+| F04: In Schlachtfeldern lehnt auch das Senden einer Wunschliste an ein Gruppenmitglied ab, Text „only to your group…“ ist dort irreführend | bewusst so gelassen (seltener Fall) | |
+
 ---
 
 ## Import und Nachrichten anderer Spieler
