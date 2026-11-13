@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: |cff33aaffEldo|rUI Deutsch
+## Notes: Deutsche Texte für EldoUI. Lädt nur, wenn unter General > EldoUI language Deutsch gewählt ist oder der Client deutsch ist.
+## Author: Eldodeldo (Fork)
+## Version: 0.7.2001
+## Group: EldoUI
+## Category: User Interface
+## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
+## Dependencies: EldoUI
+## LoadOnDemand: 1
+## X-EldoUI-Locale: deDE
+## X-License: Apache-2.0
+## X-Copyright: Copyright 2026 Eldodeldo
+
+Core.lua
+ModulesAL.lua
+ModulesMZ.lua
+LootGuide.lua
