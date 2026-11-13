@@ -155,6 +155,15 @@ function E:GetLanguage()
 	return activeCode
 end
 
+-- A word set into a sentence in lower case ("it would cover the minimap",
+-- "New herb node"). German writes nouns with a capital, so there the word
+-- keeps its case.
+local KEEP_CASE = { deDE = true }
+function E:InSentence(text)
+	if type(text) ~= "string" or KEEP_CASE[activeCode] then return text end
+	return text:lower()
+end
+
 -- Language packs: separate (usually load-on-demand) addons that bring one
 -- or more languages. A pack is found by its folder name
 -- (EldoUI_Locale_<code>, e.g. EldoUI_Locale_daDK) or by a line in its TOC:

@@ -18,6 +18,12 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 
 ## A – Deutsche Übersetzung
 
+> **Umgesetzt:** `EldoUI_Locale_deDE` ist vollständig (20.827 von 20.827 Texten), Anrede „Ihr/Euch“, Begriffe des
+> deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/` (`deDE.py status|check|xref`). Im Code:
+> deutsches Datumsformat (`Core/Dates.lua`) und `E:InSentence` für Wörter, die in Sätze eingesetzt werden.
+> Nicht geprüft am deutschen Client sind Zauber-, Gegenstands- und Gebietsnamen, die die Übersetzer aus dem
+> Gedächtnis gesetzt haben. Die Analyse unten ist der Stand vor der Umsetzung.
+
 **Locale-System** (`EldoUI/Core/Locale.lua`):
 - Der englische Text ist der Schlüssel. Fehlt eine Übersetzung, erscheint Englisch (Metatable, `:101`).
 - Sprachpakete melden sich mit `E:RegisterLocale(code, tabelle)` an (`:124`) und werden als eigenes Addon

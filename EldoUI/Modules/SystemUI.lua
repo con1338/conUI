@@ -1180,7 +1180,7 @@ end
 
 local function ScaleOption(key, title, element)
 	return { type = "range", percent = true, key = "scale." .. key, label = "%s scale", labelFill = title, min = 0.6, max = 1.5, step = 0.05,
-		desc = "Size of the %s.", descFill = function() return L[title]:lower() end, disabled = E:BlizzardNeeds(element, "move") }
+		desc = "Size of the %s.", descFill = function() return E:InSentence(L[title]) end, disabled = E:BlizzardNeeds(element, "move") }
 end
 
 M.options = {

@@ -46,8 +46,11 @@ local Key = E.Key
 local MONTHS = { Key("January"), Key("February"), Key("March"), Key("April"), Key("May"), Key("June"),
 	Key("July"), Key("August"), Key("September"), Key("October"), Key("November"), Key("December") }
 local WEEKDAYS = { Key("Sunday"), Key("Monday"), Key("Tuesday"), Key("Wednesday"), Key("Thursday"), Key("Friday"), Key("Saturday") }
--- Languages whose dates read day first.
-local DAY_FIRST = { daDK = true }
+-- Languages whose dates read day first ("14. Oktober").
+local DAY_FIRST = { daDK = true, deDE = true }
+-- Day-first languages that put a comma after the weekday
+-- ("Mittwoch, 14. Oktober"; Danish reads "onsdag 14. oktober").
+local WEEKDAY_COMMA = { deDE = true }
 
 -- True while EldoUI shows a language other than the client's: the game's
 -- calendar strings would then read in the wrong one.
@@ -134,7 +137,8 @@ function E:LongDay(stamp, weekday, withYear)
 	local text = dayFirst and ("%d. %s"):format(t.day, self:MonthName(t.month))
 		or ("%s %d"):format(self:MonthName(t.month), t.day)
 	if withYear or not ThisYear(t.year) then text = (dayFirst and "%s %d" or "%s, %d"):format(text, t.year) end
-	if weekday then text = (dayFirst and "%s %s" or "%s, %s"):format(self:WeekdayName(t.wday), text) end
+	local comma = not dayFirst or WEEKDAY_COMMA[self:GetLanguage()]
+	if weekday then text = (comma and "%s, %s" or "%s %s"):format(self:WeekdayName(t.wday), text) end
 	return text
 end
 

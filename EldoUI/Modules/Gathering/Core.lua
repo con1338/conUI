@@ -391,7 +391,7 @@ function M:Record(cast, mapID, x, y)
 		if J and J.Changed then J:Changed("gathering") end
 	end
 	if node and new and self.db.recordNote then
-		E:Print((L["New %s node: %s (%s %s)"]):format(L[cast.kind.label]:lower(), cast.name, WP.MapName(mapID), WP.FormatCoords(x, y)))
+		E:Print((L["New %s node: %s (%s %s)"]):format(E:InSentence(L[cast.kind.label]), cast.name, WP.MapName(mapID), WP.FormatCoords(x, y)))
 	end
 	if node then self:RefreshPins() end
 	return node, new

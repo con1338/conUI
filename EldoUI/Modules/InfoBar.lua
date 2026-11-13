@@ -4572,7 +4572,7 @@ local function SlotOptions(prefix, side, label, hidden)
 	local options = { { type = "header", label = label, hidden = hidden } }
 	for slot = 1, SLOTS do
 		table.insert(options, { type = "select", key = prefix .. side .. "." .. slot, label = "%s slot %d", labelFill = { label, slot }, values = DataTextValues,
-			desc = "The datatext shown in slot %d of the %s section.", descFill = function() return { slot, L[label]:lower() } end, hidden = hidden })
+			desc = "The datatext shown in slot %d of the %s section.", descFill = function() return { slot, E:InSentence(L[label]) } end, hidden = hidden })
 	end
 	return options
 end

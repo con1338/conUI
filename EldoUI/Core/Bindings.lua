@@ -103,7 +103,7 @@ function E:NameKeyBindings()
 	-- Consumable Bar buttons, in its category order.
 	_G.BINDING_HEADER_ELDOUICONSUMABLES = L["EldoUI Consumable Bar"]
 	for index, what in ipairs({ L["Food"], L["Drink"], L["Health potion"], L["Mana potion"], L["Bandage"], L["Healthstone"] }) do
-		_G[("BINDING_NAME_CLICK EldoUI_ConsumableButton%d:LeftButton"):format(index)] = L["Use the best %s (Consumable Bar)"]:format(what:lower())
+		_G[("BINDING_NAME_CLICK EldoUI_ConsumableButton%d:LeftButton"):format(index)] = L["Use the best %s (Consumable Bar)"]:format(E:InSentence(what))
 	end
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton7:LeftButton"] = L["Use the Hearthstone (Consumable Bar)"]
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton8:LeftButton"] = L["Mount up (Consumable Bar)"]

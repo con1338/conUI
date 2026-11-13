@@ -4194,7 +4194,7 @@ BASE[#BASE + 1] = {
 			local label = Paragraph(below, E.tokens.size.body, L[module.title])
 			label:SetWidth(labelWidth - 8)
 			local buttons = {}
-			local list = { { key = false, title = L["Keep"], desc = L["Leave %s as it is."]:format(L[module.title]:lower()) } }
+			local list = { { key = false, title = L["Keep"], desc = L["Leave %s as it is."]:format(E:InSentence(L[module.title])) } }
 			-- Styles that act for the player (acts = true, e.g. Fast questing)
 			-- stay on their module page; a look step never turns on automation.
 			for _, style in ipairs(E.styles[name]) do
