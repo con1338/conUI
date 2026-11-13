@@ -417,9 +417,23 @@ function M:EditModePlan(snapshot)
 	return { status = blocker and "blocked" or "add", name = name, reason = blocker or nil, text = layout.text }
 end
 
+-- A macro body with a line that runs Lua: /run, /script or /dump. Such a
+-- macro from an imported string can do anything the player's own code can.
+local SCRIPT_COMMANDS = { ["/run"] = true, ["/script"] = true, ["/dump"] = true }
+local function RunsCode(body)
+	if type(body) ~= "string" then return false end
+	for line in (body .. "\n"):gmatch("([^\n]*)\n") do
+		local command = line:match("^%s*(/%a+)")
+		if command and SCRIPT_COMMANDS[command:lower()] then return true end
+	end
+	return false
+end
+M.RunsCode = RunsCode
+
 -- Everything a restore of `snapshot` would change. Reads only.
 function M:Plan(snapshot)
-	local plan = { actions = {}, place = 0, clear = 0, unknown = 0, macros = {}, macrosFull = 0, bindings = {} }
+	local plan = { actions = {}, place = 0, clear = 0, unknown = 0, macros = {}, macrosFull = 0, bindings = {},
+		scripts = {}, scriptCount = 0 }
 	if GetActionInfo then
 		for slot = 1, MAX_SLOTS do
 			local entry = snapshot.actions and snapshot.actions[slot]
@@ -437,7 +451,13 @@ function M:Plan(snapshot)
 		end
 	end
 	for _, macro in ipairs(snapshot.macros or {}) do
-		if MacroIndex(macro.name) == 0 then plan.macros[#plan.macros + 1] = macro.name end
+		if MacroIndex(macro.name) == 0 then
+			plan.macros[#plan.macros + 1] = macro.name
+			if RunsCode(macro.body) then
+				plan.scripts[macro.name] = true
+				plan.scriptCount = plan.scriptCount + 1
+			end
+		end
 	end
 	local now, want = BindingMap(ReadBindings()), BindingMap(snapshot.bindings)
 	for key, command in pairs(want) do
@@ -820,7 +840,15 @@ function M:ShowPreview(snapshot, reason)
 	if plan.unknown > 0 then changeText = changeText .. ", " .. (L["%d skipped"]):format(plan.unknown) end
 	SetPart(parts.actions, plan.place + plan.clear > 0, defaults.actions, changeText, slotLines)
 	SetPart(parts.clearEmpty, plan.clear > 0, defaults.clearEmpty, (L["%d slots"]):format(plan.clear))
-	SetPart(parts.macros, #plan.macros > 0, defaults.macros, (L["%d missing"]):format(#plan.macros), plan.macros)
+	-- Macros that run Lua are marked; an imported snapshot that would add one
+	-- starts with the macros part unticked, so adding them is a choice.
+	local macroLines, macroText = {}, (L["%d missing"]):format(#plan.macros)
+	for _, name in ipairs(plan.macros) do
+		macroLines[#macroLines + 1] = plan.scripts[name] and (name .. " " .. L["(runs Lua code)"]) or name
+	end
+	if plan.scriptCount > 0 then macroText = macroText .. ", " .. (L["%d run Lua code"]):format(plan.scriptCount) end
+	local macrosOn = defaults.macros and not (snapshot.imported and plan.scriptCount > 0)
+	SetPart(parts.macros, #plan.macros > 0, macrosOn, macroText, macroLines)
 	local keyLines = {}
 	for _, b in ipairs(plan.bindings) do
 		keyLines[#keyLines + 1] = b.key .. ": " .. (b.to and tostring(b.to) or L["(unbound)"])
@@ -1002,6 +1030,7 @@ local function CleanImport(data)
 		bindingSet = (data.bindingSet == 1 or data.bindingSet == 2) and data.bindingSet or nil,
 		editMode = layout,
 		label = L["imported"],
+		imported = true,
 	}
 	if count == 0 and #macros == 0 and #bindings == 0 then return nil, L["That snapshot string holds no action bars."] end
 	if data.sum ~= nil and data.sum ~= Checksum(Canonical(clean)) then
@@ -1048,6 +1077,14 @@ if E.RegisterShareKind then
 			local lines = { M:Describe(data) }
 			if data.editMode then lines[#lines + 1] = (L["Edit Mode layout: %s"]):format(data.editMode.name) end
 			lines[#lines + 1] = (L["Here: %d action slots, %d macros and %d keys would change."]):format(#plan.actions, #plan.macros, #plan.bindings)
+			if plan.scriptCount > 0 then
+				local names = {}
+				for _, name in ipairs(plan.macros) do
+					if plan.scripts[name] then names[#names + 1] = (name:gsub("|", "||")) end
+				end
+				lines[#lines + 1] = (L["Careful: %d of these macros run Lua code (%s). Add them only if you trust where the string came from."])
+					:format(plan.scriptCount, table.concat(names, ", ", 1, math.min(#names, 5)) .. (#names > 5 and ", …" or ""))
+			end
 			lines[#lines + 1] = L["Importing only saves it; the restore window then shows every change and waits for your click."]
 			return lines
 		end,
