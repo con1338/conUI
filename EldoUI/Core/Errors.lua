@@ -243,8 +243,10 @@ function Errors:Context(entry)
 	return db and type(db.contexts) == "table" and db.contexts[entry.session] or nil
 end
 
--- Where players report a bug: the public repository's issue forms.
-Errors.REPORT_URL = "https://github.com/Eldodeldo/EldoUI/issues/new?template=bug_report.yml"
+-- Where players report a bug: the repository's issue forms. Fork
+-- (WoW-UI-Addon): this fork's, since a bug may come from its own changes;
+-- one that is EldoUI's own goes on to github.com/Eldodeldo/EldoUI from there.
+Errors.REPORT_URL = "https://github.com/con1338/WoW-UI-Addon/issues/new?template=bug_report.yml"
 
 -- A short, stable name of an error: the same error from the same version
 -- gets the same signature on every PC, so repeated reports can be grouped.

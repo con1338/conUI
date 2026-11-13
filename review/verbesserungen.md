@@ -11,9 +11,9 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | # | Was | Aufwand |
 |---|---|---|
 | 1 | Arbeitsweise für Upstream-Updates: Releases unverändert importieren, eigene Features als Plugin | klein |
-| 2 | CI: Syntaxcheck, luacheck mit `.luacheckrc`, TOC-Check, Release-ZIP | klein–mittel |
+| 2 | CI: Syntaxcheck, luacheck mit `.luacheckrc`, TOC-Check, Release-ZIP (umgesetzt, siehe D2) | klein–mittel |
 | 3 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | Struktur klein, Inhalt groß |
-| 4 | Versionscheck und Fehler-Links an den privaten Fork anpassen | klein |
+| 4 | Versionscheck und Fehler-Links an den privaten Fork anpassen (umgesetzt, siehe D3) | klein |
 | 5 | Erstes eigenes Feature: Gruppensuche-Board aus dem LFG-Chat (umgesetzt: `EldoUI_GroupBoard`) | mittel |
 
 ## A – Deutsche Übersetzung
@@ -95,10 +95,21 @@ Inspect-Anfragen, automatische Loot-Verteilung.
 - **D1 Upstream-Updates:**
   - neue Releases unverändert in einen Branch `upstream-release` importieren und von dort nach `main` mergen;
   - eigene Features möglichst als Plugin-Addons `EldoUI_<Name>` über die öffentliche API (`docs/PLUGINS.md`).
+  - **Teilweise umgesetzt:** Der Versionswächter (`.github/workflows/watch.yml`) meldet jede neue EldoUI-Version
+    als Issue, dazu neue WoW: Forever-Patches (live und im Test-Client). Den Branch `upstream-release` gibt es
+    noch nicht; er entsteht beim ersten Upstream-Update.
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.
+  - **Umgesetzt:** `.github/workflows/ci.yml` (jeder Push und PR) und `release.yml` (Tag `v*`), Skripte und
+    Beschreibung in `tools/ci/` (`check_all.sh` läuft lokal genauso). luacheck prüft nur Globals, gegen die Liste
+    der heute benutzten WoW-API-Namen (`tools/ci/globals.lua`); Stilwarnungen bleiben aus, der Upstream-Code ist
+    nicht dafür geschrieben. Das ZIP enthält alle acht `EldoUI*`-Ordner, nur von git erfasste Dateien.
 - **D3 Privater Fork:**
+  - **Umgesetzt:** Version `0.7.2001-p1` (EldoUI und deutsches Paket); der Hinweis „Was ist neu“ vergleicht die
+    Version ohne Endung (`EldoUI/Core/Config.lua`, `CheckUpdateNote`). Fehlerbericht und Loot-Guide-Hilfe führen
+    zu `con1338/WoW-UI-Addon`. Die Meldung von Journal-Daten (`LG.JOURNAL_DATA_ISSUE_URL`) geht bewusst weiter an
+    Upstream: Die Daten pflegt EldoUI, nicht der Fork.
   - Der Versionscheck sendet über das Präfix `EldoUIVer` an Gilde und Gruppe (`EldoUI/Core/Plugins.lua:76`).
     Eine Version wie `0.7.2001.1` würde anderen EldoUI-Nutzern „newer version“ melden. Besser eine Endung
     `0.7.2001-p1` (wird ignoriert) oder den Versionscheck abschalten (Plugins > Notices).

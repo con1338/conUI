@@ -10,6 +10,10 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
 > aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
 > `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
+> Jeder Push wird automatisch geprüft (Syntax, luacheck, TOC-Dateien, Tests, deutsche Texte). Ein Tag `v*` baut
+> das fertige ZIP auf der Releases-Seite dieses Repos, und ein täglicher Versionswächter meldet neue
+> WoW: Forever-Patches und EldoUI-Versionen als Issue. Wie das alles läuft: [`tools/ci/README.md`](tools/ci/README.md).
+> Fork-Versionen tragen die Endung `-pN` (`0.7.2001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
 > Das Original-README folgt; geändert sind nur die Installationshinweise zum deutschen Paket und zum Plugin.
 
 ---
@@ -59,7 +63,7 @@ The [module list](docs/wiki/modules.md) describes every module and shows which o
 
 ## Install
 
-1. Download `EldoUI-<version>.zip` from the [releases page](https://github.com/Eldodeldo/EldoUI/releases).
+1. Download `EldoUI-<version>.zip` from the [releases page](https://github.com/Eldodeldo/EldoUI/releases). The fork's ZIP, with the German pack and the group board, is on [this repository's releases page](https://github.com/con1338/WoW-UI-Addon/releases).
 2. Close the game and unzip the file into `World of Warcraft\_forever_\Interface\AddOns`. The WoW: Forever beta used the folder `_classic_beta_`; if you played the beta, install EldoUI again into `_forever_`.
 3. Check that these folders sit directly in `AddOns`: `EldoUI`, `EldoUI_LootData`, `EldoUI_GuideData`, `EldoUI_LootSim`, `EldoUI_Emoji`, `EldoUI_Locale_daDK`, and `EldoUI_Locale_deDE`. The fork's group board plugin, `EldoUI_GroupBoard`, goes there too if you want it.
 4. Start the game, make sure **EldoUI** is ticked in the AddOns list, and log in.
