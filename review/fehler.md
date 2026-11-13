@@ -14,7 +14,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F04 | Settings-Angebote Fremder ohne Limit, schließen offene Dialoge | mittel | behoben | `8119cf7` |
 | F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben | `3deb369` |
 | F06 | Fremdtext mit Link-/Escape-Codes ungefiltert im Chat | niedrig–mittel | behoben | `eee687e` |
-| F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | offen | |
+| F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | behoben | `419d511` |
 | F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | offen | |
 | F09 | Segensplan und Whisper-Kontakte ohne Obergrenze | niedrig | behoben | `3b0c340` |
 | F10 ✔ | RaidLoot-JSON: `null` verschiebt Array-Elemente | niedrig | bewusst nicht | |
@@ -127,6 +127,28 @@ neuer Fehler.
 - **Problem:** Ein String mit neuerem/älterem Profilschema meldet „damaged or cut short“. Bei „module:“ und
   „general“ läuft `RunProfileMigrations` nicht.
 - **Fix-Idee:** Eigene Meldungen für ältere/neuere Version; Payload vor dem Anwenden migrieren.
+- **Umsetzung:**
+  - Meldungen: Ein String aus einem neueren EldoUI meldet „the string comes from a newer EldoUI (0.8.0). Update
+    EldoUI, then import it again.“ Die Version des Absenders erscheint nur, wenn sie wie eine Version aussieht. Ein
+    String von vor 0.7.1000 (ohne `profileBaseline`) meldet, dass diese Version ihn nicht lesen kann. Die Prüfung
+    steht in `E:ProfileVersionProblem` (`Core/Database.lua`, neben den Grenzen, die `ProfileData` nutzt). Sie läuft
+    vor `PayloadAdmit`; jeder solche String wäre dort ohnehin abgelehnt worden.
+  - Migration: „module:“, „general“ und „positions“ laufen jetzt durch `MigratePart` (`Core/Share.lua`). Das baut ein
+    Ersatzprofil aus dem Teil und einer Kopie der eigenen allgemeinen Einstellungen (für Migrationen, die das
+    Layout lesen). Darauf laufen die verpassten Default-Änderungen (`Data/DefaultChanges.lua`) und die
+    Profil-Migrationen. Übernommen wird nur der Teil. Ganze Profile („all“) wurden schon vorher migriert, über
+    `SetProfile` bzw. `ApplyProfileParts`.
+  - Stempel: Teil-Strings tragen jetzt die Migrations-Stempel des Absender-Profils (`payload.migrations`). Mit
+    Stempeln laufen genau die Migrationen, die dem Absender fehlten. Strings ohne Stempel (von EldoUI selbst und
+    alle älteren) bekommen nur die Default-Änderungen und die Migrationen ohne Schlüssel. Eine Migration mit
+    Schlüssel kann einen alten Wert nicht von einer späteren Wahl unterscheiden: `general:clock` hätte z. B. einem
+    aktuellen „general“-String die 24-Stunden-Uhr aufgezwungen. Ältere EldoUI-Versionen ignorieren das neue Feld.
+  - Test: `tools/share/test_import_versions.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die echten
+    Funktionen aus beiden Dateien und prüft Versionsgrenzen, Meldungen, Stempel und `MigratePart`.
+  - Nicht umgesetzt: Werte, die eine Migration aus dem Modul in ein anderes verschiebt (z. B. `Messages.sound` →
+    `Chat.whisperSound`), gehen beim Teil-Import verloren, weil nur der eine Teil übernommen wird. Die neuen
+    Meldungen sind nur englisch: Das deutsche Paket nimmt nur Schlüssel an, die auch im dänischen stehen.
+    Share-Arten mit eigenem Präfix (Wunschliste, Pack usw.) sind unverändert.
 
 ### F08 – Entpackgröße erst nach dem Entpacken geprüft (niedrig–mittel, plausibel)
 - **Stelle:** `Core/Share.lua:480`; `Core/Import.lua:179`
@@ -232,3 +254,5 @@ Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehle
 | F03 | eigenen Snapshot exportieren, ein Makro mit `/run` darin, wieder importieren | Warnung im Import-Dialog, „Add missing macros“ nicht angehakt |
 | F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
+| F07 | `/eui exportlua module:Chat`, im Text `["version"]` des Schemas auf 99 setzen, mit `/eui import` einfügen | Meldung „comes from a newer EldoUI“ statt „damaged“ |
+| F07 | einen Modul-String und „General“ exportieren und wieder importieren | Import wie vorher, keine Lua-Fehler; im Lua-Export steht `["migrations"]` |

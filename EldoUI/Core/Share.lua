@@ -728,6 +728,11 @@ local function BuildPayload(key)
 	local payload = { kind = key, version = E.version, author = UnitName("player"), schema = { unit = "profile", version = E.PROFILE_SCHEMA } }
 	if target then
 		payload.profileBaseline, payload.schema.version = target.profile.profileBaseline, target.profile.schema
+		-- A part of a profile carries the profile's migration stamps (a whole
+		-- profile has them inside): the importer then runs exactly the
+		-- migrations the sender's profile has not had (MigratePart below).
+		local stamps = key ~= "all" and rawget(target.profile, "migrations")
+		if stamps and Plain(stamps) then payload.migrations = CopyTable(stamps) end
 	end
 	if key == "all" then
 		payload.data = E:CompactProfile(E:CopyProfileTable())
@@ -802,6 +807,33 @@ end
 ---------------------------------------------------------------------------
 -- Import
 ---------------------------------------------------------------------------
+-- The sender's EldoUI version, only when it looks like one ("0.7.2001",
+-- "0.8.0-beta2"): text from a string is never shown as it is.
+local function ShownVersion(version)
+	if E.Secret(version) or type(version) ~= "string" or #version > 24
+		or not version:match("^%d+%.%d+%.%d+[%w%-]*$") then return nil end
+	return version
+end
+
+-- Why a string from another EldoUI version can't be read, instead of
+-- "damaged" (E:ProfileVersionProblem in Core/Database.lua).
+local function VersionMessage(problem, version)
+	if problem == "newer" then
+		local shown = ShownVersion(version)
+		if shown then return L["the string comes from a newer EldoUI (%s). Update EldoUI, then import it again."]:format(shown) end
+		return L["the string comes from a newer EldoUI. Update EldoUI, then import it again."]
+	end
+	return L["the string comes from an EldoUI before 0.7.1000, which this version can't read. Ask for a new string."]
+end
+
+local function VersionProblem(payload)
+	local check = E.ProfileVersionProblem
+	if E.Secret(check) or type(check) ~= "function" or not ProfileKind(payload.kind) then return nil end
+	local schema = payload.schema
+	local ok, problem = pcall(check, E, payload.profileBaseline, Plain(schema) and schema.version or nil)
+	if ok and (problem == "newer" or problem == "older") then return problem end
+end
+
 local function ParseString(text)
 	local ok, result = pcall(function()
 		text = strtrim(text or "")
@@ -824,10 +856,15 @@ local function ParseString(text)
 				if type(name) ~= "string" or type(position) ~= "table" then error("the string is damaged") end
 			end
 		end
+		-- Settings a newer or an older EldoUI wrote: say so. Such a string
+		-- would fail the check below as well.
+		local problem = VersionProblem(payload)
+		if problem then error({ problem = problem, version = payload.version }) end
 		if not PayloadAdmit(payload) then error("the string is damaged") end
 		return payload
 	end)
 	if ok then return result end
+	if type(result) == "table" and not E.Secret(result) then return nil, VersionMessage(result.problem, result.version) end
 	local message = tostring(result):gsub("^.-:%d+: ", "")
 	if not (message:find("EldoUI string", 1, true) or message:find("too long", 1, true) or message:find("client", 1, true)) then
 		message = L["the string is damaged or cut short. Copy it again in full."]
@@ -885,6 +922,72 @@ local function ApplyGlobal(namespace, data)
 	return true
 end
 
+-- Migration stamps from a string (migration key = version reached), or nil
+-- when there are none or they are not in that shape.
+local function Stamps(value)
+	if not Plain(value) then return nil end
+	local stamps = {}
+	for key, version in pairs(value) do
+		if type(key) ~= "string" or type(version) ~= "number" or version ~= version or version < 0 or version >= math.huge then return nil end
+		stamps[key] = version
+	end
+	if next(stamps) == nil then return nil end
+	return stamps
+end
+
+local function Table(value)
+	return Plain(value) and value or {}
+end
+
+-- A part of a profile (one module with its frames, the general settings,
+-- all frame positions) gets the updates a whole profile gets when it loads:
+-- the default changes of the versions after the one that wrote the string
+-- (Data/DefaultChanges.lua), then the profile migrations. They run on a
+-- stand-in profile that holds only this part, next to a copy of the
+-- receiver's general settings (some migrations read the layout); only the
+-- part comes back out. A whole profile goes through E:SetProfile or
+-- E:ApplyProfileParts, which do this themselves.
+-- With the sender's migration stamps (strings this fork writes after
+-- 0.7.2001-p1), the keyed migrations their profile has not had run.
+-- Without stamps (EldoUI itself, older strings) only the migrations that
+-- run every time do: a keyed migration can't tell an old value from a
+-- choice the sender made later, and could undo it.
+-- data and movers are the caller's copies; they may be changed.
+local function MigratePart(payload, data, movers)
+	local kind, schema = payload.kind, payload.schema
+	local from = Plain(schema) and schema.version
+	if E.Secret(from) or type(from) ~= "number" then return nil end
+	local stamps = Stamps(rawget(payload, "migrations"))
+	local shell = { profileBaseline = payload.profileBaseline, schema = from, migrations = stamps }
+	local name
+	if kind == "general" then
+		shell.general = data
+	else
+		shell.general = CopyTable(Table(E.db.general))
+		if kind == "positions" then
+			shell.movers = data
+		else
+			name = kind:match("^module:(.+)$")
+			if not name then return nil end
+			shell.modules = { [name] = data }
+			shell.movers = movers
+		end
+	end
+	if from < E.PROFILE_SCHEMA then E:ApplyDefaultChanges(shell, from) end
+	E:RunProfileMigrations(shell, nil, stamps == nil)
+	if kind == "general" then return Table(shell.general) end
+	if kind == "positions" then return Table(shell.movers) end
+	local modules = Table(shell.modules)
+	return Table(modules[name]), type(movers) ~= "nil" and Table(shell.movers) or nil
+end
+
+-- MigratePart in a pcall: a failure goes to the error log and stops the import.
+local function MigratedPart(payload, data, movers)
+	local ok, part, partMovers = pcall(MigratePart, payload, data, movers)
+	if not ok then geterrorhandler()(part); return nil end
+	return part, partMovers
+end
+
 local function Finish(kind)
 	E:Print(L["Imported %s."]:format(E:Highlight(CategoryTitle(kind))))
 	E:ShowReloadPrompt(L["Imported %s. Some parts take full effect after a reload."]:format(CategoryTitle(kind)))
@@ -935,12 +1038,16 @@ local function ApplyPayload(payload, profileName, target)
 	elseif kind == "general" then
 		local working = MaterializeDependencies(payload, CopyTable(payload.data), target)
 		if not working or not TargetAdmit(target) then return false end
+		working = MigratedPart(payload, working)
+		if not working or not TargetAdmit(target) then return false end
 		E.db.general = working
 		E.ApplyDefaults(E.db.general, E.defaults.general)
 		E:RefreshTheme()
 		E:RunOutOfCombat(function() if TargetAdmit(target) then E:ApplyScale() end end)
 	elseif kind == "positions" then
-		E.db.movers = payload.data
+		local working = MigratedPart(payload, CopyTable(payload.data))
+		if not working or not TargetAdmit(target) then return false end
+		E.db.movers = working
 		E:RefreshMovers()
 	elseif kind == "global" then
 		local count = 0
@@ -971,10 +1078,12 @@ local function ApplyPayload(payload, profileName, target)
 			E:Print(L["This string is for the %s module, which isn't installed."]:format(tostring(name)))
 			return
 		end
+		local migrated, movers = MigratedPart(payload, CopyTable(payload.data), Plain(payload.movers) and CopyTable(payload.movers) or nil)
+		if not migrated or not TargetAdmit(target) then return false end
 		local enabled = module.db.enabled
-		E:ReplaceModuleSettings(module, payload.data)
+		E:ReplaceModuleSettings(module, migrated)
 		if not E:ModuleStatesPerCharacter() then module.db.enabled = enabled end
-		for moverName, position in pairs(payload.movers or {}) do E.db.movers[moverName] = position end
+		for moverName, position in pairs(movers or {}) do E.db.movers[moverName] = position end
 		if module.active and module.OnProfileChanged then
 			local settings = module.db
 			E:RunOutOfCombat(function()

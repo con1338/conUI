@@ -659,6 +659,22 @@ do
 	function E:IsSupportedProfileData(profile)
 		return CurrentAccount() and ProfileData(profile)
 	end
+	-- Why the version of a profile from elsewhere (a share string) is not
+	-- one this EldoUI reads: "newer" when a later EldoUI wrote it, "older"
+	-- when it is from before the first supported generation (0.7.1000,
+	-- which has no baseline yet). nil when the version is fine, or when the
+	-- values are no versions at all (then the string is just damaged).
+	function E:ProfileVersionProblem(baseline, version)
+		if E.Secret(baseline) or E.Secret(version) then return nil end
+		if type(baseline) == "nil" then return "older" end
+		if not Integer(baseline) then return nil end
+		if baseline > E.PROFILE_BASELINE then return "newer" end
+		if baseline < E.PROFILE_BASELINE then return "older" end
+		if not Integer(version) then return nil end
+		if version > E.PROFILE_SCHEMA then return "newer" end
+		if version < firstProfileSchema then return "older" end
+		return nil
+	end
 	RebindProfileWrite = function(self, root, profiles, active, name, expected)
 		if not CurrentAccount() or not Same(EldoUIDB, root) or not Same(admitted.profiles, profiles)
 			or not Same(self.db, active) or not Same(self.profileName, name)
