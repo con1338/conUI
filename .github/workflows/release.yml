@@ -1,0 +1,63 @@
+# A tag v<version> builds the addon ZIP and publishes it as a GitHub release.
+#
+#   1. Set "## Version:" in EldoUI/EldoUI.toc (e.g. 0.7.2001-p2) and commit.
+#   2. git tag v0.7.2001-p2 && git push origin v0.7.2001-p2
+#
+# The tag must match the version in the .toc, and every check must pass,
+# or nothing is published. A release made by hand on GitHub for the same
+# tag gets the ZIP added to it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lua 5.1 und luacheck installieren
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends lua5.1 lua-check
+
+      - name: Alle Prüfungen
+        run: tools/ci/check_all.sh
+
+      - name: Addon-ZIP bauen
+        id: zip
+        run: python3 tools/ci/build_zip.py --tag "$GITHUB_REF_NAME"
+
+      - name: Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+          VERSION: ${{ steps.zip.outputs.version }}
+          SHA256: ${{ steps.zip.outputs.sha256 }}
+        run: |
+          interface=$(sed -n 's/^## Interface: *\([0-9]*\).*/\1/p' EldoUI/EldoUI.toc)
+          cat > notes.md <<EOF
+          EldoUI ${VERSION} mit den Ergänzungen dieses Forks: deutsches Sprachpaket (EldoUI_Locale_deDE) und Gruppen-Pinnwand (EldoUI_GroupBoard).
+
+          **Installieren:** Spiel schließen, die alten EldoUI-Ordner in \`World of Warcraft\\_forever_\\Interface\\AddOns\` löschen und \`$(basename "$ZIP")\` dorthin entpacken. Die Einstellungen im Ordner \`WTF\` bleiben erhalten.
+
+          WoW: Forever, Interface ${interface}. SHA-256: \`${SHA256}\`
+          EOF
+          prerelease=()
+          case "$GITHUB_REF_NAME" in *-alpha*|*-beta*|*-rc*) prerelease=(--prerelease) ;; esac
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ZIP" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" --title "WoW-UI-Addon ${VERSION}" \
+              --notes-file notes.md --generate-notes "${prerelease[@]}"
+          fi

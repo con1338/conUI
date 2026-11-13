@@ -1,0 +1,71 @@
+# Checks on every push and pull request; the same ones tools/ci/check_all.sh
+# runs locally. Each check is its own step, so a red run names the part
+# that failed, and all of them run even when an earlier one fails.
+# A green run also leaves the addon ZIP for a quick test in the game
+# (Actions > the run > Artifacts, kept 14 days).
+name: Prüfungen
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Prüfungen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lua 5.1 und luacheck installieren
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends lua5.1 lua-check
+          luacheck --version
+
+      - name: Lua- und Python-Syntax
+        run: tools/ci/check_all.sh syntax
+
+      - name: TOC-Dateien
+        if: ${{ !cancelled() }}
+        run: tools/ci/check_all.sh toc
+
+      - name: luacheck
+        if: ${{ !cancelled() }}
+        run: tools/ci/check_all.sh luacheck
+
+      - name: Tests der Gruppen-Pinnwand
+        if: ${{ !cancelled() }}
+        run: tools/ci/check_all.sh tests
+
+      - name: Deutsche Texte
+        if: ${{ !cancelled() }}
+        run: |
+          tools/ci/check_all.sh locale
+          status=$(python3 tools/locale/deDE.py status | tail -n 1)
+          echo "Deutsches Paket: \`$status\`" >> "$GITHUB_STEP_SUMMARY"
+          case "$status" in
+            *"(100 %)"*) ;;
+            *) echo "::warning title=Deutsches Paket::Nicht alles übersetzt: $status (fehlende Texte erscheinen auf Englisch)" ;;
+          esac
+
+      - name: Addon-ZIP bauen
+        id: zip
+        run: python3 tools/ci/build_zip.py
+
+      - name: Addon-ZIP bereitstellen
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.zip.outputs.zip }}
+          archive: false
+          retention-days: 14
+          if-no-files-found: error
