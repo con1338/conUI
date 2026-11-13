@@ -470,7 +470,12 @@ local function OnRequest(sender, parts, channel)
 	if not (id and map and mine) or map ~= Layer.map or theirs == mine then return end
 	if wanted ~= "*" and wanted ~= mine then return end
 	local tag = sender .. "#" .. id
-	Layer.offered[tag] = { sender = sender, id = id, key = mine, map = map, at = Now() }
+	-- Offers nobody took up are dropped after the same minute OnChosen allows.
+	local now = Now()
+	for key, old in pairs(Layer.offered) do
+		if now - old.at > 60 then Layer.offered[key] = nil end
+	end
+	Layer.offered[tag] = { sender = sender, id = id, key = mine, map = map, at = now }
 	C_Timer.After(0.2 + math.random() * 1.0, function()
 		local offer = Layer.offered[tag]
 		if not offer or Layer.key ~= mine or Layer.map ~= map or InCombat() or not CanInvite() then return end
@@ -511,10 +516,12 @@ local function OnChosen(sender, parts)
 	if not id then return end
 	local tag = sender .. "#" .. id
 	local offer = Layer.offered[tag]
-	if offer and Now() - offer.at > 60 then
-		Layer.offered[tag], offer = nil, nil
-	end
-	if not offer or not (Layer.Helping("WHISPER") or Layer.Helping("GUILD")) then
+	-- Only a player this character sent an offer to gets an answer. Anyone
+	-- else whispering "LR" hears nothing, so a stranger can't use it to see
+	-- who is online with EldoUI.
+	if not offer then return end
+	if Now() - offer.at > 60 or not (Layer.Helping("WHISPER") or Layer.Helping("GUILD")) then
+		Layer.offered[tag] = nil
 		Whisper(sender, ("LN|%d|busy"):format(id))
 		return
 	end
