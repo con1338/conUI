@@ -812,7 +812,14 @@ E:RegisterBlizzardHandler(ID, {
 function M:OnEnable()
 	E:RunOutOfCombat(function()
 		self:Build()
-		for _, event in ipairs(EVENTS) do pcall(eventFrame.RegisterEvent, eventFrame, event) end
+		for _, event in ipairs(EVENTS) do
+			-- Only the player's own gear: in a raid, everyone's changes woke it.
+			if event == "UNIT_INVENTORY_CHANGED" and eventFrame.RegisterUnitEvent then
+				pcall(eventFrame.RegisterUnitEvent, eventFrame, event, "player")
+			else
+				pcall(eventFrame.RegisterEvent, eventFrame, event)
+			end
+		end
 		self:Layout()
 		if E:BlizzardAllowed(ID) then
 			E:OnBlizzardAddOn("Blizzard_BuffFrame", function() M:ApplyBlizzard() end)

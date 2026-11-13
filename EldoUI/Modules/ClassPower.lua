@@ -1720,10 +1720,15 @@ local function SkinPRD()
 			end
 			if not prdHooked[bar] then
 				prdHooked[bar] = true
-				hooksecurefunc(bar, "SetStatusBarTexture", function(self, texture)
-					if texture ~= E.media.statusbar and E:BlizzardAllowed(ID, "skin") then
-						self:SetStatusBarTexture(E.media.statusbar)
-					end
+				-- The game's own art can be a secret value, so it is never
+				-- compared: a guard keeps our own call from running the hook
+				-- again (as the cast bars in UnitFrames do). Nothing happens
+				-- while the module is off.
+				hooksecurefunc(bar, "SetStatusBarTexture", function(self)
+					if prdHooked[self] == "busy" or not (M.active and E:BlizzardAllowed(ID, "skin")) then return end
+					prdHooked[self] = "busy"
+					pcall(self.SetStatusBarTexture, self, E.media.statusbar)
+					prdHooked[self] = true
 				end)
 			end
 		end
@@ -1896,7 +1901,7 @@ function M:OnEnable()
 			-- New totem buttons appear the first time a totem goes down.
 			self.totemHooked = true
 			hooksecurefunc(TotemFrame, "Update", function()
-				if E:BlizzardAllowed(ID, "skin") then SkinTotems() end
+				if M.active and E:BlizzardAllowed(ID, "skin") then SkinTotems() end
 			end)
 		end
 		-- Width sync with the Cooldown Manager: its size changes with the

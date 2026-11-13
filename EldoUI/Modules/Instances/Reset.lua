@@ -120,7 +120,9 @@ function M:OnResetComm(payload, sender)
 	if not leader then return end
 	local names = {}
 	for name in payload:sub(2):gmatch("[^\t]+") do
-		if #names < 10 then names[#names + 1] = name end
+		-- Shown as plain words: a doubled bar turns any link, color or
+		-- texture code the sender put in into visible text.
+		if #names < 10 then names[#names + 1] = (E:Utf8Clip(name, 64):gsub("|", "||")) end
 	end
 	if #names == 0 then return end
 	self:Store().lastResetAt = self:Now()

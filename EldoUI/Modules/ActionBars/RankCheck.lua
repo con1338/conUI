@@ -485,7 +485,7 @@ for _, event in ipairs({ "ACTIONBAR_SLOT_CHANGED", "SPELLS_CHANGED", "LEARNED_SP
 	E:RegisterEvent(event, Refresh, owner)
 end
 
-E:RegisterEvent("ADDON_LOADED", function(_, name)
+E:RegisterEvent("ADDON_LOADED", function(_, _, name)
 	if name == "Blizzard_PlayerSpells" then M:ApplyRankCheck() end
 end, owner)
 

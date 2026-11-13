@@ -318,6 +318,13 @@ local function Flag(fn, ...)
 	return value and true or false
 end
 
+-- Whether the game handed a value at all. A secret counts as present (it
+-- stands for a real name, target or duration) and is never truth-tested.
+local function Present(value)
+	if issecret(value) then return true end
+	return value ~= nil
+end
+
 -- A plain value from the game, or nil when it is secret or fails.
 local Plain = E.PlainCall
 
@@ -1594,7 +1601,7 @@ local function StartCast(frame, channel, reason)
 	-- 8th, spellID 9th, castBarID 10th. UnitChannelInfo: ..., isTradeskill
 	-- 6th, notInterruptible 7th, spellID 8th, castBarID 11th (no castID).
 	local ok, name, _, texture, startMS, endMS, isTradeskill, seventh, eighth, ninth, tenth, eleventh = pcall(info, frame.unit)
-	if not ok or not name then
+	if not ok or not Present(name) then
 		castbar:Hide()
 		return
 	end
@@ -1623,7 +1630,7 @@ local function StartCast(frame, channel, reason)
 	-- The game's plain presence flag comes before its possibly secret name.
 	if castbar.showTarget and UnitSpellTargetName and Flag(UnitShouldDisplaySpellTargetName, frame.unit) then
 		local okTarget, targetName = pcall(UnitSpellTargetName, frame.unit)
-		if okTarget and targetName then
+		if okTarget and Present(targetName) then
 			local class = castbar.settings.targetClassColor and UnitSpellTargetClass and Plain(UnitSpellTargetClass, frame.unit)
 			local color = E:ClassColorObject(class)
 			if color then
@@ -1645,7 +1652,7 @@ local function StartCast(frame, channel, reason)
 	local durationFn = channel and UnitChannelDuration or UnitCastingDuration
 	if durationFn and castbar.SetTimerDuration then
 		local okDuration, duration = pcall(durationFn, frame.unit)
-		if okDuration and duration then
+		if okDuration and Present(duration) then
 			castbar.duration = duration
 			local direction = channel and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.RemainingTime
 			if not pcall(castbar.SetTimerDuration, castbar, duration, nil, direction) then
@@ -1694,7 +1701,9 @@ end
 
 local function CastOnUpdate(castbar, elapsed)
 	castbar.throttle = (castbar.throttle or 0) + elapsed
-	if castbar.duration then
+	-- The duration object may be secret (StartCast keeps it via Present()):
+	-- a plain truth test here would fail on every tick.
+	if Present(castbar.duration) then
 		if castbar.throttle < 0.05 then return end
 		castbar.throttle = 0
 		if not castbar.showTime then castbar.time:SetText("") return end
@@ -1872,9 +1881,14 @@ end
 
 local function UpdateCast(frame)
 	if not frame.castbar.enabled or frame.testing then return end
-	if UnitCastingInfo(frame.unit) then
+	-- The cast's name may be secret: Present(), never a truth test.
+	local okCast, casting = pcall(UnitCastingInfo, frame.unit)
+	if okCast and Present(casting) then
 		StartCast(frame, false)
-	elseif UnitChannelInfo(frame.unit) then
+		return
+	end
+	local okChannel, channeling = pcall(UnitChannelInfo, frame.unit)
+	if okChannel and Present(channeling) then
 		StartCast(frame, true)
 	else
 		frame.castbar:Hide()

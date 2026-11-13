@@ -983,8 +983,36 @@ local function Unhook(mover, pos)
 	end
 end
 
+-- A saved point SetPoint can take: an anchor point (the relative point
+-- may be left out), finite offsets (or none), and a relative that is the
+-- screen, a frame, or a name not loaded (handled below). A damaged or
+-- hand-made import, or an old save, gets the mover's default point instead
+-- of an error that would stop the placement of every mover after it.
+local ANCHOR_POINTS = { TOPLEFT = true, TOP = true, TOPRIGHT = true, LEFT = true, CENTER = true,
+	RIGHT = true, BOTTOMLEFT = true, BOTTOM = true, BOTTOMRIGHT = true }
+local function CheckPoint(pos)
+	if type(pos) ~= "table" or not ANCHOR_POINTS[pos[1]] then return false end
+	if pos[3] ~= nil and not ANCHOR_POINTS[pos[3]] then return false end
+	for index = 4, 5 do
+		local n = pos[index]
+		if n ~= nil and (type(n) ~= "number" or n ~= n or n == math.huge or n == -math.huge) then return false end
+	end
+	if type(pos[2]) ~= "string" then return false end
+	local rel = rawget(_G, pos[2])
+	return rel == nil or (type(rel) == "table" and type(rel.GetPoint) == "function")
+end
+-- A point that can't be read (a secret layout value) is left as it was.
+local function PlaceablePoint(pos)
+	local ok, placeable = pcall(CheckPoint, pos)
+	return not ok or placeable
+end
+
 function ApplyPosition(mover)
 	local pos = PositionOf(mover.name)
+	if not UsableLink(mover, pos) and not PlaceablePoint(pos) then
+		local fallback = E:GetMoverDefaultPoint(mover.name) or mover.defaultPoint
+		pos = PlaceablePoint(fallback) and fallback or { "CENTER", "UIParent", "CENTER", 0, 0 }
+	end
 	Unhook(mover, pos)
 	OwnedPositionWrite(mover, "ClearAllPoints")
 	local target, side, link = UsableLink(mover, pos)
@@ -1648,8 +1676,19 @@ function E:CreateMover(frame, name, title, defaultPoint, opts)
 		E:UpdateMoverGuides(nil)
 		if m.dragging then
 			m.dragging = nil
-			m:StopMovingOrSizing()
-			SavePosition(m)
+			if InCombatLockdown() then
+				-- Combat began mid-drag (the combat handler below normally
+				-- drops the box first): where it was let go is kept and
+				-- saved once combat ends, when protected frames may move.
+				pcall(m.StopMovingOrSizing, m)
+				local left, bottom = m:GetLeft(), m:GetBottom()
+				E:RunOutOfCombat(function()
+					if left and bottom then SetMoverPosition(m, Snap(m, left, bottom)) end
+				end, "Movers:drop:" .. tostring(m.name))
+			else
+				m:StopMovingOrSizing()
+				SavePosition(m)
+			end
 		end
 		E:SelectMover(m)
 		QueueShare()
@@ -1805,7 +1844,21 @@ end
 -- still hangs from it errors ("Cannot anchor to a region dependent on it").
 local function PlaceAll()
 	for _, mover in pairs(E.movers) do mover:ClearAllPoints() end
-	for _, mover in pairs(E.movers) do ApplyPosition(mover) end
+	-- One mover that can't be placed (an anchor loop from an import) is
+	-- reported and the rest still get their points: before, the error
+	-- stopped the loop and left every later mover off screen.
+	for _, mover in pairs(E.movers) do
+		local ok, err = pcall(ApplyPosition, mover)
+		if not ok then
+			geterrorhandler()(err)
+			-- Left without any point the box and its frame stay off screen:
+			-- the screen's center keeps them in sight, to be dragged back.
+			local okCount, count = pcall(mover.GetNumPoints, mover)
+			if okCount and count == 0 then
+				pcall(OwnedPositionWrite, mover, "SetPoint", "CENTER", UIParent, "CENTER", 0, 0)
+			end
+		end
+	end
 end
 
 -- Put one mover back on its layout (or default) position.
@@ -2317,8 +2370,20 @@ function E:ToggleMoveMode(state, filter)
 	end
 end
 
--- Leaving move mode when combat starts keeps protected frames safe.
+-- Leaving move mode when combat starts keeps protected frames safe. A box
+-- still being dragged is dropped and saved first: during this event
+-- protected frames can still move, right after it they can't.
 E:RegisterEvent("PLAYER_REGEN_DISABLED", function()
+	local dropped = false
+	for _, mover in pairs(E.movers) do
+		if mover.dragging then
+			mover.dragging = nil
+			mover:SetScript("OnUpdate", nil)
+			if pcall(mover.StopMovingOrSizing, mover) then pcall(SavePosition, mover) end
+			dropped = true
+		end
+	end
+	if dropped then E:UpdateMoverGuides(nil) end
 	if moveMode then E:ToggleMoveMode(false) end
 end, {})
 
