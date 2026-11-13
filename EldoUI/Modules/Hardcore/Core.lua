@@ -370,6 +370,9 @@ function M:OnNote(payload, sender)
 	level = tonumber(level)
 	if not level or level < 1 or level > 100 then return end
 	M.seen.notes = M.seen.notes + 1
+	-- The same cleaning as when sending: no text codes, at most 60 bytes
+	-- (the alert and the account-wide log show these as they came).
+	killer, zone = Clean(killer), Clean(zone)
 	local death = {
 		name = ShortName(sender), level = level, class = class ~= "" and class or nil,
 		cause = M.CAUSE_TEXT[cause] and cause or nil, killer = killer ~= "" and killer or nil,

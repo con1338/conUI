@@ -649,6 +649,13 @@ local function Notice(addon, title, mine, theirs)
 	if Refresh then Refresh() end
 end
 
+-- A version from another player as it may be shown in chat: digits and
+-- dots with an optional "-beta2" style suffix. Parts() reads only the
+-- start, so "99 get it at …" or text codes would be printed otherwise.
+local function ShownVersion(version)
+	return type(version) == "string" and #version <= 24 and version:match("^[vV]?%d+[%d%.]*%-?[%w%.]*$") ~= nil
+end
+
 -- One message from another player. Only guild and group channels count;
 -- secret or malformed messages are dropped.
 function E:HandleVersionMessage(prefix, message, channel, sender)
@@ -664,12 +671,12 @@ function E:HandleVersionMessage(prefix, message, channel, sender)
 	if not Settings().versionCheck then return end
 	local format, eldo, plugins = message:match("^(%d+);([^;]*);?(.*)$")
 	if format ~= "1" then return end
-	if Parts(eldo) and Parts(self.version) and self:CompareVersions(eldo, self.version) == 1 then
+	if ShownVersion(eldo) and Parts(eldo) and Parts(self.version) and self:CompareVersions(eldo, self.version) == 1 then
 		Notice("EldoUI", "EldoUI", self.version, eldo)
 	end
 	for addon, version in (plugins or ""):gmatch("([^,=]+)=([^,]+)") do
 		local plugin = self.plugins[addon]
-		if plugin and Parts(plugin.version) and Parts(version) and self:CompareVersions(version, plugin.version) == 1 then
+		if plugin and ShownVersion(version) and Parts(plugin.version) and Parts(version) and self:CompareVersions(version, plugin.version) == 1 then
 			Notice(addon, plugin.title, plugin.version, version)
 		end
 	end
