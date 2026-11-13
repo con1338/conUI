@@ -453,6 +453,230 @@ local function Base64Decode(data)
 	return table.concat(out)
 end
 
+---------------------------------------------------------------------------
+-- Unpacking with a size limit. C_EncodingUtil.DecompressString builds the
+-- whole result before anyone can look at its length, and DEFLATE packs up
+-- to about 1000:1: a string inside the 1 MB limit could unpack to a
+-- gigabyte. Inflate.Size walks the raw DEFLATE stream (RFC 1951) and adds
+-- up the bytes it would write, without writing them, and stops as soon as
+-- the sum passes the limit; such a string costs a few thousand steps. It
+-- reads every code the way zlib does and refuses what zlib refuses.
+-- Core/Import.lua uses it for ElvUI and EllesmereUI strings too.
+--
+--   E:Inflate(bytes, limit) -> text, or nil and "long", "damaged" or "client"
+---------------------------------------------------------------------------
+local Inflate = {
+	-- Lengths 3..258 (codes 257..285) and distances 1..32768 (codes 0..29):
+	-- base value and extra bits.
+	LENGTH_BASE = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163,
+		195, 227, 258 },
+	LENGTH_EXTRA = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 },
+	DISTANCE_BASE = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049,
+		3073, 4097, 6145, 8193, 12289, 16385, 24577 },
+	DISTANCE_EXTRA = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 },
+	-- The order in which a dynamic block lists the lengths of its code length code.
+	ORDER = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 },
+	POW2 = {},
+}
+for i = 0, 24 do Inflate.POW2[i] = 2 ^ i end
+
+-- The canonical Huffman code for the code lengths lengths[first .. first+n-1]
+-- (symbols 0 .. n-1): how many codes each length has, and the symbols in
+-- code order. Nil when the lengths ask for more codes than there are; the
+-- second value is above 0 when codes are left over (an incomplete set).
+function Inflate.Code(lengths, first, n)
+	local count, offset, symbol = {}, {}, {}
+	for length = 0, 15 do count[length] = 0 end
+	for i = first, first + n - 1 do
+		local length = lengths[i]
+		count[length] = count[length] + 1
+	end
+	if count[0] == n then return { count = count, symbol = symbol }, 0 end
+	local left = 1
+	for length = 1, 15 do
+		left = left * 2 - count[length]
+		if left < 0 then return nil, left end
+	end
+	offset[1] = 0
+	for length = 1, 14 do offset[length + 1] = offset[length] + count[length] end
+	for i = first, first + n - 1 do
+		local length = lengths[i]
+		if length ~= 0 then
+			symbol[offset[length] + 1] = i - first
+			offset[length] = offset[length] + 1
+		end
+	end
+	return { count = count, symbol = symbol }, left
+end
+
+function Inflate.Fixed()
+	if not Inflate.fixedLengths then
+		local lengths = {}
+		for symbol = 0, 287 do
+			lengths[symbol + 1] = symbol < 144 and 8 or symbol < 256 and 9 or symbol < 280 and 7 or 8
+		end
+		for symbol = 0, 29 do lengths[289 + symbol] = 5 end
+		Inflate.fixedLengths = Inflate.Code(lengths, 1, 288)
+		Inflate.fixedDistances = Inflate.Code(lengths, 289, 30)
+	end
+	return Inflate.fixedLengths, Inflate.fixedDistances
+end
+
+-- The two codes of a dynamic block, from its header. An incomplete code is
+-- only allowed when it has a single code, as in zlib.
+function Inflate.Dynamic(Bits, Symbol)
+	local nlen = Bits(5) + 257
+	local ndist = Bits(5) + 1
+	local ncode = Bits(4) + 4
+	if nlen > 286 or ndist > 30 then error("damaged", 0) end
+	local lengths = {}
+	for i = 1, 19 do lengths[i] = 0 end
+	for i = 1, ncode do lengths[Inflate.ORDER[i] + 1] = Bits(3) end
+	local code, left = Inflate.Code(lengths, 1, 19)
+	if not code or left ~= 0 then error("damaged", 0) end
+	-- The lengths of both codes in one list; 16 repeats the last length,
+	-- 17 and 18 write runs of zeros.
+	local total, index = nlen + ndist, 0
+	lengths = {}
+	while index < total do
+		local symbol = Symbol(code)
+		if symbol < 16 then
+			index = index + 1
+			lengths[index] = symbol
+		else
+			local value, times = 0, nil
+			if symbol == 16 then
+				if index == 0 then error("damaged", 0) end
+				value, times = lengths[index], 3 + Bits(2)
+			elseif symbol == 17 then
+				times = 3 + Bits(3)
+			else
+				times = 11 + Bits(7)
+			end
+			if index + times > total then error("damaged", 0) end
+			for _ = 1, times do
+				index = index + 1
+				lengths[index] = value
+			end
+		end
+	end
+	if lengths[257] == 0 then error("damaged", 0) end -- no end-of-block code
+	local literals, leftLiterals = Inflate.Code(lengths, 1, nlen)
+	if not literals or (leftLiterals ~= 0 and nlen ~= literals.count[0] + literals.count[1]) then error("damaged", 0) end
+	local distances, leftDistances = Inflate.Code(lengths, nlen + 1, ndist)
+	if not distances or (leftDistances ~= 0 and ndist ~= distances.count[0] + distances.count[1]) then
+		error("damaged", 0)
+	end
+	return literals, distances
+end
+
+-- How many bytes the raw DEFLATE stream `data` unpacks to. Errors with
+-- "long" as soon as that passes `limit`, and with "damaged" where zlib
+-- stops. Bytes after the last block are ignored, as zlib does.
+function Inflate.Size(data, limit)
+	local byte, POW2 = string.byte, Inflate.POW2
+	local LENGTH_BASE, LENGTH_EXTRA = Inflate.LENGTH_BASE, Inflate.LENGTH_EXTRA
+	local DISTANCE_BASE, DISTANCE_EXTRA = Inflate.DISTANCE_BASE, Inflate.DISTANCE_EXTRA
+	-- pos: the next byte; held: the bits read from the bytes before it but
+	-- not used yet (fewer than 8), the next one lowest.
+	local pos, held, bits = 1, 0, 0
+
+	local function Bits(need)
+		while bits < need do
+			local value = byte(data, pos)
+			if not value then error("damaged", 0) end
+			held = held + value * POW2[bits]
+			pos, bits = pos + 1, bits + 8
+		end
+		local value = held % POW2[need]
+		held = (held - value) / POW2[need]
+		bits = bits - need
+		return value
+	end
+
+	-- One symbol of a Huffman code. A code is packed starting with its
+	-- first (most significant) bit, so it is read one bit at a time.
+	local function Symbol(code)
+		local count = code.count
+		local value, first, index = 0, 0, 0
+		for length = 1, 15 do
+			if bits == 0 then
+				held = byte(data, pos)
+				if not held then error("damaged", 0) end
+				pos, bits = pos + 1, 8
+			end
+			local bit = held % 2
+			held, bits = (held - bit) / 2, bits - 1
+			value = value + bit
+			local n = count[length]
+			if value - n < first then return code.symbol[index + value - first + 1] end
+			index = index + n
+			first = (first + n) * 2
+			value = value * 2
+		end
+		error("damaged", 0)
+	end
+
+	local size, blocks, final = 0, 0, 0
+	while final == 0 do
+		-- Encoders write a block per hundreds of bytes or more. A stream of
+		-- tiny blocks would only make this walk slow.
+		blocks = blocks + 1
+		if blocks > 256 + size / 64 then error("damaged", 0) end
+		final = Bits(1)
+		local kind = Bits(2)
+		local literals, distances
+		if kind == 0 then
+			-- Stored: from the next whole byte, LEN, its complement, LEN bytes.
+			held, bits = 0, 0
+			local a, b, c, d = byte(data, pos, pos + 3)
+			if not d or c + d * 256 ~= 65535 - (a + b * 256) then error("damaged", 0) end
+			local length = a + b * 256
+			pos = pos + 4 + length
+			if pos - 1 > #data then error("damaged", 0) end
+			size = size + length
+		elseif kind == 1 then
+			literals, distances = Inflate.Fixed()
+		elseif kind == 2 then
+			literals, distances = Inflate.Dynamic(Bits, Symbol)
+		else
+			error("damaged", 0)
+		end
+		while literals do
+			local symbol = Symbol(literals)
+			if symbol < 256 then
+				size = size + 1
+			elseif symbol == 256 then
+				break
+			else
+				symbol = symbol - 256 -- 1 .. 29 for the lengths; 286 and 287 are not used
+				if symbol > 29 then error("damaged", 0) end
+				local length = LENGTH_BASE[symbol] + Bits(LENGTH_EXTRA[symbol])
+				local code = Symbol(distances) + 1
+				if code > 30 then error("damaged", 0) end
+				-- A copy from before the start of the stream.
+				if DISTANCE_BASE[code] + Bits(DISTANCE_EXTRA[code]) > size then error("damaged", 0) end
+				size = size + length
+			end
+			if size > limit then error("long", 0) end
+		end
+		if size > limit then error("long", 0) end
+	end
+	return size
+end
+
+function E:Inflate(bytes, limit)
+	local util, methods = C_EncodingUtil, Enum and Enum.CompressionMethod
+	if not (util and util.DecompressString and methods) then return nil, "client" end
+	if type(bytes) ~= "string" or type(limit) ~= "number" then return nil, "damaged" end
+	local ok, problem = pcall(Inflate.Size, bytes, limit)
+	if not ok then return nil, problem == "long" and "long" or "damaged" end
+	local unpacked, text = pcall(util.DecompressString, bytes, methods.Deflate)
+	if not unpacked or type(text) ~= "string" then return nil, "damaged" end
+	if #text > limit then return nil, "long" end
+	return text
+end
+
 -- prefix: "!EUI1!" for settings, a share kind's own prefix for the rest
 -- (E:RegisterShareKind below).
 local function Encode(text, prefix)
@@ -477,11 +701,12 @@ local function Decode(text, prefix)
 	if flag == "z" then
 		local util = C_EncodingUtil
 		if not (util and util.DecodeBase64 and util.DecompressString) then error("this game client can't unpack compressed strings") end
-		local packed = util.DecodeBase64(body)
-		local out = util.DecompressString(packed, Enum.CompressionMethod.Deflate)
-		-- The unpacked text gets the same limit as a pasted one, before
-		-- anything reads it.
-		if type(out) == "string" and #out > MAX_STRING then error("the string is too long") end
+		-- The unpacked text gets the same limit as a pasted one. E:Inflate
+		-- checks it before the game unpacks anything.
+		local out, problem = E:Inflate(util.DecodeBase64(body), MAX_STRING)
+		if problem == "long" then error("the string is too long") end
+		if problem == "client" then error("this game client can't unpack compressed strings") end
+		if not out then error("the string is damaged") end
 		return out
 	elseif flag == "p" then
 		return Base64Decode(body)

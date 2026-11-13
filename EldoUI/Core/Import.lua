@@ -171,15 +171,13 @@ function Import.DecodeForPrint(text)
 	return table.concat(out)
 end
 
+-- The unpacked text gets the same limit as a pasted string. E:Inflate
+-- (Core/Share.lua) checks it before the game unpacks anything.
 local function Inflate(bytes)
-	local util = C_EncodingUtil
-	if not (util and util.DecompressString and Enum.CompressionMethod) then
-		error(L["this game client can't unpack compressed strings"])
-	end
-	local ok, result = pcall(util.DecompressString, bytes, Enum.CompressionMethod.Deflate)
-	if not ok or type(result) ~= "string" then error(L["the string is damaged or cut short"]) end
-	-- The unpacked text gets the same limit as a pasted string.
-	if #result > MAX_STRING then error(L["the string is too long"]) end
+	local result, problem = E:Inflate(bytes, MAX_STRING)
+	if problem == "client" then error(L["this game client can't unpack compressed strings"]) end
+	if problem == "long" then error(L["the string is too long"]) end
+	if not result then error(L["the string is damaged or cut short"]) end
 	return result
 end
 
