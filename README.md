@@ -6,7 +6,9 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
 > [EldoUI 0.7.2001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.2001) (Ordner `EldoUI*/`).
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
-> Das Original-README folgt unverändert.
+> Eigene Ergänzungen des Forks: das deutsche Sprachpaket `EldoUI_Locale_deDE` (in Arbeit, Stand siehe
+> `python3 tools/locale/deDE.py status`) und die Code-Review-Notizen in `review/`.
+> Das Original-README folgt; geändert sind nur die Installationshinweise zum deutschen Paket.
 
 ---
 
@@ -57,10 +59,10 @@ The [module list](docs/wiki/modules.md) describes every module and shows which o
 
 1. Download `EldoUI-<version>.zip` from the [releases page](https://github.com/Eldodeldo/EldoUI/releases).
 2. Close the game and unzip the file into `World of Warcraft\_forever_\Interface\AddOns`. The WoW: Forever beta used the folder `_classic_beta_`; if you played the beta, install EldoUI again into `_forever_`.
-3. Check that these folders sit directly in `AddOns`: `EldoUI`, `EldoUI_LootData`, `EldoUI_GuideData`, `EldoUI_LootSim`, `EldoUI_Emoji`, and `EldoUI_Locale_daDK`.
+3. Check that these folders sit directly in `AddOns`: `EldoUI`, `EldoUI_LootData`, `EldoUI_GuideData`, `EldoUI_LootSim`, `EldoUI_Emoji`, `EldoUI_Locale_daDK`, and `EldoUI_Locale_deDE`.
 4. Start the game, make sure **EldoUI** is ticked in the AddOns list, and log in.
 
-The five companion folders load only when you need them: the Loot Guide data, the guides, the gear simulator, the chat emoji, and the Danish texts.
+The six companion folders load only when you need them: the Loot Guide data, the guides, the gear simulator, the chat emoji, and the Danish and German texts.
 
 ### Updating
 
