@@ -875,10 +875,13 @@ function E:DescribeShareString(text)
 	return lines, payload
 end
 
+-- Only the lists Export offers (registered with share = true) come back in.
+-- Every other account-wide store (notes, ledgers, bar snapshots, the
+-- character list) is never replaced by a string.
 local function ApplyGlobal(namespace, data)
-	local defaults = GlobalDefaults(namespace)
-	if not defaults or type(data) ~= "table" then return false end
-	E.global[namespace] = E.ApplyDefaults(CopyTable(data), defaults)
+	local spec = E.globalSpecs and E.globalSpecs[namespace]
+	if not (spec and spec.share) or type(data) ~= "table" then return false end
+	E.global[namespace] = E.ApplyDefaults(CopyTable(data), spec.defaults or {})
 	return true
 end
 
