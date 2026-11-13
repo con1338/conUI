@@ -1307,12 +1307,14 @@ local COMM = "EldoUI"
 local CHUNK = 220
 local SEND_INTERVAL = 0.2   -- between chunks; the shared queue keeps to the game rate
 local OFFER_TIMEOUT = 90    -- seconds an offer waits for an answer
+local OFFER_COOLDOWN = 30   -- seconds before the same sender's next offer shows
 local RECEIVE_TIMEOUT = 120 -- seconds without a chunk before a transfer is dropped
 local MAX_CHUNKS = math.ceil(MAX_STRING / CHUNK)
 
 local outgoing = {}  -- id -> { text, kind, target, channel, started }
 local transfers = {} -- queue of { id, target, next = 1, chunks = {} }
 local incoming = {}  -- sender -> { id, kind, bytes, total, parts = {}, got = 0, accepted, last }
+local offerTimes = {} -- sender -> GetTime() of their last offer (OFFER_COOLDOWN)
 local sending = false
 local prefixReady = false
 local commOwner = {}
@@ -1470,13 +1472,25 @@ function E:SendShare(key, target)
 	return true
 end
 
--- Only people the player knows may offer settings.
+-- A group the game put together (a battleground raid, an instance group)
+-- is full of strangers: there being in the group is no trust.
+local function StrangerGroup()
+	local instance = _G.LE_PARTY_CATEGORY_INSTANCE
+	if instance and IsInGroup(instance) then return true end
+	local _, kind = IsInInstance()
+	return kind == "pvp" or kind == "arena"
+end
+
+-- Only people the player knows may offer settings: the guild, friends,
+-- and a group the player made (not a battleground's).
 function E:IsTrustedSender(sender, channel)
 	if type(sender) ~= "string" or sender == "" then return false end
 	local short = ShortName(sender)
 	if E:IsMe(short) then return false end
-	if channel == "PARTY" or channel == "RAID" or channel == "INSTANCE_CHAT" or channel == "GUILD" then return true end
-	if UnitInParty(short) or UnitInRaid(short) then return true end
+	if channel == "GUILD" then return true end
+	local strangers = StrangerGroup()
+	if not strangers and (channel == "PARTY" or channel == "RAID") then return true end
+	if not strangers and (UnitInParty(short) or UnitInRaid(short)) then return true end
 	if IsInGuild() and C_GuildInfo and C_GuildInfo.MemberExistsByName then
 		local ok, member = pcall(C_GuildInfo.MemberExistsByName, sender)
 		if ok and member then return true end
@@ -1516,7 +1530,22 @@ local function OnOffer(sender, id, kind, bytes, total)
 	if bytes > MAX_STRING or total > MAX_CHUNKS or total < 1 then return end
 	local current = incoming[sender]
 	if current and current.accepted then return end -- one transfer per sender
-	incoming[sender] = { id = id, kind = kind, bytes = bytes, total = total, parts = {}, got = 0, last = GetTime() }
+	-- One offer per sender every OFFER_COOLDOWN seconds, and never in place
+	-- of a question the player has open (a reset, an import, another
+	-- offer): the confirm window is shared, and showing an offer would
+	-- cancel that question.
+	local now = GetTime()
+	for name, at in pairs(offerTimes) do
+		if now - at >= OFFER_COOLDOWN then offerTimes[name] = nil end
+	end
+	if offerTimes[sender] then return end
+	offerTimes[sender] = now
+	local asking = E:GetConfirm()
+	if asking and asking:IsShown() then
+		E:Print(L["%s wants to send you EldoUI settings. Answer your open question first; they can offer again."]:format(ShortName(sender)))
+		return
+	end
+	incoming[sender] = { id = id, kind = kind, bytes = bytes, total = total, parts = {}, got = 0, last = now }
 	local message = L["%s wants to send you EldoUI settings:\n%s (%.1f KB)\n\nAccept to receive them. You see what they change before anything is applied."]
 		:format(ShortName(sender), E:Highlight(CategoryTitle(kind)), bytes / 1024)
 	local data = { sender = sender, id = id }
