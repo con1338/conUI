@@ -953,8 +953,14 @@ local function ApplyPayload(payload, profileName, target)
 		end
 		E:RefreshTheme()
 	elseif kind:match("^global:") then
-		if not ApplyGlobal(kind:match("^global:(.+)$"), payload.data) then
-			E:Print(L["This string holds a list your EldoUI doesn't have (%s)."]:format(kind:match("^global:(.+)$")))
+		local namespace = kind:match("^global:(.+)$")
+		if not ApplyGlobal(namespace, payload.data) then
+			local shown = (namespace:gsub("|", "||"))
+			if E.globalSpecs and E.globalSpecs[namespace] then
+				E:Print(L["This list can't be imported from a string (%s)."]:format(shown))
+			else
+				E:Print(L["This string holds a list your EldoUI doesn't have (%s)."]:format(shown))
+			end
 			return
 		end
 		E:RefreshTheme()
@@ -1509,6 +1515,9 @@ local function AcceptOffer(data)
 	if not entry or entry.id ~= data.id then return end
 	entry.accepted = true
 	entry.last = GetTime()
+	-- An accepted offer doesn't count against the cooldown: the sender's
+	-- next part ("positions" after "general") shows at once.
+	offerTimes[data.sender] = nil
 	SendRaw(("A\t%s"):format(entry.id), "WHISPER", data.sender)
 end
 
@@ -1542,7 +1551,10 @@ local function OnOffer(sender, id, kind, bytes, total)
 	offerTimes[sender] = now
 	local asking = E:GetConfirm()
 	if asking and asking:IsShown() then
-		E:Print(L["%s wants to send you EldoUI settings. Answer your open question first; they can offer again."]:format(ShortName(sender)))
+		E:Print(L["%s wants to send you EldoUI settings. Answer your open question first; they can offer again in %d seconds."]
+			:format(ShortName(sender), OFFER_COOLDOWN))
+		-- The sender hears "declined" instead of waiting out the offer.
+		SendRaw(("N\t%s"):format(id), "WHISPER", sender)
 		return
 	end
 	incoming[sender] = { id = id, kind = kind, bytes = bytes, total = total, parts = {}, got = 0, last = now }
