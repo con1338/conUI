@@ -69,7 +69,21 @@ Das Plugin erscheint unter **Plugins** in den EldoUI-Optionen und lässt sich do
 - Die deutschen Namen der klassischen Dungeons stammen aus dem Gedächtnis, nicht aus dem Client; der
   Name aus der Dungeonliste des Clients wird zusätzlich erkannt.
 
-## Prüfen
+## Im Spiel prüfen
+
+Nach dem Login mit `/eui errors` auf neue Fehler schauen; `/eui diag` zeigt eine Zeile „Group Board“.
+
+| Was ausprobieren | Erwartung |
+|---|---|
+| In einer Hauptstadt `/eui board` öffnen, SucheNachGruppe beigetreten | Beiträge erscheinen nach und nach, neueste oben, mit Ort und Rollen |
+| „Meine Stufe“ an- und abschalten | Ohne den Filter mehr Beiträge (auch Orte weit über/unter der Stufe) |
+| Einen Beitrag anklicken | Chatfeld öffnet ein Flüstern an den Absender |
+| Bei einem LFG-Beitrag „Einladen“ | Einladung geht raus; im Kampf nur ein Hinweis im Fenster |
+| Einen Dungeon betreten | Fenster sagt „Chat hier verborgen“, keine Fehler |
+| Optionen > Hinweis an, auf eine passende Gruppe warten | Eine Chatzeile und ein Sound, kein zweiter bei Wiederholung |
+| Plugins-Seite: Plugin aus- und wieder einschalten | Fenster schließt, Liste leer, danach füllt sie sich wieder |
+
+## Prüfen (offline)
 
 ```bash
 lua5.1 tools/groupboard/test_parse.lua
