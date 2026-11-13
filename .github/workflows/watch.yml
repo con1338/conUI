@@ -1,0 +1,33 @@
+# Version watcher, once a day: a new WoW: Forever patch (live or on the
+# test client) or a new EldoUI release opens an issue with the label
+# "Versions-Check" (tools/ci/watch_versions.py). Nothing new: a quiet green
+# run with the current versions in its summary.
+#
+# GitHub runs scheduled workflows only from the default branch (main).
+# Start it by hand under Actions > Versionswächter > Run workflow.
+name: Versionswächter
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: version-watch
+
+jobs:
+  watch:
+    name: Versionen prüfen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Spiel und EldoUI prüfen
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/ci/watch_versions.py --issues
