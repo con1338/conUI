@@ -15,7 +15,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben | `3deb369` |
 | F06 | Fremdtext mit Link-/Escape-Codes ungefiltert im Chat | niedrig–mittel | behoben | `eee687e` |
 | F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | behoben | `419d511` |
-| F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | offen | |
+| F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | behoben | `d6042ce` |
 | F09 | Segensplan und Whisper-Kontakte ohne Obergrenze | niedrig | behoben | `3b0c340` |
 | F10 ✔ | RaidLoot-JSON: `null` verschiebt Array-Elemente | niedrig | bewusst nicht | |
 | F11 | Castbar wertet geheime Werte direkt aus | hoch (plausibel) | behoben | `e5844d2` |
@@ -154,6 +154,26 @@ neuer Fehler.
 - **Stelle:** `Core/Share.lua:480`; `Core/Import.lua:179`
 - **Problem:** 1–2 MB komprimierte Daten können auf sehr viel mehr entpacken, bevor `#out > MAX_STRING` greift.
   Ob `C_EncodingUtil.DecompressString` selbst begrenzt, ist unklar.
+- **Umsetzung:**
+  - Neues `E:Inflate(bytes, limit)` (`Core/Share.lua:668`). Es geht vorher den rohen DEFLATE-Strom durch
+    (`Inflate.Size`, `:576`) und zählt die Bytes, die beim Entpacken entstünden, ohne sie zu erzeugen. Sobald die
+    Summe die Grenze übersteigt, bricht es ab. Ein String, der auf 64 MB entpacken würde, kostet so nur ein paar
+    tausend Schritte. Erst wenn die Größe passt, entpackt das Spiel.
+  - Gelesen wird jeder Code wie in zlib. Was zlib ablehnt, lehnt auch die Prüfung ab: Blocktyp 3, Kopie von vor dem
+    Anfang, Codes 286/287 und 30/31, überbelegte oder unvollständige Code-Tabellen, abgeschnittene Daten.
+  - Zusätzlich abgelehnt: mehr als 256 Blöcke plus einer je 64 entpackte Bytes. Solche Ströme schreibt kein
+    Encoder (zlib und LibDeflate schreiben einen Block je 16–64 KB). Sie würden nur die Prüfung verlangsamen.
+  - EldoUI-Strings (`Decode` in `Share.lua`) und ElvUI-/EllesmereUI-Strings (`Inflate` in `Import.lua`) entpacken
+    nur noch über `E:Inflate`. Die Meldungen bleiben dieselben. Nicht geändert: `Modules/Auction.lua` entpackt nur
+    die eigenen gespeicherten Auktionsdaten, keine Strings von anderen.
+  - Test: `tools/share/test_inflate.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die Prüfung aus
+    `Share.lua` und prüft sie mit 779 Strömen, die `tools/share/deflate_cases.py` mit zlib erzeugt: Größe wie
+    zlib, abgeschnittene und an einem Bit veränderte Ströme, handgemachte fehlerhafte Ströme, Bomben, Blockgrenze.
+    Außerdem prüft er, dass `E:Inflate` zu große und beschädigte Strings nie an `DecompressString` gibt.
+  - Kosten: Die Prüfung läuft in Lua und geht jeden Code einzeln durch. Gemessen mit Lua 5.1 auf dem CI-Rechner:
+    eine große, profilartige Tabelle (113 KB gepackt, 1 MB entpackt) 0,04 s. Die ungünstigsten Ströme brauchen etwa
+    0,3–0,4 s je 500 KB gepackt. Bei voller Länge sind das bis etwa 0,6 s für EldoUI-Strings (1 MB) und 1,2 s für
+    ElvUI-/EllesmereUI-Strings (2 MB). Das fällt nur beim Einfügen oder Empfangen an, einmal pro String.
 
 ### F09 – Daten ohne Obergrenze (niedrig, bestätigt)
 - **Stellen:** `Modules/Blessings.lua:289` (Segensplan nimmt beliebige Namen an, wird nie aufgeräumt);
@@ -256,3 +276,5 @@ Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehle
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
 | F07 | `/eui exportlua module:Chat`, im Text `["version"]` des Schemas auf 99 setzen, mit `/eui import` einfügen | Meldung „comes from a newer EldoUI“ statt „damaged“ |
 | F07 | einen Modul-String und „General“ exportieren und wieder importieren | Import wie vorher, keine Lua-Fehler; im Lua-Export steht `["migrations"]` |
+| F08 | „All“ exportieren (`/eui export all`) und mit `/eui import` wieder einfügen; einen ElvUI-Profilstring einfügen | Vorschau wie vorher, ohne spürbare Verzögerung; keine Lua-Fehler |
+| F08 | einer Gruppe oder Gilde per „Send to“ ein Profil schicken | kommt an wie vorher |
