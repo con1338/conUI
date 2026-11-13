@@ -210,9 +210,13 @@ Diese Entscheidungen gelten für alle weiteren Texte.
 | thousand / million / billion | Tsd. / Mio. / Mrd. |
 | on / off als Anzeige (nicht eingetippt) | an / aus |
 
-**Namen bleiben englisch:** Layouts (EldoUI Center, Twin Orbs, Modern Center …), Skins (Infernal Stone,
-Forged Metal, Faction Heritage, Portrait Classic …) und Stile. Fraktionen darin deutsch:
+**Namen bleiben englisch:** Layouts (EldoUI Center, Twin Orbs, Modern Center …) und Skins (Infernal Stone,
+Forged Metal, Faction Heritage, Portrait Classic …) – das sind Eigennamen. Fraktionen darin deutsch:
 „Faction Heritage: Allianz“.
+
+**Modul-Stile werden übersetzt**, wenn ihr Name etwas beschreibt: „Quiet“ → „Ruhig“, „Compact“ → „Kompakt“,
+„Cinematic“ → „Filmisch“, „Chunky“ → „Wuchtig“, „Large“ → „Groß“, „Plain“ → „Schlicht“. Reine Eigennamen
+(Modern, Classic, Minimal) bleiben.
 
 **Spiel-Eigennamen** (Zauber, Gegenstände, Reagenzien, Gebiete) wie im deutschen Client. Wo unsicher: so
 belassen, wie der Code ihn zeigt – viele dieser Namen sind nur Ersatz, bis der Client den echten Namen liefert.
