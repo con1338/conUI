@@ -6427,15 +6427,21 @@ do
 	-- Only a saved older version brings the note: when the
 	-- beta loses saved variables (all of them, or only this window's), the
 	-- player is not shown it again on every login.
+	-- Fork (WoW-UI-Addon): its versions carry a mark, "0.7.2001-p1"; the notes
+	-- belong to the EldoUI release in front of it, and a new mark on the same
+	-- release brings no note.
+	local function Release(version)
+		return type(version) == "string" and version:match("^(.-)%-p%d+$") or version
+	end
 	local function CheckUpdateNote()
 		local db = WindowDB()
 		local notes = NewestNotes()
 		if not notes or E.version == "dev" or db.seenVersion == E.version then return end
-		if db.seenVersion == nil then
+		if db.seenVersion == nil or Release(db.seenVersion) == Release(E.version) then
 			db.seenVersion = E.version
 			return
 		end
-		if notes.version ~= E.version or db.updatePopup == false then
+		if notes.version ~= Release(E.version) or db.updatePopup == false then
 			db.seenVersion = E.version
 			return
 		end

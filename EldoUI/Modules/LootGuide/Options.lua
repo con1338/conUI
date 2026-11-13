@@ -14,8 +14,9 @@ local LG = E.LootGuide
 local L = E.L
 
 local Key = E.Key
-local REPO_URL = "https://github.com/Eldodeldo/EldoUI"
-local ISSUES_URL = "https://github.com/Eldodeldo/EldoUI/issues"
+-- Fork (WoW-UI-Addon): the fork's page and issues, like Errors.REPORT_URL.
+local REPO_URL = "https://github.com/con1338/WoW-UI-Addon"
+local ISSUES_URL = "https://github.com/con1338/WoW-UI-Addon/issues"
 
 local PAGE_TITLES = {
 	foryou = Key("For You"), journal = Key("Journal"), world = Key("Open World"), bis = Key("Best in Slot"),
