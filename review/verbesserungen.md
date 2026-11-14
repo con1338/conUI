@@ -25,10 +25,10 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
 | D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | teilweise | |
 | E1 | Module erst bei Bedarf laden | groß | abwarten | |
-| E2 | Profiling pro Modul (`/eui perf`) | mittel | offen | |
+| E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): E2, D4, B2, C1 (Rest), B4, E3, E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): D4, B2, C1 (Rest), B4, E3, E1.
 Der Rest von C1 (Auren, Combat HUD) braucht einen Test im Spiel mit Masque, deshalb steht er hinten.
 Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Neue Texte brauchen seit A2 eine deutsche
 Übersetzung in `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an
@@ -327,5 +327,28 @@ Inspect-Anfragen, automatische Loot-Verteilung.
    sind (FlightGames allein 0,66 MB). Upstream plant eine Aufteilung (`EldoUI/Core/Modules.lua:252`).
 2. **Kein Profiling pro Modul:** Der zentrale Event-Dispatcher (`EldoUI/Core/Init.lua:200`) und `E.Ticker`
    könnten pro Modul messen (`/eui perf`).
+   - **Umgesetzt (E2):**
+     - Neu: `Core/Perf.lua` mit `/eui perf`. Der Befehl startet die Messung, und solange sie läuft, zeigt er die
+       Ergebnisse. Dazu gibt es `stop`, `reset` und `copy`; `copy` öffnet ein Kopierfeld für Fehlerberichte.
+     - Gemessen wird jeder Aufruf in `RunHandler` (`Init.lua`: `E:RegisterEvent`, `E:RegisterUnitEvent`, alle
+       Modul-Events) und jeder Ticker-Aufruf (`Ticker.lua`), mit `debugprofilestop()`.
+     - Gebucht wird auf den Besitzer: den Modulnamen, „Core“, den Namen, unter dem ein Teil sich angemeldet hat,
+       oder den Anfang des Ticker-Schlüssels („InfoBar:holders“ → InfoBar).
+     - Ergebnis: die zwölf teuersten Besitzer mit ms pro Sekunde, Anteil, Aufrufen und dem langsamsten Aufruf
+       samt Event bzw. Schlüssel, dazu die Summe.
+     - Standardmäßig aus. Ausgeschaltet prüfen Dispatcher und Ticker einen Wert pro Aufruf, sonst nichts.
+     - Robust: Stoppen mitten in einem Handler ist sicher, und ein fehlerhafter Handler wird trotzdem gemessen
+       und gemeldet.
+     - Nicht gemessen: Frame-Skripte auf eigenen Frames eines Moduls (OnUpdate, OnEvent), Hooks auf
+       Spielfunktionen, gesicherte Snippets, das Zeichnen des Spiels. Die Zeiten sind inklusiv: Löst ein Handler
+       ein weiteres Event aus, zählt dessen Zeit mit.
+     - Test: `tools/perf/test_perf.lua` (läuft in `tools/ci/check_all.sh tests`, 31 Prüfungen). Er nimmt
+       `RunHandler` aus `Init.lua`, lädt `Ticker.lua` und `Perf.lua` ganz und läuft mit einer Uhr, die der Test
+       selbst stellt.
+     - Im Spiel prüfen:
+       - `/eui perf` eingeben, ein paar Minuten spielen (Taschen, Kampf, Chat), wieder `/eui perf`. Erwartung:
+         eine Liste mit Modulen und plausiblen Werten (meist deutlich unter 1 ms/s).
+       - `/eui perf copy`: Das Ergebnis steht im Kopierfeld.
+       - `/eui perf stop`: Die Messung endet. Danach `/eui errors`: keine Lua-Fehler.
 3. **OnUpdate ist sauber:** Frames verstecken sich im Leerlauf. Einzig Combat Text setzt pro Frame Punkt,
    Skalierung und Alpha jeder Zeile (`EldoUI/Modules/CombatText/Engine.lua:360`). Niedrige Priorität.
