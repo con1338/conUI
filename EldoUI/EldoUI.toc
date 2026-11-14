@@ -543,6 +543,7 @@ Modules\Fishing.lua
 Modules\RaidLoot\Core.lua
 Modules\RaidLoot\Ledger.lua
 Modules\RaidLoot\UI.lua
+Modules\RaidLoot\Points.lua
 
 # Appearances
 Modules\Appearances.lua

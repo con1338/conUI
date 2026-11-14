@@ -529,7 +529,9 @@ function M:ReservedByMe(itemID)
 	return false
 end
 
-local function NameText(entry, which, me)
+-- points: add the player's DKP or EPGP standing (Points.lua). Only for
+-- what EldoUI shows, never for the chat post: officer notes are private.
+local function NameText(entry, which, me, points)
 	local text = entry.name
 	if which == "sr" and (entry.plus or 0) > 0 then
 		text = ("%s (+%d)"):format(text, entry.plus)
@@ -543,6 +545,8 @@ local function NameText(entry, which, me)
 	if me and entry.name:lower() == me then
 		text = E:TokenHex(E.media.accentText) .. text .. "|r"
 	end
+	local standing = points and M.PointsText and M.PointsText(entry.name)
+	if standing then text = ("%s %s[%s]|r"):format(text, E:TextHex("secondary"), standing) end
 	return text
 end
 
@@ -558,7 +562,7 @@ function M:Line(which, itemID)
 			parts[#parts + 1] = (L["+%d more"]):format(#entries - max)
 			break
 		end
-		parts[#parts + 1] = NameText(entry, which, me)
+		parts[#parts + 1] = NameText(entry, which, me, true)
 	end
 	return table.concat(parts, ", "), #entries
 end
@@ -659,15 +663,18 @@ function M:OnInitialize()
 			desc = "Who soft-reserved an item (SR) and who has it on That's My BiS (TMB), from the lists you imported under Raid Loot.",
 			item = TooltipLines })
 	end
+	if self.InitPoints then self:InitPoints() end
 end
 
 function M:OnEnable()
 	if self.InstallHooks then self:InstallHooks() end
+	if self.EnablePoints then self:EnablePoints() end
 	self:Changed()
 end
 
 function M:OnDisable()
 	if self.UnregisterEvents then self:UnregisterEvents() end
+	if self.DisablePoints then self:DisablePoints() end
 	if self.RefreshRollLines then self:RefreshRollLines() end
 	if self.window and self.window:IsOpen() then self.window:Close() end
 	if self.RefreshLootGuide then self:RefreshLootGuide() end
@@ -680,6 +687,8 @@ function M:OnProfileChanged()
 		-- "See-through window" and the style presets change the panel at once.
 		self.window:Restyle()
 	end
+	-- The guild points settings may have changed (RefreshPoints redraws on a change).
+	if self.RefreshPoints then self:RefreshPoints() end
 	self:Changed()
 end
 

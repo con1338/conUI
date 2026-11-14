@@ -14,7 +14,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | A2 | Texte außerhalb der dänischen Liste ins deutsche Paket (`Fork.lua`) | klein–mittel | umgesetzt | `6e7bdf4`, `bc5f0aa` |
 | B1 | Gruppensuche-Board aus dem Chat (`EldoUI_GroupBoard`) | mittel | umgesetzt | `6fa6000`, `62ae50d` |
 | B2 | Castbars an Party-/Raid-Frames | mittel | offen | |
-| B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | offen | |
+| B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | mittel | offen | |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
@@ -28,7 +28,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | offen | |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B3, E2, D4, B2, C1 (Rest), B4, E3, E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): E2, D4, B2, C1 (Rest), B4, E3, E1.
 Der Rest von C1 (Auren, Combat HUD) braucht einen Test im Spiel mit Masque, deshalb steht er hinten.
 Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Neue Texte brauchen seit A2 eine deutsche
 Übersetzung in `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an
@@ -136,6 +136,40 @@ Ein Laden aller Dateien mit API-Stubs gibt es nicht.
 | Castbars an Party-/Raid-Frames | `UNIT_SPELLCAST\|UnitCastingInfo` in GroupFrames: 0 Treffer | mittel |
 | DKP-/EPGP-Stände anzeigen | `EPGP\|DKP`: 0 Treffer (nur softres, TMB, GDKP) | klein–mittel |
 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | `songflower\|dragonslayer\|world buff`: 0 Treffer | mittel |
+
+**B3 – DKP-/EPGP-Stände (umgesetzt):**
+- Datenquelle: Gilden mit DKP oder EPGP führen den Stand jedes Mitglieds in den Notizen des Gildenrosters,
+  geschrieben vom DKP-/EPGP-Addon oder von einem Offizier. Neu: `Modules/RaidLoot/Points.lua` liest sie, nur
+  lesend.
+- Anzeige:
+  - hinter jedem Namen in den SR- und TMB-Zeilen (Gegenstands-Tooltips, Würfelfenster);
+  - im Tooltip von Gildenmitgliedern (Tooltip-Abschnitt „Guild points (DKP and EPGP)“);
+  - im Info-Bar-Block „Guild points“: der eigene Stand; im Tooltip die Gruppe, ohne Gruppe die besten 15 der
+    Gilde.
+- Datenschutz: Der Chat-Beitrag mit den Reservierungen enthält die Stände nie, denn Offiziersnotizen sind für
+  Offiziere.
+- Formate:
+  - EPGP „EP,GP“, wie EPGP und CEPGP es schreiben. Die Priorität ist EP / (GP + Basis-GP); das Basis-GP stammt aus
+    der Gildeninfo (`@BASE_GP:n`, die Zeile des EPGP-Addons), sonst 0. Twinks, deren Notiz der Name des Mains ist
+    (EPGPs Twink-Regel), zeigen den Stand des Mains.
+  - DKP: „Net:350“ (QDKP), „DKP: 350“, „350 DKP“. Mit der Einstellung „DKP“ zählt auch eine bloße Zahl.
+  - „Automatisch“ (Standard) nimmt nie eine bloße Zahl, weil eine Notiz für alles Mögliche eine Zahl enthalten
+    kann.
+- Notiz: Standard ist die Offiziersnotiz, gelesen nur, wenn das Spiel sie zeigt. Wahlweise die öffentliche Notiz
+  oder beide. Die Optionen stehen auf der Raid-Loot-Seite vor „Posting“.
+- Neu gelesen wird bei `GUILD_ROSTER_UPDATE`. Neu gezeichnet wird nur, wenn sich ein Stand geändert hat.
+- Nicht umgesetzt: Daten aus den Saved Variables anderer DKP-Addons (z. B. MonolithDKP) lassen sich nicht lesen.
+  Nur was in den Notizen steht, zählt.
+- Zwei neue WoW-API-Namen in `tools/ci/globals.lua`: `GetGuildInfoText`, `UnitIsInMyGuild`.
+- Test: `tools/raidloot/test_points.lua` (läuft in `tools/ci/check_all.sh tests`, 69 Prüfungen). Er lädt
+  `Points.lua` ganz und die Zeilenbauer aus `RaidLoot/Core.lua`, mit nachgebautem Roster, Einheiten und Info-Bar.
+- Im Spiel prüfen, in einer Gilde mit EPGP- oder DKP-Notizen:
+  - Maus über ein Gildenmitglied: Zeile „EPGP“ oder „DKP“ mit dem Stand.
+  - Info-Bar-Block „Guild points“ in einen Platz setzen: eigener Stand; der Tooltip listet die Gruppe bzw. die
+    Gilde.
+  - Mit importierten Soft-Reserves: Im Gegenstands-Tooltip steht hinter den Namen „[PR …]“ bzw. „[… DKP]“.
+    „Post reservations“ postet ohne Stände.
+  - Danach `/eui errors`: keine Lua-Fehler.
 
 **Schon vorhanden:** Damage-Meter-Skin, Encounter Timeline, Fokus- und Boss-Frames, frei belegbare Datenleisten
 (`RegisterDataText`), Profile pro Charakter und Talentgruppe, Nameplate-Farbregeln, 67 Tags, Aurenfilter-Editor,
