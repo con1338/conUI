@@ -94,16 +94,27 @@ local databaseLoaded = false
 -- client) must not skip the handlers after it, which are walked in no
 -- fixed order. The core's own handler (owner E) always runs first, so at
 -- PLAYER_LOGIN the scale and the modules are ready for everyone else.
+-- While /eui perf runs (Core/Perf.lua), probe(owner, event, ms) hears how
+-- long each handler took; otherwise it is nil and costs one check.
+local probe
+
+function E:SetEventProbe(fn)
+	probe = fn
+end
+
 local function RunHandler(map, event, owner, ...)
 	local current = map[event]
 	local handler = current and current[owner]
 	if not handler then return end
+	local measure = probe
+	local started = measure and debugprofilestop()
 	local ok, err
 	if type(handler) == "string" then
 		ok, err = pcall(owner[handler], owner, event, ...)
 	else
 		ok, err = pcall(handler, owner, event, ...)
 	end
+	if measure then measure(owner, event, debugprofilestop() - started) end
 	if not ok then geterrorhandler()(err) end
 end
 

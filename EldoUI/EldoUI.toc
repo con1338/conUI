@@ -81,6 +81,7 @@ Data\MovableWindows.lua
 Core\WindowMover.lua
 Core\ProfileRules.lua
 Core\Diag.lua
+Core\Perf.lua
 Core\UnitFX.lua
 Core\Plugins.lua
 Core\AddonFit.lua

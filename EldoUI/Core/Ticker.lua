@@ -18,6 +18,8 @@
 --   T:Count([owner])                       subscriptions, all or one owner's
 --   T:IsRunning()                          true while the OnUpdate is hooked
 --   T:Stats()                              frames handled and calls made
+--   T:SetProbe(fn)                         fn(owner, key, ms) after each call while
+--                                          /eui perf runs (Core/Perf.lua); nil ends it
 --
 -- `elapsed` is the time since that subscriber was last called (or since it
 -- subscribed). A call that fails is reported and the others still run.
@@ -35,6 +37,9 @@ local byKey = {} -- key -> subscription
 local walking = false -- a frame is being handled right now
 local dirty = false -- a subscription ended while walking: compact afterwards
 local frames, calls = 0, 0
+-- While /eui perf runs (Core/Perf.lua), probe(owner, key, ms) hears how
+-- long each call took; otherwise it is nil and costs one check.
+local probe
 
 local OnUpdate
 
@@ -75,7 +80,10 @@ OnUpdate = function(_, elapsed)
 				local waited = sub.waited
 				sub.waited = 0
 				calls = calls + 1
+				local measure = probe
+				local started = measure and debugprofilestop()
 				local ok, err = pcall(sub.fn, waited)
+				if measure then measure(sub.owner, sub.key, debugprofilestop() - started) end
 				if not ok then geterrorhandler()(err) end
 			end
 		end
@@ -122,6 +130,10 @@ function T:UnsubscribeOwner(owner)
 	end
 	if ended > 0 then Compact() end
 	return ended
+end
+
+function T:SetProbe(fn)
+	probe = fn
 end
 
 function T:IsSubscribed(key)
