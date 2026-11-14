@@ -47,6 +47,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: tools/ci/check_all.sh tests
 
+      - name: Ganzes Addon offline laden
+        if: ${{ !cancelled() }}
+        run: tools/ci/check_all.sh load
+
       - name: Deutsche Texte
         if: ${{ !cancelled() }}
         run: |
