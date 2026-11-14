@@ -14,7 +14,12 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > das fertige ZIP auf der Releases-Seite dieses Repos, und ein täglicher Versionswächter meldet neue
 > WoW: Forever-Patches und EldoUI-Versionen als Issue. Wie das alles läuft: [`tools/ci/README.md`](tools/ci/README.md).
 > Fork-Versionen tragen die Endung `-pN` (`0.7.2001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
-> Das Original-README folgt; geändert sind nur die Installationshinweise zum deutschen Paket und zum Plugin.
+> Das Original-README folgt. Es spricht vom „0.7.1000 setup“: 0.7.1000 ist EldoUIs Ausgangsstand für Profile und
+> Presets, und Upstream hat den Text für 0.7.2000 und 0.7.2001 so gelassen (das Wiki in `docs/wiki/` ebenso). Was
+> sich seitdem geändert hat, steht im [CHANGELOG](CHANGELOG.md) und in
+> [`docs/wiki/current-release.md`](docs/wiki/current-release.md). Geändert sind im Original nur die
+> Installationshinweise zum deutschen Paket und zum Plugin, die Sprachangaben (Deutsch) und der Link für
+> Fehlerberichte (zu diesem Repo, wie der Report-Knopf im Spiel).
 
 ---
 
@@ -40,7 +45,7 @@ This README and the [player guide](docs/wiki/getting-started.md) describe the 0.
 - **[Eldostar](docs/wiki/eldostar.md) and [My Adventure](docs/wiki/my-adventure.md).** EldoUI's own guide window follows community guides, with step controls and a waypoint to the next goal. The Journal brings together your character's story, dungeon runs, quests, keepsakes and notes.
 - **Profiles and sharing.** Account and character profiles, profiles per talent group, and share strings for a whole setup or a single module. Imports EllesmereUI, ElvUI, and Edit Mode strings.
 - **Saved data and backups.** Settings and journals live separately from the addon files. `/eui data` lists copies kept before saved-data updates and lets you restore them; the journal also has backup and export controls.
-- **English and Danish.** EldoUI's own texts can be shown in Danish, under General > EldoUI language.
+- **English, Danish and German.** EldoUI's own texts can be shown in Danish or, with this fork's German pack, in German, under General > EldoUI language.
 - **Other addon choices.** Setup offers profiles for supported addons such as Details! and BigWigs. The Other addons page lets you choose who handles recognized overlapping jobs.
 - **Fair play.** EldoUI only changes how the interface looks and where things sit, and shows only what the game gives addons. It never plays for you, and nothing acts without your click unless you turn it on.
 
@@ -100,7 +105,7 @@ The [command reference](docs/wiki/commands.md) lists all of them.
 ## Compatibility
 
 - **Game:** WoW: Forever (Interface 16001). EldoUI does not run on Classic Era or Retail.
-- **Languages:** EldoUI's own texts are in English (US) and Danish: pick Dansk under General > EldoUI language and reload. The Loot Guide is also translated into German, French, Spanish, Brazilian Portuguese, Russian, Korean, and Chinese.
+- **Languages:** EldoUI's own texts are in English (US), Danish and, with this fork's pack, German: pick Dansk or Deutsch under General > EldoUI language and reload. The Loot Guide is also translated into German, French, Spanish, Brazilian Portuguese, Russian, Korean, and Chinese.
 - **Other addons:** EldoUI works next to Details!, BigWigs, Deadly Boss Mods, Questie, RestedXP, Guidelime, HandyNotes, and Masque. For recognized addons, it offers ownership choices for supported jobs such as bags, bars, frames and chat: a whole module (Bags while Bagnon is loaded) or only the parts both do (selling gray items with Leatrix Plus). You pick who handles each job on the Other addons page, with `/eui addons`, or in the setup. See [Using EldoUI with other addons](docs/wiki/other-addons.md).
 
 ## Privacy and safety
@@ -128,7 +133,7 @@ EldoUI never connects to the internet and sends nothing to its author or to any 
 
 1. Type `/eui errors` to open EldoUI's error log.
 2. Press Report on the error. It shows a ready-to-paste bug report with the version and setup details, and with your character's name, realm, guild and chat text left out.
-3. Open the [bug form](https://github.com/Eldodeldo/EldoUI/issues/new?template=bug_report.yml) and paste it in, with a few words on what you were doing.
+3. Open the [bug form](https://github.com/con1338/WoW-UI-Addon/issues/new?template=bug_report.yml) of this fork and paste it in, with a few words on what you were doing. A bug in EldoUI itself goes on from there to [EldoUI's tracker](https://github.com/Eldodeldo/EldoUI/issues).
 
 EldoUI never sends anything by itself: a report leaves the game only when you paste it.
 
