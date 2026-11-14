@@ -64,6 +64,10 @@ check_tests() {
 	lua5.1 tools/share/test_inflate.lua || return 1
 	step "Click-cast keys on hover after a roster change"
 	lua5.1 tools/clickcast/test_hover_unit.lua || return 1
+	step "Click-cast bindings for compact frames made in combat"
+	lua5.1 tools/clickcast/test_compact_combat.lua || return 1
+	step "Nameplate driver hook after Blizzard_NamePlates loads"
+	lua5.1 tools/nameplates/test_driver_hook.lua || return 1
 	step "Version watcher (offline)"
 	python3 tools/ci/test_watch_versions.py
 }

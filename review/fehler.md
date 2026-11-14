@@ -24,7 +24,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F14 | Mover ziehen über Kampfbeginn → ADDON_ACTION_BLOCKED | mittel (plausibel) | behoben | `8f18ddf` |
 | F15 | Blizzard-Leiste kommt mit „toten“ Buttons zurück | mittel | behoben | `c0345a9` |
 | F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | behoben | `2731180` |
-| F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | teilweise | `9159f19` |
+| F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | behoben | `9159f19`, `e49c371` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -275,10 +275,29 @@ neuer Fehler.
 - `Modules/ClassPower.lua:1720`, `:1898`: Hooks vergleichen eine evtl. geheime Textur und prüfen nicht, ob das Modul aktiv ist.
 - `Modules/Nameplates.lua:2979`: Hook auf `NamePlateDriverFrame` beim Laden der Datei statt über `E:OnBlizzardAddOn`.
 - `Modules/Auras.lua:740`: `UNIT_INVENTORY_CHANGED` ohne Unit-Filter.
-- **Umsetzung (teilweise):**
+- **Umsetzung:**
   - ClassPower: Hook ohne Texturvergleich (Guard wie in UnitFrames), beide Hooks prüfen `M.active`.
   - Auras: Event nur noch für `player` registriert.
-  - Offen: Click-Bindungen für im Kampf entstandene Kompaktframes, Nameplate-Hook beim Laden.
+  - Click-Casting (`e49c371`):
+    - Kompaktframes, die Blizzard im Kampf einrichtet (Hook auf `CompactUnitFrame_SetUpFrame`), werden jetzt
+      vorgemerkt (`setUpInCombat`). Bisher wurden sie übersprungen. Dasselbe gilt für Frames, die
+      `GROUP_ROSTER_UPDATE` im Kampf findet.
+    - Nach dem Kampf bekommen sie ihre Bindungen (`PickUpCompactFrames`). Dafür reicht ein einziger Auftrag
+      über `E:RunOutOfCombat` mit festem Schlüssel, egal wie viele Frames es sind.
+    - Im Kampf wird nichts gesetzt. Ob das Modul, „Blizzard-Frames“ und der Improve-Schalter an sind, wird erst
+      geprüft, wenn der Auftrag läuft.
+    - Bisher kamen die Bindungen erst mit der nächsten Roster-Änderung außerhalb des Kampfs.
+  - Nameplates (`e49c371`):
+    - Der Hook auf `NamePlateDriverFrame.OnNamePlateAdded` greift sofort, wenn der Driver beim Laden der Datei
+      da ist, sonst sobald `Blizzard_NamePlates` geladen ist. So machen es auch die anderen Driver-Hooks
+      (`Nameplates/Size.lua`).
+    - Er steht in einem eigenen `do`-Block, weil die Datei nahe an Luas Grenze von 200 lokalen Variablen liegt.
+  - Tests (laufen in `tools/ci/check_all.sh tests`):
+    - `tools/clickcast/test_compact_combat.lua` schneidet Bindungsattribute, Frame-Liste, `ApplyFrame`,
+      `PickUpCompactFrames` und `M:OnEnable` aus `ClickCast.lua`. Er spielt sie mit einem Modell durch, in dem
+      `SetAttribute` im Kampf blockiert ist.
+    - `tools/nameplates/test_driver_hook.lua` prüft den Hook: Driver beim Laden da, mit und ohne geladenes
+      Addon; Driver erst mit dem Addon; kein Driver. Es wird immer genau einmal gehookt.
 
 ## Sonstiges
 
@@ -299,6 +318,8 @@ Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehle
 | F03 | eigenen Snapshot exportieren, ein Makro mit `/run` darin, wieder importieren | Warnung im Import-Dialog, „Add missing macros“ nicht angehakt |
 | F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
+| F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung |
+| F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates |
 | F07 | `/eui exportlua module:Chat`, im Text `["version"]` des Schemas auf 99 setzen, mit `/eui import` einfügen | Meldung „comes from a newer EldoUI“ statt „damaged“ |
 | F07 | einen Modul-String und „General“ exportieren und wieder importieren | Import wie vorher, keine Lua-Fehler; im Lua-Export steht `["migrations"]` |
 | F08 | „All“ exportieren (`/eui export all`) und mit `/eui import` wieder einfügen; einen ElvUI-Profilstring einfügen | Vorschau wie vorher, ohne spürbare Verzögerung; keine Lua-Fehler |

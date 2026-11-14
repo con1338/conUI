@@ -2976,9 +2976,19 @@ local function OnBlizzardAdded(unit)
 	local plate = pool[nameplate]
 	if hiddenBlizzard[unitFrame] and plate and plates[unit] == plate and plate.kind ~= "EXTRAS" then Quiet(unitFrame) end
 end
-local driverFrame = _G.NamePlateDriverFrame
-if driverFrame and type(driverFrame.OnNamePlateAdded) == "function" then
-	hooksecurefunc(driverFrame, "OnNamePlateAdded", function(_, unit) OnBlizzardAdded(unit) end)
+-- Blizzard's plate code (Blizzard_NamePlates) may load after this file:
+-- hook its driver now if it is there, else once the addon has loaded.
+-- (Own block: the file is close to Lua's limit of 200 locals.)
+do
+	local driverHooked = false
+	local function HookDriverAdded()
+		local driverFrame = _G.NamePlateDriverFrame
+		if driverHooked or not (driverFrame and type(driverFrame.OnNamePlateAdded) == "function") then return end
+		driverHooked = true
+		hooksecurefunc(driverFrame, "OnNamePlateAdded", function(_, unit) OnBlizzardAdded(unit) end)
+	end
+	HookDriverAdded()
+	E:OnBlizzardAddOn("Blizzard_NamePlates", HookDriverAdded)
 end
 -- Settings or switches changed: quiet frames left while Blizzard's plates
 -- are wanted again ask once (each time that happens) for the reload that
