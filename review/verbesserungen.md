@@ -11,7 +11,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | Nr. | Kurz | Aufwand | Status | Commit |
 |---|---|---|---|---|
 | A1 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | groß | umgesetzt | `7deb15e` … `37a75bf` |
-| A2 | Texte, die nur der Fork hat, ins deutsche Paket (heute nur Englisch) | klein–mittel | offen | |
+| A2 | Texte außerhalb der dänischen Liste ins deutsche Paket (`Fork.lua`) | klein–mittel | umgesetzt | `6e7bdf4`, `bc5f0aa` |
 | B1 | Gruppensuche-Board aus dem Chat (`EldoUI_GroupBoard`) | mittel | umgesetzt | `6fa6000`, `62ae50d` |
 | B2 | Castbars an Party-/Raid-Frames | mittel | offen | |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | offen | |
@@ -28,12 +28,10 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | offen | |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): A2, C1, B3, E2, D4, B2, B4, E3, E1.
-Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. A2 steht vorn, weil jede weitere Verbesserung
-neue Texte bringt: `tools/locale/deDE.py check` lässt im deutschen Paket nur Schlüssel zu, die das dänische Paket
-von Upstream hat. Deshalb sind die Meldungen aus F07 und die Optionen aus C2 im deutschen Spiel englisch. Nötig
-wäre eine eigene Datei für Fork-Texte im Paket, die `check` gegen die Texte im Code statt gegen die dänische Liste
-prüft. B2 hängt an geheimen Werten im Kampf (wie
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1, B3, E2, D4, B2, B4, E3, E1.
+Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Neue Texte brauchen seit A2 eine deutsche
+Übersetzung in `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an
+geheimen Werten im Kampf (wie
 F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`),
 und ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1). D4: Einzeltests, die echten Code aus
 den Dateien schneiden, gibt es (`tools/share/`, `tools/clickcast/`, `tools/nameplates/`, `tools/infobar/`,
@@ -57,6 +55,41 @@ Ein Laden aller Dateien mit API-Stubs gibt es nicht.
 > deutsches Datumsformat (`Core/Dates.lua`) und `E:InSentence` für Wörter, die in Sätze eingesetzt werden.
 > Nicht geprüft am deutschen Client sind Zauber-, Gegenstands- und Gebietsnamen, die die Übersetzer aus dem
 > Gedächtnis gesetzt haben. Die Analyse unten ist der Stand vor der Umsetzung.
+
+**A2 – Texte außerhalb der dänischen Liste (umgesetzt):**
+- Problem: Das Paket übernimmt die Schlüssel aus EldoUIs dänischem Paket, und `deDE.py check` lehnte alles andere
+  ab. Texte, die der Fork neu geschrieben hat (F01, F03, F04, F07, C2), erschienen deshalb im deutschen Spiel
+  englisch. Dasselbe galt für einige Texte von EldoUI selbst, die im dänischen Paket fehlen.
+- Neu: `EldoUI_Locale_deDE/Fork.lua`, als letzte Datei geladen. `E:RegisterLocale` führt Tabellen derselben
+  Sprache zusammen. Sie enthält 23 Texte:
+  - die 11 des Forks;
+  - 6 `L["…"]`-Texte von EldoUI: Prüfung von Profilnamen, „Profil … hat ausgeschaltet“, die Zeile beim Login;
+  - 6 Texte, die EldoUI erst beim Anzeigen übersetzt (`-- no-L (translated where shown)`): drei
+    Selbstgefunden-Hinweise und drei Finder-Einträge.
+- `tools/locale/deDE.py`:
+  - `check`: Jeder Schlüssel in `Fork.lua` muss ein String im Code sein und darf kein dänischer Schlüssel sein.
+    Es gelten dieselben Platzhalter-Regeln wie überall.
+  - Neu in `check`: Jeder `L["…"]`-Schlüssel im Code braucht eine deutsche Übersetzung, in einer der beiden
+    Listen. Ein neuer Text ohne Übersetzung lässt die CI also fehlschlagen.
+  - `apply` legt Schlüssel, die keine dänischen sind, aber im Code stehen, in `Fork.lua` ab. `build` und `xref`
+    beziehen sie ein, `status` zählt sie.
+  - Lua-Escapes werden als Bytes gelesen: `"\226\128\147"` ist ein Gedankenstrich. Bisher zerfiel er in drei
+    falsche Zeichen, und die Fundstellen für Übersetzer stimmten bei solchen Texten nicht.
+- Nicht automatisch geprüft: Texte, die erst beim Anzeigen übersetzt werden, also Beschriftungen und
+  Beschreibungen in Optionstabellen und `no-L`-Zeilen. Eine Suche danach findet zu viel anderes (Bezeichner,
+  Icon-Pfade, Diagnose-Ausgaben). Solche Texte kommen von Hand per `apply` dazu. `tools/ci/README.md` beschreibt
+  den Ablauf.
+- Test: `tools/locale/test_fork.py` (läuft in `tools/ci/check_all.sh tests`, 17 Prüfungen). Er baut ein
+  Mini-Repository und lässt `check` und `apply` von `deDE.py` darauf laufen, mit dem echten `dump.lua`:
+  - Ein Text ohne Übersetzung, ein Schlüssel in `Fork.lua`, den der Code nicht benutzt, und ein dänischer
+    Schlüssel in `Fork.lua` lassen `check` fehlschlagen.
+  - Nach `apply` steht der neue Text in `Fork.lua`, und `check` ist grün.
+- Im Spiel prüfen, mit Deutsch unter General › EldoUI language:
+  - Wie beim Test zu F07: `/eui exportlua module:Chat`, im Text `["version"]` des Schemas auf 99 setzen, mit
+    `/eui import` einfügen. Erwartung: „der String stammt aus einem neueren EldoUI …“.
+  - Info Bar › Datentexte: Die Zeile „Datentext 1 für andere Addons“ ist deutsch, wenn Titan Panel o. Ä. geladen
+    ist; sonst der deutsche Hinweis.
+  - Beim Login (wenn die Begrüßung an ist): „v… geladen. Gebt /eui ein, um die Optionen zu öffnen.“
 
 **Locale-System** (`EldoUI/Core/Locale.lua`):
 - Der englische Text ist der Schlüssel. Fehlt eine Übersetzung, erscheint Englisch (Metatable, `:101`).
@@ -149,7 +182,7 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       - Das Mausrad hat in LibDataBroker kein Gegenstück.
       - Der Ruhestein-Block zeigt seinen Text, ein Klick benutzt ihn aber nicht. Das geht nur über den
         geschützten Knopf auf EldoUIs Leiste.
-      - Die Optionstexte sind nur englisch (siehe A2).
+      - Die Optionstexte waren zuerst nur englisch; seit A2 sind sie auch deutsch.
     - Im Spiel prüfen, mit Titan Panel oder ChocolateBar:
       - Info Bar › Datatexts: „Durability“ und „Time“ als Block 1 und 2 wählen. Erwartung: Im Display erscheinen
         „EldoUI: Durability“ und „EldoUI: Time“. Die Uhr läuft mit, die Haltbarkeit ändert sich nach einem Tod
