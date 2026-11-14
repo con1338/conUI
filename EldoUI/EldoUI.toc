@@ -554,6 +554,7 @@ Modules\Appearances.lua
 Modules\ReadyReport\Core.lua
 Modules\ReadyReport\Window.lua
 Modules\ReadyReport\Options.lua
+Modules\WorldBuffs.lua
 
 # Cast Tooltips and Mob Abilities
 Modules\MobAbilities\Core.lua
