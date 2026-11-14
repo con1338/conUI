@@ -16,7 +16,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B2 | Castbars an Party-/Raid-Frames | mittel | offen | |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | offen | |
 | B4 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | mittel | offen | |
-| C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | offen | |
+| C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
@@ -28,7 +28,8 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | offen | |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1, B3, E2, D4, B2, B4, E3, E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B3, E2, D4, B2, C1 (Rest), B4, E3, E1.
+Der Rest von C1 (Auren, Combat HUD) braucht einen Test im Spiel mit Masque, deshalb steht er hinten.
 Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Neue Texte brauchen seit A2 eine deutsche
 Übersetzung in `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an
 geheimen Werten im Kampf (wie
@@ -147,6 +148,47 @@ Inspect-Anfragen, automatische Loot-Verteilung.
 
 - **Masque nur für Aktionsleisten** (`EldoUI/Modules/ActionBars/Buttons.lua:792`). Auren, Combat HUD,
   ConsumableBar, Totems, Quickdraw: kein Masque. Aufwand klein–mittel.
+  - **Umgesetzt (C1, teilweise):**
+    - Neue Schalter „Use Masque“: Verbrauchsleiste, Totemleiste mit Abklingleiste (ein Schalter für beide) und
+      Quickdraw haben je einen. Sie sind standardmäßig aus, wirken nach einem Reload und erscheinen, wenn Masque
+      geladen ist.
+    - Masque-Gruppen: „EldoUI“ › Consumable Bar, Totem Bar, Shaman Cooldowns, Quickdraw. Die Namen sind fest
+      englisch, weil Masque die Skin-Einstellungen unter dem Namen speichert. Ein Sprachwechsel verlöre sie sonst.
+    - Neu: `Core/Masque.lua` mit
+      - `E:MasqueButton`: `group:AddButton` mit den Teilen des Buttons (Icon, Cooldown, Count, HotKey,
+        Highlight). Scheitert der Aufruf, bleibt EldoUIs Aussehen.
+      - `E:MasqueReSkin`: nachdem ein Modul seine Buttons in der Größe gesetzt hat. Masque passt den Skin an die
+        Größe an, die es beim Skinnen vorfindet.
+      - `E:Masqued`.
+    - `Core/Media.lua`: `E:DropTemplate` nimmt einem Masque-Button den `E:SetTemplate`-Rahmen dauerhaft weg.
+      Sonst käme er zurück, denn die Totemleisten rufen bei jedem Apply `E:SetTemplate` auf, und auch
+      Themenwechsel und neue UI-Skalierung bauen Rahmen neu.
+    - Was EldoUI bleibt: Bei den Totems das Gedrückt-Aussehen in der Akzentfarbe und die Elementkante. Bei
+      Quickdraw Beschriftung, Leuchten des gewählten Eintrags und der Untermenü-Pfeil.
+    - Nicht umgesetzt:
+      - Auren: `Modules/Auras.lua` hat eigene Icons nur für Waffenverzauberungen (Rückfall, wenn der Client
+        keine Verzauberungs-Plätze hat). Alles andere sind Blizzards Buff-Buttons, die EldoUI nur einrahmt.
+        Masque auf fremden Buttons, die Blizzard selbst neu aufbaut, lässt sich ohne Spiel nicht prüfen.
+      - Combat HUD: Die Abklingzeit-Icons (`CombatHUD/CooldownRows.lua`) sind Frames, keine Buttons. Sie setzen
+        Icon-Punkte und -Ausschnitt bei jedem Stil neu (`StyleIcon`) und tragen zwei Leucht-Ebenen. Ob Masque mit
+        Frames arbeitet und wie sich die Leuchteffekte mit einem Skin vertragen, zeigt nur das Spiel.
+    - Test: `tools/masque/test_masque.lua` (läuft in `tools/ci/check_all.sh tests`, 42 Prüfungen). Er lädt
+      `Core/Masque.lua` ganz, dazu die Rahmen-Teile von `Core/Media.lua` und die echten Button-Funktionen der
+      drei Module. Die Gegenseite ist ein Modell von Masques öffentlicher API. Geprüft wird:
+      - Ohne Masque oder mit Schalter aus ändert sich nichts.
+      - Mit beidem kommt jeder Button einmal in seine Gruppe, mit seinen Teilen.
+      - Der Rahmen bleibt weg nach Neuzeichnen, Themenwechsel und neuer UI-Skalierung. Andere Rahmen bleiben
+        unberührt.
+      - Ein scheiternder Masque-Aufruf lässt EldoUIs Aussehen stehen.
+    - Im Spiel prüfen, mit Masque und einem Skin:
+      - Verbrauchsleiste › „Use Masque“ an, `/reload`. Erwartung: Die Buttons tragen den Masque-Skin, Masque zeigt
+        unter EldoUI die Gruppe „Consumable Bar“, Anzahl und Abklingzeit sind lesbar.
+      - Buttongröße der Leiste ändern: Der Skin passt sich an.
+      - Dasselbe für die Totemleiste (als Schamane, mit Auswahlmenüs und Abklingleiste) und für Quickdraw (Menü
+        öffnen).
+      - UI-Skalierung ändern: Kein dunkler EldoUI-Rahmen erscheint über dem Skin.
+      - Schalter aus und `/reload`: wieder EldoUIs eigenes Aussehen.
+      - Danach `/eui errors`: keine Lua-Fehler.
 - **Info-Bar liest LDB, stellt aber nichts bereit:** kein `NewDataObject` im Code, Titan Panel kann keine
   EldoUI-Blöcke zeigen. Aufwand klein.
   - **Umgesetzt (C2):**
