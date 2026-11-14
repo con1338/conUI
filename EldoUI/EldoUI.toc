@@ -4,7 +4,7 @@
 ## Author: Eldodeldo
 ## X-License: Apache-2.0
 ## X-Copyright: Copyright 2026 Eldodeldo
-## Version: 0.7.2001-p1
+## Version: 0.7.2001-p2
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
 ## AddonCompartmentFunc: EldoUI_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: EldoUI_OnAddonCompartmentEnter
