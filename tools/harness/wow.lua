@@ -79,7 +79,76 @@ end
 ---------------------------------------------------------------------------
 -- Frames
 ---------------------------------------------------------------------------
-local World = { frames = {}, events = {}, timers = {}, errors = {}, chat = {}, clock = 1000, loggedIn = false }
+local World = { frames = {}, events = {}, timers = {}, errors = {}, chat = {}, clock = 1000, loggedIn = false,
+	locale = "enUS", root = "./", addons = {}, addonList = {}, loaded = {}, files = 0, skipped = 0 }
+
+---------------------------------------------------------------------------
+-- Add-ons on disk: read from their TOC files, loaded as the game does
+---------------------------------------------------------------------------
+-- meta (the "## Key: value" lines) and files ({ path, condition }) of a TOC.
+function World.ParseToc(text)
+	local meta, files = {}, {}
+	for line in text:gmatch("[^\n]+") do
+		line = line:gsub("\r$", "")
+		local key, value = line:match("^##%s*([^:]+):%s*(.-)%s*$")
+		if key then
+			meta[key] = value
+		else
+			line = line:gsub("^%s+", ""):gsub("%s+$", "")
+			if line ~= "" and not line:find("^#") then
+				local path, condition = line:match("^(.-)%s*%[(.-)%]$")
+				files[#files + 1] = { path = ((path or line):gsub("\\", "/")), condition = condition }
+			end
+		end
+	end
+	return meta, files
+end
+
+-- Make an add-on folder known (name = folder = TOC name). False when missing.
+function World.AddAddon(name)
+	local file = io.open(World.root .. name .. "/" .. name .. ".toc", "rb")
+	if not file then return false end
+	local meta, files = World.ParseToc(file:read("*a"))
+	file:close()
+	World.addons[name] = { name = name, meta = meta, files = files, demand = meta.LoadOnDemand == "1" }
+	table.insert(World.addonList, name)
+	return true
+end
+
+-- Load an add-on's files with its name and its own private table, then
+-- ADDON_LOADED. A file with [AllowLoadTextLocale xx] loads only for that
+-- text language; other conditions load. Errors are recorded per file.
+function World.LoadAddOn(name)
+	if World.loaded[name] then return true end
+	local addon = World.addons[name]
+	if not addon then return false, "MISSING" end
+	World.loaded[name] = true
+	local ns = {}
+	addon.ns = ns
+	for _, file in ipairs(addon.files) do
+		local locale = file.condition and file.condition:match("^AllowLoadTextLocale%s+(%S+)$")
+		if locale and locale ~= World.locale then
+			World.skipped = World.skipped + 1
+		else
+			local chunk, err = loadfile(World.root .. name .. "/" .. file.path)
+			if not chunk then
+				World.Record(err)
+			else
+				World.files = World.files + 1
+				local ok, runErr = pcall(chunk, name, ns)
+				if not ok then World.Record(runErr) end
+			end
+		end
+	end
+	if World.afterFiles then World.afterFiles(name, ns) end
+	World.Fire("ADDON_LOADED", name)
+	return true
+end
+
+local function AddonName(key)
+	if type(key) == "number" then return World.addonList[key] end
+	return key
+end
 
 -- A frame's own methods are below; any other method name (CamelCase, as
 -- the game's are) answers like a mock. Other fields are nil until the code
@@ -534,7 +603,7 @@ Install = function()
 	Set("GetTime", function() return World.clock end)
 	Set("GetServerTime", function() return os.time() end)
 	Set("GetGameTime", Fixed(12, 0))
-	Set("GetLocale", Fixed("enUS"))
+	Set("GetLocale", function() return World.locale end)
 	Set("GetRealmName", Fixed("Realm"))
 	Set("GetNormalizedRealmName", Fixed("Realm"))
 	Set("GetBuildInfo", Fixed("1.60.1", "70938", "Nov 1 2026", 16001, "", "", 16001))
@@ -607,21 +676,30 @@ Install = function()
 	Set("UnitClassification", Fixed("normal"))
 
 	-- Namespaces with answers
-	local loaded = { EldoUI = true }
 	Set("C_AddOns", Namespace("C_AddOns", {
-		IsAddOnLoaded = function(name) return loaded[name] or false, loaded[name] or false end,
-		GetAddOnMetadata = function(addon, field)
-			if addon ~= "EldoUI" then return nil end
-			if field == "Version" then return "0.7.2001-p1" end
-			if field == "Title" then return "EldoUI" end
-			return nil
+		IsAddOnLoaded = function(key)
+			local loaded = World.loaded[AddonName(key)] or false
+			return loaded, loaded
 		end,
-		GetNumAddOns = Fixed(0),
-		GetAddOnInfo = function(name) return name, name, "", false, "MISSING", "INSECURE", false end,
-		LoadAddOn = function() return false, "MISSING" end,
-		DoesAddOnExist = Fixed(false),
-		GetAddOnEnableState = Fixed(0),
-		IsAddOnLoadOnDemand = Fixed(true),
+		GetAddOnMetadata = function(key, field)
+			local addon = World.addons[AddonName(key)]
+			return addon and addon.meta[field] or nil
+		end,
+		GetNumAddOns = function() return #World.addonList end,
+		GetAddOnInfo = function(key)
+			local name = AddonName(key)
+			local addon = World.addons[name]
+			if not addon then return name, name, "", false, "MISSING", "INSECURE", false end
+			local reason = not World.loaded[name] and addon.demand and "DEMAND_LOADED" or nil
+			return name, addon.meta.Title or name, addon.meta.Notes or "", true, reason, "INSECURE", false
+		end,
+		LoadAddOn = function(key) return World.LoadAddOn(AddonName(key)) end,
+		DoesAddOnExist = function(key) return World.addons[AddonName(key)] ~= nil end,
+		GetAddOnEnableState = function(key) return World.addons[AddonName(key)] and 2 or 0 end,
+		IsAddOnLoadOnDemand = function(key)
+			local addon = World.addons[AddonName(key)]
+			return addon and addon.demand or false
+		end,
 	}))
 	Set("C_CVar", Namespace("C_CVar", {
 		GetCVar = function(name) return CVARS[name] or "0" end,

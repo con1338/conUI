@@ -83,8 +83,14 @@ check_tests() {
 }
 
 check_load() {
-	step "All of EldoUI loaded offline, first log-in (tools/harness)"
-	lua5.1 tools/harness/load_eldoui.lua
+	local result=0
+	step "All of EldoUI loaded offline, first log-in, English client (tools/harness)"
+	lua5.1 tools/harness/load_eldoui.lua || result=1
+	step "The same with a German client (EldoUI loads the German pack)"
+	lua5.1 tools/harness/load_eldoui.lua --locale deDE || result=1
+	step "The offline start catches a broken module"
+	lua5.1 tools/harness/test_harness.lua || result=1
+	return $result
 }
 
 check_locale() {
