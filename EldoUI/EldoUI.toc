@@ -141,6 +141,7 @@ Modules\InfoBar.lua
 Modules\InfoBar\Rates.lua
 Modules\InfoBar\Mail.lua
 Modules\InfoBar\Rolls.lua
+Modules\InfoBar\Broker.lua
 Modules\Minimap.lua
 Modules\MinimapLayer.lua
 Modules\StatusBars.lua

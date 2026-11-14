@@ -84,6 +84,9 @@ local M = E:NewModule("InfoBar", {
 		ldb = true,
 		ldbIcons = true,
 		ldbLabels = false,
+		-- The blocks offered to other addons' LibDataBroker displays
+		-- (Modules/InfoBar/Broker.lua); "" is an empty slot.
+		ldbBlocks = { "", "", "", "", "", "", "", "" },
 		bar2 = {
 			enabled = false,
 			dock = "chat",      -- chat (the top edge of the chat window) | none (its own mover)
@@ -2506,18 +2509,14 @@ local function BarOf(frame)
 	return frame
 end
 
-local function ShowTooltip(button)
-	local definition = E.dataTexts[button.dataName]
-	if definition and definition.onEnter then
-		definition.onEnter(button)
-		return
-	end
-	if not definition or not definition.tooltip then return end
-	GameTooltip:SetOwner(button, M:TooltipAnchor(BarOf(button)), 0, 4)
-	GameTooltip:ClearLines()
+-- The lines of a block's tooltip: its title, its own lines, its click
+-- hints and, in combat, a note when its click has to wait. `secure`: the
+-- block sits under a secure overlay, whose click works in combat. Also
+-- fills the tooltips of the blocks other addons show (InfoBar/Broker.lua).
+local function TooltipLines(tooltip, name, definition, secure)
 	local r, g, b = unpack(E.media.accentColor)
-	GameTooltip:AddLine(L[definition.title or button.dataName], r, g, b)
-	definition.tooltip(GameTooltip)
+	tooltip:AddLine(L[definition.title or name], r, g, b)
+	definition.tooltip(tooltip)
 	local hint = definition.hint
 	if type(hint) == "function" then hint = hint() end
 	-- hint: { action, what } or a list of them. A plain text (older
@@ -2528,20 +2527,32 @@ local function ShowTooltip(button)
 		if action and #action <= 24 then hint = { action, what } end
 	end
 	if type(hint) == "table" then
-		if type(hint[1]) == "table" then E:TooltipHint(GameTooltip, unpack(hint)) else E:TooltipHint(GameTooltip, hint) end
+		if type(hint[1]) == "table" then E:TooltipHint(tooltip, unpack(hint)) else E:TooltipHint(tooltip, hint) end
 	elseif hint then
-		GameTooltip:AddLine(" ")
-		E.UIKit.TipText(GameTooltip, L[hint])
+		tooltip:AddLine(" ")
+		E.UIKit.TipText(tooltip, L[hint])
 	end
 	-- A click the game blocks in combat says so instead of doing nothing
 	-- (a block under a secure overlay works in combat).
-	local overlay = M.overlays and M.overlays[button.dataName]
-	local secure = overlay and overlay.target == button
 	if definition.onClick and not definition.combatClick and not secure and InCombatLockdown() then
 		local warn = E.tokens.text.warn
-		if not hint then GameTooltip:AddLine(" ") end
-		GameTooltip:AddLine(L["Clicks work again after combat."], warn[1], warn[2], warn[3], true)
+		if not hint then tooltip:AddLine(" ") end
+		tooltip:AddLine(L["Clicks work again after combat."], warn[1], warn[2], warn[3], true)
 	end
+end
+M.TooltipLines = TooltipLines
+
+local function ShowTooltip(button)
+	local definition = E.dataTexts[button.dataName]
+	if definition and definition.onEnter then
+		definition.onEnter(button)
+		return
+	end
+	if not definition or not definition.tooltip then return end
+	GameTooltip:SetOwner(button, M:TooltipAnchor(BarOf(button)), 0, 4)
+	GameTooltip:ClearLines()
+	local overlay = M.overlays and M.overlays[button.dataName]
+	TooltipLines(GameTooltip, button.dataName, definition, overlay and overlay.target == button)
 	GameTooltip:Show()
 end
 M.ShowTooltip = ShowTooltip
@@ -2592,6 +2603,9 @@ end
 local function UpdateButton(button)
 	local definition = E.dataTexts[button.dataName]
 	if not definition then
+		-- Not an Info Bar block: a block's click from another addon's
+		-- display (InfoBar/Broker.lua) passes that display's frame.
+		if button.dataName == nil then return end
 		button.text:SetText("")
 		button.shownText = ""
 		return
@@ -4312,6 +4326,8 @@ end
 function M:RegisterBroker(name, object)
 	if type(name) ~= "string" or type(object) ~= "table" then return end
 	if object.type ~= "data source" and object.type ~= "launcher" then return end
+	-- EldoUI's own blocks offered to other addons (InfoBar/Broker.lua).
+	if M.broker and M.broker.Owns(name) then return end
 	local key = LDB_PREFIX .. name
 	if E.dataTexts[key] then return end
 	E.dataTexts[key] = {
@@ -4343,7 +4359,7 @@ function M:HookBrokers()
 		if M.db.ldb then M:RegisterBroker(name, object) end
 	end)
 	ldb.RegisterCallback(self, "LibDataBroker_AttributeChanged", function(_, name, attribute)
-		if not M.active or not M.db.ldb then return end
+		if not M.active or not M.db.ldb or (M.broker and M.broker.Owns(name)) then return end
 		if attribute == "text" or attribute == "label" or attribute == "icon" or attribute == "value" then
 			M:RefreshDataText(LDB_PREFIX .. name)
 		end
@@ -4884,6 +4900,25 @@ local LDB_OPTIONS = {
 	{ type = "toggle", key = "ldbIcons", label = "Feed icons", desc = "Show each feed's icon in front of its text.", hidden = function() return not M.db.ldb end },
 	{ type = "toggle", key = "ldbLabels", label = "Feed labels", desc = "Show each feed's label in front of its value.", hidden = function() return not M.db.ldb end },
 }
+-- The other way round: Info Bar blocks for other addons' displays
+-- (InfoBar/Broker.lua), once an addon has loaded LibDataBroker.
+local function BrokerLoaded()
+	return _G.LibStub ~= nil and _G.LibStub("LibDataBroker-1.1", true) ~= nil
+end
+local function OfferedValues()
+	local values = { [""] = L["(empty)"] }
+	for name, definition in pairs(E.dataTexts) do
+		if not definition.broker then values[name] = definition.title or name end
+	end
+	return values
+end
+table.insert(LDB_OPTIONS, { type = "description", hidden = BrokerLoaded,
+	label = "Titan Panel, ChocolateBar and other LibDataBroker displays can show Info Bar blocks once one of them is loaded." })
+for slot = 1, #M.defaults.ldbBlocks do
+	table.insert(LDB_OPTIONS, { type = "select", key = "ldbBlocks." .. slot, label = "Block %d for other addons", labelFill = slot,
+		values = OfferedValues, hidden = function() return not BrokerLoaded() end,
+		desc = "A block other addons can show: Titan Panel, ChocolateBar and the like list it as \"EldoUI: name\". It is kept up to date while it is chosen here, also in combat. A block taken out again stays in their list until a reload." })
+end
 for _, option in ipairs(LDB_OPTIONS) do table.insert(DATATEXT_OPTIONS, option) end
 for _, option in ipairs(DATATEXT_OPTIONS) do table.insert(M.options, option) end
 
