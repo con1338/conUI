@@ -57,6 +57,7 @@ local M = E:NewModule("ShamanTotems", {
 		size = 28,
 		spacing = 4,
 		vertical = false,
+		masque = false,            -- Masque skins both bars' buttons (Core/Masque.lua; after a reload)
 		flyout = "UP",             -- where the pickers open: UP, DOWN, LEFT, RIGHT
 		showKeys = true,
 		timerText = true,          -- the time left as numbers on the sweep

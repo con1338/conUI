@@ -276,7 +276,7 @@ function CD:Build()
 	self.frame = frame
 	self.buttons = {}
 	for index = 1, MAX_ICONS do
-		local button = M.NewButton(frame, "EldoUI_ShamanCooldown" .. index, "SecureActionButtonTemplate")
+		local button = M.NewButton(frame, "EldoUI_ShamanCooldown" .. index, "SecureActionButtonTemplate", M.MASQUE_COOLDOWNS)
 		button:RegisterForClicks("AnyUp", "AnyDown")
 		button:SetAttribute("type", nil)
 		button.tip = IconTip
@@ -394,6 +394,7 @@ function CD:Apply()
 		self.shieldSlot = shieldButton and ShieldSlot(shieldButton, ShieldIds(), size) or nil
 		self.shieldSignature = signature
 	end
+	if M.db.masque then E:MasqueReSkin(M.MASQUE_COOLDOWNS) end
 	local length = shown > 0 and (shown * size + (shown - 1) * spacing) or size
 	if M.db.vertical then self.frame:SetSize(size, length) else self.frame:SetSize(length, size + 4) end
 	self.frame:SetShown(shown > 0)

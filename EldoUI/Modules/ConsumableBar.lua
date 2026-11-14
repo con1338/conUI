@@ -55,6 +55,7 @@ local M = E:NewModule("ConsumableBar", {
 		spacing = 4,
 		vertical = false,
 		showCount = true,
+		masque = false,       -- Masque skins the buttons (Core/Masque.lua; after a reload)
 		overrides = {},       -- category -> itemID the player picked
 		mountID = nil,        -- mount collection ID the player picked
 		visibility = E:VisibilityDefaults(),
@@ -537,6 +538,10 @@ local function ShowTooltip(btn)
 	GameTooltip:Show()
 end
 
+-- The Masque group of the buttons (a fixed English name: Masque keeps its
+-- skin settings under it).
+local MASQUE_GROUP = "Consumable Bar"
+
 function M:CreateButton(category, index)
 	local button = CreateFrame("Button", "EldoUI_ConsumableButton" .. index, self.bar, "SecureActionButtonTemplate")
 	button.key = category.key
@@ -564,6 +569,9 @@ function M:CreateButton(category, index)
 	button:HookScript("PostClick", function(btn, mouse, down) if mouse == "RightButton" and not down then M:TogglePicker(btn) end end)
 	button:SetScript("OnEnter", ShowTooltip)
 	button:SetScript("OnLeave", GameTooltip_Hide)
+	if self.db.masque then
+		E:MasqueButton(MASQUE_GROUP, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count, Highlight = highlight }, "Item")
+	end
 	return button
 end
 
@@ -731,6 +739,8 @@ function M:ApplySecure()
 			button:Hide()
 		end
 	end
+	-- Masque fits its skin to the button size it finds when it skins.
+	if db.masque then E:MasqueReSkin(MASQUE_GROUP) end
 	local length = max(1, shown) * (size + spacing) - spacing
 	if db.vertical then self.bar:SetSize(size, length) else self.bar:SetSize(length, size) end
 	self.bar:SetShown(shown > 0 or (E.IsMoveMode and E:IsMoveMode()))
@@ -847,6 +857,8 @@ M.options = {
 	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between buttons." },
 	{ type = "toggle", key = "vertical", label = "Vertical", desc = "Stack the buttons top to bottom." },
 	{ type = "toggle", key = "showCount", label = "Counts", desc = "Show how many you carry." },
+	{ type = "toggle", key = "masque", label = "Use Masque", reload = true, desc = E.MASQUE_OPTION_DESC,
+		requires = function() return E:Masque() ~= nil end },
 }
 for _, row in ipairs(E:VisibilityOptions("visibility", { db = function() return M.db end, secure = true })) do
 	table.insert(M.options, row)
