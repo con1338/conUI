@@ -30,11 +30,22 @@ local World = dofile(ROOT .. "tools/harness/wow.lua")
 World.globalNames = dofile(ROOT .. "tools/ci/globals.lua")
 World.Install()
 
--- The TOC's files, in order.
-local files = {}
+-- The TOC's files, in order. A file with a condition in brackets loads only
+-- when it holds: [AllowLoadTextLocale deDE] for that text language (the
+-- stand-in client is enUS); any other condition loads.
+local files, skipped = {}, 0
 for line in ReadFile("EldoUI/EldoUI.toc"):gmatch("[^\n]+") do
 	line = line:gsub("^%s+", ""):gsub("%s+$", "")
-	if line ~= "" and not line:find("^#") then files[#files + 1] = (line:gsub("\\", "/")) end
+	if line ~= "" and not line:find("^#") then
+		local path, condition = line:match("^(.-)%s*%[(.-)%]$")
+		path = path or line
+		local locale = condition and condition:match("^AllowLoadTextLocale%s+(%S+)$")
+		if locale and locale ~= "enUS" then
+			skipped = skipped + 1
+		else
+			files[#files + 1] = (path:gsub("\\", "/"))
+		end
+	end
 end
 
 local started = os.clock()
@@ -84,7 +95,8 @@ for _, entry in ipairs(World.errors) do
 	unique[key].count = unique[key].count + 1
 end
 
-print(("EldoUI offline start: %d files, %d modules (%d on), %.1f s"):format(#files, modules, active, os.clock() - started))
+print(("EldoUI offline start: %d files (%d for other text languages left out), %d modules (%d on), %.1f s"):format(#files,
+	skipped, modules, active, os.clock() - started))
 print(("errors: %d at load, %d after (%d different)"):format(loadErrors, #World.errors - loadErrors, #order))
 local shown = SHOW_ALL and #order or math.min(#order, 60)
 for index = 1, shown do

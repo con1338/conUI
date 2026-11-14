@@ -47,6 +47,8 @@ local function Answer(name, self)
 		or name == "GetStatusBarColor" or name == "GetShadowColor" then return 1, 1, 1, 1 end
 	if name == "GetFont" then return "Fonts\\FRIZQT__.TTF", 12, "" end
 	if name == "GetShadowOffset" then return 0, 0 end
+	-- Frame pools (pool:EnumerateActive()) and the like: an empty walk.
+	if name:find("^Enumerate") then return function() return nil end end
 	if name:find("Num%u") or name:find("Count$") then return 0 end
 	for _, prefix in ipairs({ "^Is%u", "^Has%u", "^Can%u", "^In%u", "^UnitIs%u", "^UnitHas%u", "^UnitCan%u", "^UnitIn%u" }) do
 		if name:find(prefix) then return false end
@@ -97,7 +99,7 @@ local FRAME_META = {
 
 local function NewObject(kind, name, parent)
 	local object = setmetatable({ __kind = kind, __name = name, __parent = parent, __shown = kind ~= "GameTooltip",
-		__scripts = {}, __attributes = {}, __points = 0, __width = 0, __height = 0, __children = {} }, FRAME_META)
+		__scripts = {}, __attributes = {}, __points = {}, __width = 0, __height = 0, __children = {} }, FRAME_META)
 	if type(parent) == "table" and rawget(parent, "__children") then table.insert(parent.__children, object) end
 	if type(name) == "string" and name ~= "" then
 		if type(parent) == "table" and name:find("$parent", 1, true) then
@@ -148,13 +150,50 @@ function Frame:SetHeight(h) self.__height = tonumber(h) or 0 end
 function Frame:GetWidth() return self.__width end
 function Frame:GetHeight() return self.__height end
 function Frame:GetSize() return self.__width, self.__height end
-function Frame:SetPoint() self.__points = self.__points + 1 end
-function Frame:SetAllPoints() self.__points = self.__points + 1 end
-function Frame:ClearAllPoints() self.__points = 0 end
-function Frame:GetNumPoints() return self.__points end
+-- Points as the game keeps them: one per anchor point (a second SetPoint of
+-- the same point replaces it), a relative frame given by name resolved, the
+-- short forms filled in.
+function Frame:SetPoint(point, relative, relativePoint, x, y)
+	if type(relative) == "number" then
+		relative, relativePoint, x, y = nil, nil, relative, relativePoint
+	elseif type(relativePoint) == "number" then
+		relativePoint, x, y = nil, relativePoint, x
+	end
+	if type(relative) == "string" then relative = rawget(_G, relative) end
+	if relative == nil then relative = self.__parent end
+	local entry = { point, relative, relativePoint or point, x or 0, y or 0 }
+	local points = type(self.__points) == "table" and self.__points or {}
+	for index, existing in ipairs(points) do
+		if existing[1] == point then
+			points[index] = entry
+			self.__points = points
+			return
+		end
+	end
+	points[#points + 1] = entry
+	self.__points = points
+end
+function Frame:SetAllPoints(relative)
+	if type(relative) == "string" then relative = rawget(_G, relative) end
+	relative = relative or self.__parent
+	self.__points = { { "TOPLEFT", relative, "TOPLEFT", 0, 0 }, { "BOTTOMRIGHT", relative, "BOTTOMRIGHT", 0, 0 } }
+end
+function Frame:ClearAllPoints() self.__points = {} end
+function Frame:ClearPoint(point)
+	for index, existing in ipairs(type(self.__points) == "table" and self.__points or {}) do
+		if existing[1] == point then table.remove(self.__points, index) return end
+	end
+end
+function Frame:GetNumPoints() return type(self.__points) == "table" and #self.__points or 0 end
 function Frame:GetPoint(index)
-	if self.__points == 0 or (index and index > self.__points) then return nil end
-	return "CENTER", _G.UIParent, "CENTER", 0, 0
+	local entry = type(self.__points) == "table" and self.__points[index or 1]
+	if not entry then return nil end
+	return entry[1], entry[2], entry[3], entry[4], entry[5]
+end
+function Frame:GetPointByName(point)
+	for _, entry in ipairs(type(self.__points) == "table" and self.__points or {}) do
+		if entry[1] == point then return entry[1], entry[2], entry[3], entry[4], entry[5] end
+	end
 end
 function Frame:GetCenter() return 500, 400 end
 function Frame:GetLeft() return 0 end
@@ -426,8 +465,30 @@ Install = function()
 	end)
 
 	-- Frames
-	Set("CreateFrame", function(kind, name, parent)
-		return NewObject(kind or "Frame", name, parent)
+	-- The parts a Blizzard template gives a frame, where the code reads them
+	-- (parentKey and global name, as the template's XML makes them).
+	local TEMPLATES = {
+		ActionButtonTemplate = {
+			{ "icon", "Texture", "Icon" }, { "cooldown", "Cooldown", "Cooldown" }, { "Count", "FontString", "Count" },
+			{ "HotKey", "FontString", "HotKey" }, { "Name", "FontString", "Name" }, { "Border", "Texture", "Border" },
+			{ "Flash", "Texture", "Flash" }, { "NormalTexture", "Texture", "NormalTexture" }, { "IconMask", "MaskTexture" },
+			{ "FlyoutBorder", "Texture", "FlyoutBorder" }, { "FlyoutBorderShadow", "Texture", "FlyoutBorderShadow" },
+			{ "FlyoutArrow", "Texture" }, { "AutoCastable", "Texture", "AutoCastable" }, { "SpellHighlightTexture", "Texture" },
+			{ "NewActionTexture", "Texture" }, { "CheckedTexture", "Texture" }, { "SlotBackground", "Texture" },
+		},
+	}
+	Set("CreateFrame", function(kind, name, parent, template)
+		local frame = NewObject(kind or "Frame", name, parent)
+		if type(template) == "string" then
+			for part in template:gmatch("[^,%s]+") do
+				for _, child in ipairs(TEMPLATES[part] or {}) do
+					local childName = child[3] and frame.__name and (frame.__name .. child[3]) or nil
+					rawset(frame, child[1], NewObject(child[2], childName, frame))
+				end
+			end
+			if rawget(frame, "NormalTexture") then frame.__normal = rawget(frame, "NormalTexture") end
+		end
+		return frame
 	end)
 	local backdrop = {}
 	for _, method in ipairs(BACKDROP_METHODS) do backdrop[method] = Frame[method] end
@@ -447,6 +508,9 @@ Install = function()
 	Set("ChatFrame1EditBox", NewObject("EditBox", "ChatFrame1EditBox", G.ChatFrame1))
 	Set("DEFAULT_CHAT_FRAME", G.ChatFrame1)
 	Set("UIErrorsFrame", NewObject("MessageFrame", "UIErrorsFrame", G.UIParent))
+	-- Blizzard functions the bundled libraries hook at load (not in
+	-- tools/ci/globals.lua, which covers EldoUI's own code).
+	Set("MarkNewActionHighlight", function() end)
 	Set("SlashCmdList", {})
 	Set("StaticPopupDialogs", {})
 	Set("UISpecialFrames", {})
