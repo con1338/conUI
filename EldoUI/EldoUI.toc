@@ -203,6 +203,7 @@ Modules\PetCare.lua
 Modules\GroupFrames.lua
 Modules\GroupFrames\Blizzard.lua
 Modules\GroupFrames\Options.lua
+Modules\GroupFrames\Cast.lua
 Modules\ClickCast.lua
 Modules\RaidTools.lua
 Modules\Nameplates.lua

@@ -254,6 +254,15 @@ local function AddSection(section)
 	Add({ type = "select", key = "powerFilter", label = "Power bar on", values = { ALL = "Everyone", HEALERS = "Healers only" },
 		desc = "Healers only shows the bar on members with the healer role; the others get a taller health bar.",
 		hidden = function() return (DB().powerHeight or 0) <= 0 end })
+	if section ~= "pets" then
+		local function NoCast() return not (DB().castbar and DB().castbar.enabled) end
+		Add({ type = "toggle", key = "castbar.enabled", label = "Cast bar",
+			desc = "A thin bar at the bottom of each frame while the member casts: casts fill, channels empty, gray when the cast can't be interrupted." })
+		Add({ type = "range", key = "castbar.height", label = "Cast bar height", min = 2, max = 16, step = 1, hidden = NoCast,
+			desc = "Height of the cast bar. From 8 pixels it has room for the spell name." })
+		Add({ type = "toggle", key = "castbar.name", label = "Spell name on the cast bar", hidden = NoCast,
+			desc = "The name of the spell on the bar, when the bar is at least 8 pixels high." })
+	end
 	if section == "party" then
 		local function NoPortrait() return DB().portrait == "NONE" end
 		Add({ type = "select", key = "portrait", label = "Show",
