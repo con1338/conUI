@@ -24,7 +24,7 @@ Braucht `lua5.1`, `luac5.1`, `luacheck` und `python3` (Ubuntu: `apt-get install 
 | `syntax` | `luac5.1 -p` über alle Lua-Dateien, Python-Syntax der Werkzeuge |
 | `toc` | `check_toc.py`: jede Datei aus den .toc-Dateien existiert (mit genauer Groß-/Kleinschreibung), keine doppelt, keine Lua-/XML-Datei ungeladen, überall dieselbe Interface-Nummer |
 | `luacheck` | Globals: kein vergessenes `local`, kein Tippfehler in API-Namen (`.luacheckrc`); die Pinnwand zusätzlich mit ihren strengeren Regeln |
-| `tests` | Offline-Tests der Pinnwand (`tools/groupboard/`), der Share-Strings anderer Versionen und der Größenprüfung vor dem Entpacken (`tools/share/`) und des Versionswächters |
+| `tests` | Offline-Tests der Pinnwand (`tools/groupboard/`), der Share-Strings anderer Versionen und der Größenprüfung vor dem Entpacken (`tools/share/`), der Click-Cast-Tasten beim Hovern (`tools/clickcast/`) und des Versionswächters |
 | `locale` | deutsches Paket: Platzhalter und Textcodes, zitierte Beschriftungen, Pinnwand-Texte; der Übersetzungsstand wird nur angezeigt (fehlende Texte erscheinen auf Englisch, das bricht nichts) |
 
 **Neue WoW-API-Namen:** `tools/ci/globals.lua` listet die rund 1.100 Namen, die der Code heute liest. Benutzt

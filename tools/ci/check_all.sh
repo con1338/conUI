@@ -62,6 +62,8 @@ check_tests() {
 	lua5.1 tools/share/test_import_versions.lua || return 1
 	step "Unpacked size before unpacking"
 	lua5.1 tools/share/test_inflate.lua || return 1
+	step "Click-cast keys on hover after a roster change"
+	lua5.1 tools/clickcast/test_hover_unit.lua || return 1
 	step "Version watcher (offline)"
 	python3 tools/ci/test_watch_versions.py
 }
