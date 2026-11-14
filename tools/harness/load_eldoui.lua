@@ -90,16 +90,52 @@ World.Fire("PLAYER_ENTERING_WORLD", true, false)
 World.phase = "timers"
 World.RunTimers(5)
 
+-- Every module through the switch the options use (E:SetModuleEnabled):
+-- all on (the ones that start off run their OnEnable too), all off, then
+-- each back as it started. In name order, so a run is the same every time.
+local ns = World.addons.EldoUI.ns or {}
+local names, startedOn = {}, {}
+for name, module in pairs(type(ns.modules) == "table" and ns.modules or {}) do
+	if type(module) == "table" then
+		names[#names + 1] = name
+		startedOn[name] = rawget(module, "active") and true or false
+	end
+end
+table.sort(names)
+local activeAtStart = 0
+for _, name in ipairs(names) do if startedOn[name] then activeAtStart = activeAtStart + 1 end end
+local onAll, offAll = 0, 0
+if type(ns.SetModuleEnabled) == "function" then
+	World.phase = "every module on"
+	for _, name in ipairs(names) do
+		local ok, err = pcall(ns.SetModuleEnabled, ns, name, true)
+		if not ok then World.Record(err) end
+		if rawget(ns.modules[name], "active") then onAll = onAll + 1 end
+	end
+	World.RunTimers(3)
+	World.phase = "every module off"
+	for _, name in ipairs(names) do
+		local ok, err = pcall(ns.SetModuleEnabled, ns, name, false)
+		if not ok then World.Record(err) end
+		if not rawget(ns.modules[name], "active") then offAll = offAll + 1 end
+	end
+	World.RunTimers(3)
+	World.phase = "modules back as they started"
+	for _, name in ipairs(names) do
+		if startedOn[name] then
+			local ok, err = pcall(ns.SetModuleEnabled, ns, name, true)
+			if not ok then World.Record(err) end
+		end
+	end
+	World.RunTimers(3)
+end
+
 ---------------------------------------------------------------------------
 -- Report
 ---------------------------------------------------------------------------
-local ns = World.addons.EldoUI.ns or {}
-local modules, active = 0, 0
-for _, module in pairs(type(ns.modules) == "table" and ns.modules or {}) do
-	if type(module) == "table" then
-		modules = modules + 1
-		if rawget(module, "active") then active = active + 1 end
-	end
+local modules, active = #names, 0
+for _, name in ipairs(names) do
+	if rawget(ns.modules[name], "active") then active = active + 1 end
 end
 local loaded = {}
 for _, name in ipairs(World.addonList) do
@@ -120,7 +156,8 @@ for _, entry in ipairs(World.errors) do
 end
 
 print(("EldoUI offline start (client %s, EldoUI language %s): %d files (%d for other text languages left out), %d modules (%d on), %.1f s")
-	:format(World.locale, tostring(language), World.files, World.skipped, modules, active, os.clock() - started))
+	:format(World.locale, tostring(language), World.files, World.skipped, modules, activeAtStart, os.clock() - started))
+print(("module switch: %d of %d on at once, %d off at once, %d back on as they started"):format(onAll, modules, offAll, active))
 print("add-ons loaded: " .. table.concat(loaded, ", "))
 print(("errors: %d at load, %d after (%d different)"):format(loadErrors, #World.errors - loadErrors, #order))
 local shown = options.all and #order or math.min(#order, 60)
