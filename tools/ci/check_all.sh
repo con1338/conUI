@@ -70,6 +70,8 @@ check_tests() {
 	lua5.1 tools/nameplates/test_driver_hook.lua || return 1
 	step "Info Bar blocks for other addons (LibDataBroker)"
 	lua5.1 tools/infobar/test_broker.lua || return 1
+	step "German pack: Fork.lua rules"
+	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"
 	python3 tools/ci/test_watch_versions.py
 }

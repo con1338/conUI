@@ -24,8 +24,20 @@ Braucht `lua5.1`, `luac5.1`, `luacheck` und `python3` (Ubuntu: `apt-get install 
 | `syntax` | `luac5.1 -p` über alle Lua-Dateien, Python-Syntax der Werkzeuge |
 | `toc` | `check_toc.py`: jede Datei aus den .toc-Dateien existiert (mit genauer Groß-/Kleinschreibung), keine doppelt, keine Lua-/XML-Datei ungeladen, überall dieselbe Interface-Nummer |
 | `luacheck` | Globals: kein vergessenes `local`, kein Tippfehler in API-Namen (`.luacheckrc`); die Pinnwand zusätzlich mit ihren strengeren Regeln |
-| `tests` | Offline-Tests der Pinnwand (`tools/groupboard/`), der Share-Strings anderer Versionen und der Größenprüfung vor dem Entpacken (`tools/share/`), von Click-Casting (`tools/clickcast/`), des Nameplate-Hooks (`tools/nameplates/`), der Info-Bar-Blöcke für andere Addons (`tools/infobar/`) und des Versionswächters |
-| `locale` | deutsches Paket: Platzhalter und Textcodes, zitierte Beschriftungen, Pinnwand-Texte; der Übersetzungsstand wird nur angezeigt (fehlende Texte erscheinen auf Englisch, das bricht nichts) |
+| `tests` | Offline-Tests der Pinnwand (`tools/groupboard/`), der Share-Strings anderer Versionen und der Größenprüfung vor dem Entpacken (`tools/share/`), von Click-Casting (`tools/clickcast/`), des Nameplate-Hooks (`tools/nameplates/`), der Info-Bar-Blöcke für andere Addons (`tools/infobar/`), der Regeln für `Fork.lua` im deutschen Paket (`tools/locale/test_fork.py`) und des Versionswächters |
+| `locale` | deutsches Paket: Platzhalter und Textcodes, `Fork.lua` (siehe unten), jeder `L["…"]`-Text im Code hat eine Übersetzung, zitierte Beschriftungen, Pinnwand-Texte; der Übersetzungsstand wird nur angezeigt |
+
+**Neue Texte im Code:** Das deutsche Paket übernimmt die Liste der Texte aus EldoUIs dänischem Paket. Texte, die
+dort fehlen (eigene des Forks oder EldoUIs eigene Lücken), stehen in `EldoUI_Locale_deDE/Fork.lua`. Ein neuer
+`L["…"]`-Text ohne deutsche Übersetzung lässt `locale` fehlschlagen. Nachtragen mit einer JSON-Datei
+`{"English text": "Deutscher Text"}`:
+
+```sh
+python3 tools/locale/deDE.py apply fixes.json   # landet in Fork.lua, wenn es kein dänischer Schlüssel ist
+```
+
+Texte, die erst beim Anzeigen übersetzt werden (Beschriftungen und Beschreibungen in Optionstabellen, Zeilen mit
+`-- no-L (translated where shown)`), findet die Prüfung nicht: Die kommen von Hand per `apply` dazu.
 
 **Neue WoW-API-Namen:** `tools/ci/globals.lua` listet die rund 1.100 Namen, die der Code heute liest. Benutzt
 neuer Code bewusst einen weiteren, schlägt luacheck an (W113). Dann die Liste neu erzeugen und mit committen:

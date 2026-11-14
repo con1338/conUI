@@ -147,8 +147,9 @@ neuer Fehler.
     Funktionen aus beiden Dateien und prüft Versionsgrenzen, Meldungen, Stempel und `MigratePart`.
   - Nicht umgesetzt: Werte, die eine Migration aus dem Modul in ein anderes verschiebt (z. B. `Messages.sound` →
     `Chat.whisperSound`), gehen beim Teil-Import verloren, weil nur der eine Teil übernommen wird. Die neuen
-    Meldungen sind nur englisch: Das deutsche Paket nimmt nur Schlüssel an, die auch im dänischen stehen.
-    Share-Arten mit eigenem Präfix (Wunschliste, Pack usw.) sind unverändert.
+    Meldungen waren zuerst nur englisch; seit Verbesserung A2 (`EldoUI_Locale_deDE/Fork.lua`) sind sie auch
+    deutsch, ebenso die neuen Texte aus F01, F03 und F04. Share-Arten mit eigenem Präfix (Wunschliste, Pack usw.)
+    sind unverändert.
 
 ### F08 – Entpackgröße erst nach dem Entpacken geprüft (niedrig–mittel, plausibel)
 - **Stelle:** `Core/Share.lua:480`; `Core/Import.lua:179`
