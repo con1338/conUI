@@ -7,14 +7,24 @@ Lua files are the source of truth for the translations; this tool reads them
 back through tools/locale/dump.lua (Lua 5.1), so it sees exactly what the game
 loads.
 
+A fifth file, Fork.lua, holds the texts that are not in the Danish list: the
+ones this fork added to EldoUI's code, and EldoUI's own texts its Danish pack
+lacks. Each of its keys must be a string in EldoUI's code and must not be a
+Danish key (that one belongs in its section). `check` also wants every
+L["..."] key of the code in one of the two lists, so a new text without a
+German translation fails the checks. Texts the code translates where it shows
+them (option labels and descriptions, "-- no-L (translated where shown)"
+lines) can't be found that way: add those to Fork.lua by hand (`apply`).
+
   python3 tools/locale/deDE.py status
   python3 tools/locale/deDE.py export --section Core --size 350 --out DIR
   python3 tools/locale/deDE.py validate FILE.out.json [...]   # check answers, write nothing
   python3 tools/locale/deDE.py import FILE.out.json [...]
   python3 tools/locale/deDE.py seed-lootguide   # take the Loot Guide's deDE table
-  python3 tools/locale/deDE.py check            # placeholders of every translation
+  python3 tools/locale/deDE.py check            # placeholders, Fork.lua, untranslated L["..."] keys
   python3 tools/locale/deDE.py xref             # quoted labels match their translation
-  python3 tools/locale/deDE.py apply FIXES.json # {English key: German text}, checked
+  python3 tools/locale/deDE.py apply FIXES.json # {English key: German text}, checked (Fork.lua
+                                                # for keys that are not Danish keys)
   python3 tools/locale/deDE.py build            # rewrite the Lua files as they are
 
 A chunk (export) is a JSON list of {"id", "key", "plural", "where"}. Its answer
@@ -36,12 +46,14 @@ DA = os.path.join(ROOT, "EldoUI_Locale_daDK")
 DE = os.path.join(ROOT, "EldoUI_Locale_deDE")
 LOOTGUIDE_DE = os.path.join(ROOT, "EldoUI", "Modules", "LootGuide", "Locale", "deDE.lua")
 SECTIONS = ["Core", "ModulesAL", "ModulesMZ", "LootGuide"]
+FORK = "Fork"
 
 HEADERS = {
     "Core": "the core: options window, installer, layouts, move mode, profiles, saved data and chat messages",
     "ModulesAL": "the modules A to L: action bars, bags, chat, combat text, Fanfare, frames, info bar, instances and the rest",
     "ModulesMZ": "the modules M to Z: maps, nameplates, quests, raid tools, tooltips, unit frames and the rest",
     "LootGuide": "the Loot Guide, My Adventure and the Journal",
+    "Fork": "the texts that are not in EldoUI's Danish list (this fork's own, and EldoUI's own that the Danish pack lacks)",
 }
 
 
@@ -68,6 +80,12 @@ def danish_sections():
 def german_sections():
     data = dump([section_path(DE, s) for s in SECTIONS])
     return {s: data.get(section_path(DE, s), {}).get("deDE", {}) for s in SECTIONS}
+
+
+def fork_texts():
+    """Fork.lua: {English key: German text}."""
+    path = section_path(DE, FORK)
+    return dump([path]).get(path, {}).get("deDE", {})
 
 
 def lua_string(text):
@@ -124,6 +142,12 @@ def write_section(section, entries, complete=False):
             "-- German is complete: General > EldoUI language offers it.",
             "E.completeLanguages = E.completeLanguages or {}",
             "E.completeLanguages.deDE = true",
+        ]
+    if section == FORK:
+        lines += [
+            "-- Later tables for the same language add keys (E:RegisterLocale), so these",
+            "-- join the four files before it. `check` keeps every key here a string of",
+            "-- EldoUI's code that is not in the Danish list.",
         ]
     lines.append('E:RegisterLocale("deDE", function() return {')
     for key in sorted(entries, key=lambda k: k.encode("utf-8")):
@@ -185,34 +209,56 @@ def entry_problems(key, value):
 # Where a key is used (context for translators)
 # --------------------------------------------------------------------------
 LUA_STRING = re.compile(r'"((?:\\.|[^"\\\n])*)"')
-LUA_ESC = re.compile(r"\\(\d{1,3}|.)", re.S)
+L_KEY = re.compile(r'\bL\["((?:\\.|[^"\\\n])*)"\]')
+LUA_ESC = re.compile(rb"\\(\d{1,3}|.)", re.S)
+LUA_ESC_CHARS = {b"n": b"\n", b"t": b"\t", b"r": b"\r", b"a": b"\a", b"b": b"\b", b"f": b"\f", b"v": b"\v"}
 
 
 def lua_unescape(body):
+    """A Lua string literal's text. Lua strings are bytes: "\\226\\128\\147"
+    is one UTF-8 dash, so the escapes are read as bytes and decoded once."""
     def repl(m):
         e = m.group(1)
         if e.isdigit():
-            return chr(int(e))
-        return {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v"}.get(e, e)
-    return LUA_ESC.sub(repl, body)
+            return bytes([int(e) & 255])
+        return LUA_ESC_CHARS.get(e, e)
+    return LUA_ESC.sub(repl, body.encode("utf-8")).decode("utf-8", errors="replace")
 
 
-def usage_index():
-    index = collections.defaultdict(list)
+def code_files():
+    """EldoUI's Lua files, without the libraries and the language tables."""
     base = os.path.join(ROOT, "EldoUI")
     for folder, _, files in os.walk(base):
         if "Libs" in folder.split(os.sep) or os.sep + "Locale" in folder:
             continue
-        for name in files:
-            if not name.endswith(".lua"):
-                continue
-            path = os.path.join(folder, name)
-            rel = os.path.relpath(path, base)
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                for literal in LUA_STRING.findall(fh.read()):
-                    text = lua_unescape(literal)
-                    if rel not in index[text]:
-                        index[text].append(rel)
+        for name in sorted(files):
+            if name.endswith(".lua"):
+                path = os.path.join(folder, name)
+                yield path, os.path.relpath(path, base)
+
+
+def code_keys():
+    """Every L["..."] key of EldoUI's code that reads as text (two letters
+    or more): {key: [files]}."""
+    keys = collections.defaultdict(list)
+    for path, rel in code_files():
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for literal in L_KEY.findall(fh.read()):
+                key = lua_unescape(literal)
+                if re.search(r"[A-Za-z]{2}", key) and rel not in keys[key]:
+                    keys[key].append(rel)
+    return keys
+
+
+def usage_index():
+    """Every string literal of EldoUI's code: {text: [files]}."""
+    index = collections.defaultdict(list)
+    for path, rel in code_files():
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for literal in LUA_STRING.findall(fh.read()):
+                text = lua_unescape(literal)
+                if rel not in index[text]:
+                    index[text].append(rel)
     return index
 
 
@@ -227,6 +273,7 @@ def cmd_status(_):
         total += len(da[s])
         done += have
         print("%-10s %5d / %5d  (%3d %%)" % (s, have, len(da[s]), 100 * have // max(1, len(da[s]))))
+    print("%-10s %5d texts not in the Danish list (Fork.lua)" % (FORK, len(fork_texts())))
     print("%-10s %5d / %5d  (%3d %%)" % ("total", done, total, 100 * done // max(1, total)))
 
 
@@ -335,6 +382,26 @@ def cmd_check(_):
             if found:
                 print("%s %r: %s" % (s, key[:70], "; ".join(found)))
                 bad += 1
+    # Fork.lua: texts outside the Danish list, each one a string of the code.
+    danish = {k for s in SECTIONS for k in da[s]}
+    fork = fork_texts()
+    used = usage_index()
+    for key, value in fork.items():
+        if key in danish:
+            print("%s: a Danish key, it belongs in its section: %r" % (FORK, key[:70]))
+            bad += 1
+        elif key not in used:
+            print("%s: not a string in EldoUI's code (gone or changed?): %r" % (FORK, key[:70]))
+            bad += 1
+        found = entry_problems(key, value)
+        if found:
+            print("%s %r: %s" % (FORK, key[:70], "; ".join(found)))
+            bad += 1
+    # Every L["..."] key of the code has a German text somewhere.
+    for key, files in sorted(code_keys().items()):
+        if key not in danish and key not in fork:
+            print("no German text: %r (%s); add it to Fork.lua with apply" % (key[:70], ", ".join(files[:2])))
+            bad += 1
     print("%d problems" % bad)
     return 1 if bad else 0
 
@@ -353,11 +420,12 @@ def cmd_xref(_):
     """A text that quotes another one ("Turn on \"Show the clock\" first.")
     must quote that text's German translation."""
     de = german_sections()
+    de[FORK] = fork_texts()
     german = {}
-    for s in SECTIONS:
+    for s in SECTIONS + [FORK]:
         german.update(de[s])
     bad = 0
-    for s in SECTIONS:
+    for s in SECTIONS + [FORK]:
         for key, value in sorted(de[s].items()):
             for label in QUOTED.findall(key):
                 if label in XREF_KEEP:
@@ -373,26 +441,36 @@ def cmd_xref(_):
 
 
 def cmd_apply(args):
-    """Set translations from a JSON object {English key: German text}."""
+    """Set translations from a JSON object {English key: German text}. A key
+    that is not a Danish key but a string of EldoUI's code goes to Fork.lua."""
     da, de = danish_sections(), german_sections()
+    fork = fork_texts()
     section_of = {k: s for s in SECTIONS for k in da[s]}
     fixes = json.load(open(args.file, encoding="utf-8"))
+    used = None
     applied = bad = 0
     for key, value in fixes.items():
         if key not in section_of:
-            print("unknown key %r" % key[:80])
-            bad += 1
-            continue
-        if isinstance(da[section_of[key]][key], dict) and isinstance(value, str):
+            if used is None:
+                used = usage_index()
+            if key not in used:
+                print("unknown key (neither Danish nor a string of the code) %r" % key[:80])
+                bad += 1
+                continue
+        elif isinstance(da[section_of[key]][key], dict) and isinstance(value, str):
             value = {"one": value, "other": value}
         found = entry_problems(key, value)
         if found:
             print("%r: %s" % (key[:80], "; ".join(found)))
             bad += 1
             continue
-        de[section_of[key]][key] = value
+        if key in section_of:
+            de[section_of[key]][key] = value
+        else:
+            fork[key] = value
         applied += 1
     write_all(de)
+    write_section(FORK, fork)
     print("applied %d, rejected %d" % (applied, bad))
     return 1 if bad else 0
 
@@ -400,7 +478,8 @@ def cmd_apply(args):
 def cmd_build(_):
     de = german_sections()
     write_all(de)
-    print("rewrote %d files" % len(SECTIONS))
+    write_section(FORK, fork_texts())
+    print("rewrote %d files" % (len(SECTIONS) + 1))
 
 
 def main():

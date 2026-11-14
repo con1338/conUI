@@ -16,3 +16,4 @@ Core.lua
 ModulesAL.lua
 ModulesMZ.lua
 LootGuide.lua
+Fork.lua
