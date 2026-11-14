@@ -6,6 +6,34 @@ Pfade relativ zum Repo. Aufwand: klein / mittel / groß.
 sind im Kampf geheim, und ein Kampflog gibt es für Addons nicht. Ein eigenes Damage-Meter, ein eigener
 Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 
+## Übersicht
+
+| Nr. | Kurz | Aufwand | Status | Commit |
+|---|---|---|---|---|
+| A1 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | groß | umgesetzt | `7deb15e` … `37a75bf` |
+| B1 | Gruppensuche-Board aus dem Chat (`EldoUI_GroupBoard`) | mittel | umgesetzt | `6fa6000`, `62ae50d` |
+| B2 | Castbars an Party-/Raid-Frames | mittel | offen | |
+| B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | offen | |
+| B4 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | mittel | offen | |
+| C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | offen | |
+| C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | offen | |
+| C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
+| C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
+| D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
+| D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
+| D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
+| D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | teilweise | |
+| E1 | Module erst bei Bedarf laden | groß | abwarten | |
+| E2 | Profiling pro Modul (`/eui perf`) | mittel | offen | |
+| E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
+
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C2, C1, B3, E2, D4, B2, B4, E3, E1.
+Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. B2 hängt an geheimen Werten im Kampf (wie
+F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`),
+und ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1). D4: Einzeltests, die echten Code aus
+den Dateien schneiden, gibt es (`tools/share/`, `tools/clickcast/`, `tools/nameplates/`, `tools/groupboard/`).
+Ein Laden aller Dateien mit API-Stubs gibt es nicht.
+
 ## Top-Empfehlungen
 
 | # | Was | Aufwand |
@@ -84,6 +112,23 @@ Inspect-Anfragen, automatische Loot-Verteilung.
   EldoUI-Blöcke zeigen. Aufwand klein.
 - **Doku veraltet:** README nennt 0.7.1000; `CHANGELOG.md:3` hat einen verirrten Punkt; `.github/CONTRIBUTING.md`
   sagt „PRs cannot be merged“. Aufwand klein.
+  - **Umgesetzt (C3):**
+    - README: „0.7.1000“ ist kein Fehler im eigentlichen Sinn. Es ist EldoUIs Ausgangsstand für Profile und
+      Presets. Upstream hat README und Wiki für 0.7.2000 und 0.7.2001 bewusst so gelassen (der Upstream-README
+      von 0.7.2000 sagt dasselbe). Statt den Upstream-Text umzuschreiben, erklärt der Fork-Hinweis die Zahl und
+      verweist auf CHANGELOG und `docs/wiki/current-release.md`. Das hält spätere Upstream-Importe konfliktarm (D1).
+    - Im Original-Text geändert, weil es für den Fork falsch war: Sprachen nennen jetzt Deutsch; der Link für
+      Fehlerberichte führt wie der Report-Knopf im Spiel (D3) zu diesem Repo.
+    - CHANGELOG: Die verirrte Zeile („Pick the spell and rank each class buff reminder asks for…“) kam mit dem
+      Upstream-Commit „EldoUI 0.7.1001“ (10.11.) in die damalige [Unreleased]-Liste, aus der 0.7.2000 wurde.
+      Sie steht jetzt unter 0.7.2000 › Auras and cooldowns › New, in `CHANGELOG.md` und dem identischen
+      `EldoUI/CHANGELOG.md`.
+    - CONTRIBUTING: Fork-Hinweis oben. Einleitung und „Pull requests“ beschreiben den Fork: Code liegt hier,
+      Änderungen per PR mit den Prüfungen aus `tools/ci/README.md`. Journal-Daten gehen wie der Link im Spiel an
+      EldoUIs Formular.
+    - Nicht geändert: Das Wiki (`docs/wiki/`) und `.github/SUPPORT.md` verweisen weiter auf Upstream. Das passt,
+      weil Upstream sie pflegt. Die Issue-Vorlagen sind Upstreams. Im privaten Repo ist das Fehlerformular für
+      den Report-Knopf nötig, die anderen schaden nicht.
 - **Versionsgrenzen bei Integrationen:** Ace3-Skins nur bis AceGUI-Minor 41 (`EldoUI/Modules/SkinsAddons.lua:29`).
   Bei Addon-Updates prüfen.
 

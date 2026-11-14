@@ -1,6 +1,10 @@
 # Contributing to EldoUI
 
-Thanks for wanting to help. EldoUI is developed in a separate workspace, and this repository holds the releases, the wiki and the issue tracker. The most useful things you can do are below.
+> **Fork-Hinweis:** Dieses Repository ist ein privater Fork von [EldoUI](https://github.com/Eldodeldo/EldoUI).
+> Anders als bei Upstream liegt der Addon-Code hier, und Änderungen kommen per Pull Request (siehe unten).
+> Geändert sind gegenüber dem Original die Einleitung, „Improve the Journal data“ und „Pull requests“.
+
+Thanks for wanting to help. This fork holds EldoUI's addon code, its own additions (the German pack and the group board plugin) and its releases; EldoUI itself is developed upstream at [Eldodeldo/EldoUI](https://github.com/Eldodeldo/EldoUI). The most useful things you can do are below.
 
 ## Report a bug
 
@@ -12,11 +16,11 @@ Open a **Feature request**. Say what you want to see and why. Screenshots or a s
 
 ## Improve the Journal data
 
-Spotted a wrong drop, quest or boss in the Journal? Use the **Journal data** form. Each row is checked before it ships.
+Spotted a wrong drop, quest or boss in the Journal? Use EldoUI's [**Journal data** form](https://github.com/Eldodeldo/EldoUI/issues/new?template=journal-data.yml), as the Journal's own link in the game does: EldoUI maintains that data, not this fork. Each row is checked before it ships.
 
 ## Pull requests
 
-The source code is not hosted here, so pull requests to this repository cannot be merged. Please open an issue instead, with your change described or attached as a patch. It is reviewed and credited in the changelog when it ships.
+Changes to this fork come in as pull requests against `main`. Every push runs the checks described in [tools/ci/README.md](../tools/ci/README.md) (Lua syntax, luacheck, TOC files, offline tests, German texts); a pull request is merged once they pass. A change to EldoUI's own behavior that EldoUI could use as well is worth an issue at [Eldodeldo/EldoUI](https://github.com/Eldodeldo/EldoUI/issues) too.
 
 ## Code of conduct
 

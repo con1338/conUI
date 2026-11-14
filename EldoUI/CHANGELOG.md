@@ -1,6 +1,5 @@
 # Changelog
 
-- **Auras and cooldowns:** Pick the spell and rank each class buff reminder asks for: the imbue per hand, your armor, aspect, aura, seal or blessing. Right-click the icon or use the Class buffs page; by default it follows what you cast last, at your highest rank.
 All notable changes to EldoUI, newest first. Each version starts with its highlights, then lists its changes by the part of EldoUI they touch, with what is new, what was improved and what was fixed in each part. Changes for one class sit under Classes with the class name. Versions are listed as `[version] - date`.
 
 The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each version.
@@ -168,6 +167,7 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 #### New
 
 - New ready-made aura groups: Sunder Armor, Rend and Demoralizing Shout for warriors, your seal for paladins, and Flame Shock for shamans.
+- Pick the spell and rank each class buff reminder asks for: the imbue per hand, your armor, aspect, aura, seal or blessing. Right-click the icon or use the Class buffs page; by default it follows what you cast last, at your highest rank.
 
 #### Fixed
 
