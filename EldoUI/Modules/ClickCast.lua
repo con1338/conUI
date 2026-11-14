@@ -10,7 +10,8 @@
 --     attributes (eldo-clickcast), so buttons made in combat get them too.
 --   * Keys and the wheel on hover: a secure OnEnter wrapper (SecureHandler)
 --     points override bindings at one hidden SecureActionButton and gives it
---     the hovered unit; OnLeave clears them.
+--     the hovered unit; OnLeave clears them. On each press the button takes
+--     the unit again from the hovered frame, in case it changed meanwhile.
 --   * The game's own Click Casting (C_ClickBindings, spellbook > Click
 --     Casting) keeps working on EldoUI's frames; on the same click the
 --     game's binding wins. The tooltip lists both.
@@ -342,6 +343,8 @@ end
 ---------------------------------------------------------------------------
 -- In the restricted environment: `self` is the hovered unit frame, `owner`
 -- the handler. The hidden hover button gets the unit and the bindings.
+-- All three snippets run in the handler's environment, so `eldoHovered`
+-- (the frame whose keys are bound) is shared between them.
 local ON_ENTER = [[
 	if not self:GetAttribute("eldo-hover") then return end
 	local keys = owner:GetAttribute("eldo-hoverkeys")
@@ -352,13 +355,32 @@ local ON_ENTER = [[
 	local suffix = self:GetAttribute("unitsuffix")
 	if suffix then unit = unit .. suffix end
 	hoverButton:SetAttribute("unit", unit)
+	eldoHovered = self
 	self:ClearBindings()
 	for key, button in gmatch(keys, "([^\001\002]+)\002([^\001]+)\001") do
 		self:SetBindingClick(true, key, hoverButton, button)
 	end
 ]]
+-- Only the frame that is left forgets itself: the mouse may enter the next
+-- frame before the old one gets OnLeave.
 local ON_LEAVE = [[
+	if eldoHovered == self then eldoHovered = nil end
 	self:ClearBindings()
+]]
+-- Before the hover button acts (`self` is the hover button): take the unit
+-- again from the frame under the mouse. A group header can give that frame
+-- another unit while the mouse rests on it (someone leaves the raid in
+-- combat); the unit copied on enter would then be someone else. A frame
+-- that has no unit any more gets nothing. Without a frame (a /click macro)
+-- the button keeps the unit it has.
+local ON_CLICK = [[
+	local frame = eldoHovered
+	if not frame then return end
+	local unit = frame:GetAttribute("unit")
+	if not unit then return false end
+	local suffix = frame:GetAttribute("unitsuffix")
+	if suffix then unit = unit .. suffix end
+	self:SetAttribute("unit", unit)
 ]]
 
 local function CreateHoverParts()
@@ -372,6 +394,8 @@ local function CreateHoverParts()
 	hover:RegisterForClicks("AnyUp", "AnyDown")
 	hover:SetAttribute("useOnKeyDown", true)
 	SecureHandlerSetFrameRef(handler, "eldo-hover", hover)
+	-- Should the wrapper fail, the unit copied on enter is used, as before.
+	pcall(SecureHandlerWrapScript, hover, "OnClick", handler, ON_CLICK)
 end
 
 function M:WrapHover(frame)
