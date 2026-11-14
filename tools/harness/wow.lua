@@ -510,7 +510,10 @@ Install = function()
 	Set("UIErrorsFrame", NewObject("MessageFrame", "UIErrorsFrame", G.UIParent))
 	-- Blizzard functions the bundled libraries hook at load (not in
 	-- tools/ci/globals.lua, which covers EldoUI's own code).
-	Set("MarkNewActionHighlight", function() end)
+	for _, name in ipairs({ "MarkNewActionHighlight", "ClearNewActionHighlight", "UpdateOnBarHighlightMarksBySpell",
+		"UpdateOnBarHighlightMarksByFlyout", "ClearOnBarHighlightMarks" }) do
+		Set(name, function() end)
+	end
 	Set("SlashCmdList", {})
 	Set("StaticPopupDialogs", {})
 	Set("UISpecialFrames", {})
