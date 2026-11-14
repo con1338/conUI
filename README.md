@@ -10,7 +10,8 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
 > aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
 > `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
-> Jeder Push wird automatisch geprüft (Syntax, luacheck, TOC-Dateien, Tests, deutsche Texte). Ein Tag `v*` baut
+> Jeder Push wird automatisch geprüft (Syntax, luacheck, TOC-Dateien, Tests, ein Offline-Start des ganzen Addons,
+> deutsche Texte). Ein Tag `v*` baut
 > das fertige ZIP auf der Releases-Seite dieses Repos, und ein täglicher Versionswächter meldet neue
 > WoW: Forever-Patches und EldoUI-Versionen als Issue. Wie das alles läuft: [`tools/ci/README.md`](tools/ci/README.md).
 > Fork-Versionen tragen die Endung `-pN` (`0.7.2001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.

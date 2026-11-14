@@ -5,7 +5,7 @@
 #   tools/ci/check_all.sh              # all checks
 #   tools/ci/check_all.sh toc luacheck # only these
 #
-# Checks: syntax, toc, luacheck, tests, locale. Needs lua5.1, luac5.1,
+# Checks: syntax, toc, luacheck, tests, load, locale. Needs lua5.1, luac5.1,
 # luacheck and python3 (Ubuntu: apt-get install lua5.1 lua-check python3).
 # Exit code 1 when a check fails; all chosen checks run either way.
 set -u
@@ -82,6 +82,17 @@ check_tests() {
 	python3 tools/ci/test_watch_versions.py
 }
 
+check_load() {
+	local result=0
+	step "All of EldoUI loaded offline, first log-in, English client (tools/harness)"
+	lua5.1 tools/harness/load_eldoui.lua || result=1
+	step "The same with a German client (EldoUI loads the German pack)"
+	lua5.1 tools/harness/load_eldoui.lua --locale deDE || result=1
+	step "The offline start catches a broken module"
+	lua5.1 tools/harness/test_harness.lua || result=1
+	return $result
+}
+
 check_locale() {
 	local result=0
 	step "German pack: placeholders and text codes"
@@ -98,10 +109,10 @@ check_locale() {
 }
 
 checks=("$@")
-[ ${#checks[@]} -eq 0 ] && checks=(syntax toc luacheck tests locale)
+[ ${#checks[@]} -eq 0 ] && checks=(syntax toc luacheck tests load locale)
 for name in "${checks[@]}"; do
 	if ! declare -F "check_$name" >/dev/null; then
-		echo "unknown check: $name (syntax, toc, luacheck, tests, locale)"
+		echo "unknown check: $name (syntax, toc, luacheck, tests, load, locale)"
 		exit 2
 	fi
 	"check_$name" || failed+=("$name")
