@@ -72,6 +72,8 @@ check_tests() {
 	lua5.1 tools/infobar/test_broker.lua || return 1
 	step "Masque on the Consumable Bar, totem bars and Quickdraw"
 	lua5.1 tools/masque/test_masque.lua || return 1
+	step "DKP and EPGP standings from the guild notes"
+	lua5.1 tools/raidloot/test_points.lua || return 1
 	step "German pack: Fork.lua rules"
 	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"
