@@ -23,7 +23,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F13 ✔ | Drei Event-Handler mit falscher Signatur | mittel | behoben | `1dc7a1d` |
 | F14 | Mover ziehen über Kampfbeginn → ADDON_ACTION_BLOCKED | mittel (plausibel) | behoben | `8f18ddf` |
 | F15 | Blizzard-Leiste kommt mit „toten“ Buttons zurück | mittel | behoben | `c0345a9` |
-| F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | offen | |
+| F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | behoben | `2731180` |
 | F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | teilweise | `9159f19` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
@@ -244,6 +244,31 @@ neuer Fehler.
 - **Stelle:** `Modules/ClickCast.lua:345`
 - **Problem:** Die Unit wird nur beim Betreten des Frames kopiert. Ändert der Header danach `unit`, bleibt der alte Token.
 - **Szenario:** Maus ruht auf einem Raid-Frame, jemand verlässt im Kampf den Raid → Zauber geht an den Falschen.
+- **Umsetzung:**
+  - Die Unit wird jetzt bei jedem Tastendruck neu vom Frame unter der Maus geholt, direkt bevor der Hover-Button
+    zaubert. Dafür merkt sich `ON_ENTER` den Frame, dessen Tasten es belegt hat (`eldoHovered`), und `ON_LEAVE`
+    vergisst ihn wieder, aber nur, wenn es derselbe Frame ist. Die Maus kann den nächsten Frame betreten, bevor der
+    alte sein OnLeave bekommt. Ein neuer OnClick-Wrapper auf dem Hover-Button (`ON_CLICK`, `Modules/ClickCast.lua:376`)
+    liest dann `unit` und `unitsuffix` dieses Frames.
+  - Alle drei Snippets laufen mit demselben Handler und teilen sich so seine Umgebung. Sie benutzen nichts, was
+    `ON_ENTER` nicht schon benutzt hat, außer einer globalen Variable in dieser Umgebung und `return false`, das
+    Quickdraw genauso nutzt.
+  - Hat der Frame beim Tastendruck keine Unit mehr, passiert nichts. Wird der Button ohne Frame unter der Maus
+    geklickt (ein `/click`-Makro), behält er seine Unit wie bisher.
+  - Lässt sich der Wrapper nicht anlegen, gilt wie bisher die Unit vom Betreten. Schlechter als vorher wird es
+    also nicht.
+  - Test: `tools/clickcast/test_hover_unit.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die echten
+    Snippets und `CreateHoverParts`/`WrapHover` aus `ClickCast.lua` und spielt sie in einem kleinen Nachbau der
+    Secure-Handler durch: Override-Bindungen, gemeinsame Umgebung, Abbruch per `false`. Geprüft wird:
+    - Unit-Wechsel durch den Header, mit und ohne `unitsuffix`;
+    - Frame ohne Unit;
+    - nächster Frame betreten vor OnLeave des alten;
+    - OnHide und `/click`;
+    - ein neues Handle bei jedem Aufruf, für den Fall, dass das Spiel Handles nicht wiederverwendet;
+    - ohne Wrapper zeigt das Modell den alten Fehler.
+  - Nicht umgesetzt: Bekommt ein Frame erst *nach* dem Betreten eine Unit, sind seine Tasten erst nach erneutem
+    Betreten belegt. Das kostet nur einen fehlenden Zauber, keinen falschen. Dafür müsste man auf
+    OnAttributeChanged reagieren.
 
 ### F17 – Kleinkram (niedrig)
 - `Modules/ClickCast.lua:443`, `:1074`: Blizzard-Kompaktframes, die im Kampf entstehen, bekommen keine Bindungen nachgeholt.
@@ -278,3 +303,6 @@ Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehle
 | F07 | einen Modul-String und „General“ exportieren und wieder importieren | Import wie vorher, keine Lua-Fehler; im Lua-Export steht `["migrations"]` |
 | F08 | „All“ exportieren (`/eui export all`) und mit `/eui import` wieder einfügen; einen ElvUI-Profilstring einfügen | Vorschau wie vorher, ohne spürbare Verzögerung; keine Lua-Fehler |
 | F08 | einer Gruppe oder Gilde per „Send to“ ein Profil schicken | kommt an wie vorher |
+| F16 | eine Taste oder das Mausrad als Click-Cast-Bindung anlegen (`/eui clickcast`), über einem Gruppenframe drücken | Zauber geht an die Person auf dem Frame, keine Lua-Fehler |
+| F16 | Maus auf einem Raid-Frame ruhen lassen, jemand weiter oben verlässt den Raid (am besten im Kampf), dann die Taste drücken | Zauber geht an die Person, die der Frame *jetzt* zeigt |
+| F16 | eine Taste mit gedrückter Umschalt-/Strg-Taste und das Mausrad je einmal ausprobieren | wie vorher |
