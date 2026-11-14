@@ -463,11 +463,40 @@ function M:ClearAll()
 end
 
 -- Blizzard's compact frames are created and re-used by the game; pick up
--- new ones after setup (out of combat; the switch is checked every time).
+-- new ones after setup (the switch is checked every time). In combat no
+-- attribute can be set, so they wait in `setUpInCombat` for its end.
+local setUpInCombat = setmetatable({}, { __mode = "k" })
+local COMPACT_JOB = "ClickCast:compact"
+
+-- Out of combat only: bindings for compact frames that have none yet or
+-- were set up again in combat. One queued job covers any number of frames.
+local function PickUpCompactFrames()
+	if not M.active or not M.db.bindBlizzard then
+		for frame in pairs(setUpInCombat) do setUpInCombat[frame] = nil end
+		return
+	end
+	ScanBlizzardFrames()
+	local attributes
+	for frame, kind in pairs(frames) do
+		if kind == "blizzard" and (not applied[frame] or setUpInCombat[frame]) then
+			attributes = attributes or MouseAttributes()
+			M:ApplyFrame(frame, attributes)
+		end
+	end
+	for frame in pairs(setUpInCombat) do setUpInCombat[frame] = nil end
+end
+
 local function OnCompactSetup(frame)
-	if not M.active or InCombatLockdown() or E.FrameCheck(frame, "IsForbidden") then return end
+	if not M.active or E.FrameCheck(frame, "IsForbidden") then return end
 	if not CompactElement(frame) or not frame.GetAttribute then return end
 	frames[frame] = "blizzard"
+	if InCombatLockdown() then
+		if M.db.bindBlizzard then
+			setUpInCombat[frame] = true
+			E:RunOutOfCombat(PickUpCompactFrames, COMPACT_JOB)
+		end
+		return
+	end
 	M:ApplyFrame(frame)
 end
 
@@ -1097,13 +1126,8 @@ function M:OnEnable()
 	end)
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", function()
 		-- New Blizzard compact frames; EldoUI's buttons register themselves.
-		if self.db.bindBlizzard and not InCombatLockdown() then
-			ScanBlizzardFrames()
-			local attributes = MouseAttributes()
-			for frame, kind in pairs(frames) do
-				if kind == "blizzard" and not applied[frame] then self:ApplyFrame(frame, attributes) end
-			end
-		end
+		-- In combat once it ends.
+		if self.db.bindBlizzard then E:RunOutOfCombat(PickUpCompactFrames, COMPACT_JOB) end
 		-- The group frames show a moment later.
 		if not E.Tour:Seen("clickcast:role") then C_Timer.After(2, function() M:OfferRoleHelp() end) end
 	end)
