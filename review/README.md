@@ -5,7 +5,7 @@ Ergebnisse der Prüfung vom November 2026: private Notizen, nicht für Upstream 
 | Datei | Inhalt |
 |---|---|
 | [fehler.md](fehler.md) | Gefundene Fehler mit Stelle, Szenario, Schwere und Status |
-| [verbesserungen.md](verbesserungen.md) | Verbesserungen, fehlende Features, Infrastruktur |
+| [verbesserungen.md](verbesserungen.md) | Verbesserungen, fehlende Features, Infrastruktur, mit Status und Reihenfolge |
 
 ## Wie geprüft wurde
 
@@ -30,4 +30,12 @@ genauen API-Verhalten von WoW: Forever ab, vor allem davon, welche Werte im Kamp
 |---|---|
 | offen | noch nicht angefasst |
 | behoben | im Code geändert; Commit in der Git-Historie |
+| umgesetzt | Verbesserung fertig; Commit in der Git-Historie |
+| teilweise | ein Teil erledigt; was fehlt, steht beim Punkt |
 | bewusst nicht | absichtlich nicht geändert (Grund steht dabei) |
+| Daueraufgabe | nichts zu bauen; bei jedem Update erneut prüfen |
+| abwarten | erst angehen, wenn sich etwas ändert (Grund steht in der Übersicht) |
+
+Beide Dateien beginnen mit einer Übersicht. „Weiter mit dem nächsten offenen Punkt“ heißt: in `fehler.md` die
+nächste Zeile mit „offen“ (dort ist seit F17 keine mehr übrig), in `verbesserungen.md` der nächste Punkt aus der
+Reihenfolge unter der Übersicht.
