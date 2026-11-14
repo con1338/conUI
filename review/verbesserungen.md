@@ -15,7 +15,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B1 | Gruppensuche-Board aus dem Chat (`EldoUI_GroupBoard`) | mittel | umgesetzt | `6fa6000`, `62ae50d` |
 | B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
-| B4 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | mittel | offen | |
+| B4 | Weltbuff-Tracker (Forever hat Weltbuffs, laut Nutzer) | mittel | umgesetzt | `2b77920` |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
@@ -28,12 +28,13 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), B4, E3, E1.
-Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Der Rest von C1 (Auren, Combat HUD) braucht
-einen Test im Spiel mit Masque, deshalb steht er hinten. Neue Texte brauchen seit A2 eine deutsche Übersetzung in
-`EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an geheimen Werten im
-Kampf (wie F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plant Upstream
-(`EldoUI/Core/Modules.lua:252`), und ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1).
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E3, E1.
+**Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
+testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
+das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
+ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1). Neue Texte brauchen seit A2 eine deutsche
+Übersetzung in `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). Dazu kommen die
+Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 
 ## Top-Empfehlungen
 
@@ -132,6 +133,36 @@ Kampf (wie F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plan
 | Castbars an Party-/Raid-Frames | `UNIT_SPELLCAST\|UnitCastingInfo` in GroupFrames: 0 Treffer | mittel |
 | DKP-/EPGP-Stände anzeigen | `EPGP\|DKP`: 0 Treffer (nur softres, TMB, GDKP) | klein–mittel |
 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | `songflower\|dragonslayer\|world buff`: 0 Treffer | mittel |
+
+**B4 – Weltbuff-Tracker (umgesetzt):**
+- Forever hat Weltbuffs (Auskunft des Nutzers, 14.11.2026). Neu: Modul „World Buffs“ (`Modules/WorldBuffs.lua`,
+  Kategorie Gruppe, standardmäßig an).
+- Info-Bar-Block „World buffs“: Anzahl der eigenen Weltbuffs und die kürzeste Restzeit. Der Tooltip zeigt jeden
+  einzeln mit Zeit, in einer Gruppe außerhalb des Kampfs auch, wie viele jedes Mitglied hat.
+- Warnung: eine lokale Chatzeile, wenn ein eigener Weltbuff nur noch wenige Minuten hat. Standard 5 Minuten, einmal
+  pro Buff, nie im Kampf (dann gleich danach), nie gesendet.
+- Bereitschaftsbericht: eine Spalte „World buffs“ mit der Anzahl je Mitglied. Standardmäßig aus, über
+  `ReadyReport:AddColumn`.
+- Welche Buffs: die der klassischen Welt, also Drachentöter (22888), Segen des Kriegshäuptlings (16609), Geist von
+  Zandalar (24425), Liedblumen-Serenade (15366), Sayges dunkles Schicksal (8 IDs), die drei Düsterbruch-Tribute.
+  Eine Aura zählt über die Spell-ID **oder** über den Namen, den der Client für eine dieser IDs liefert. Andere IDs
+  desselben Buffs in Forever und jede Sprache passen damit auch.
+- Regeln: Auren über `C_UnitAuras` in pcall. Andere Mitglieder werden nur außerhalb des Kampfs gelesen. Geheime
+  Auren, Namen und Zeiten bleiben weg und werden nie verglichen.
+- Deutsch: „Weltbuffs“. Das Glossar erlaubt die Kurzform „Buffs“, wo Platz knapp ist, und so heißt es unter
+  deutschen Spielern.
+- Test: `tools/worldbuffs/test_world_buffs.lua` (läuft in `tools/ci/check_all.sh tests`, 39 Prüfungen). Der
+  Offline-Start (D4) lädt das Modul mit.
+- Risiko: Die Spell-IDs stammen aus Classic. Hat Forever für einen Weltbuff eine andere ID **und** einen anderen
+  Namen, wird er nicht erkannt. Das zeigt erst der Test im Spiel; dann gehört die ID in `M.BUFFS`.
+- Im Spiel prüfen:
+  - Info-Bar-Block „World buffs“ einem Platz zuweisen und einen Weltbuff holen (z. B. Liedblume oder
+    Dunkelmond-Jahrmarkt). Erwartung: Anzahl und Restzeit; im Tooltip Name und Zeit.
+  - Mit einem Buff kurz vor dem Ende: die Chatzeile „… läuft in … aus.“ kommt einmal.
+  - In einer Gruppe den Tooltip öffnen: die Mitglieder mit ihrer Anzahl. Im Kampf steht dort der Hinweis.
+  - Optionen › World Buffs › „Column in the Ready Check Report“ an, dann einen Bereitschaftscheck: Spalte mit
+    der Anzahl je Mitglied.
+  - Danach `/eui errors`: keine Lua-Fehler.
 
 **B2 – Castbars an Party-/Raid-Frames (umgesetzt):**
 - Neu: `Modules/GroupFrames/Cast.lua`. Eine schmale Leiste am unteren Rand des Rahmens zeigt, was das Mitglied
