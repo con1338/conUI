@@ -11,12 +11,13 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | Nr. | Kurz | Aufwand | Status | Commit |
 |---|---|---|---|---|
 | A1 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | groß | umgesetzt | `7deb15e` … `37a75bf` |
+| A2 | Texte, die nur der Fork hat, ins deutsche Paket (heute nur Englisch) | klein–mittel | offen | |
 | B1 | Gruppensuche-Board aus dem Chat (`EldoUI_GroupBoard`) | mittel | umgesetzt | `6fa6000`, `62ae50d` |
 | B2 | Castbars an Party-/Raid-Frames | mittel | offen | |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | offen | |
 | B4 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | mittel | offen | |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | offen | |
-| C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | offen | |
+| C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
@@ -27,11 +28,16 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | offen | |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C2, C1, B3, E2, D4, B2, B4, E3, E1.
-Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. B2 hängt an geheimen Werten im Kampf (wie
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): A2, C1, B3, E2, D4, B2, B4, E3, E1.
+Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. A2 steht vorn, weil jede weitere Verbesserung
+neue Texte bringt: `tools/locale/deDE.py check` lässt im deutschen Paket nur Schlüssel zu, die das dänische Paket
+von Upstream hat. Deshalb sind die Meldungen aus F07 und die Optionen aus C2 im deutschen Spiel englisch. Nötig
+wäre eine eigene Datei für Fork-Texte im Paket, die `check` gegen die Texte im Code statt gegen die dänische Liste
+prüft. B2 hängt an geheimen Werten im Kampf (wie
 F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`),
 und ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1). D4: Einzeltests, die echten Code aus
-den Dateien schneiden, gibt es (`tools/share/`, `tools/clickcast/`, `tools/nameplates/`, `tools/groupboard/`).
+den Dateien schneiden, gibt es (`tools/share/`, `tools/clickcast/`, `tools/nameplates/`, `tools/infobar/`,
+`tools/groupboard/`).
 Ein Laden aller Dateien mit API-Stubs gibt es nicht.
 
 ## Top-Empfehlungen
@@ -110,6 +116,48 @@ Inspect-Anfragen, automatische Loot-Verteilung.
   ConsumableBar, Totems, Quickdraw: kein Masque. Aufwand klein–mittel.
 - **Info-Bar liest LDB, stellt aber nichts bereit:** kein `NewDataObject` im Code, Titan Panel kann keine
   EldoUI-Blöcke zeigen. Aufwand klein.
+  - **Umgesetzt (C2):**
+    - Auswahl: Der Spieler wählt bis zu acht Info-Bar-Blöcke (Info Bar › Datatexts, unter „Other addons
+      (LibDataBroker)“: „Block 1 for other addons“ usw.). Die Zeilen erscheinen erst, wenn ein Addon
+      LibDataBroker geladen hat, sonst steht dort ein Hinweis.
+    - Jeder gewählte Block wird ein Datenobjekt „EldoUI: <Block>“ mit Text, Name, Icon, Tooltip und Klick. Das
+      macht `Modules/InfoBar/Broker.lua`.
+    - Warum nicht alle Blöcke: Manche Displays (ChocolateBar) setzen jedes neue Objekt auf ihre Leiste. Gut 60
+      EldoUI-Blöcke auf einen Schlag wären zu viel. Außerdem muss jeder angebotene Block ständig aktuell gehalten
+      werden, weil ein Display nicht sagt, was es zeigt.
+    - Aktualisierung wie auf der Leiste: bei den Events des Blocks, im Poll-Takt (1 s oder der eigene) und wenn
+      die Info-Bar ihn per Name auffrischt (Post, Würfe usw.).
+    - Geheime Texte (im Kampf) werden nicht weitergegeben, weil die Bibliothek jeden neuen Wert mit dem alten
+      vergleicht. Das Objekt behält dann seinen letzten lesbaren Text.
+    - Klicks: Ein Klick im Display macht dasselbe wie auf dem Block. Im Kampf gilt dieselbe Regel: Nur Blöcke
+      mit `combatClick` reagieren, sonst erscheint „Not in combat.“ am Display. Menüs öffnen am Knopf des
+      Displays.
+    - Ein Block, der aus der Liste genommen wird, oder das ausgeschaltete Modul: Das Objekt zeigt „Off“, denn
+      die Bibliothek kann Objekte nicht zurücknehmen. Bis zum Reload bleibt es in der Liste des Displays.
+    - Die Bibliothek bringt jedes Display selbst mit, EldoUI liefert sie nicht. Lädt das Display nach EldoUI,
+      findet `ADDON_LOADED` sie. Ein Name, den schon ein anderes Addon benutzt, wird nicht angefasst.
+    - In `InfoBar.lua`:
+      - Die Tooltip-Zeilen stehen jetzt in `TooltipLines`, das die Leiste und die Objekte teilen.
+      - `UpdateButton` übergeht Frames ohne `dataName`: Ein Klick im Display gibt dessen Frame an Blöcke weiter,
+        die sich danach selbst auffrischen (Speicher, Lautstärke, Gold).
+      - Die Brücke, die fremde LDB-Feeds liest, überspringt EldoUIs eigene Objekte. Sonst kämen sie als
+        „LDB: EldoUI: …“ zurück.
+    - Test: `tools/infobar/test_broker.lua` (läuft in `tools/ci/check_all.sh tests`, 57 Prüfungen). Er lädt
+      `Broker.lua` ganz und die geänderten Teile von `InfoBar.lua`. Dazu kommt ein Modell von LibDataBroker-1.1,
+      das wie die Bibliothek Werte vergleicht und bei einem geheimen Wert scheitert.
+    - Grenzen:
+      - Das Mausrad hat in LibDataBroker kein Gegenstück.
+      - Der Ruhestein-Block zeigt seinen Text, ein Klick benutzt ihn aber nicht. Das geht nur über den
+        geschützten Knopf auf EldoUIs Leiste.
+      - Die Optionstexte sind nur englisch (siehe A2).
+    - Im Spiel prüfen, mit Titan Panel oder ChocolateBar:
+      - Info Bar › Datatexts: „Durability“ und „Time“ als Block 1 und 2 wählen. Erwartung: Im Display erscheinen
+        „EldoUI: Durability“ und „EldoUI: Time“. Die Uhr läuft mit, die Haltbarkeit ändert sich nach einem Tod
+        bzw. beim Reparieren.
+      - Maus darüber halten: derselbe Tooltip wie auf der Leiste.
+      - Klick auf „Durability“: Das Charakterfenster öffnet sich. Im Kampf erscheint stattdessen „Not in combat.“.
+      - Block 1 wieder leeren: Der Block zeigt „Off“ und ist nach `/reload` weg.
+      - Danach `/eui errors`: keine Lua-Fehler.
 - **Doku veraltet:** README nennt 0.7.1000; `CHANGELOG.md:3` hat einen verirrten Punkt; `.github/CONTRIBUTING.md`
   sagt „PRs cannot be merged“. Aufwand klein.
   - **Umgesetzt (C3):**
