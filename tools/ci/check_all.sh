@@ -76,6 +76,8 @@ check_tests() {
 	lua5.1 tools/raidloot/test_points.lua || return 1
 	step "Timing per module (/eui perf)"
 	lua5.1 tools/perf/test_perf.lua || return 1
+	step "Cast bars on the party and raid frames"
+	lua5.1 tools/groupframes/test_cast.lua || return 1
 	step "German pack: Fork.lua rules"
 	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"

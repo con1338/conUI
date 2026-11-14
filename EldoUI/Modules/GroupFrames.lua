@@ -132,6 +132,7 @@ local function SectionDefaults(width, height, spacing, growth, per, extra)
 		classColor = true, classColorName = false, colorByValue = false,
 		fill = "HORIZONTAL", reverseFill = false,
 		powerHeight = 0, powerFilter = "ALL", -- "ALL" or "HEALERS"
+		castbar = { enabled = false, height = 4, name = false }, -- cast bar at the bottom (GroupFrames/Cast.lua)
 		portrait = "NONE",         -- "NONE", "CLASS", "2D" or "3D" (party)
 		portraitBox = false,       -- the portrait in its own box, as tall as the frame (Boxed look)
 		portraitDeadGrey = true,   -- gray while dead or offline (Effects: Dead and offline look)
@@ -1478,6 +1479,8 @@ local function SetUnit(button, unit)
 		activeButtons[button] = nil
 	end
 	UpdatePrivateAnchors(button)
+	-- The cast bar follows the new unit (GroupFrames/Cast.lua).
+	if M.CastUnitChanged then M.CastUnitChanged(button) end
 end
 
 -- Module or frame source off: the button stops following its unit and

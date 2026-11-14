@@ -13,7 +13,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | A1 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | groß | umgesetzt | `7deb15e` … `37a75bf` |
 | A2 | Texte außerhalb der dänischen Liste ins deutsche Paket (`Fork.lua`) | klein–mittel | umgesetzt | `6e7bdf4`, `bc5f0aa` |
 | B1 | Gruppensuche-Board aus dem Chat (`EldoUI_GroupBoard`) | mittel | umgesetzt | `6fa6000`, `62ae50d` |
-| B2 | Castbars an Party-/Raid-Frames | mittel | offen | |
+| B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | mittel | offen | |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
@@ -28,7 +28,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B2, C1 (Rest), B4, E3, E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), B4, E3, E1.
 Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Der Rest von C1 (Auren, Combat HUD) braucht
 einen Test im Spiel mit Masque, deshalb steht er hinten. Neue Texte brauchen seit A2 eine deutsche Übersetzung in
 `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an geheimen Werten im
@@ -132,6 +132,37 @@ Kampf (wie F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plan
 | Castbars an Party-/Raid-Frames | `UNIT_SPELLCAST\|UnitCastingInfo` in GroupFrames: 0 Treffer | mittel |
 | DKP-/EPGP-Stände anzeigen | `EPGP\|DKP`: 0 Treffer (nur softres, TMB, GDKP) | klein–mittel |
 | Weltbuff-Tracker (falls Forever Weltbuffs hat) | `songflower\|dragonslayer\|world buff`: 0 Treffer | mittel |
+
+**B2 – Castbars an Party-/Raid-Frames (umgesetzt):**
+- Neu: `Modules/GroupFrames/Cast.lua`. Eine schmale Leiste am unteren Rand des Rahmens zeigt, was das Mitglied
+  zaubert. Zauber füllen sie, kanalisierte Zauber leeren sie, grau, wenn sich der Zauber nicht unterbrechen lässt.
+- Einstellungen je Abschnitt (Gruppe, die Raid-Größen, Main Tanks) bei den Leisten: „Cast bar“, Höhe (2–16 px) und
+  „Spell name on the cast bar“. Der Name erscheint ab 8 px. Standardmäßig aus; solange kein Abschnitt sie an hat,
+  hört nichts auf das Spiel.
+- So liest es das Spiel:
+  - Ein Frame hört die `UNIT_SPELLCAST_*`-Events für Euch, party1–4 und raid1–40.
+  - Welche Rahmen welche Unit zeigen, steht in einem Index. `SetUnit` in `GroupFrames.lua` meldet jeden
+    Unit-Wechsel (eine Zeile dort). So wandert die Leiste bei einer Roster-Änderung im Kampf mit.
+  - Jedes Event liest den Zauber neu (`UnitCastingInfo`, dann `UnitChannelInfo`). Ein gescheiterter Versuch eines
+    anderen Zaubers lässt die Leiste stehen, ein Ende versteckt sie.
+- Geheime Werte (wie bei F11):
+  - Mit dem Dauer-Objekt des Spiels (`UnitCastingDuration`) lässt der Client die Leiste selbst laufen
+    (`SetTimerDuration`). Geheime Zeiten sind dann kein Problem.
+  - Das Grau für ein geheimes „nicht unterbrechbar“ wählt `C_CurveUtil.EvaluateColorFromBoolean`.
+  - Ohne Dauer-Objekt läuft die Leiste über klare Start- und Endzeiten am gemeinsamen Ticker. Sind die geheim,
+    bleibt sie aus. Nichts Geheimes wird getestet, verglichen oder gerechnet.
+- Nicht dabei: Begleiter und die Ziele der Main Tanks, denn ihre Units bekommen keine eigenen Zauber-Events.
+- Test: `tools/groupframes/test_cast.lua` (läuft in `tools/ci/check_all.sh tests`, 35 Prüfungen). Er lädt
+  `Cast.lua` ganz, mit nachgebauten Zauber-APIs. Geheime Werte scheitern dort bei jedem Vergleich und jeder
+  Rechnung, wie im Spiel. Der Offline-Start (D4) lädt die Datei mit und schaltet das Modul an und aus.
+- Im Spiel prüfen, vor allem in einer Instanz und im Kampf, wo Werte geheim sein können:
+  - Party › Leisten › „Cast bar“ an. Ein Gruppenmitglied zaubert: Die Leiste füllt sich, beim kanalisierten Zauber
+    leert sie sich.
+  - In einem Dungeon im Kampf: Die Leisten laufen weiter, auch wenn das Spiel Zeiten geheim hält. Grau erscheint
+    nur bei Zaubern, die sich nicht unterbrechen lassen (bei Spielern selten).
+  - Raid: Jemand verlässt im Kampf den Raid, während andere zaubern. Die Leisten sitzen danach am richtigen Rahmen.
+  - Höhe 10 und „Spell name“ an: Der Name steht auf der Leiste.
+  - Danach `/eui errors`: keine Lua-Fehler, auch nicht im Kampf.
 
 **B3 – DKP-/EPGP-Stände (umgesetzt):**
 - Datenquelle: Gilden mit DKP oder EPGP führen den Stand jedes Mitglieds in den Notizen des Gildenrosters,
