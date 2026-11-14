@@ -23,21 +23,17 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
-| D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | teilweise | |
+| D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | umgesetzt | `fb8c242` … `141e84d` |
 | E1 | Module erst bei Bedarf laden | groß | abwarten | |
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): D4, B2, C1 (Rest), B4, E3, E1.
-Der Rest von C1 (Auren, Combat HUD) braucht einen Test im Spiel mit Masque, deshalb steht er hinten.
-Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Neue Texte brauchen seit A2 eine deutsche
-Übersetzung in `EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an
-geheimen Werten im Kampf (wie
-F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`),
-und ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1). D4: Einzeltests, die echten Code aus
-den Dateien schneiden, gibt es (`tools/share/`, `tools/clickcast/`, `tools/nameplates/`, `tools/infobar/`,
-`tools/groupboard/`).
-Ein Laden aller Dateien mit API-Stubs gibt es nicht.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B2, C1 (Rest), B4, E3, E1.
+Kleine Punkte zuerst, und solche, die sich ohne Spiel prüfen lassen. Der Rest von C1 (Auren, Combat HUD) braucht
+einen Test im Spiel mit Masque, deshalb steht er hinten. Neue Texte brauchen seit A2 eine deutsche Übersetzung in
+`EldoUI_Locale_deDE/Fork.lua`, sonst schlägt die CI fehl (bei `L["…"]`-Texten). B2 hängt an geheimen Werten im
+Kampf (wie F11). Für B4 muss erst feststehen, ob Forever Weltbuffs hat. E1 plant Upstream
+(`EldoUI/Core/Modules.lua:252`), und ein eigener Umbau gäbe bei jedem Upstream-Update große Konflikte (D1).
 
 ## Top-Empfehlungen
 
@@ -320,6 +316,37 @@ Inspect-Anfragen, automatische Loot-Verteilung.
   - Schema-Nummern (`EldoUI/Core/Database.lua:588`) nicht selbst erhöhen, sonst kollidieren spätere
     Upstream-Migrationen.
 - **D4 Offline-Test-Harness:** WoW-API-Stubs und Laden der Dateien in TOC-Reihenfolge. Aufwand mittel.
+  - **Umgesetzt:**
+    - Neu: `tools/harness/load_eldoui.lua` mit dem Spiel-Nachbau `tools/harness/wow.lua` und der neuen Prüfung
+      `load` (eigener CI-Schritt „Ganzes Addon offline laden“). Der Lauf:
+      - lädt alle Dateien der `EldoUI.toc` in ihrer Reihenfolge mit Addon-Namen und gemeinsamer Privattabelle,
+        dann `ADDON_LOADED`;
+      - lädt danach die Addons, die mit EldoUI laden (Gruppen-Pinnwand), und Bedarfs-Addons, sobald EldoUI sie per
+        `C_AddOns.LoadAddOn` anfordert, aus ihren eigenen TOC-Dateien;
+      - spielt `PLAYER_LOGIN` und `PLAYER_ENTERING_WORLD` wie ein erster Login ohne Einstellungen, dazu die
+        gestarteten Timer;
+      - schaltet zuletzt jedes Modul über `E:SetModuleEnabled` an, aus und zurück.
+    - Zwei Läufe: englischer Client und deutscher Client. Beim deutschen wählt EldoUI selbst Deutsch und lädt das
+      deutsche Paket samt `Fork.lua`.
+    - Ergebnis beim Einbau: 608 bzw. 614 Dateien, 100 Module (80 starten an), alle 100 gleichzeitig an und aus,
+      0 Fehler, gut 2 s pro Lauf.
+    - Nachbau:
+      - Die API-Namen aus `tools/ci/globals.lua` antworten. Wichtige sind von Hand gebaut: Spieler, Client, Zeit,
+        Addons aus den echten TOCs, CVars, Timer, Hooks, Farben, Konstanten. Frames merken sich Größe, Anker wie
+        im Spiel, Skripte, Attribute und Events. `ActionButtonTemplate` bringt seine Teile mit.
+      - Der Rest ist ein „Mock“, aufrufbar und indizierbar; ein Aufruf antwortet nach dem Namen (`Is*` false,
+        „Num“/„Count“ 0, sonst nil).
+      - Andere Globals sind nil, wie bei einem fehlenden Addon.
+    - Gegentest: `tools/harness/test_harness.lua` startet den Lauf mit einem absichtlich kaputten Modul
+      (`fixtures/broken_module.lua`). Er muss fehlschlagen und Modul, Datei, Zeile und Phase nennen.
+    - Beim Einbau gefunden wurden nur Lücken im Nachbau (Anker, Templates, Frame-Pools, TOC-Bedingungen, drei
+      Blizzard-Funktionen, die LibActionButton hookt), kein Fehler in EldoUI.
+    - Grenzen: Die Mocks sind großzügig. Wo das Spiel echte Daten liefern würde, nimmt der Code meist den Weg
+      „keine Daten“. Der Lauf findet Abstürze und falsche Aufrufe, nicht falsches Verhalten oder Zeichnen.
+      Beschrieben in `tools/ci/README.md`, mit dem Hinweis, was ein neuer `load`-Fehler bedeutet (echter Fehler
+      oder Lücke im Nachbau).
+    - Die Einzeltests mit ausgeschnittenem Code (`tools/share/`, `tools/clickcast/` usw.) bleiben. Sie prüfen
+      Verhalten genauer, der Offline-Start prüft das Ganze.
 
 ## E – Performance
 
