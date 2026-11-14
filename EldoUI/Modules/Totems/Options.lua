@@ -97,6 +97,8 @@ local options = {
 	{ type = "range", key = "size", label = "Button size", min = 20, max = 48, step = 1, desc = "Size of each totem button." },
 	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between the buttons." },
 	{ type = "toggle", key = "vertical", label = "Vertical", desc = "Stack the buttons top to bottom (both bars)." },
+	{ type = "toggle", key = "masque", label = "Use Masque", reload = true, desc = E.MASQUE_OPTION_DESC,
+		requires = function() return E:Masque() ~= nil end },
 	{ type = "header", label = "Blizzard" },
 	{ type = "toggle", key = "hideBlizzard", label = "Hide Blizzard's totem bar", desc = "Hide the game's own totem bar and totem timers while this bar is on, so there is one totem bar." },
 	{ type = "toggle", key = "keepTimers", label = "Keep Blizzard's totem timers", dependsOn = "hideBlizzard",

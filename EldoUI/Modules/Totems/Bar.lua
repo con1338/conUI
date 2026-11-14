@@ -37,9 +37,13 @@ E:RegisterGlowUser("totemHint", {
 })
 
 ---------------------------------------------------------------------------
--- A bar button in the action button look (shared with the cooldown bar)
+-- A bar button in the action button look (shared with the cooldown bar).
+-- masqueGroup: the Masque group it joins when "Use Masque" is on (a fixed
+-- English name: Masque keeps its skin settings under it).
 ---------------------------------------------------------------------------
-function M.NewButton(parent, name, templates)
+M.MASQUE_TOTEMS, M.MASQUE_COOLDOWNS = "Totem Bar", "Shaman Cooldowns"
+
+function M.NewButton(parent, name, templates, masqueGroup)
 	local button = CreateFrame("Button", name, parent, templates)
 	E:SetTemplate(button)
 	button.icon = button:CreateTexture(nil, "ARTWORK")
@@ -66,6 +70,11 @@ function M.NewButton(parent, name, templates)
 	button.edge:SetHeight(2)
 	button.edge:SetTexture(E.media.flat)
 	button.edge:Hide()
+	-- The pressed look stays EldoUI's (PaintButton keeps it in the accent).
+	if masqueGroup and M.db.masque then
+		E:MasqueButton(masqueGroup, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count,
+			HotKey = button.hotkey, Highlight = highlight }, "Action")
+	end
 	return button
 end
 
@@ -187,7 +196,8 @@ function Bar:Build()
 	self.frame = frame
 	self.buttons = {}
 	for index, element in ipairs(D.ELEMENTS) do
-		local button = M.NewButton(frame, "EldoUI_TotemButton" .. index, "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate")
+		local button = M.NewButton(frame, "EldoUI_TotemButton" .. index, "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate",
+			M.MASQUE_TOTEMS)
 		button.element = element
 		button.command = ("CLICK EldoUI_TotemButton%d:LeftButton"):format(index)
 		button:RegisterForClicks("AnyUp", "AnyDown")
@@ -210,7 +220,8 @@ function Bar:Build()
 		picker:Hide()
 		picker.buttons = {}
 		for slot = 1, MAX_PICKS do
-			local pick = M.NewButton(picker, ("EldoUI_TotemPicker%dButton%d"):format(index, slot), "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate")
+			local pick = M.NewButton(picker, ("EldoUI_TotemPicker%dButton%d"):format(index, slot), "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate",
+				M.MASQUE_TOTEMS)
 			pick.element = element
 			pick:RegisterForClicks("AnyUp", "AnyDown")
 			pick:SetAttribute("type", nil)
@@ -231,7 +242,7 @@ function Bar:Build()
 		E:RegisterKeybindButton(button, button.command)
 		self.buttons[index] = button
 	end
-	local drop = M.NewButton(frame, "EldoUI_TotemDropAll", "SecureActionButtonTemplate")
+	local drop = M.NewButton(frame, "EldoUI_TotemDropAll", "SecureActionButtonTemplate", M.MASQUE_TOTEMS)
 	drop.command = "CLICK EldoUI_TotemDropAll:LeftButton"
 	drop:RegisterForClicks("AnyUp", "AnyDown")
 	drop:SetAttribute("type", nil)
@@ -389,6 +400,8 @@ function Bar:Apply()
 	-- Totemic Recall for its key.
 	local recall = M:Known(D.RECALL) and M.SpellName(D.RECALL) or nil
 	self.recall:SetAttribute("spell", recall)
+	-- Masque fits its skin to the button size it finds when it skins.
+	if db.masque then E:MasqueReSkin(M.MASQUE_TOTEMS) end
 	local count = #self.buttons + 1
 	local length = count * size + (count - 1) * spacing
 	local extra = db.timerBars and 4 or 0

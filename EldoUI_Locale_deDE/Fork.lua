@@ -31,6 +31,7 @@ E:RegisterLocale("deDE", function() return {
 	["Titan Panel, ChocolateBar and other LibDataBroker displays can show Info Bar blocks once one of them is loaded."] = "Titan Panel, ChocolateBar und andere LibDataBroker-Anzeigen können Datentexte der Infoleiste zeigen, sobald eines davon geladen ist.",
 	["Toy box"] = "Spielzeugkiste",
 	["Type a name first."] = "Gebt zuerst einen Namen ein.",
+	["When the Masque addon is loaded, let it skin these buttons (Masque lists them under EldoUI). EldoUI's own button art steps aside."] = "Ist das Addon Masque geladen, darf es diese Tasten skinnen (Masque führt sie unter EldoUI). EldoUIs eigene Tastengrafik tritt dann zurück.",
 	["the string comes from a newer EldoUI (%s). Update EldoUI, then import it again."] = "der String stammt aus einem neueren EldoUI (%s). Aktualisiert EldoUI und importiert ihn dann erneut.",
 	["the string comes from a newer EldoUI. Update EldoUI, then import it again."] = "der String stammt aus einem neueren EldoUI. Aktualisiert EldoUI und importiert ihn dann erneut.",
 	["the string comes from an EldoUI before 0.7.1000, which this version can't read. Ask for a new string."] = "der String stammt aus einem EldoUI vor 0.7.1000; diese Version kann ihn nicht lesen. Bittet um einen neuen String.",

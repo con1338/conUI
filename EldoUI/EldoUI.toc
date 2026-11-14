@@ -28,6 +28,7 @@ Core\Errors.lua
 Core\Database.lua
 Data\DefaultChanges.lua
 Core\Media.lua
+Core\Masque.lua
 Data\SkinData.lua
 Data\Skins.lua
 Data\SkinSurfaces.lua

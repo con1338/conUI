@@ -57,6 +57,7 @@ local M = E:NewModule("Quickdraw", {
 		labels = false,
 		cooldowns = true,
 		unusable = "dim",      -- dim | hide | show
+		masque = false,        -- Masque skins the entries (Core/Masque.lua; after a reload)
 	},
 })
 
@@ -501,7 +502,13 @@ local function CreateHeader()
 	return not probeFailed
 end
 
+-- The Masque group of the entries (a fixed English name: Masque keeps its
+-- skin settings under it).
+local MASQUE_GROUP = "Quickdraw"
+
 -- The look of one entry button: icon, border, cooldown, label, highlight.
+-- With "Use Masque" Masque draws the icon, border and cooldown; the label,
+-- the picked entry's glow and the sub-menu chevron stay EldoUI's.
 local function SkinEntry(button)
 	E:SetTemplate(button)
 	button.icon = button:CreateTexture(nil, "ARTWORK")
@@ -523,6 +530,7 @@ local function SkinEntry(button)
 	button.subMark = E.UIKit.Chevron(button, "right", 10, "OVERLAY")
 	button.subMark:SetPoint("BOTTOMRIGHT", -2, 2)
 	button.subMark:SetVertexColor(unpack(E.tokens.text.body))
+	if M.db.masque then E:MasqueButton(MASQUE_GROUP, button, { Icon = button.icon, Cooldown = button.cooldown }, "Action") end
 end
 
 local function CreatePalette(menu)
@@ -683,6 +691,8 @@ local function FillPalette(palette, menuDB, list, sub)
 		button:Show()
 		SetRef(palette, "e" .. index, button)
 	end
+	-- Masque fits its skin to the button size it finds when it skins.
+	if db.masque then E:MasqueReSkin(MASQUE_GROUP) end
 	for index = #list + 1, #palette.entries do
 		local button = palette.entries[index]
 		button:Hide()
@@ -1606,6 +1616,8 @@ M.options = {
 	{ type = "range", key = "scale", label = "Scale", unit = "%", min = SCALE_MIN, max = SCALE_MAX, step = 5, desc = "Size of the whole menu in percent (100 = normal size)." },
 	{ type = "toggle", key = "labels", label = "Labels", desc = "The name of each entry under its icon." },
 	{ type = "toggle", key = "cooldowns", label = "Cooldown swipes", desc = "Spells and items show their cooldown, as the game gives it." },
+	{ type = "toggle", key = "masque", label = "Use Masque", reload = true, desc = E.MASQUE_OPTION_DESC,
+		requires = function() return E:Masque() ~= nil end },
 	{ type = "select", key = "unusable", label = "Entries you can't use", values = { dim = "Grayed out", hide = "Left out", show = "Shown normally" },
 		desc = "Grayed out: unknown spells, items you don't carry and entries on cooldown or out of mana are gray. Left out: spells you don't know and items you don't have are not in the menu at all." },
 }

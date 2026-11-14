@@ -625,6 +625,21 @@ function E:AddBackdrop(frame)
 	return frame
 end
 
+-- Buttons a Masque skin draws (Core/Masque.lua): their E:SetTemplate box
+-- goes and stays gone. A later E:SetTemplate (a module's repaint), a new
+-- UI scale or a theme change would otherwise draw it over the skin.
+local droppedBoxes = setmetatable({}, { __mode = "k" })
+
+function E:DropTemplate(frame)
+	droppedBoxes[frame] = true
+	themedBoxes[frame], pixelEdges[frame], waitingBoxes[frame] = nil, nil, nil
+	if frame.SetBackdrop then frame:SetBackdrop(nil) end
+end
+
+function E:TemplateDropped(frame)
+	return droppedBoxes[frame] == true
+end
+
 local function SamePath(a, b)
 	if type(a) ~= "string" or type(b) ~= "string" then return false end
 	return a:lower():gsub("/", "\\") == b:lower():gsub("/", "\\")
@@ -1070,6 +1085,7 @@ function E:SeeThroughColor()
 end
 
 function E:SetTemplate(frame, transparent)
+	if droppedBoxes[frame] then return end
 	self:AddBackdrop(frame)
 	local edge = self:EdgeSize()
 	-- Applying a backdrop measures the frame. A box whose size is secret
