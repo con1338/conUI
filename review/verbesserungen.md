@@ -383,6 +383,8 @@ Inspect-Anfragen, automatische Loot-Verteilung.
   - **Im Spiel prüfen:** `/eui` → Combat Text → Vorlagen → „Kräftig“ anwenden, dann `/eui sct test` und kämpfen.
     Erwartung: Anton-Zahlen mit Schatten, Krits blitzen weiß und springen heraus, Treffer auf der Plakette
     elfenbein, Krits gold; keine Lua-Fehler. Danach eine andere Vorlage wählen: alter Look ohne Schatten.
+  - **Im Spiel geprüft (15.11.2026):** „Kräftig“ angewendet, Test und Kampf: gefällt dem Nutzer („Passt so“), keine
+    Einträge im Fehlerlog. Der Gegentest mit einer anderen Vorlage steht noch aus.
 
 ## D – Infrastruktur für den Fork
 
