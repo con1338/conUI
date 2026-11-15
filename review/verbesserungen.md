@@ -84,11 +84,14 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
     Schlüssel in `Fork.lua` lassen `check` fehlschlagen.
   - Nach `apply` steht der neue Text in `Fork.lua`, und `check` ist grün.
 - Im Spiel prüfen, mit Deutsch unter General › EldoUI language:
-  - Wie beim Test zu F07: `/eui exportlua module:Chat`, im Text `["version"]` des Schemas auf 99 setzen, mit
+  - Wie beim Test zu F07: `/eui exportlua chat`, im Text `["version"]` des Schemas auf 99 setzen, mit
     `/eui import` einfügen. Erwartung: „der String stammt aus einem neueren EldoUI …“.
   - Info Bar › Datentexte: Die Zeile „Datentext 1 für andere Addons“ ist deutsch, wenn Titan Panel o. Ä. geladen
     ist; sonst der deutsche Hinweis.
   - Beim Login (wenn die Begrüßung an ist): „v… geladen. Gebt /eui ein, um die Optionen zu öffnen.“
+- Im Spiel geprüft (15.11.2026), deutscher Client: Die Meldung „… stammt aus einem neueren EldoUI …“ kommt auf
+  Deutsch. Zur Begrüßung keine Abweichung gemeldet. Die Zeile für andere Addons in der Info Bar ist nicht geprüft
+  (kein Titan Panel geladen).
 
 **Locale-System** (`EldoUI/Core/Locale.lua`):
 - Der englische Text ist der Schlüssel. Fehlt eine Übersetzung, erscheint Englisch (Metatable, `:101`).
@@ -236,6 +239,9 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
   - Eine Weile kämpfen, während Gildenmitglieder sich an- und abmelden: keine Meldung „Blocked …“ mehr. Nach dem
     Kampf stimmen die Stände.
   - Danach `/eui errors`: keine Lua-Fehler.
+- Im Spiel geprüft (15.11.2026): Seit dem Fix (PR #20) kein neuer „Blocked …“-Eintrag, in keiner Session bis
+  Nr. 52, darunter mehrere mit Kampf. Ob sich dabei Gildenmitglieder im Kampf an- oder abgemeldet haben, ist nicht bekannt. Tooltip,
+  Info-Bar-Block und Soft-Reserves sind noch nicht geprüft.
 
 **Schon vorhanden:** Damage-Meter-Skin, Encounter Timeline, Fokus- und Boss-Frames, frei belegbare Datenleisten
 (`RegisterDataText`), Profile pro Charakter und Talentgruppe, Nameplate-Farbregeln, 67 Tags, Aurenfilter-Editor,

@@ -88,6 +88,12 @@ neuer Fehler.
 - **Umsetzung:** Makros mit einer Zeile `/run`, `/script` oder `/dump` sind im Restore-Fenster mit „(runs Lua
   code)“ markiert, der Import-Dialog warnt mit den Namen. Bei importierten Snapshots ist „Add missing macros“
   dann anfangs nicht angehakt. Eigene Snapshots verhalten sich wie bisher.
+- **Im Spiel geprüft (15.11.2026):** Die Warnung im Import-Dialog kommt wie erwartet. Im Wiederherstellen-Fenster
+  des importierten Snapshots steht neben „Fehlende Makros hinzufügen“ „1 fehlend, 1 davon führen Lua-Code aus“,
+  das Kästchen ist leer, der Tooltip nennt das Makro mit „(führt Lua-Code aus)“. Der erste Anlauf nach der alten
+  Anleitung öffnete mit `restore <Nummer>` den eigenen Snapshot, denn der Import setzt den neuen auf Nr. 1
+  (`Modules/Snapshots.lua:1069`); dort ist der Haken richtig gesetzt. In der Platzliste steht die Markierung nicht
+  („vorher leer“ heißt dort: der Platz ist jetzt leer). Die Anleitung unten ist entsprechend genauer.
 
 ### F04 – Settings-Angebote Fremder ohne Limit (mittel, bestätigt)
 - **Stelle:** `Core/Share.lua:1471` (`IsTrustedSender`), `:1508`, `:1549`
@@ -152,6 +158,10 @@ neuer Fehler.
     Meldungen waren zuerst nur englisch; seit Verbesserung A2 (`EldoUI_Locale_deDE/Fork.lua`) sind sie auch
     deutsch, ebenso die neuen Texte aus F01, F03 und F04. Share-Arten mit eigenem Präfix (Wunschliste, Pack usw.)
     sind unverändert.
+- **Im Spiel geprüft (15.11.2026):** Ein String mit Schema-Version 99 meldet auf Deutsch „… stammt aus einem
+  neueren EldoUI …“ statt „beschädigt“. Export und Import von „chat“, „general“ und „all“ laufen wie vorher, ohne
+  Lua-Fehler. Der Befehl heißt `/eui exportlua chat`: `module:Chat` meldet „Unbekannte Kategorie“, weil der
+  Befehl `module:` selbst ergänzt.
 
 ### F08 – Entpackgröße erst nach dem Entpacken geprüft (niedrig–mittel, plausibel)
 - **Stelle:** `Core/Share.lua:480`; `Core/Import.lua:179`
@@ -377,24 +387,27 @@ neuer Fehler.
 
 Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehler schauen.
 
-| Fix | Was ausprobieren | Erwartung |
-|---|---|---|
-| F11 | Ziel/Fokus auf einen castenden Gegner in einem Dungeon | Castbar läuft, keine Lua-Fehler |
-| F12 | Raid-Sichtbarkeit „nur im Kampf“, außerhalb des Kampfs einer Gruppe beitreten | keine Meldung „Secure group headers did not create any frames“, EldoUI-Frames im Kampf |
-| F13 | Zauberbuch öffnen (erstes Mal nach Login) | Rangprüfung/Zauberbuch-Button sofort da |
-| F14 | `/eui move`, einen Mover ziehen und dabei in den Kampf kommen | kein ADDON_ACTION_BLOCKED; Mover bleibt dort liegen |
-| F15 | eine EldoUI-Aktionsleiste abschalten | Reload-Hinweis erscheint |
-| F03 | eigenen Snapshot exportieren, ein Makro mit `/run` darin, wieder importieren | Warnung im Import-Dialog, „Add missing macros“ nicht angehakt |
-| F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher |
-| F18 | Profile: „Neues Profil“ + Enter, dann über „Profil für diesen Charakter“ zurück, dann „Profil löschen“ | Profil wird angelegt (Einrichtung öffnet sich), Wechsel und Löschen wirken |
-| F19 | im Kampf einen Zauber auf Leiste 1 legen oder zwei Knöpfe tauschen, danach `/reload` | kein neuer Eintrag „ActionButton<n>:SetShown()“ im Fehlerlog; Leiste 1 zeigt den neuen Zauber |
-| F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
-| F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung |
-| F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates |
-| F07 | `/eui exportlua module:Chat`, im Text `["version"]` des Schemas auf 99 setzen, mit `/eui import` einfügen | Meldung „comes from a newer EldoUI“ statt „damaged“ |
-| F07 | einen Modul-String und „General“ exportieren und wieder importieren | Import wie vorher, keine Lua-Fehler; im Lua-Export steht `["migrations"]` |
-| F08 | „All“ exportieren (`/eui export all`) und mit `/eui import` wieder einfügen; einen ElvUI-Profilstring einfügen | Vorschau wie vorher, ohne spürbare Verzögerung; keine Lua-Fehler |
-| F08 | einer Gruppe oder Gilde per „Send to“ ein Profil schicken | kommt an wie vorher |
-| F16 | eine Taste oder das Mausrad als Click-Cast-Bindung anlegen (`/eui clickcast`), über einem Gruppenframe drücken | Zauber geht an die Person auf dem Frame, keine Lua-Fehler |
-| F16 | Maus auf einem Raid-Frame ruhen lassen, jemand weiter oben verlässt den Raid (am besten im Kampf), dann die Taste drücken | Zauber geht an die Person, die der Frame *jetzt* zeigt |
-| F16 | eine Taste mit gedrückter Umschalt-/Strg-Taste und das Mausrad je einmal ausprobieren | wie vorher |
+Die letzte Spalte hält fest, was am 15.11.2026 im Spiel geprüft wurde (WoW: Forever 1.60.1, deutscher Client,
+Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran, eine Rückmeldung dazu kam nicht.
+
+| Fix | Was ausprobieren | Erwartung | Im Spiel (15.11.2026) |
+|---|---|---|---|
+| F11 | Ziel/Fokus auf einen castenden Gegner in einem Dungeon | Castbar läuft, keine Lua-Fehler | draußen ohne Abweichung (Ziel und Fokus auf einem zaubernden Gegner); im Dungeon offen |
+| F12 | Raid-Sichtbarkeit „nur im Kampf“, außerhalb des Kampfs einer Gruppe beitreten | keine Meldung „Secure group headers did not create any frames“, EldoUI-Frames im Kampf | offen (Gruppe) |
+| F13 | Zauberbuch öffnen (erstes Mal nach Login) | Rangprüfung/Zauberbuch-Button sofort da | keine Abweichung gemeldet |
+| F14 | `/eui move`, einen Mover ziehen und dabei in den Kampf kommen | kein ADDON_ACTION_BLOCKED; Mover bleibt dort liegen | bestätigt: kein Eintrag im Fehlerlog (Mover „Atem und Erschöpfung“, zwei Sessions) |
+| F15 | eine EldoUI-Aktionsleiste abschalten | Reload-Hinweis erscheint | bestätigt: der Hinweis erschien |
+| F03 | eigenen Snapshot mit einem Makro mit `/run` exportieren (`/eui snapshot take`, `export`), das Makro löschen, den String mit `/eui import` einfügen. Nur das Wiederherstellen-Fenster prüfen, das sich danach von selbst öffnet (Titel mit „importiert“); in `/eui snapshot list` ist der importierte Snapshot Nr. 1, der eigene rutscht auf Nr. 2 | Warnung im Import-Dialog; neben „Fehlende Makros hinzufügen“ steht „1 fehlend, 1 davon führen Lua-Code aus“, das Kästchen ist nicht angehakt, der Tooltip zeigt das Makro mit „(führt Lua-Code aus)“. Die Platzliste zeigt beim gelöschten Makro „vorher leer“ | bestätigt, im zweiten Anlauf (der erste öffnete den eigenen Snapshot, siehe F03) |
+| F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher | bestätigt: neues Profil, zurück, alle Frames an ihrem Platz |
+| F18 | Profile: „Neues Profil“ + Enter, dann über „Profil für diesen Charakter“ zurück, dann „Profil löschen“ | Profil wird angelegt (Einrichtung öffnet sich), Wechsel und Löschen wirken | bestätigt |
+| F19 | im Kampf einen Zauber auf Leiste 1 legen oder zwei Knöpfe tauschen, danach `/reload` | kein neuer Eintrag „ActionButton<n>:SetShown()“ im Fehlerlog; Leiste 1 zeigt den neuen Zauber | bestätigt: kein neuer Eintrag (vorher 25 je Versuch) |
+| F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
+| F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
+| F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |
+| F07 | `/eui exportlua chat`, im Text `["version"]` des Schemas auf 99 setzen, mit `/eui import` einfügen | Meldung „comes from a newer EldoUI“ statt „damaged“ | bestätigt |
+| F07 | einen Modul-String und „General“ exportieren und wieder importieren | Import wie vorher, keine Lua-Fehler; im Lua-Export steht `["migrations"]` | bestätigt (`chat` und `general`, `["migrations"]` im Lua-Export) |
+| F08 | „All“ exportieren (`/eui export all`) und mit `/eui import` wieder einfügen; einen ElvUI-Profilstring einfügen | Vorschau wie vorher, ohne spürbare Verzögerung; keine Lua-Fehler | „All“ bestätigt (Vorschau ohne Verzögerung, dann abgebrochen); ElvUI-String offen |
+| F08 | einer Gruppe oder Gilde per „Send to“ ein Profil schicken | kommt an wie vorher | offen (Gruppe oder Gilde) |
+| F16 | eine Taste oder das Mausrad als Click-Cast-Bindung anlegen (`/eui clickcast`), über einem Gruppenframe drücken | Zauber geht an die Person auf dem Frame, keine Lua-Fehler | offen (Gruppe) |
+| F16 | Maus auf einem Raid-Frame ruhen lassen, jemand weiter oben verlässt den Raid (am besten im Kampf), dann die Taste drücken | Zauber geht an die Person, die der Frame *jetzt* zeigt | offen (Gruppe oder Raid) |
+| F16 | eine Taste mit gedrückter Umschalt-/Strg-Taste und das Mausrad je einmal ausprobieren | wie vorher | offen (Gruppe) |
