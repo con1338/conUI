@@ -27,7 +27,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E1 | Module erst bei Bedarf laden | groß | abwarten | |
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
-| E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | |
+| E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
 **Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E3, E1.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
