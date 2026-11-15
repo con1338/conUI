@@ -20,14 +20,14 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
-| C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt |`d83f389` |
+| C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt | `d83f389` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
 | D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | umgesetzt | `fb8c242` … `141e84d` |
 | E1 | Module erst bei Bedarf laden | groß | abwarten | |
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
-| E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt |`d83f389` |
+| E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | `d83f389` |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
 **Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E1.
