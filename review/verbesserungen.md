@@ -472,5 +472,5 @@ Inspect-Anfragen, automatische Loot-Verteilung.
        und Tooltip zeigen dieselbe Summe.
      - Im Spiel geprüft (15.11.2026), 4 Minuten `/eui perf` nach `/reload`: Infoleiste 0,31 ms/s statt 3,06 ms/s,
        langsamster Aufruf 0,24 ms statt 130 ms; EldoUI gesamt 2,13 ms/s statt 4,51 ms/s. In den 4 Minuten fiel
-       keine Messung an (die nächste kommt bei diesem Setup nach etwa 6,5 Minuten). Der Tooltip über „Mem“
-       ist noch nicht eigens geprüft.
+       keine Messung an (die nächste kommt bei diesem Setup nach etwa 6,5 Minuten). Tooltip über „Mem“:
+       Leiste und Tooltip zeigen dieselbe Summe.
