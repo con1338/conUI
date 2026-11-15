@@ -1415,28 +1415,51 @@ end
 -- be one of Blizzard's frames, which takes no fields from addons.
 local MEMORY_REFRESH = 5
 local refreshQueued = setmetatable({}, { __mode = "k" })
+local redrawing = false -- true while the timer below redraws a shown tooltip
 local function RefreshWhileShown(tooltip)
 	local owner = tooltip.GetOwner and tooltip:GetOwner()
 	if not owner or refreshQueued[owner] or not (C_Timer and C_Timer.After) then return end
 	refreshQueued[owner] = true
 	C_Timer.After(MEMORY_REFRESH, function()
 		refreshQueued[owner] = nil
-		if tooltip:IsShown() and tooltip:GetOwner() == owner and owner:IsMouseOver() then M.ShowTooltip(owner) end
+		if tooltip:IsShown() and tooltip:GetOwner() == owner and owner:IsMouseOver() then
+			redrawing = true
+			local ok, err = pcall(M.ShowTooltip, owner)
+			redrawing = false
+			if not ok then geterrorhandler()(err) end
+		end
 	end)
 end
 
 -- One reading of every addon's memory, shared by the bar text and the
--- tooltip so both show the same total. Reading each addon's share is slow,
--- so it runs at most once per bar poll (and after a click frees memory),
--- never on its own in combat; the tooltip's redraws read the kept copy.
-local memorySnapshot = { list = {}, total = 0, own = 0, poll = 30 }
-function memorySnapshot.Read(force)
+-- tooltip so both show the same total. Reading each addon's share is slow
+-- and the game stands still while it runs: about 130 ms with Questie,
+-- AtlasLoot, Details and DBM loaded (seen with /eui perf, 15.11.2026), so
+-- a bar that read it every 30 seconds stuttered every 30 seconds. The bar
+-- reads it rarely now: the longer a reading took, the longer until the
+-- next one (MEMORY_SECONDS_PER_MS seconds per millisecond it took, between
+-- MEMORY_MIN and MEMORY_MAX). Opening the tooltip reads afresh once the
+-- kept copy is MEMORY_HOVER seconds old; its redraws and the bar in
+-- between show the kept copy. Never on its own in combat; a click (which
+-- frees memory) reads right away.
+local MEMORY_MIN, MEMORY_MAX = 30, 600
+local MEMORY_SECONDS_PER_MS = 3
+local MEMORY_HOVER = 10
+local memorySnapshot = { list = {}, total = 0, own = 0, poll = MEMORY_MIN }
+-- force: read now, in combat too. hover: the tooltip opened.
+function memorySnapshot.Read(force, hover)
 	local snapshot, now = memorySnapshot, GetTime()
-	local due = not snapshot.time or now - snapshot.time >= snapshot.poll - 1
+	local age = snapshot.time and now - snapshot.time
+	local due = not age or age >= snapshot.poll - 1 or (hover and age >= MEMORY_HOVER)
 	if force or (due and not InCombatLockdown()) then
+		local started = debugprofilestop and debugprofilestop()
 		if UpdateAddOnMemoryUsage then UpdateAddOnMemoryUsage() end
 		local list, total = AddOnMemory()
 		snapshot.list, snapshot.total, snapshot.own, snapshot.time = list, total, OwnShare(list), now
+		if started then
+			snapshot.cost = debugprofilestop() - started
+			snapshot.poll = math.min(MEMORY_MAX, math.max(MEMORY_MIN, snapshot.cost * MEMORY_SECONDS_PER_MS))
+		end
 	end
 	return snapshot
 end
@@ -1446,7 +1469,7 @@ end
 E:RegisterDataText("Memory", {
 	title = "Addon memory",
 	poll = true,
-	interval = memorySnapshot.poll,
+	interval = MEMORY_MIN,
 	label = "Mem",
 	text = function()
 		local snapshot = memorySnapshot.Read()
@@ -1454,7 +1477,13 @@ E:RegisterDataText("Memory", {
 		return Value(FormatMemory(snapshot.total))
 	end,
 	tooltip = function(tooltip)
-		local snapshot = memorySnapshot.Read()
+		local before = memorySnapshot.time
+		local snapshot = memorySnapshot.Read(false, not redrawing)
+		-- A fresh reading: the block shows the same total as the tooltip.
+		if snapshot.time ~= before then
+			local owner = tooltip.GetOwner and tooltip:GetOwner()
+			if owner and owner.dataName == "Memory" and M.UpdateButton then M.UpdateButton(owner) end
+		end
 		local list, total = snapshot.list, snapshot.total
 		for index = 1, math.min(#list, 10) do
 			tooltip:AddDoubleLine(list[index].name, FormatMemory(list[index].value), 1, 1, 1, 1, 1, 1)
