@@ -1799,9 +1799,16 @@ end
 ---------------------------------------------------------------------------
 local hiddenBars = {}    -- [Blizzard bar] = true while EldoUI keeps it hidden
 -- The game's bar shows its empty slots on these two events, hidden or not.
--- Picking up a spell in combat would then run that update on a bar EldoUI
--- hid, and the game blocks it. A hidden bar has no slots to show, so it
--- stops listening until it comes back.
+-- A hidden bar has no slots to show, so it stops listening until it comes
+-- back.
+--
+-- No attribute is set on the game's buttons of a hidden bar (seen in the
+-- game, 15.11.2026). The game's bar decides which buttons show
+-- (UpdateShownButtons) from each button's "statehidden" attribute, also in
+-- combat when a slot of that bar changes. An attribute EldoUI set counts
+-- as EldoUI's, so the game's update ran as EldoUI's and the game blocked
+-- every SetShown in it (ADDON_ACTION_BLOCKED). The hidden parent keeps the
+-- buttons out of sight whatever the game shows.
 local GRID_EVENTS = { "ACTIONBAR_SHOWGRID", "ACTIONBAR_HIDEGRID" }
 local gridEvents = setmetatable({}, { __mode = "k" }) -- [Blizzard bar] = events EldoUI took off it
 
@@ -1848,7 +1855,6 @@ local function HideBlizzardBar(index)
 		if button then
 			-- Hidden buttons stop doing work; a /reload brings them back.
 			button:UnregisterAllEvents()
-			button:SetAttribute("statehidden", true)
 			button:Hide()
 		end
 	end
@@ -1864,12 +1870,6 @@ local function ShowBlizzardBar(index)
 	for _, event in ipairs(gridEvents[bar] or {}) do bar:RegisterEvent(event) end
 	gridEvents[bar] = nil
 	E:UnhideBlizzardFrame(bar, UIParent)
-	for slot = 1, 12 do
-		local button = _G[info.buttons .. slot]
-		if button then
-			button:SetAttribute("statehidden", nil)
-		end
-	end
 	if bar.UpdateShownButtons then bar:UpdateShownButtons() end
 	return true
 end
