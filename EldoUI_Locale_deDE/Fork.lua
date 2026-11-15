@@ -77,6 +77,7 @@ E:RegisterLocale("deDE", function() return {
 	["Warn before one runs out"] = "Warnen, bevor einer ausläuft",
 	["When the Masque addon is loaded, let it skin these buttons (Masque lists them under EldoUI). EldoUI's own button art steps aside."] = "Ist das Addon Masque geladen, darf es diese Tasten skinnen (Masque führt sie unter EldoUI). EldoUIs eigene Tastengrafik tritt dann zurück.",
 	["Which guild note holds the standings. The officer note counts only when the game lets you see it."] = "Welche Gildennotiz die Stände enthält. Die Offiziersnotiz zählt nur, wenn das Spiel sie Euch zeigt.",
+	["While your bobber is out the fishing key is Interact with target, so a press on a splash loots it. For that, fishing mode turns on the game's soft interact for mouse and keyboard and lets it reach the bobber (30 yards, in front of you); your own settings come back when fishing mode ends."] = "Solange Euer Schwimmer draußen ist, ist die Angeltaste Mit Ziel interagieren, sodass ein Druck bei einem Platschen ihn plündert. Dafür schaltet der Angelmodus die Soft-Interaktion des Spiels für Maus und Tastatur ein und gibt ihr die Reichweite bis zum Schwimmer (30 Meter, vor Euch); Eure eigenen Einstellungen kommen zurück, wenn der Angelmodus endet.",
 	["World Buffs"] = "Weltbuffs",
 	["World buffs"] = "Weltbuffs",
 	["Writes the count of joined lines in gray, so the number stands out."] = "Schreibt die Anzahl zusammengefasster Zeilen in Grau, damit die Zahl heraussticht.",

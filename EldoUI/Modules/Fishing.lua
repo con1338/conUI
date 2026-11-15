@@ -4,8 +4,10 @@
 -- key): the key you pick casts Fishing through EldoUI's secure cast button
 -- (an override binding, set only out of combat). While your bobber is out
 -- the same key becomes the game's Interact with target, so a press on a
--- splash loots the bobber the game's own soft interact picks. Combat
--- clears every override at once; fishing mode comes back after combat.
+-- splash loots the bobber the game's own soft interact picks; fishing mode
+-- turns soft interact on for mouse and keyboard and lets it reach the
+-- bobber (your own settings come back after). Combat clears every override
+-- at once; fishing mode comes back after combat.
 --
 -- The fishing bar (mover EldoUI_FishingBar): Cast, Lure (one macro press:
 -- use your best lure, then the pole), Swap (equip your pole, or put your
@@ -180,10 +182,18 @@ function M:UpdateBindings()
 end
 
 ---------------------------------------------------------------------------
--- Sound while fishing (E:SetCVar keeps your values). Soft interact, which
--- picks the bobber for Interact with target, is a secure game setting: no
--- addon may change it, so the options only read it and build the player's
--- own chat command.
+-- Sound and soft interact while fishing (E:SetCVar keeps your values).
+-- Interact with target finds the bobber only through the game's soft
+-- interact, and with the game's own defaults it never does: soft interact
+-- for the gamepad only (SoftTargetInteract 1), a reach of 10 yards (the
+-- bobber lands farther out) and straight ahead only (arc 0). The key then
+-- reached the hard target instead ("You need to be closer to interact with
+-- that target."). Seen in the game on 15.11.2026 (WoW: Forever 1.60.1):
+-- with 3, 30 and 1 the key loots the bobber, and an addon may write all
+-- three (C_CVar.GetCVarInfo: not secure; a write from /run held). Fishing
+-- mode raises each of them to that (never lowers one) and puts your own
+-- values back when it ends. On a client that protects SoftTargetInteract
+-- the options page builds the player's own chat command instead.
 ---------------------------------------------------------------------------
 -- Your own value of each CVar fishing changed is kept in the character's
 -- saved data too, so it comes back even when another EldoUI feature had
@@ -213,13 +223,41 @@ local function SoftInteractOn()
 end
 M.SoftInteractOn = SoftInteractOn
 
+-- What fishing mode needs of soft interact: each setting's value while
+-- fishing for your own value, or nil when yours already reaches.
+M.SOFT_INTERACT = {
+	-- 0 off, 1 gamepad, 2 mouse and keyboard, 3 both: mouse and keyboard join.
+	{ name = "SoftTargetInteract", raise = function(value) if value < 2 then return value + 2 end end },
+	-- Yards: the bobber lands up to about 20 yards out.
+	{ name = "SoftTargetInteractRange", raise = function(value) if value < 30 then return 30 end end },
+	-- 0 straight ahead only, 1 in front of you, 2 all around.
+	{ name = "SoftTargetInteractArc", raise = function(value) if value < 1 then return 1 end end },
+}
+
+function M:RaiseSoftInteract()
+	if not (C_CVar and C_CVar.GetCVar) then return end
+	for _, cvar in ipairs(self.SOFT_INTERACT) do
+		local current = tonumber(Clean(Try(C_CVar.GetCVar, cvar.name)))
+		local value = current and cvar.raise(current)
+		if value and not E:CVarSecure(cvar.name) then SetFishingCVar(cvar.name, tostring(value)) end
+	end
+end
+
+-- Before soft interact was raised here, a SoftTargetInteract record of
+-- fishing's came only from an older version's write the game refused: it
+-- holds nothing to put back, so it is dropped once.
+local SOFT_RECORDS = 2
+
 function M:ApplyCVars(on)
-	-- An older version tried to turn soft interact on here; the game never let
-	-- it, so its record is dropped.
-	local old = Saved()
-	if old then old.SoftTargetInteract = nil end
-	E:ForgetCVar("SoftTargetInteract", CVAR_OWNER)
+	local private = E:GetPrivate("Fishing")
+	if private and private.softRecords ~= SOFT_RECORDS then
+		local old = Saved()
+		if old then old.SoftTargetInteract = nil end
+		E:ForgetCVar("SoftTargetInteract", CVAR_OWNER)
+		private.softRecords = SOFT_RECORDS
+	end
 	if on then
+		if self.db.interact then self:RaiseSoftInteract() end
 		if self.db.soundBoost then
 			local level = tostring(self.db.boostLevel or 1)
 			SetFishingCVar("Sound_SFXVolume", level)
@@ -338,6 +376,8 @@ function M:OnChannel(started, spellID)
 	if started and not fishing then return end
 	if not started and not self.bobber then return end
 	self.bobber = started and true or false
+	-- A new cast is a new catch, also when the last loot never sent LOOT_CLOSED.
+	if started then self.lootCounted = nil end
 	if started and self.session then
 		self.session.casts = self.session.casts + 1
 		self.session.firstCast = self.session.firstCast or GetTime()
@@ -413,11 +453,20 @@ function M:RecordLoot(items)
 	end
 end
 
+-- One fishing loot, from LOOT_READY or LOOT_OPENED, whichever comes first:
+-- with auto loot WoW: Forever sends only LOOT_READY (seen in the game on
+-- 15.11.2026: LOOT_READY, then LOOT_CLOSED, never LOOT_OPENED), so a catch
+-- log that waited for LOOT_OPENED stayed at 0. LOOT_READY can come more
+-- than once for one loot: it counts once, on the first with a slot, until
+-- LOOT_CLOSED or the next cast.
 function M:OnLootOpened()
-	if not (self.active and self.fishingMode) then return end
+	if not (self.active and self.fishingMode) or self.lootCounted then return end
 	if not Clean(Try(IsFishingLoot)) then return end
+	local slots = tonumber(Clean(Try(GetNumLootItems))) or 0
+	if slots < 1 then return end
+	self.lootCounted = true
 	local items = {}
-	for slot = 1, tonumber(Clean(Try(GetNumLootItems))) or 0 do
+	for slot = 1, slots do
 		local link = Clean(Try(GetLootSlotLink, slot))
 		local id = type(link) == "string" and tonumber(link:match("item:(%d+)"))
 		if id then
@@ -700,8 +749,10 @@ local function OnEvent(_, event, unit, _, spellID)
 		if unit == "player" then M:OnChannel(true, spellID) end
 	elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
 		if unit == "player" then M:OnChannel(false, spellID) end
-	elseif event == "LOOT_OPENED" then
+	elseif event == "LOOT_READY" or event == "LOOT_OPENED" then
 		M:OnLootOpened()
+	elseif event == "LOOT_CLOSED" then
+		M.lootCounted = nil
 	elseif event == "SKILL_LINES_CHANGED" then
 		M:OnSkill()
 	elseif event == "PLAYER_EQUIPMENT_CHANGED" then
@@ -719,7 +770,7 @@ local function OnEvent(_, event, unit, _, spellID)
 end
 
 local EVENTS = { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP",
-	"LOOT_OPENED", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD" }
+	"LOOT_READY", "LOOT_OPENED", "LOOT_CLOSED", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_ENTERING_WORLD" }
 
 function E:ToggleFishingMode()
 	if M.active then M:Toggle() else E:Print(E:ModuleOffHint("Fishing")) end
@@ -929,10 +980,11 @@ M.options = {
 		desc = "When fishing mode starts: whenever a fishing pole is in your main hand (the Fishing mode key binding pauses it), or only after you press that key binding (Key Bindings > AddOns)." },
 	{ type = "preview", label = "Fishing key", height = 40, create = M.CreateKeyRow, update = M.ShowKey,
 		desc = "The key that casts Fishing in fishing mode: click, then press the key. It keeps its normal job outside fishing mode. Clear: use the bar's Cast button." },
-	{ type = "toggle", key = "interact", label = "Same key loots the bobber", desc = "While your bobber is out the fishing key is Interact with target, so a press on a splash loots it. It needs the game's soft interact for mouse and keyboard." },
-	{ type = "description", dependsOn = "interact", hidden = function() return SoftInteractOn() ~= false end,
+	{ type = "toggle", key = "interact", label = "Same key loots the bobber", desc = "While your bobber is out the fishing key is Interact with target, so a press on a splash loots it. For that, fishing mode turns on the game's soft interact for mouse and keyboard and lets it reach the bobber (30 yards, in front of you); your own settings come back when fishing mode ends." },
+	-- Only where the game protects soft interact, so fishing mode can't turn it on.
+	{ type = "description", dependsOn = "interact", hidden = function() return not (E:CVarSecure("SoftTargetInteract") and SoftInteractOn() == false) end,
 		label = "Soft interact is off for mouse and keyboard, so the key misses the bobber. Only your own chat command can change this protected setting." },
-	{ type = "execute", label = "Copy command", dependsOn = "interact", hidden = function() return SoftInteractOn() ~= false end,
+	{ type = "execute", label = "Copy command", dependsOn = "interact", hidden = function() return not (E:CVarSecure("SoftTargetInteract") and SoftInteractOn() == false) end,
 		desc = "Shows the chat command that turns soft interact on for mouse, keyboard and gamepad, selected for copying. Paste it in chat and press Enter.",
 		func = function()
 			E:ShowCopyBox(L["Soft interact"], L["Press Ctrl+C, open chat, paste the command and press Enter."], "/console SoftTargetInteract 3")

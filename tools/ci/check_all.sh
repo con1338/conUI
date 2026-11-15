@@ -88,6 +88,8 @@ check_tests() {
 	lua5.1 tools/groupframes/test_cast.lua || return 1
 	step "World buffs"
 	lua5.1 tools/worldbuffs/test_world_buffs.lua || return 1
+	step "Fishing: soft interact reaches the bobber, catches from LOOT_READY"
+	lua5.1 tools/fishing/test_fishing.lua || return 1
 	step "German pack: Fork.lua rules"
 	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"

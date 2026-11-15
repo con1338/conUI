@@ -27,6 +27,8 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | behoben | `9159f19`, `e49c371` |
 | F18 | Profilseite: „Neues Profil“, „Umbenennen“ und die Auswahllisten bewirken nichts (im Spiel gefunden) | mittel | behoben | `c6ef76c` |
 | F19 | Ausgeblendete Blizzard-Aktionsleisten: Platzwechsel im Kampf → ADDON_ACTION_BLOCKED (im Spiel gefunden) | mittel | behoben | `512df80` |
+| F20 | Angeln: Die Angeltaste erreicht den Schwimmer nicht, „Ihr müsst Euch näher an Eurem Ziel befinden …“ (im Spiel gefunden) | mittel | behoben | `cfebaee` |
+| F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -378,6 +380,79 @@ neuer Fehler.
   Ein Taint-Log schreibt der Client nicht (`/console taintLog 1` ohne Datei). Bleibt beobachtet: Kommt der
   Eintrag wieder, zählt, was in der Session davor geschah.
 
+### F20 – Die Angeltaste erreicht den Schwimmer nicht (mittel, Ursache im Spiel bestätigt)
+- **Gefunden:** 15.11.2026. Die Angeltaste wirft aus. Liegt der Schwimmer draußen, meldet ein Druck „Ihr müsst
+  Euch näher an Eurem Ziel befinden, um mit diesem zu interagieren.“ oder tut nichts. Der Fehler steckt schon in
+  EldoUI 0.7.2001 (Upstream).
+- **Stelle:** `Modules/Fishing.lua` (`M:ApplyCVars`, `M.SOFT_INTERACT`, Option „Same key loots the bobber“)
+- **Problem:** Mit dem Schwimmer draußen ist die Taste „Mit Ziel interagieren“. Den Schwimmer dafür wählt die
+  Soft-Interaktion des Spiels, und die stand auf den Vorgaben des Clients:
+  - `SoftTargetInteract` 1: nur für das Gamepad.
+  - `SoftTargetInteractRange` 10: Der Schwimmer landet weiter draußen.
+  - `SoftTargetInteractArc` 0: nur genau geradeaus.
+
+  Ohne Soft-Ziel spricht die Taste das feste Ziel an, hier einen weit entfernten Spieler. EldoUI hielt
+  `SoftTargetInteract` für geschützt und bot dafür nur auf der Optionsseite einen Chatbefehl an. Reichweite und
+  Winkel prüfte es gar nicht.
+- **Im Spiel gemessen (15.11.2026):**
+  - Mit den Vorgaben und dem Schwimmer draußen: `UnitName("softinteract")` = `nil`, Ziel „Hermano“, die Taste
+    auf `interact`.
+  - Mit 3, 30 und Winkel 0 noch immer kein Soft-Ziel.
+  - Mit 3, 30 und 1 nennt `softinteract` den Schwimmer (`GameObject-…`, „Schwimmer“), und ein Druck beim
+    Platschen holt den Fang.
+  - `C_CVar.SetCVar` aus `/run` (also mit den Rechten eines Addons) hielt bei `SoftTargetInteractRange` (30)
+    und bei `SoftTargetInteract` (2).
+- **Umsetzung:**
+  - Solange „Same key loots the bobber“ an ist, hebt der Angelmodus die drei Werte an:
+    - `SoftTargetInteract`: Maus und Tastatur kommen dazu (0 → 2, 1 → 3).
+    - Reichweite: auf 30.
+    - Winkel: auf 1 (vor Euch).
+  - Höhere eigene Werte bleiben.
+  - Wie die Lautstärke laufen die drei über `E:SetCVar` mit eigenem Eintrag. Wenn der Angelmodus endet, auch
+    nach einem Reload mitten im Angeln, kommen die eigenen Werte zurück.
+  - Einen alten Eintrag zu `SoftTargetInteract` verwirft das Modul einmal. Er stammt aus einer Version, deren
+    Schreiben das Spiel abgelehnt hatte.
+  - Den Chatbefehl zeigt die Optionsseite nur noch, wo das Spiel `SoftTargetInteract` als geschützt meldet.
+- **Test:** `tools/fishing/test_fishing.lua` (läuft in `tools/ci/check_all.sh tests`).
+  - Er lädt das echte `Fishing.lua` und den echten CVar-Teil aus `Core/Blizzard.lua`. Drumherum steht ein Modell
+    der CVars mit Schutz-Flag, der Override-Bindungen, des Beutefensters und der Ereignisse.
+  - Geprüft wird:
+    - Die Vorgaben werden zu 3/30/1, danach sind die eigenen Werte zurück.
+    - Höhere Werte bleiben, 0 wird 2.
+    - Mit der Option aus ändert sich nichts. Abschalten mitten im Angeln gibt die Werte sofort zurück.
+    - Ein geschütztes `SoftTargetInteract` bleibt unberührt, die Optionsseite zeigt dann den Chatbefehl.
+      Reichweite und Winkel steigen trotzdem.
+    - Ein alter Eintrag wird einmal verworfen. Ein Reload mitten im Angeln gibt die eigenen Werte zurück.
+- **Noch offen:** Was `C_CVar.GetCVarInfo` auf diesem Client als Schutz-Flag meldet (sechster Rückgabewert).
+  Die Abfrage im Spiel las versehentlich den siebten (`false`). Meldet das Spiel `SoftTargetInteract` als
+  geschützt, lässt EldoUI die Einstellung in Ruhe, und die Optionsseite zeigt den Chatbefehl.
+
+### F21 – Das Fangprotokoll bleibt bei 0 (niedrig–mittel, Ursache im Spiel bestätigt)
+- **Gefunden:** 15.11.2026. Die Fänge landen in den Taschen, die Zählung auf der Angelleiste bleibt bei 0. Der
+  Fehler steckt schon in EldoUI 0.7.2001 (Upstream).
+- **Stelle:** `Modules/Fishing.lua` (`M:OnLootOpened`, Ereignisliste)
+- **Problem:** Das Modul zählte einen Fang nur bei `LOOT_OPENED`. Mit Auto-Loot schickt WoW: Forever für einen
+  Fang aber nur `LOOT_READY` und `LOOT_CLOSED`, nie `LOOT_OPENED`.
+- **Im Spiel mitgeschnitten (15.11.2026):**
+  - Die Reihenfolge: Ende der Kanalisierung, `LOOT_READY`, zweimal `LOOT_CLOSED`, `ITEM_PUSH`, `CHAT_MSG_LOOT`.
+  - Bei `LOOT_READY` meldet `IsFishingLoot()` `true`, es gibt einen Platz, der Fisch ist lesbar, der Angelmodus
+    ist an.
+  - Ob `LOOT_OPENED` grundsätzlich ausbleibt oder nur wegen EldoUIs „Faster auto loot“ (beim Spieler an), ist
+    offen. Der Fix braucht die Antwort nicht.
+- **Umsetzung:**
+  - Gezählt wird bei `LOOT_READY` oder `LOOT_OPENED`, je nachdem, was zuerst kommt, und einmal pro Beute.
+  - Es zählt das erste Ereignis, bei dem die Beute einen Platz hat. Danach zählt nichts mehr bis `LOOT_CLOSED`
+    oder bis zum nächsten Auswurf.
+- **Test:** `tools/fishing/test_fishing.lua` (siehe F20). Geprüft wird:
+  - Ein Fang zählt bei `LOOT_READY`.
+  - Ein zweites `LOOT_READY` und ein späteres `LOOT_OPENED` zählen nicht doppelt.
+  - `LOOT_OPENED` allein zählt.
+  - Ein `LOOT_READY` ohne Platz wartet auf das nächste.
+  - Andere Beute zählt nie.
+  - Fehlt `LOOT_CLOSED`, zählt nach dem nächsten Auswurf wieder ein Fang.
+  - Außerhalb des Angelmodus zählt nichts.
+- **Nicht geprüft:** ob die Skill-ups im Protokoll ankommen (`GetProfessions` auf diesem Client).
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -401,6 +476,9 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher | bestätigt: neues Profil, zurück, alle Frames an ihrem Platz |
 | F18 | Profile: „Neues Profil“ + Enter, dann über „Profil für diesen Charakter“ zurück, dann „Profil löschen“ | Profil wird angelegt (Einrichtung öffnet sich), Wechsel und Löschen wirken | bestätigt |
 | F19 | im Kampf einen Zauber auf Leiste 1 legen oder zwei Knöpfe tauschen, danach `/reload` | kein neuer Eintrag „ActionButton<n>:SetShown()“ im Fehlerlog; Leiste 1 zeigt den neuen Zauber | bestätigt: kein neuer Eintrag (vorher 25 je Versuch) |
+| F20 | vorher die Soft-Interaktion auf die Vorgaben zurück (`/console SoftTargetInteract 1`, `/console SoftTargetInteractRange 10`, `/console SoftTargetInteractArc 0`); Angel anlegen, mit der Angeltaste auswerfen, ein entferntes Ziel ausgewählt lassen, beim Platschen die Taste drücken | der Fang kommt; währenddessen zeigt `/run local g=C_CVar.GetCVar print(g("SoftTargetInteract"),g("SoftTargetInteractRange"),g("SoftTargetInteractArc"))` `3 30 1` | offen |
+| F20 | Angel ablegen (der Angelmodus endet), derselbe Befehl | wieder `1 10 0` | offen |
+| F21 | ein paar Fische fangen, Maus auf die Zählung der Angelleiste | die Zahl steigt pro Fang um 1, der Tooltip zeigt Ort und Fische | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |
