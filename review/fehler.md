@@ -25,6 +25,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F15 | Blizzard-Leiste kommt mit „toten“ Buttons zurück | mittel | behoben | `c0345a9` |
 | F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | behoben | `2731180` |
 | F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | behoben | `9159f19`, `e49c371` |
+| F18 | Profilseite: „Neues Profil“, „Umbenennen“ und die Auswahllisten bewirken nichts (im Spiel gefunden) | mittel | behoben | `c6ef76c` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -300,6 +301,32 @@ neuer Fehler.
     - `tools/nameplates/test_driver_hook.lua` prüft den Hook: Driver beim Laden da, mit und ohne geladenes
       Addon; Driver erst mit dem Addon; kein Driver. Es wird immer genau einmal gehookt.
 
+## Im Spiel gefunden
+
+### F18 – Profilseite bewirkt nichts (mittel, im Spiel bestätigt)
+- **Gefunden:** 15.11.2026 beim Spieltest zu F02. „Neues Profil“ mit Namen und Enter: keine Meldung, kein
+  Profil, auch nicht in den Saved Variables. Der Fehler steckt schon in EldoUI 0.7.2001 (Upstream).
+- **Stelle:** `Core/Config.lua` (Zeilen-Bausteine `builders.input`, `builders.select`, `builders.media`,
+  Farbe), `Core/Share.lua:2051` (`ProfileTarget`)
+- **Problem:** Eine Zeile setzt den Wert und zeichnet sich dann neu, erst danach reagiert die Seite. Beim
+  Textfeld kommt das Neuzeichnen vom Verlust des Fokus, bei der Auswahl direkt danach. Das Neuzeichnen liest das
+  Ziel der Seite noch einmal. `ProfileTarget` setzt dabei „Neues Profil“, „Umbenennen“, „Kopieren“ und „Löschen“
+  zurück und „Profil für diesen Charakter“ auf das aktuelle Profil. Die Seite sah den Wert also nie.
+- **Szenario:** „Neues Profil“ `Test` + Enter → nichts. Ebenso „Umbenennen“; „Profil für diesen Charakter“,
+  „Kopieren von“, „Alles kopieren von“ und „Profil löschen“ nach demselben Muster (im Spiel nur „Neues Profil“
+  gesehen, die anderen folgen aus dem Code).
+- **Umsetzung:** In den vier Bausteinen ruft die Zeile `Changed` (die Seite) vor ihrem eigenen Neuzeichnen
+  auf, beim Textfeld vor `ClearFocus`. Auf Seiten, deren Ziel beim Lesen nichts ändert, macht das keinen
+  Unterschied. `ProfileTarget` bleibt, wie Upstream es gedacht hat: Aktionsfelder sind nach der Aktion leer.
+- **Test:** `tools/config/test_profile_page.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die
+  echten Bausteine und `SetOption` aus `Config.lua` und die Profilseite aus `Share.lua` heraus. Das Textfeld
+  verliert den Fokus wie im Spiel (`ClearFocus` ruft die Focus-Lost-Skripte sofort). Geprüft werden Enter in
+  „Neues Profil“ und „Umbenennen“ sowie eine Auswahl in den vier Listen. Eine Gegenprobe zeigt, dass die alte
+  Reihenfolge den Namen verliert. Außerdem prüft er für jede Zeile in `Config.lua`, die sich nach dem Setzen
+  neu zeichnet, dass die Seite vorher reagiert.
+- **Im Spiel geprüft (15.11.2026):** Neues Profil anlegen, mit der Auswahl zurückwechseln, Profil löschen:
+  alles wie erwartet. Alle Frames standen nach dem Zurückwechseln an ihrem Platz (zugleich der Test zu F02).
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -318,6 +345,7 @@ Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehle
 | F15 | eine EldoUI-Aktionsleiste abschalten | Reload-Hinweis erscheint |
 | F03 | eigenen Snapshot exportieren, ein Makro mit `/run` darin, wieder importieren | Warnung im Import-Dialog, „Add missing macros“ nicht angehakt |
 | F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher |
+| F18 | Profile: „Neues Profil“ + Enter, dann über „Profil für diesen Charakter“ zurück, dann „Profil löschen“ | Profil wird angelegt (Einrichtung öffnet sich), Wechsel und Löschen wirken |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates |
