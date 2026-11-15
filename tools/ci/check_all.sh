@@ -62,6 +62,8 @@ check_tests() {
 	lua5.1 tools/share/test_import_versions.lua || return 1
 	step "Unpacked size before unpacking"
 	lua5.1 tools/share/test_inflate.lua || return 1
+	step "Profiles page: New profile, Rename and the picks reach the page"
+	lua5.1 tools/config/test_profile_page.lua || return 1
 	step "Click-cast keys on hover after a roster change"
 	lua5.1 tools/clickcast/test_hover_unit.lua || return 1
 	step "Click-cast bindings for compact frames made in combat"

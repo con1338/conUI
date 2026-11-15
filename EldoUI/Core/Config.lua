@@ -2242,9 +2242,11 @@ function builders.select(parent, option, page, tab)
 				local radio = root:CreateRadio(entry.name,
 					function() return GetPath(page.target(), KeyOf(option)) == entry.value end,
 					function()
+						-- The page first, then the row (fork): reading the target
+						-- again can reset a page's action values (Profiles).
 						SetOption(page, option, entry.value)
-						cell.refresh()
 						Changed(page, tab, option)
+						cell.refresh()
 					end)
 				if option.sound then Sounds.AddMenuSpeaker(radio, entry.value, Channel) end
 				if option.valueIcons then
@@ -2340,8 +2342,8 @@ function builders.media(parent, option, page, tab)
 	local function Current() return GetPath(page.target(), KeyOf(option)) end
 	local function Set(value)
 		SetOption(page, option, value)
-		cell.refresh()
 		Changed(page, tab, option)
+		cell.refresh()
 	end
 
 	local function Channel()
@@ -2436,8 +2438,8 @@ function builders.color(parent, option, page, tab)
 		local previous = { color[1], color[2], color[3] }
 		local function Apply(r, g, b)
 			SetOption(page, option, { r, g, b })
-			cell.refresh()
 			Changed(page, tab, option)
+			cell.refresh()
 		end
 		ColorPickerFrame:SetupColorPickerAndShow({
 			r = color[1], g = color[2], b = color[3],
@@ -2457,9 +2459,12 @@ function builders.input(parent, option, page, tab)
 		if not box:HasFocus() then box:SetText(tostring(GetPath(page.target(), KeyOf(option)) or "")) end
 	end
 	box:SetScript("OnEnterPressed", function(self)
+		-- The page before the focus goes (fork): losing it redraws the row,
+		-- which reads the target again, and the Profiles page clears a typed
+		-- name there, so "New profile" and "Rename" did nothing.
 		SetOption(page, option, self:GetText())
-		self:ClearFocus()
 		Changed(page, tab, option)
+		self:ClearFocus()
 	end)
 	box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 	box:HookScript("OnEditFocusLost", function() cell.refresh() end)
