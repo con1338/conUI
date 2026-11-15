@@ -163,7 +163,15 @@ local function OfficerNotesVisible()
 end
 
 -- Read the roster again; a change redraws the lines that show standings.
+-- Not in combat: WoW: Forever blocks GetGuildInfoText there (seen in the
+-- game: ADDON_ACTION_BLOCKED), and the roster still updates during a fight.
+-- The read then waits for the fight's end (PLAYER_REGEN_ENABLED).
 function M:RefreshPoints()
+	if self.active and InCombatLockdown() then
+		self.pointsPending = true
+		return
+	end
+	self.pointsPending = nil
 	local format = self.db and self.db.points or "off"
 	local cache = {}
 	if self.active and format ~= "off" and IsInGuild and Clean(IsInGuild()) then
@@ -210,18 +218,36 @@ end
 
 local EVENTS = { "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE" }
 
+-- Ask the game for the roster; it answers with GUILD_ROSTER_UPDATE.
+local function RequestRoster()
+	if IsInGuild and Clean(IsInGuild()) and C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster() end
+end
+
+-- After a fight in which the roster changed (or the module came on): ask
+-- again and read it.
+local function AfterCombat()
+	if not M.pointsPending then return end
+	RequestRoster()
+	M:RefreshPoints()
+end
+
 function M:EnablePoints()
 	for _, event in ipairs(EVENTS) do
 		E:RegisterEvent(event, function() M:RefreshPoints() end, "RaidLootPoints")
 	end
-	-- Ask the game for the roster; it answers with GUILD_ROSTER_UPDATE.
-	if IsInGuild and Clean(IsInGuild()) and C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster() end
+	E:RegisterEvent("PLAYER_REGEN_ENABLED", AfterCombat, "RaidLootPoints")
+	if InCombatLockdown() then
+		self.pointsPending = true
+		return
+	end
+	RequestRoster()
 	self:RefreshPoints()
 end
 
 function M:DisablePoints()
 	for _, event in ipairs(EVENTS) do E:UnregisterEvent(event, "RaidLootPoints") end
-	self.points, self.pointsSignature = {}, nil
+	E:UnregisterEvent("PLAYER_REGEN_ENABLED", "RaidLootPoints")
+	self.points, self.pointsSignature, self.pointsPending = {}, nil, nil
 end
 
 ---------------------------------------------------------------------------

@@ -55,8 +55,19 @@ GetGuildRosterInfo = function(index)
 	return row.name, "Member", 3, 60, "Mage", "Orgrimmar", row.publicNote, row.officerNote
 end
 CanViewOfficerNote = function() return world.officer end
-GetGuildInfoText = function() return world.info end
-C_GuildInfo = { GuildRoster = function() world.rosterRequests = world.rosterRequests + 1 end }
+-- WoW: Forever blocks these guild functions in combat; any call there is
+-- counted and fails the combat checks.
+local function Guarded(fn)
+	return function(...)
+		if world.combat then world.combatCalls = world.combatCalls + 1 end
+		return fn(...)
+	end
+end
+GetGuildInfoText = Guarded(function() return world.info end)
+GetNumGuildMembers = Guarded(GetNumGuildMembers)
+GetGuildRosterInfo = Guarded(GetGuildRosterInfo)
+C_GuildInfo = { GuildRoster = Guarded(function() world.rosterRequests = world.rosterRequests + 1 end) }
+InCombatLockdown = function() return world.combat == true end
 UnitName = function(unit)
 	if unit == "player" then return "Mira" end
 	local name = world.units[unit] and world.units[unit].name
@@ -86,7 +97,7 @@ local function Setup(options)
 	options = options or {}
 	world = { inGuild = options.inGuild ~= false, officer = options.officer ~= false, info = options.info or "",
 		roster = options.roster or ROSTER, rosterRequests = 0, events = {}, units = {}, group = options.group,
-		changed = 0, refreshed = 0 }
+		changed = 0, refreshed = 0, combat = options.combat, combatCalls = 0 }
 	local L = setmetatable({}, { __index = function(_, key) return key end })
 	local dataTexts, sections = {}, {}
 	local E = { L = L, Secret = Secret, media = { accentText = { 1, 0.8, 0 } },
@@ -224,6 +235,49 @@ do
 	test = Setup({ points = "off" })
 	test.M:EnablePoints()
 	Check(next(test.M.points) == nil, "Read standings off: nothing")
+end
+
+-- In combat: no guild function is called; the read waits for the fight's
+-- end (in the game GetGuildInfoText was blocked there, B3).
+do
+	local test = Setup()
+	local M = test.M
+	M:EnablePoints()
+	Check(world.events.PLAYER_REGEN_ENABLED and world.events.PLAYER_REGEN_ENABLED.owner == "RaidLootPoints",
+		"the end of combat is listened to")
+	world.combat = true
+	world.roster = { { name = "Mira-Realm", officerNote = "1300,830" } }
+	world.events.GUILD_ROSTER_UPDATE.fn()
+	world.events.PLAYER_GUILD_UPDATE.fn()
+	Check(world.combatCalls == 0, "a roster update in combat calls no guild function (got " .. world.combatCalls .. ")")
+	Check(M.PointsEntry("Mira").ep == 1250 and world.changed == 1, "in combat the old standings stay, nothing is redrawn")
+	world.combat = false
+	local requests = world.rosterRequests
+	world.events.PLAYER_REGEN_ENABLED.fn()
+	Check(M.PointsEntry("Mira").ep == 1300 and world.changed == 2, "after the fight the roster is read and redrawn")
+	Check(world.rosterRequests == requests + 1, "after the fight the game is asked for the roster again")
+	world.events.PLAYER_REGEN_ENABLED.fn()
+	Check(world.rosterRequests == requests + 1 and world.changed == 2, "a fight without a roster update: nothing to do afterwards")
+
+	-- The module comes on in combat (a reload in a fight).
+	test = Setup({ combat = true })
+	M = test.M
+	M:EnablePoints()
+	Check(world.combatCalls == 0 and world.rosterRequests == 0 and next(M.points) == nil,
+		"on in combat: nothing asked, nothing read")
+	world.combat = false
+	world.events.PLAYER_REGEN_ENABLED.fn()
+	Check(world.rosterRequests == 1 and M.PointsEntry("Mira") and M.PointsEntry("Mira").ep == 1250,
+		"on in combat: asked and read after the fight")
+
+	-- Switched off with a read waiting.
+	test = Setup()
+	M = test.M
+	M:EnablePoints()
+	world.combat = true
+	world.events.GUILD_ROSTER_UPDATE.fn()
+	M:DisablePoints()
+	Check(world.events.PLAYER_REGEN_ENABLED == nil and not M.pointsPending, "off: the wait for the fight's end is gone")
 end
 
 -- The SR and TMB lines; the chat post.

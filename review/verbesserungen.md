@@ -216,17 +216,24 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 - Notiz: Standard ist die Offiziersnotiz, gelesen nur, wenn das Spiel sie zeigt. Wahlweise die öffentliche Notiz
   oder beide. Die Optionen stehen auf der Raid-Loot-Seite vor „Posting“.
 - Neu gelesen wird bei `GUILD_ROSTER_UPDATE`. Neu gezeichnet wird nur, wenn sich ein Stand geändert hat.
+- Im Spiel gefunden (15.11.2026): WoW: Forever blockiert `GetGuildInfoText` im Kampf. Im Fehlerlog stand 10-mal
+  „Blocked: EldoUI tried to call the protected function UNKNOWN()“ aus `Points.lua:179`, in Westfall im Kampf.
+  Das Roster meldet sich auch im Kampf. Seitdem liest das Modul im Kampf nichts. Roster und Stände holt es direkt
+  nach dem Kampf (`PLAYER_REGEN_ENABLED`), auch wenn das Modul im Kampf angeht.
 - Nicht umgesetzt: Daten aus den Saved Variables anderer DKP-Addons (z. B. MonolithDKP) lassen sich nicht lesen.
   Nur was in den Notizen steht, zählt.
 - Zwei neue WoW-API-Namen in `tools/ci/globals.lua`: `GetGuildInfoText`, `UnitIsInMyGuild`.
-- Test: `tools/raidloot/test_points.lua` (läuft in `tools/ci/check_all.sh tests`, 69 Prüfungen). Er lädt
+- Test: `tools/raidloot/test_points.lua` (läuft in `tools/ci/check_all.sh tests`, 78 Prüfungen). Er lädt
   `Points.lua` ganz und die Zeilenbauer aus `RaidLoot/Core.lua`, mit nachgebautem Roster, Einheiten und Info-Bar.
+  Im Kampf zählt er jeden Aufruf einer Gildenfunktion als Fehler.
 - Im Spiel prüfen, in einer Gilde mit EPGP- oder DKP-Notizen:
   - Maus über ein Gildenmitglied: Zeile „EPGP“ oder „DKP“ mit dem Stand.
   - Info-Bar-Block „Guild points“ in einen Platz setzen: eigener Stand; der Tooltip listet die Gruppe bzw. die
     Gilde.
   - Mit importierten Soft-Reserves: Im Gegenstands-Tooltip steht hinter den Namen „[PR …]“ bzw. „[… DKP]“.
     „Post reservations“ postet ohne Stände.
+  - Eine Weile kämpfen, während Gildenmitglieder sich an- und abmelden: keine Meldung „Blocked …“ mehr. Nach dem
+    Kampf stimmen die Stände.
   - Danach `/eui errors`: keine Lua-Fehler.
 
 **Schon vorhanden:** Damage-Meter-Skin, Encounter Timeline, Fokus- und Boss-Frames, frei belegbare Datenleisten
