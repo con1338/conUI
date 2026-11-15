@@ -356,6 +356,9 @@ neuer Fehler.
   Aus- und Einblenden, Blizzards Update im Kampf läuft ungesperrt, kein Knopf einer ausgeblendeten Leiste ist zu
   sehen, die Grid-Ereignisse kommen mit der Leiste zurück. Eine Gegenprobe mit dem alten Code ergibt die
   gesperrten Aufrufe aus dem Spiel.
+- **Im Spiel geprüft (15.11.2026):** Mit der Korrektur im Kampf wieder einen Zauber auf Leiste 1 gelegt bzw.
+  Knöpfe getauscht, danach `/reload`: kein neuer Eintrag im Fehlerlog (vorher 25 pro Versuch), die Leiste zeigt
+  den Zauber.
 - **Noch offen, zweiter Eintrag aus derselben Session:** „MainActionBar:SetPointBase()“ und
   „MultiBarBottomLeft/Right:ClearAllPointsBase()/SetPointBase()“, Ablauf `PetActionBar:Update` → `Hide` →
   `UpdateVisibility` → `EditModeManagerFrame:UpdateActionBarLayout` → `UpdateBottomActionBarPositions`, 35-mal
