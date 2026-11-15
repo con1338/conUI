@@ -27,6 +27,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E1 | Module erst bei Bedarf laden | groß | abwarten | |
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
+| E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
 **Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E3, E1.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
@@ -446,5 +447,30 @@ Inspect-Anfragen, automatische Loot-Verteilung.
          eine Liste mit Modulen und plausiblen Werten (meist deutlich unter 1 ms/s).
        - `/eui perf copy`: Das Ergebnis steht im Kopierfeld.
        - `/eui perf stop`: Die Messung endet. Danach `/eui errors`: keine Lua-Fehler.
+     - Im Spiel geprüft (15.11.2026): 3 Minuten mit Kampf gemessen, Liste und Kopierfeld wie erwartet, keine
+       Lua-Fehler. Gesamt 4,5 ms/s; 68 % davon die Infoleiste mit einem Ausreißer von 130 ms (daraus E4).
 3. **OnUpdate ist sauber:** Frames verstecken sich im Leerlauf. Einzig Combat Text setzt pro Frame Punkt,
    Skalierung und Alpha jeder Zeile (`EldoUI/Modules/CombatText/Engine.lua:360`). Niedrige Priorität.
+4. **Speicher-Block der Infoleiste ruckelt (E4, im Spiel gefunden):** `/eui perf` zeigte für die Infoleiste
+   3,06 ms/s und einen langsamsten Aufruf von 130 ms („InfoBar:holders“). Der Block „Mem“ (im Stil „Full“
+   dabei) ließ alle 30 s `UpdateAddOnMemoryUsage` laufen. Mit Questie, AtlasLoot, Details und DBM steht das
+   Spiel dabei rund 130 ms still, also ein Ruckler alle 30 s.
+   - **Umgesetzt (E4):** `Modules/InfoBar.lua` (`memorySnapshot.Read` und der Block „Memory“).
+     - Jede Messung wird mit `debugprofilestop()` gestoppt. Bis zur nächsten vergehen 3 s pro Millisekunde,
+       die sie gedauert hat, mindestens 30 s, höchstens 10 Minuten. Bei 130 ms also etwa alle 6,5 Minuten;
+       kleine Addon-Sammlungen bleiben bei 30 s.
+     - Der Tooltip liest beim Öffnen frisch, wenn der letzte Stand älter als 10 s ist, und die Leiste zeigt
+       dann dieselbe Summe. Seine Neuzeichnungen alle 5 s nehmen den gehaltenen Stand.
+     - Wie vorher: im Kampf nie von selbst, ein Klick (gibt Speicher frei) liest sofort.
+     - Test: `tools/infobar/test_memory_poll.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet den
+       Speicher-Teil aus `InfoBar.lua` heraus und läuft mit einer eigenen Uhr, deren Messung eine feste Zeit
+       dauert. Geprüft: 5 statt 61 Messungen in 30 Minuten bei 130 ms, 30 s bei 5 ms, höchstens 10 Minuten bei
+       1 s, ohne Uhr wie bisher; Tooltip frisch nur auf altem Stand, Leiste zieht nach; Neuzeichnungen lesen
+       nie; im Kampf nur per Klick.
+     - Im Spiel prüfen: `/eui perf`, ein paar Minuten spielen, `/eui perf`. Erwartung: Die Infoleiste fällt von
+       rund 3 ms/s deutlich herunter, kein Ruckler alle 30 s. Mit der Maus auf „Mem“: frische Werte, Leiste
+       und Tooltip zeigen dieselbe Summe.
+     - Im Spiel geprüft (15.11.2026), 4 Minuten `/eui perf` nach `/reload`: Infoleiste 0,31 ms/s statt 3,06 ms/s,
+       langsamster Aufruf 0,24 ms statt 130 ms; EldoUI gesamt 2,13 ms/s statt 4,51 ms/s. In den 4 Minuten fiel
+       keine Messung an (die nächste kommt bei diesem Setup nach etwa 6,5 Minuten). Tooltip über „Mem“:
+       Leiste und Tooltip zeigen dieselbe Summe.

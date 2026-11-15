@@ -74,6 +74,8 @@ check_tests() {
 	lua5.1 tools/nameplates/test_driver_hook.lua || return 1
 	step "Info Bar blocks for other addons (LibDataBroker)"
 	lua5.1 tools/infobar/test_broker.lua || return 1
+	step "Info Bar memory block: rare readings, fresh on hover"
+	lua5.1 tools/infobar/test_memory_poll.lua || return 1
 	step "Masque on the Consumable Bar, totem bars and Quickdraw"
 	lua5.1 tools/masque/test_masque.lua || return 1
 	step "DKP and EPGP standings from the guild notes"
