@@ -26,6 +26,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | behoben | `2731180` |
 | F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | behoben | `9159f19`, `e49c371` |
 | F18 | Profilseite: „Neues Profil“, „Umbenennen“ und die Auswahllisten bewirken nichts (im Spiel gefunden) | mittel | behoben | `c6ef76c` |
+| F19 | Ausgeblendete Blizzard-Aktionsleisten: Platzwechsel im Kampf → ADDON_ACTION_BLOCKED (im Spiel gefunden) | mittel | behoben | |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -232,6 +233,8 @@ neuer Fehler.
 - **Szenario:** Mover einer Aktionsleiste ziehen, angegriffen werden, loslassen → ADDON_ACTION_BLOCKED.
 - **Umsetzung:** Bei `PLAYER_REGEN_DISABLED` (läuft vor der Kampfsperre) wird jeder gerade gezogene Mover
   gestoppt und gespeichert. `OnDragStop` im Kampf merkt sich den Ablegepunkt und speichert ihn nach dem Kampf.
+- **Im Spiel geprüft (15.11.2026):** Mover „Atem und Erschöpfung“ in `/eui move` über Kampfbeginn gezogen, dann
+  weitergekämpft: kein Eintrag im Fehlerlog (zweimal, in zwei Sessions).
 
 ### F15 – Blizzard-Leiste kommt mit „toten“ Buttons zurück (mittel, bestätigt)
 - **Stelle:** `Modules/ActionBars.lua:1830` (`HideBlizzardBar`), `:1874` (`ShowBlizzardBar`)
@@ -327,6 +330,41 @@ neuer Fehler.
 - **Im Spiel geprüft (15.11.2026):** Neues Profil anlegen, mit der Auswahl zurückwechseln, Profil löschen:
   alles wie erwartet. Alle Frames standen nach dem Zurückwechseln an ihrem Platz (zugleich der Test zu F02).
 
+### F19 – Ausgeblendete Blizzard-Leisten blockiert im Kampf (mittel, im Spiel bestätigt)
+- **Gefunden:** 15.11.2026 im Fehlerlog nach dem Kampftest (Brachland). Einträge „Blocked: EldoUI tried to call
+  the protected function ActionButton<n>:SetShown()“ und „MainActionBarButtonContainer<n>:SetShown()“, Ablauf
+  `OnActionBarSlotChanged` → `UpdateAction` → `UpdateShownButtons` (Blizzards eigener Code). Nachgestellt in
+  einer frischen Session ohne Profilwechsel: ein Zauber im Kampf auf Leiste 1 gelegt, 25 neue Einträge. Der Fehler
+  steckt schon in EldoUI 0.7.2001 (Upstream).
+- **Stelle:** `Modules/ActionBars.lua` (`HideBlizzardBar`, `ShowBlizzardBar`)
+- **Problem:** EldoUI setzte beim Ausblenden von Blizzards Leisten 1–8 auf jeden Knopf das Attribut
+  `statehidden`. Blizzards `UpdateShownButtons` liest genau dieses Attribut, wenn es entscheidet, welche Knöpfe
+  zu sehen sind, auch im Kampf bei jedem Platzwechsel der Leiste. Ein Attribut, das ein Addon gesetzt hat, zählt
+  als Wert des Addons: Blizzards Update lief damit als EldoUIs Code, und das Spiel sperrte im Kampf jedes
+  `SetShown` darin. Zu sehen war nichts (die Knöpfe sind ohnehin unsichtbar), aber das Log lief voll. Die alte
+  Anmerkung zu den Grid-Ereignissen hatte denselben Fehler schon gesehen und dem versteckten Zustand
+  zugeschrieben.
+- **Szenario:** Leiste 1 von EldoUI an, Blizzards Leiste ausgeblendet („auto“). Im Kampf einen Zauber auf
+  einen Platz der Leiste legen oder zwei Knöpfe tauschen → 12 + 12 blockierte Aufrufe pro Platzwechsel.
+- **Umsetzung:** Kein Attribut mehr auf Blizzards Knöpfen; ausgeblendet bleiben sie durch den versteckten
+  Elternrahmen, wie die Leiste selbst. Blizzards Update darf sie jetzt sauber ein- und ausblenden, sie bleiben
+  unsichtbar. Grid-Ereignisse, `UnregisterAllEvents` und `Hide` bleiben wie gehabt.
+- **Test:** `tools/actionbars/test_hidden_blizzard_bars.lua` (läuft in `tools/ci/check_all.sh tests`). Er
+  schneidet die Tabelle `BARS` und den Block zum Aus- und Einblenden aus `ActionBars.lua` heraus. Darum ein
+  Modell der Leisten und Knöpfe mit der Regel des Spiels: Ein vom Addon gesetztes Attribut macht den Code, der
+  es liest, zum Code des Addons; im Kampf wird dann jedes `SetShown` gesperrt. Geprüft werden: kein Attribut beim
+  Aus- und Einblenden, Blizzards Update im Kampf läuft ungesperrt, kein Knopf einer ausgeblendeten Leiste ist zu
+  sehen, die Grid-Ereignisse kommen mit der Leiste zurück. Eine Gegenprobe mit dem alten Code ergibt die
+  gesperrten Aufrufe aus dem Spiel.
+- **Noch offen, zweiter Eintrag aus derselben Session:** „MainActionBar:SetPointBase()“ und
+  „MultiBarBottomLeft/Right:ClearAllPointsBase()/SetPointBase()“, Ablauf `PetActionBar:Update` → `Hide` →
+  `UpdateVisibility` → `EditModeManagerFrame:UpdateActionBarLayout` → `UpdateBottomActionBarPositions`, 35-mal
+  in knapp zwei Minuten Kampf. In drei späteren Sessions nicht nachgestellt: Kampf mit vielen Zielwechseln, ein
+  neues Profil angelegt und zurückgewechselt ohne Neuladen, `/eui move` mit dem Mover „Atem und Erschöpfung“
+  über Kampfbeginn gezogen (F14). In jener Session lief außerdem `/eui perf`, und das Profil wurde umbenannt.
+  Ein Taint-Log schreibt der Client nicht (`/console taintLog 1` ohne Datei). Bleibt beobachtet: Kommt der
+  Eintrag wieder, zählt, was in der Session davor geschah.
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -346,6 +384,7 @@ Vorher den Ordner `WTF` sichern. Nach dem Login mit `/eui errors` auf neue Fehle
 | F03 | eigenen Snapshot exportieren, ein Makro mit `/run` darin, wieder importieren | Warnung im Import-Dialog, „Add missing macros“ nicht angehakt |
 | F02 | Profil wechseln / Layout anwenden | alle Frames an ihrem Platz wie vorher |
 | F18 | Profile: „Neues Profil“ + Enter, dann über „Profil für diesen Charakter“ zurück, dann „Profil löschen“ | Profil wird angelegt (Einrichtung öffnet sich), Wechsel und Löschen wirken |
+| F19 | im Kampf einen Zauber auf Leiste 1 legen oder zwei Knöpfe tauschen, danach `/reload` | kein neuer Eintrag „ActionButton<n>:SetShown()“ im Fehlerlog; Leiste 1 zeigt den neuen Zauber |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates |
