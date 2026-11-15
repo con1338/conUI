@@ -240,8 +240,8 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
     Kampf stimmen die Stände.
   - Danach `/eui errors`: keine Lua-Fehler.
 - Im Spiel geprüft (15.11.2026): Seit dem Fix (PR #20) kein neuer „Blocked …“-Eintrag, in keiner Session bis
-  Nr. 52, darunter mehrere mit Kampf. Ob sich dabei Gildenmitglieder im Kampf an- oder abgemeldet haben, ist nicht bekannt. Tooltip,
-  Info-Bar-Block und Soft-Reserves sind noch nicht geprüft.
+  Nr. 52, darunter mehrere mit Kampf. Ob sich dabei Gildenmitglieder im Kampf an- oder abgemeldet haben, ist
+  nicht bekannt. Tooltip, Info-Bar-Block und Soft-Reserves sind noch nicht geprüft.
 
 **Schon vorhanden:** Damage-Meter-Skin, Encounter Timeline, Fokus- und Boss-Frames, frei belegbare Datenleisten
 (`RegisterDataText`), Profile pro Charakter und Talentgruppe, Nameplate-Farbregeln, 67 Tags, Aurenfilter-Editor,
