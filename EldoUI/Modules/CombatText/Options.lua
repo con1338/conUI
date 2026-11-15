@@ -253,6 +253,8 @@ local function Build()
 				desc = L["Seconds hits are collected before the joined line shows."] },
 			{ type = "toggle", key = "scroll.mergeCount", label = L["Show the count"],
 				desc = L["Adds \"\195\1513\" to joined lines. When the game keeps the numbers hidden, the newest number shows with the count."] },
+			{ type = "toggle", key = "scroll.countGray", label = L["Gray count"],
+				desc = L["Writes the count of joined lines in gray, so the number stands out."] },
 			{ type = "range", key = "scroll.minAmount", label = L["Hide small numbers"], min = 0, max = 5000, step = 10,
 				zeroText = "All", desc = L["Hides numbers below this. Numbers the game keeps hidden in a fight always show."] },
 		} })
@@ -267,6 +269,10 @@ local function Build()
 		desc = L["Size of critical hits and other sticky lines."] })
 	Add({ type = "select", key = "scroll.outline", label = L["Outline"], values = OUTLINES, dependsOn = "scroll.enabled",
 		desc = L["Outline of the text. An outline keeps it readable over the world."] })
+	Add({ type = "toggle", key = "scroll.shadow", label = L["Text shadow"], dependsOn = "scroll.enabled",
+		desc = L["A soft shadow under every line, on top of the outline."] })
+	Add({ type = "toggle", key = "scroll.flash", label = L["Flash big lines"], dependsOn = "scroll.enabled",
+		desc = L["Critical hits and other sticky lines start white and turn to their color."] })
 	Add({ type = "header", label = L["Try it"] })
 	Add({ type = "execute", label = L["Test"], disabled = function() return ConflictReason() or (InCombatLockdown() and L["Out of combat only."]) end,
 		desc = L["Shows a sample line in every scroll area and on your target's nameplate. Out of combat only."],
@@ -394,12 +400,20 @@ local function Build()
 		values = function() return M:AnimationValues("plate") end, desc = L["How plate numbers move."] })
 	Add({ type = "range", key = "plates.fontSize", label = L["Size"], min = 8, max = 40, step = 1, dependsOn = "plates.enabled",
 		desc = L["Size of plate numbers."] })
+	Add({ type = "media", mediaKind = "font", key = "plates.font", label = L["Font"], default = "THEME", defaultLabel = L["Theme font"], dependsOn = "plates.enabled",
+		desc = L["Font of plate numbers. Default: the UI font."] })
+	Add({ type = "select", key = "plates.outline", label = L["Outline"], values = OUTLINES, dependsOn = "plates.enabled",
+		desc = L["Outline of the text. An outline keeps it readable over the world."] })
+	Add({ type = "toggle", key = "plates.shadow", label = L["Text shadow"], dependsOn = "plates.enabled",
+		desc = L["A soft shadow under every number, on top of the outline."] })
+	Add({ type = "toggle", key = "plates.flash", label = L["Flash critical hits"], dependsOn = "plates.enabled",
+		desc = L["Critical hits start white and turn to their color."] })
 	Add({ type = "toggle", key = "plates.words", label = L["Dodge, parry, miss"], dependsOn = "plates.enabled",
 		desc = L["Shows Dodge, Parry, Miss and similar words on the plate."] })
 	Add({ type = "toggle", key = "plates.heals", label = L["Heals"], dependsOn = "plates.enabled",
 		desc = L["Shows heals the enemy receives."] })
 	Add({ type = "select", key = "plates.colorMode", label = L["Color by"], dependsOn = "plates.enabled",
-		values = { school = L["By magic school"], white = L["All white"], accent = L["Accent color"] },
+		values = { school = L["By magic school"], warm = L["Ivory, golden critical hits"], white = L["All white"], accent = L["Accent color"] },
 		desc = L["How plate numbers are colored. School colors need the game to say the school."] })
 	Add({ type = "header", label = L["Blizzard's numbers over enemies"] })
 	Add({ type = "description", label = L["Blizzard's own damage and healing numbers over targets: your own hits, from the game."] })
@@ -571,6 +585,21 @@ E:RegisterStyles("CombatText", {
 		settings = {
 			plates = { enabled = true, style = "plateFountain" },
 			areas = { target = { enabled = false }, incoming = { width = 140, height = 220 } },
+		} },
+	-- A look of this fork (review verbesserungen.md, C5): EldoUI's own Anton
+	-- font with a thick outline and a shadow, sticky lines that flash and
+	-- punch, plain hits ivory and critical hits gold on the plates.
+	{ key = "Punchy", title = L["Punchy"], desc = L["Tall bold numbers with a thick outline and a shadow. Critical hits flash white, turn gold and punch out; hits are thrown off the enemy's nameplate."],
+		settings = {
+			scroll = { font = "Anton", critFont = "Anton", fontSize = 18, critFontSize = 28, outline = "THICKOUTLINE",
+				shadow = true, flash = true, countGray = true, schoolColors = true, stickyCrits = true },
+			areas = {
+				incoming = { animation = "throw", sticky = "punch", shake = true },
+				target = { animation = "throw", sticky = "punch", shake = true },
+				notify = { animation = "straight", sticky = "punch" },
+			},
+			plates = { enabled = true, style = "plateThrow", font = "Anton", fontSize = 20, critScale = 155,
+				outline = "THICKOUTLINE", shadow = true, flash = true, colorMode = "warm" },
 		} },
 	{ key = "Blizzlike", title = L["Blizzard-like"], desc = L["Game font and plain colors, straight lines centered over the character."],
 		settings = {

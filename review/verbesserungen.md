@@ -20,16 +20,17 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
+| C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt | |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
 | D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | umgesetzt | `fb8c242` … `141e84d` |
 | E1 | Module erst bei Bedarf laden | groß | abwarten | |
 | E2 | Profiling pro Modul (`/eui perf`) | mittel | umgesetzt | `cc64a52` |
-| E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | offen | |
+| E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E3, E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E1.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
@@ -354,6 +355,34 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       den Report-Knopf nötig, die anderen schaden nicht.
 - **Versionsgrenzen bei Integrationen:** Ace3-Skins nur bis AceGUI-Minor 41 (`EldoUI/Modules/SkinsAddons.lua:29`).
   Bei Addon-Updates prüfen.
+- **C5 Combat Text: Stil „Kräftig“:** Der Nutzer fand den Combat Text im Spiel lieblos (15.11.2026, Stil
+  „Plakettenfokus“: dünne Kontur, gleichmäßige Bewegung, normale Treffer auf der Plakette rot wie eigener
+  Schaden, Krits nur etwas größer). Aus einem bewegten Entwurf mit drei Varianten wählte er „Kräftig“.
+  - **Umgesetzt:** neue Stil-Vorlage „Kräftig“ (`Punchy`, `Modules/CombatText/Options.lua`), dazu:
+    - EldoUIs Schrift Anton, dicke Kontur, Textschatten (`scroll.shadow`, `plates.shadow`, `M.SetTextShadow`).
+    - Haftende Zeilen und kritische Plakettentreffer blitzen weiß auf und nehmen in 0,35 s ihre Farbe an
+      (`scroll.flash`, `plates.flash`, `M.FlashColor`).
+    - Neue Bewegungen (`Animations.lua`): „Wurf“ für Scroll-Zeilen (schnell los, dann langsamer, kurz größer),
+      „Wumms“ für haftende Zeilen (doppelt so groß, kurz unter Normalgröße, Ruckeln), „Wurf“ für Plaketten
+      (zur Seite geworfen, steigt schnell, sinkt am Ende; Krits springen darüber heraus und bleiben länger).
+    - Plakettenfarben „Elfenbein, kritische Treffer golden“ (`plates.colorMode = "warm"`): normale Treffer
+      elfenbein, Krits gold, Zauberschulen in ihrer Farbe. Schrift und Kontur der Plaketten sind jetzt einstellbar.
+    - Zusammengefasste Treffer können das „×3“ grau schreiben (`scroll.countGray`).
+    - Alles Neue ist eine eigene Einstellung und standardmäßig aus. Andere Vorlagen schreiben sie nicht, beim
+      Anwenden setzt `E:ApplyStyle` sie also auf den Standard zurück: Die alten Stile sehen aus wie vorher.
+    - Grenzen des Spiels: Die Größe einer Zahl kann nicht vom Schaden abhängen (Werte sind im Kampf geheim),
+      und Treffer nennen keinen Zauber, also keine Symbole pro Treffer.
+    - Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+  - **Test:** `tools/combattext/test_punchy.lua` (läuft in `tools/ci/check_all.sh tests`). Er lädt
+    `Animations.lua` ganz und schneidet die Standards (`Core.lua`), Zeilentext, Schulfarben, Schatten, Blitz und
+    Updater (`Engine.lua`), die Plakettenfarben (`Plates.lua`) und die Stil-Liste (`Options.lua`) heraus.
+    Geprüft: Form der drei neuen Bewegungen, die alten sind noch da; eine stehende Zeile kostet nach dem
+    ersten Bild keinen Aufruf, kein `ClearAllPoints`; Blitz von Weiß zur Farbe; Schatten; grauer Zähler, auch
+    mit geheimer Zahl; Plakettenfarben neu und alt; „Kräftig“ schreibt nur vorhandene Einstellungen, nennt
+    Bewegungen der richtigen Art und eine mitgelieferte Schrift; alle anderen Stile bleiben beim alten Look.
+  - **Im Spiel prüfen:** `/eui` → Combat Text → Vorlagen → „Kräftig“ anwenden, dann `/eui sct test` und kämpfen.
+    Erwartung: Anton-Zahlen mit Schatten, Krits blitzen weiß und springen heraus, Treffer auf der Plakette
+    elfenbein, Krits gold; keine Lua-Fehler. Danach eine andere Vorlage wählen: alter Look ohne Schatten.
 
 ## D – Infrastruktur für den Fork
 
@@ -451,6 +480,11 @@ Inspect-Anfragen, automatische Loot-Verteilung.
        Lua-Fehler. Gesamt 4,5 ms/s; 68 % davon die Infoleiste mit einem Ausreißer von 130 ms (daraus E4).
 3. **OnUpdate ist sauber:** Frames verstecken sich im Leerlauf. Einzig Combat Text setzt pro Frame Punkt,
    Skalierung und Alpha jeder Zeile (`EldoUI/Modules/CombatText/Engine.lua:360`). Niedrige Priorität.
+   - **Umgesetzt (E3, zusammen mit C5):** Die Updater der Scroll-Zeilen (`Engine.lua`) und der Plakettenzahlen
+     (`Plates.lua`) setzen nur noch, was sich seit dem letzten Bild geändert hat: Skalierung, Punkt, Alpha und
+     Sichtbarkeit. `ClearAllPoints` fällt pro Bild weg; jede Zeile hat einen festen Punkt, den `SetPoint`
+     verschiebt, `Release` räumt ihn ab. Eine stehende Zeile (Stapel, haftende Zeilen nach dem Auftakt) kostet
+     nach ihrem ersten Bild keinen Aufruf mehr. Test: `tools/combattext/test_punchy.lua` (siehe C5).
 4. **Speicher-Block der Infoleiste ruckelt (E4, im Spiel gefunden):** `/eui perf` zeigte für die Infoleiste
    3,06 ms/s und einen langsamsten Aufruf von 130 ms („InfoBar:holders“). Der Block „Mem“ (im Stil „Full“
    dabei) ließ alle 30 s `UpdateAddOnMemoryUsage` laufen. Mit Questie, AtlasLoot, Details und DBM steht das
