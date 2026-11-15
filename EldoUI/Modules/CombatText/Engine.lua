@@ -176,6 +176,8 @@ local function Release(index)
 	local rt = runtime[line.area]
 	if rt and rt.lastLine == line then rt.lastLine = nil end
 	line.args, line.payload, line.anim = nil, nil, nil
+	line.shownScale, line.shownAlpha, line.shownX, line.shownY, line.visible = nil, nil, nil, nil, nil
+	line.flash, line.color = nil, nil
 	pool[#pool + 1] = line
 end
 
@@ -264,7 +266,8 @@ local function Render(line)
 	end
 	local fmt = entry.fmt
 	if (line.count or 1) > 1 and M.db.scroll.mergeCount then
-		fmt = fmt .. " \195\151%d" -- " ×N"
+		-- " ×N"; in gray with scroll.countGray, so the number stands out.
+		fmt = fmt .. (M.db.scroll.countGray and " |cff9a9a9a\195\151%d|r" or " \195\151%d")
 		args[#args + 1] = line.count
 	end
 	if anySecret then
@@ -301,6 +304,30 @@ local function Outline()
 	return outline == "NONE" and "" or outline
 end
 
+-- A soft shadow under a line (scroll.shadow, plates.shadow), a little
+-- deeper for bigger text. E:SetMediaFont clears the shadow, so this runs
+-- after it.
+function M.SetTextShadow(text, on, size)
+	if on then
+		local depth = math.max(1, math.floor((size or 16) / 10 + 0.5))
+		text:SetShadowColor(0, 0, 0, 0.85)
+		text:SetShadowOffset(depth, -depth)
+	else
+		text:SetShadowOffset(0, 0)
+	end
+end
+
+-- Lines that flash (scroll.flash for sticky lines, plates.flash for
+-- critical hits) start white and turn to their own color within
+-- FLASH_TIME seconds. Returns r, g, b and true once the color is reached.
+M.FLASH_TIME = 0.35
+function M.FlashColor(color, elapsed)
+	local t = (elapsed or 0) / M.FLASH_TIME
+	if t >= 1 then return color[1], color[2], color[3], true end
+	if t < 0 then t = 0 end
+	return 1 + (color[1] - 1) * t, 1 + (color[2] - 1) * t, 1 + (color[3] - 1) * t, false
+end
+
 -- Lay a line out inside its area box: text by the area's alignment, icon
 -- on the chosen side (anchored to the text, never measured).
 local function LayoutLine(line, area, holder, size, fontId, iconTexture)
@@ -311,6 +338,7 @@ local function LayoutLine(line, area, holder, size, fontId, iconTexture)
 	frame:SetFrameLevel(holder:GetFrameLevel() + 5)
 	frame:SetSize(area.width, lineHeight)
 	E:SetMediaFont(text, fontId, size, Outline())
+	M.SetTextShadow(text, M.db.scroll.shadow, size)
 	local align = area.align
 	text:SetJustifyH(align)
 	text:ClearAllPoints()
@@ -349,6 +377,10 @@ end
 ---------------------------------------------------------------------------
 -- The updater
 ---------------------------------------------------------------------------
+-- Each frame sets only what changed on a line since the last one (E3):
+-- a line that stands still, keeps its size or is fully shown costs no
+-- widget call for it. The line's one point is always CENTER on its area's
+-- holder, so SetPoint moves it without ClearAllPoints (Release clears it).
 local function Update()
 	local now = GetTime()
 	for index = #active, 1, -1 do
@@ -357,7 +389,10 @@ local function Update()
 		if not holder then
 			Release(index)
 		elseif now < line.t0 then
-			line.frame:Hide()
+			if line.visible ~= false then
+				line.frame:Hide()
+				line.visible = false
+			end
 		else
 			local p = (now - line.t0) / line.duration
 			if p >= 1 then
@@ -367,16 +402,35 @@ local function Update()
 				local x, y, alpha, scale = line.anim.position(p, line, width, height)
 				if not scale or scale <= 0 then scale = 1 end
 				local frame = line.frame
-				frame:SetScale(scale)
-				frame:ClearAllPoints()
-				frame:SetPoint("CENTER", holder, "BOTTOM", (x or 0) / scale, (y or 0) / scale)
-				frame:SetAlpha(math.max(0, math.min(1, alpha or 1)) * line.alpha)
-				frame:Show()
+				if line.shownScale ~= scale then
+					frame:SetScale(scale)
+					line.shownScale = scale
+				end
+				x, y = (x or 0) / scale, (y or 0) / scale
+				if line.shownX ~= x or line.shownY ~= y then
+					frame:SetPoint("CENTER", holder, "BOTTOM", x, y)
+					line.shownX, line.shownY = x, y
+				end
+				alpha = math.max(0, math.min(1, alpha or 1)) * line.alpha
+				if line.shownAlpha ~= alpha then
+					frame:SetAlpha(alpha)
+					line.shownAlpha = alpha
+				end
+				if line.flash then
+					local r, g, b, done = M.FlashColor(line.color, now - line.t0)
+					line.text:SetTextColor(r, g, b)
+					if done then line.flash = false end
+				end
+				if not line.visible then
+					frame:Show()
+					line.visible = true
+				end
 			end
 		end
 	end
 	if #active == 0 then driver:Hide() end
 end
+M.UpdateLines = Update -- for the offline test
 driver:SetScript("OnUpdate", Update)
 
 ---------------------------------------------------------------------------
@@ -402,7 +456,7 @@ local function Place(spec)
 	local fontId = (area.font ~= "default" and area.font) or (sticky and scroll.critFont) or scroll.font
 	local animKey = sticky and area.sticky or area.animation
 	-- With motion reduced a big hit holds still instead of popping.
-	if animKey == "pop" and not E:MotionOn() then animKey = "hold" end
+	if (animKey == "pop" or animKey == "punch") and not E:MotionOn() then animKey = "hold" end
 	local anim = M.animations[animKey] or M.animations[sticky and "pop" or "straight"]
 	local speed = AreaSpeed(area)
 	local duration = anim.duration / speed
@@ -479,9 +533,18 @@ local function Place(spec)
 	LayoutLine(line, area, holder, size, fontId, iconTexture)
 	line.lineHeight = lineHeight
 	local color = spec.color or { 1, 1, 1 }
-	line.text:SetTextColor(color[1], color[2], color[3])
+	line.color = color
+	-- A flashing sticky line starts white (the updater turns it to its color).
+	line.flash = sticky and scroll.flash and true or false
+	if line.flash then
+		line.text:SetTextColor(1, 1, 1)
+	else
+		line.text:SetTextColor(color[1], color[2], color[3])
+	end
 	Render(line)
+	line.shownScale, line.shownAlpha, line.shownX, line.shownY = nil, nil, nil, nil
 	line.frame:Hide()
+	line.visible = false
 	driver:Show()
 	M.engineStats.shown = M.engineStats.shown + 1
 	if spec.sound and spec.sound ~= "none" and scroll.sounds then E:PlayMedia(spec.sound) end

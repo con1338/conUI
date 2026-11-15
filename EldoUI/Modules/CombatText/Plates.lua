@@ -79,6 +79,8 @@ local function Release(index)
 	line.frame:SetParent(holder)
 	line.text:SetText("")
 	line.anchor, line.unit = nil, nil
+	line.shownScale, line.shownAlpha, line.shownX, line.shownY, line.visible = nil, nil, nil, nil, nil
+	line.flash, line.color, line.crit = nil, nil, nil
 	pool[#pool + 1] = line
 end
 
@@ -96,6 +98,9 @@ function M:PlateLineCount(unit)
 	return count
 end
 
+-- Only what changed since the last frame is set (E3, as in Engine.lua).
+-- A line keeps one point, BOTTOM on its plate's anchor, so SetPoint moves
+-- it without ClearAllPoints (Release clears it).
 local function Update()
 	local now = GetTime()
 	for index = #active, 1, -1 do
@@ -107,23 +112,53 @@ local function Update()
 			local x, y, alpha, scale = line.anim.position(p, line, SPREAD, RISE)
 			if not scale or scale <= 0 then scale = 1 end
 			local frame = line.frame
-			frame:SetScale(scale)
-			frame:ClearAllPoints()
-			frame:SetPoint("BOTTOM", line.anchor, "TOP", (x or 0) / scale, (line.baseY + (y or 0)) / scale)
-			frame:SetAlpha(math.max(0, math.min(1, alpha or 1)))
-			frame:Show()
+			if line.shownScale ~= scale then
+				frame:SetScale(scale)
+				line.shownScale = scale
+			end
+			x, y = (x or 0) / scale, (line.baseY + (y or 0)) / scale
+			if line.shownX ~= x or line.shownY ~= y then
+				frame:SetPoint("BOTTOM", line.anchor, "TOP", x, y)
+				line.shownX, line.shownY = x, y
+			end
+			alpha = math.max(0, math.min(1, alpha or 1))
+			if line.shownAlpha ~= alpha then
+				frame:SetAlpha(alpha)
+				line.shownAlpha = alpha
+			end
+			if line.flash then
+				local r, g, b, done = M.FlashColor(line.color, now - line.t0)
+				line.text:SetTextColor(r, g, b)
+				if done then line.flash = false end
+			end
+			if not line.visible then
+				frame:Show()
+				line.visible = true
+			end
 		end
 	end
 	if #active == 0 then driver:Hide() end
 end
+M.UpdatePlateLines = Update -- for the offline test
 driver:SetScript("OnUpdate", Update)
 
 local GREEN, GREY = { 0.3, 1, 0.4 }, { 0.8, 0.8, 0.82 }
+-- "Ivory, golden critical hits" (the Punchy style): plain hits ivory, so
+-- they don't read as damage you take; critical hits gold; the other magic
+-- schools in their colors.
+local IVORY, GOLD = { 1, 0.95, 0.86 }, { 1, 0.82, 0.25 }
 
 local function Color(kind, payload)
 	local db = M.db.plates
 	if kind == "heal" or kind == "healCrit" then return GREEN end
 	if kind == "avoid" or kind == "mitigate" then return GREY end
+	if db.colorMode == "warm" then
+		if kind == "crit" then return GOLD end
+		-- SchoolColor reads a secret school as no school.
+		local school = M:SchoolColor(payload.school)
+		if not school or school == M.SCHOOL_COLORS[1] then return IVORY end
+		return school
+	end
 	if db.colorMode == "accent" then return E.media.accentColor end
 	if db.colorMode == "school" then return M:SchoolColor(payload.school) or { 1, 1, 1 } end
 	return { 1, 1, 1 }
@@ -158,10 +193,12 @@ local function Add(unit, kind, payload)
 	if crit then size = math.floor(size * db.critScale / 100 + 0.5) end
 	line.unit, line.anchor = unit, anchor
 	local style = db.style
-	-- With motion reduced a pop rises like the plain style.
-	if style == "platePop" and not E:MotionOn() then style = "rise" end
+	-- With motion reduced a pop or a throw rises like the plain style.
+	if (style == "platePop" or style == "plateThrow") and not E:MotionOn() then style = "rise" end
 	line.anim = M.animations[style] or M.animations.rise
-	line.duration = line.anim.duration / math.max(0.1, M.db.scroll.speed / 100)
+	line.crit = crit
+	line.shake = crit and E:MotionOn()
+	line.duration = ((crit and line.anim.critDuration) or line.anim.duration) / math.max(0.1, M.db.scroll.speed / 100)
 	line.t0 = GetTime()
 	line.slot = 0
 	line.lineHeight = size + 2
@@ -172,9 +209,19 @@ local function Add(unit, kind, payload)
 	line.frame:SetParent(parent)
 	if parent == anchor then line.frame:SetFrameLevel(anchor:GetFrameLevel() + 30) end
 	line.frame:SetSize(120, size + 4)
-	E:SetMediaFont(line.text, "default", size, "OUTLINE")
+	local outline = db.outline or "OUTLINE"
+	E:SetMediaFont(line.text, db.font or "THEME", size, outline == "NONE" and "" or outline)
+	M.SetTextShadow(line.text, db.shadow, size)
 	local color = Color(kind, payload)
-	line.text:SetTextColor(color[1], color[2], color[3])
+	line.color = color
+	-- A flashing critical hit starts white (the updater turns it to its color).
+	line.flash = crit and db.flash and true or false
+	if line.flash then
+		line.text:SetTextColor(1, 1, 1)
+	else
+		line.text:SetTextColor(color[1], color[2], color[3])
+	end
+	line.shownScale, line.shownAlpha, line.shownX, line.shownY = nil, nil, nil, nil
 	if payload.type then
 		line.text:SetText(payload.type)
 	else
@@ -186,6 +233,7 @@ local function Add(unit, kind, payload)
 		end
 	end
 	line.frame:Hide()
+	line.visible = false
 	driver:Show()
 	M.plateStats.shown = M.plateStats.shown + 1
 	return line

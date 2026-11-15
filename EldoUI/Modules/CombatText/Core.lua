@@ -36,7 +36,7 @@ local M = E:NewModule("CombatText", {
 	blizzard = { "floating-combat-text" },
 	savedKeys = { "profile.modules.CombatText", "global.combatText" },
 	optionsPage = "module:CombatText",
-	presets = { "Blizzlike", "ClassicSCT", "Clean", "Large", "Minimal", "Plates" },
+	presets = { "Blizzlike", "ClassicSCT", "Clean", "Large", "Minimal", "Plates", "Punchy" },
 	defaults = {},
 })
 E.CombatText = M
@@ -151,6 +151,8 @@ defaults.scroll = {
 	enabled = true, speed = 100, numbers = "short", icons = true, stickyCrits = true, sounds = true,
 	schoolColors = true, merge = true, mergeWindow = 0.3, mergeCount = true, minAmount = 0,
 	font = "THEME", fontSize = 18, critFont = "THEME", critFontSize = 26, outline = "OUTLINE", alpha = 100,
+	-- The Punchy style's look (Options.lua); off in every other style.
+	shadow = false, flash = false, countGray = false,
 }
 defaults.areas = {
 	incoming = Area(true, Key("Incoming"), 160, 260, "arc", "down", "left", "RIGHT", "LEFT"),
@@ -169,6 +171,7 @@ defaults.warn = { health = 35, mana = 25, pet = 30 }
 defaults.plates = {
 	enabled = true, units = "target", inGroup = false, style = "rise", fontSize = 16, critScale = 140,
 	offsetY = 6, maxPerPlate = 4, followPlate = true, words = true, heals = false, colorMode = "school",
+	font = "THEME", outline = "OUTLINE", shadow = false, flash = false,
 }
 
 ---------------------------------------------------------------------------

@@ -14,7 +14,8 @@
 -- })
 -- line fields a style may read: up (true when the area scrolls up), bend
 -- (-1 left, 1 right), side (-1 or 1, alternates line by line), slot (0 =
--- newest), lineHeight, shake.
+-- newest), lineHeight, shake, crit (plate lines: a critical hit).
+-- A plate style may set critDuration for critical hits.
 -- Written from scratch for EldoUI.
 local _, E = ...
 local L = E.L
@@ -125,6 +126,51 @@ M:RegisterAnimation("hold", { title = L["Hold"], kind = "sticky", duration = 2.2
 		return Shake(p, line), StickyY(line, height), alpha, 1
 	end })
 
+---------------------------------------------------------------------------
+-- The Punchy style's motion (Options.lua): quick off the mark, slowing
+-- down, and a soft fade at the end.
+---------------------------------------------------------------------------
+-- 0 -> 1, fast at first.
+local function EaseOut(t)
+	local u = 1 - t
+	return 1 - u * u * u
+end
+M.EaseOut = EaseOut
+
+-- 0 -> a little past 1 -> 1: the size of a punch overshoots and settles.
+local function Overshoot(t)
+	local c, u = 1.9, t - 1
+	return 1 + (c + 1) * u * u * u + c * u * u
+end
+M.Overshoot = Overshoot
+
+-- Fully there for longer, then gone softly.
+local function SoftFade(p)
+	if p < 0.05 then return p / 0.05 end
+	if p > 0.62 then
+		local t = (p - 0.62) / 0.38
+		return math.max(0, 1 - t * t)
+	end
+	return 1
+end
+M.SoftFade = SoftFade
+
+-- Thrown off the start edge, slowing down along a slight bend, a little
+-- bigger for its first moment.
+M:RegisterAnimation("throw", { title = L["Throw"], duration = 1.6,
+	position = function(p, line, width, height)
+		local e = EaseOut(p)
+		local scale = p < 0.1 and (1.3 - 0.3 * EaseOut(p / 0.1)) or 1
+		return line.bend * sin(e * pi) * width * 0.25, Travel(e, line, height), SoftFade(p), scale
+	end })
+
+-- In at twice the size, past normal and back, with a short shake.
+M:RegisterAnimation("punch", { title = L["Punch"], kind = "sticky", duration = 2.0,
+	position = function(p, line, _, height)
+		local scale = p < 0.12 and (2 - Overshoot(p / 0.12)) or 1
+		return Shake(p, line), StickyY(line, height), SoftFade(p), scale
+	end })
+
 -- Plate styles: offsets above the plate's text anchor (height = rise room).
 M:RegisterAnimation("rise", { title = L["Rise"], kind = "plate", duration = 1.2,
 	position = function(p, line, _, height)
@@ -146,4 +192,17 @@ M:RegisterAnimation("platePop", { title = L["Pop"], kind = "plate", duration = 1
 M:RegisterAnimation("plateStack", { title = L["Stack"], kind = "plate", duration = 1.6,
 	position = function(p, line)
 		return 0, line.slot * line.lineHeight, Fade(p), 1
+	end })
+
+-- Thrown off the plate to alternating sides, rising fast and sinking a
+-- little at the end; a critical hit punches out above the plate instead.
+M:RegisterAnimation("plateThrow", { title = L["Throw"], kind = "plate", duration = 1.05, critDuration = 1.3,
+	position = function(p, line, width, height)
+		if line.crit then
+			local scale = p < 0.18 and (2.1 - 1.1 * Overshoot(p / 0.18)) or 1
+			return Shake(p, line), height * 0.3 + height * 0.6 * EaseOut(p), SoftFade(p), scale
+		end
+		local e = EaseOut(p)
+		local scale = p < 0.12 and (1.25 - 0.25 * EaseOut(p / 0.12)) or 1
+		return line.side * width * 0.7 * e, height * 1.15 * e - height * 0.4 * p * p, SoftFade(p), scale
 	end })

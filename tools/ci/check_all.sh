@@ -82,6 +82,8 @@ check_tests() {
 	lua5.1 tools/raidloot/test_points.lua || return 1
 	step "Timing per module (/eui perf)"
 	lua5.1 tools/perf/test_perf.lua || return 1
+	step "Combat Text: the Punchy style and the leaner updater"
+	lua5.1 tools/combattext/test_punchy.lua || return 1
 	step "Cast bars on the party and raid frames"
 	lua5.1 tools/groupframes/test_cast.lua || return 1
 	step "World buffs"
