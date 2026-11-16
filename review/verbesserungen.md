@@ -49,8 +49,8 @@ Danach wählte der Nutzer B5. Auch B5 ist eine neue Datei in der TOC, dazu komme
 wieder das Spiel ganz neu starten. Die zwei offenen Fragen zu B8 (eigene EP je Quest, Häkchen) prüft der Nutzer am
 Abend des 16.11. im Spiel. Nach dem Merge von B5 (PR #31) ging es mit dem nächsten offenen Punkt weiter, B7. Auch B7 ist
 eine neue Datei in der TOC (`Modules/QoL/BagSpace.lua`): wieder ganz neu starten. Nach dem Merge von B7 (PR #33) wählte
-der Nutzer B12 und ließ B11 zunächst aus, weil dort erst ein Spieltest klären muss, ob Forever von selbst absitzt. B12
-ändert nur eine vorhandene Datei: `/reload` reicht.
+der Nutzer B12. B11 bleibt offen; dort muss vorher ein Spieltest klären, ob Forever von selbst absitzt. B12 ändert nur
+eine vorhandene Datei: `/reload` reicht.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
