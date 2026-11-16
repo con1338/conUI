@@ -92,6 +92,25 @@ check_tests() {
 	lua5.1 tools/fishing/test_fishing.lua || return 1
 	step "RestedXP on a client in another language: target names, guide chain, group names"
 	lua5.1 tools/integrations/test_rxp_locale.lua || return 1
+	step "Quality of Life: Wowhead links in the game's language"
+	lua5.1 tools/qol/test_wowhead.lua || return 1
+	step "Quality of Life: XP after each title in the quest log"
+	lua5.1 tools/qol/test_quest_xp.lua || return 1
+	step "Quality of Life: a signal when eating and drinking are done"
+	lua5.1 tools/qol/test_meal_done.lua || return 1
+	step "Quality of Life: a hint when the bags are almost full"
+	lua5.1 tools/qol/test_bag_space.lua || return 1
+	step "Character: a gear set clicked in combat goes on after combat"
+	lua5.1 tools/character/test_gear_after_combat.lua || return 1
+	step "Quest Item Bar: the quest items you can use, out of combat only"
+	lua5.1 tools/questbar/test_quest_bar.lua || return 1
+	step "Consumable Bar: buttons work with Shift, Ctrl or Alt held"
+	lua5.1 tools/consumablebar/test_modifier_clicks.lua || return 1
+	step "Bar Snapshots: which action bars are on"
+	lua5.1 tools/snapshots/test_bar_toggles.lua | tail -n 1
+	[ "${PIPESTATUS[0]}" -eq 0 ] || return 1
+	step "Loot Sim: Judgement rolls as a ranged attack"
+	lua5.1 tools/lootsim/test_judgement.lua || return 1
 	step "Auction House: Blizzard's screens come back under EldoUI's pages (F22)"
 	lua5.1 tools/auction/test_native_screens.lua || return 1
 	step "German pack: Fork.lua rules"

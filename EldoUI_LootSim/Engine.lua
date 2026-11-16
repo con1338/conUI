@@ -629,10 +629,26 @@ function Fight:DotLeft(key)
 	return expires and max(0, expires - self.t) or 0
 end
 
+-- A spell with rangedHit (Judgement) rolls a ranged attack's miss chance
+-- instead of spell hit: WoW: Forever hotfix of 11 November 2026, Judgement
+-- "now considered a Ranged Attack" that "uses the Paladin's Ranged Hit
+-- chance". Damage, crit and resists stay a spell's; the hotfix names only
+-- the hit chance. Judgement of Command counts as melee since 13 November;
+-- the sim never judges Command (Classes/Melee.lua).
+function Fight:SpellLands(spell)
+	if spell.rangedHit then
+		if self.dice.spell:Random() * 100 < self:YellowTable(spell, true).miss then return false, "miss" end
+		return true
+	end
+	if not self:SpellHits(spell) then return false, "resist" end
+	return true
+end
+
 function Fight:SpellDamage(spell, base, castTime)
-	if not self:SpellHits(spell) then
-		self:Deal(spell.key, 0, "resist")
-		return "resist"
+	local lands, outcome = self:SpellLands(spell)
+	if not lands then
+		self:Deal(spell.key, 0, outcome)
+		return outcome
 	end
 	local amount = (base + SpellPower(self.sheet, spell.school) * Coefficient(spell, castTime)) * self:DamageMult(spell, "spell")
 	local critChance = SpellCrit(self.sheet, spell.school) + self:CritBonusChance(spell, "spell")

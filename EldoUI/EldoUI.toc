@@ -179,6 +179,7 @@ Modules\MapNotes\Met.lua
 Modules\Farming.lua
 Modules\PlayerNotes.lua
 Modules\ConsumableBar.lua
+Modules\QuestBar.lua
 Modules\Camera.lua
 Modules\ObjectiveTracker.lua
 Modules\Chat\Core.lua
@@ -226,6 +227,9 @@ Modules\Trade.lua
 Modules\QoL.lua
 Modules\QoL\Tweaks.lua
 Modules\QoL\FlightView.lua
+Modules\QoL\QuestXP.lua
+Modules\QoL\MealDone.lua
+Modules\QoL\BagSpace.lua
 Modules\Quickdraw.lua
 Modules\Messages.lua
 Modules\Loot.lua

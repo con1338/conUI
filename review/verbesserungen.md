@@ -16,12 +16,22 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (Forever hat Weltbuffs, laut Nutzer) | mittel | umgesetzt | `2b77920` |
+| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen (Wunsch des Nutzers) | mittel | umgesetzt | `597197f`, `c64271e`, `bbc944e` |
+| B6 | Signal, wenn Essen und Trinken fertig sind (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
+| B7 | Taschen fast voll: früher Hinweis und Liste „Platz schaffen“ | klein–mittel | umgesetzt | `86fba91`, `fc8f1ee` |
+| B8 | Quest-EP hinter jedem Titel im Questlog (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
+| B9 | „Wer fehlt?“ für Gruppe und Raid (Herbeirufen) | mittel | abwarten | |
+| B10 | Wowhead-Links in der Spielsprache (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d` |
+| B11 | Absitzen und Aufstehen bei Fehlermeldung (einschaltbar) | klein | offen | |
+| B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | umgesetzt | `9cdd6aa`, `dd84be6` |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
 | C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt | `d83f389` |
 | C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
+| C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
+| C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt | `95002b5` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -31,7 +41,18 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | `d83f389` |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B11, C1 (Rest), E1.
+**Stand 16.11.2026:** B5 bis B12 kommen aus einer Suche nach QoL-Lücken (Abschnitt B, „QoL-Vorschläge“). Der Nutzer
+hat B6, B8 und B10 gewählt. B9 wartet, bis er Stufe 60 erreicht und Gruppeninhalte spielt (seine Auskunft). Bei B11
+erst im Spiel prüfen, ob Forever schon von selbst absitzt. B6 und B8 sind neue Dateien in der `EldoUI.toc`: Nach dem
+Kopieren das Spiel ganz neu starten, denn `/reload` liest die Dateiliste nicht neu (wie bei C6). Ohne Neustart fehlen
+nur die beiden Funktionen, Fehler gibt es keine, weil nichts in `QoL.lua` sie aufruft.
+Danach wählte der Nutzer B5. Auch B5 ist eine neue Datei in der TOC, dazu kommen neue Einträge in `Bindings.xml`:
+wieder das Spiel ganz neu starten. Die zwei offenen Fragen zu B8 (eigene EP je Quest, Häkchen) prüft der Nutzer am
+Abend des 16.11. im Spiel. Nach dem Merge von B5 (PR #31) ging es mit dem nächsten offenen Punkt weiter, B7. Auch B7 ist
+eine neue Datei in der TOC (`Modules/QoL/BagSpace.lua`): wieder ganz neu starten. Nach dem Merge von B7 (PR #33) wählte
+der Nutzer B12. B11 bleibt offen; dort muss vorher ein Spieltest klären, ob Forever von selbst absitzt. B12 ändert nur
+eine vorhandene Datei: `/reload` reicht.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
@@ -244,6 +265,454 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 - Im Spiel geprüft (15.11.2026): Seit dem Fix (PR #20) kein neuer „Blocked …“-Eintrag, in keiner Session bis
   Nr. 52, darunter mehrere mit Kampf. Ob sich dabei Gildenmitglieder im Kampf an- oder abgemeldet haben, ist
   nicht bekannt. Tooltip, Info-Bar-Block und Soft-Reserves sind noch nicht geprüft.
+
+**QoL-Vorschläge (16.11.2026):** Der Nutzer fragte nach weiteren QoL-Features. Geprüft wurden alle 100 Module und
+rund 45 übliche QoL-Funktionen per Codesuche. Das meiste gibt es schon: Auto-Reparatur, Grau verkaufen, „LÖSCHEN“
+vorausfüllen, schnelles Plündern, Rang-Upgrades auf den Leisten, Haltbarkeit je Platz, Itemlevel in Taschen, Quest-EP
+auf der EP-Leiste, Kartenaufdeckung, Screenshots bei Ereignissen, Ausrüstungssets, Fanfare-Hinweise bei vollen Taschen
+und fälliger Reparatur. Übrig blieben B5 bis B12. Alle halten EldoUIs Regeln ein: Nichts handelt ohne Klick, außer es
+ist eingeschaltet, und es werden keine geheimen Werte gelesen.
+
+| Nr. | Idee | Beleg (Suche) |
+|---|---|---|
+| B5 | Leiste mit allen benutzbaren Questgegenständen der Taschen, per Klick oder Taste | ein Knopf, nur für die verfolgte Quest (`EldoUI/Modules/ObjectiveTracker.lua:30`) |
+| B7 | Hinweis ab z. B. 3 freien Plätzen, dazu die fünf billigsten Gegenstände; ein Klick öffnet Blizzards Löschdialog | Fanfare meldet sich erst bei 0 freien Plätzen |
+| B9 | Liste der Mitglieder außerhalb Eurer Zone oder Instanz, offline oder AFK; ein Klick setzt das Ziel (Hexer) | `GetRaidRosterInfo` kommt im Code nicht vor |
+| B11 | Bei „beritten“ oder „Ihr müsst stehen“ (auch am Flugmeister) absitzen bzw. aufstehen | kein Modul wertet diese Fehlermeldungen aus |
+| B12 | Ein Setwechsel im Kampf wird gemerkt und danach ausgeführt | heute nur eine Meldung (`EldoUI/Modules/Character.lua:2064`) |
+
+Unsicher bei B11: Vielleicht sitzt Forever schon von selbst ab, und ob `Dismount()` ohne Klick erlaubt ist, zeigt nur
+das Spiel. B12 handelt nach dem Klick, deshalb einschaltbar und standardmäßig aus.
+
+Geprüft und verworfen:
+- „Alles lernen“ beim Lehrer: EldoUI lehnt das bewusst ab, viele Käufe auf einen Klick gelten als Automatisierung
+  (`EldoUI/Modules/Skins.lua:845`).
+- Energie-Ticker: Die eigene Energie kann im Kampf geheim sein (`EldoUI/Modules/ClassPower.lua:16`).
+- Unterbrechungs-Tracker mit Ansagen: Fremde Abklingzeiten sind geheim, und Chatzeilen schreibt EldoUI nur auf Klick.
+- Herbeirufen oder Wiederbeleben automatisch annehmen: gegen die Fair-Play-Regel. Die Abfragen gibt es schon.
+- Entfernung zum Ziel in Metern: Reichweiten-Abfragen sind im Kampf eingeschränkt. Das Fadenkreuz nutzt schon die
+  Reichweitenprüfung des Spiels.
+
+**B5 – Leiste mit Questgegenständen (umgesetzt):**
+- Neu: Modul „Quest Item Bar“, deutsch „Questgegenstandsleiste“ (`Modules/QuestBar.lua`). Es steht in der
+  Kategorie „Quality of Life“ und ist standardmäßig an.
+- Jeder benutzbare Questgegenstand aus den Taschen bekommt einen Platz, höchstens 12. Ein Klick oder die Taste des
+  Platzes benutzt ihn, über Blizzards sichere Aktion „item“. Ohne Klick oder Tastendruck passiert nichts.
+- Welche Gegenstände, in der Reihenfolge der Taschen, jeder nur einmal:
+  - Der Gegenstand, den das Questlog für eine Quest nennt (`GetQuestLogSpecialItemInfo`), solange er in der Tasche
+    liegt. Bei einer Quest, die zum Abgeben bereit ist, nur wenn das Spiel ihn dafür behält
+    (`showWhenComplete`) oder „Auch abgeschlossene Quests“ an ist. Sonst bleibt er weg, auch wenn er nach der
+    Regel darunter passen würde, außer eine andere offene Quest nennt ihn.
+  - Gegenstände, die das Spiel als Questgegenstand markiert (`GetContainerItemQuestInfo`) oder deren Klasse
+    „Quest“ ist (12). Sie brauchen eine Benutzung: einen Zauber (`GetItemSpell`) oder einen Inhalt zum Öffnen
+    (`hasLoot`). Reine Questbeute wie Felle bleibt weg, ebenso Tränke.
+  - Gegenstände, die eine Quest beginnen, die Ihr nicht habt und nicht erledigt habt, mit dem „!“ der Taschen.
+    Der Schalter „Gegenstände, die Quests beginnen“ nimmt sie heraus.
+- Umschalt-Rechtsklick nimmt einen Gegenstand von der Leiste, mit einer Chatzeile. „Ausgeblendete Gegenstände
+  zeigen“ holt alle zurück. Ein normaler Rechtsklick tut nichts, so wird beim Ausblenden nichts benutzt.
+- Regeln:
+  - Welcher Gegenstand auf welchem Platz liegt, welche Plätze zu sehen sind, Größe und Lage ändern sich nur
+    außerhalb des Kampfs (`E:RunOutOfCombat`). Im Kampf behalten die Plätze ihre Gegenstände. Anzahl und
+    Abklingzeit laufen weiter, ein verbrauchter Gegenstand wird grau. Am Kampfende liest die Leiste die Taschen neu.
+  - Jede Antwort des Spiels läuft über `pcall`. Eine geheime Antwort zählt als „nicht da“ und wird nie verglichen.
+  - Die Abklingzeit kommt aus der gemeinsamen Quelle des Kampf-Kits, wie bei der Verbrauchsgüterleiste.
+  - Reichweite: rotes Symbol, wenn das Spiel „außer Reichweite“ meldet (`IsQuestLogSpecialItemInRange`). Das gibt es
+    nur für die Gegenstände des Questlogs und nur, solange einer davon zu sehen ist (fünfmal pro Sekunde). Den Platz
+    der Quest im Questlog liest es jedes Mal neu (`GetLogIndexForQuestID`), ebenso der Tooltip.
+  - Leuchten nur für Gegenstände, die seit dem letzten Lesen in die Taschen kamen.
+  - Bündel von Taschen- und Quest-Events werden einmal gelesen (0,2 s). Bringt ein Event dieselben Gegenstände,
+    wird nichts neu gesetzt.
+- Einstellungen: Starter, abgeschlossene Quests, „Ausgeblendete Gegenstände zeigen“, „Tasten belegen“
+  (Tastenbelegungsmodus mit allen 12 Plätzen, auch wenn die Sichtbarkeitsregel die Leiste gerade versteckt), Tastentext, Größe, Abstand, vertikal, Anzahlen, Farbe außer
+  Reichweite, Leuchten bei neuem Gegenstand, Masque, dazu die gemeinsamen Sichtbarkeitsregeln.
+- Tastenbelegung: 12 Einträge „Questgegenstand 1 … 12“ unter „EldoUI Questgegenstandsleiste“ im Tastenbelegungsfenster
+  (`Bindings.xml`). Platz 1 hält den ersten Questgegenstand in den Taschen, und so weiter.
+- Mover „Questgegenstandsleiste“ unten rechts über dem Extra-Aktionsknopf, in der Gruppe „Aktionsleisten“ und im
+  Kampfmodus. Gruppe und Kampfmodus gibt das Modul beim Anlegen des Movers an (`E:CreateMover`, `opts.group` und
+  `opts.combat`). Die Kategorie setzt die Optionsseite in die Gruppe „Quality of Life“. So braucht es keine Einträge in
+  `Movers.lua` oder `Config.lua`.
+- Upstream-Dateien (D1): nur eine Zeile in `EldoUI.toc` und 12 Zeilen in `Bindings.xml`.
+- Die Schaltfläche für Questgegenstand der Questverfolgung bleibt, wie sie ist. Sie hält den Gegenstand der verfolgten
+  Quest auf ihrer eigenen Taste. Dieser Gegenstand steht deshalb auch auf der Leiste.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (23 Texte). „Keys“ heißt im Paket schon „Schlüssel“, deshalb
+  heißt der Abschnitt „Keybinds“ („Tastenbelegungen“).
+- Test: `tools/questbar/test_quest_bar.lua` (läuft in `tools/ci/check_all.sh tests`, 157 Prüfungen). Er lädt die
+  Datei ganz, dazu EldoUIs echtes `Core/Safe.lua` (geheime Werte) und `Core/BagCache.lua` (Taschen). Ein sicherer
+  Knopf, der im Kampf gezeigt, versteckt, verschoben oder mit einem Attribut versehen wird, zählt als blockiert, wie
+  im Spiel. Geprüft werden:
+  - Welche Gegenstände kommen, in welcher Reihenfolge, einer pro Gegenstand, höchstens 12.
+  - Abgeschlossene Quests mit und ohne `showWhenComplete` und Schalter, Starter an und aus, erledigte und
+    angenommene Quests.
+  - Geheime oder fehlerhafte Antworten, die Leiste ohne Gegenstände und im Verschiebemodus.
+  - Kampf: nichts blockiert, Änderungen kommen am Kampfende. Dieselben Gegenstände werden nicht neu gesetzt.
+  - Ein Lesen pro Bündel von Events, Layout waagrecht und senkrecht.
+  - Anzahl, Aufladungen, „!“, Tastentext, Abklingzeiten.
+  - Reichweitenfarbe, auch abgeschaltet, nach einer neuen Quest im Kampf und ohne `GetLogIndexForQuestID`.
+  - Leuchten nur für Neues, nicht nach „Ausgeblendete Gegenstände zeigen“, Schaltern oder spät geladenen Daten.
+  - Umschalt-Rechtsklick auch im Kampf, Tasten belegen, Tooltip, Modul aus im Kampf, Masque.
+  - Namen der Tastenbelegungen, Standards, Optionen.
+  - Gegenprobe: Drei absichtlich eingebaute Fehler (kein Kampfschutz, keine Benutzung nötig, Reichweite trotz
+    Schalter) lassen den Test fehlschlagen.
+- Grenzen:
+  - Gegenstände, die eine Quest braucht, die das Spiel aber weder als Questgegenstand markiert noch dem Questlog
+    zuordnet, fehlen. Ein Beispiel wäre ein normales Verbrauchsgut, das man für eine Quest auf ein Ziel anwendet.
+    Die Questdaten des Loot Guides kennen solche Gegenstände, würden aber auch Tränke und Stoffe bringen, die eine
+    Quest nur abholt.
+  - Ein Questgegenstand mit Benutzung, dessen Quest schon erledigt ist, bleibt, bis man ihn wegwirft oder ausblendet.
+  - Reichweite gibt es nur für die Gegenstände des Questlogs. Für andere Gegenstände ist die Reichweitenabfrage im
+    Kampf eingeschränkt.
+- Im Spiel prüfen (nach einem Neustart des Spiels, siehe „Stand 16.11.2026“):
+  - Mit einem benutzbaren Questgegenstand in der Tasche: Die Leiste erscheint unten rechts über dem Extra-Knopf, mit
+    dem Symbol. Ein Klick benutzt ihn (z. B. auf ein Ziel oder einen Ort).
+  - Ein Gegenstand, der eine Quest beginnt: Er steht mit „!“ auf der Leiste. Ein Klick öffnet das Questfenster.
+  - Quest annehmen, Gegenstand plündern, Quest abgeben: Die Leiste passt sich an. Ein neuer Gegenstand leuchtet kurz.
+  - Im Kampf einen Questgegenstand plündern: Er erscheint erst nach dem Kampf. Danach `/eui errors`: kein
+    „Blocked …“-Eintrag.
+  - Optionen › Questgegenstandsleiste › „Tasten belegen“: alle 12 Plätze sind zu sehen. Eine Taste auf Platz 1
+    legen, speichern, danach benutzt die Taste den ersten Gegenstand, auch im Kampf. Dasselbe mit der
+    Sichtbarkeit „Im Kampf“: Beim Belegen ist die Leiste trotzdem da.
+  - Umschalt-Rechtsklick auf einen Platz: Der Gegenstand verschwindet, mit einer Chatzeile. „Ausgeblendete
+    Gegenstände zeigen“ holt ihn zurück.
+  - Mit einem Ziel außer Reichweite eines Questlog-Gegenstands: Das Symbol wird rot.
+  - Tooltip: Bei Questlog-Gegenständen der Gegenstand mit Questbezug, sonst der Gegenstand aus der Tasche, darunter
+    die Taste und der Hinweis zum Ausblenden.
+  - `/eui move`: Die Leiste lässt sich unter „Aktionsleisten“ verschieben.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**Gegenprüfung von B5 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit `597197f` und
+die EldoUI-Funktionen, die er nutzt, und ließ alle Prüfungen laufen (grün). Er fand keine Lua-Fehler, keine Änderung
+an sicheren Knöpfen im Kampf, keine Benutzung ohne Klick und keine Probleme mit geheimen Werten. Die Befunde und
+was daraus wurde (Korrekturen in `c64271e`, jeder Fall im Test, der gegen den alten Stand fehlschlägt):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | „Auch abgeschlossene Quests“ wirkungslos: Der Questlog-Gegenstand einer fertigen Quest kam über die Taschenregel (Klasse „Quest“ mit Benutzung) zurück. Der Test sah es nicht, weil sein Questlog-Gegenstand keine Questklasse hatte | mittel | behoben |
+| 2 | Platz der Quest im Questlog veraltet im Kampf (neue Quest darüber, Überschrift zugeklappt): Reichweitenfarbe und Tooltip zeigten auf eine andere Quest | klein | behoben |
+| 3 | „Tasten belegen“ bei einer Sichtbarkeitsregel wie „Im Kampf“: Der sichere Treiber versteckt die Leiste, nichts zum Zeigen | klein | behoben (`opts.condition`, `forceShow`) |
+| 4 | Leuchten ohne neuen Gegenstand: nach „Ausgeblendete Gegenstände zeigen“ und Schaltern (bestätigt), beim Login mit spät geladenen Daten (plausibel) | klein | behoben: nur, was neu in die Taschen kam |
+| 5 | Test: Einige Fälle (Modul aus, Einstellung im Kampf) laufen im Spiel so nicht, weil die Optionen und der Modulschalter bis zum Kampfende warten | klein | bleibt als Prüfung der eigenen Schutzabfragen, im Test vermerkt |
+
+**Nachtrag zu B5 (PR #32, `bbc944e`, aus einer anderen Sitzung):** Die Knöpfe setzten ihre Aktion als `type1`. Das
+liest das Spiel nur für den Linksklick ohne Umschalt, Strg oder Alt (`SecureTemplates.lua`). Eine Taste mit
+Modifikator oder ein `/click` mit gehaltener Taste benutzte deshalb nichts, bei der Verbrauchsgüterleiste ebenso.
+Jetzt `*type1` (Linksklick mit jedem Modifikator). Weder die eigene Prüfung noch die Gegenprüfung hatten das gesehen;
+der Test von B5 bildet die Attributsuche des Spiels seither nach. Im Spiel prüfen: eine Taste mit Strg oder Umschalt
+auf einen Platz der Questgegenstandsleiste legen, sie benutzt den Gegenstand.
+
+**B7 – Hinweis bei fast vollen Taschen (umgesetzt):**
+- Neu: `Modules/QoL/BagSpace.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound und Sonstiges“, Abschnitt
+  „Taschenplatz“), standardmäßig an.
+- Sinken die freien Plätze der normalen Taschen auf die Grenze (Standard 3, einstellbar 1–10), kommt eine Karte
+  „Taschen fast voll“: „Noch freie Plätze: 3. Platz schaffen: …“, darunter die fünf billigsten Gegenstände.
+  - Graue Gegenstände stehen zuerst, dann geht es nach dem Verkaufswert des Stapels.
+  - Jede Zeile nennt den Gegenstand, die Anzahl und den Verkaufspreis.
+  - Die Karte bleibt 30 Sekunden, solange die Maus darauf ist auch länger. Ein Sound ist wählbar, standardmäßig keiner.
+  - Es ist immer eine Karte (`closable`), auch ohne Zeilen. Sonst ginge sie als Toast in die Alarmleiste.
+- Ein Klick auf eine Zeile legt den Gegenstand an den Mauszeiger (`PickupContainerItem`, die Stelle wird neu
+  gesucht, falls er gewandert ist, aber nur in normalen Taschen und nur, wenn er noch jede Prüfung der Liste besteht).
+  Ein Klick außerhalb der Taschen öffnet dann Blizzards eigenen Löschdialog, mit „LÖSCHEN vorausfüllen“ und der
+  Quest-Zeile aus `Modules/SystemUI.lua`. Auf einem offenen Händlerfenster abgelegt wird er verkauft. Hängt schon
+  etwas am Mauszeiger (auch Geld oder ein Zauber, `GetCursorInfo`), passiert nichts außer einem Hinweis. Beim ersten Mal pro Sitzung erklärt eine
+  Chatzeile, was man jetzt tun kann.
+- Abweichung vom Vorschlag („ein Klick öffnet Blizzards Löschdialog“):
+  - Den Dialog öffnet nur das Spiel selbst, wenn ein Gegenstand außerhalb der Taschen abgelegt wird.
+  - `StaticPopup_Show("DELETE_ITEM")` aus EldoUIs Code würde das Popup-System mit Taint belegen.
+  - `DeleteCursorItem` mit einem eigenen Dialog würde selbst löschen und ist unter den Midnight-Regeln vielleicht
+    gesperrt.
+  - Deshalb zwei Klicks, und das Löschen bleibt ganz bei Blizzard.
+- Wann die Karte kommt:
+  - Einmal pro Abfall auf die Grenze oder darunter. Erst wenn wieder mehr als die Grenze frei war, kann sie erneut
+    kommen.
+  - Beim Login nicht: Die Plätze beim Login sind der Ausgangspunkt. Fällt danach ein Platz weg, kommt sie. In den
+    ersten 5 Sekunden nach dem Login oder einem Ladebildschirm zählt kein Abfall, weil die Taschen dann vielleicht
+    noch laden.
+  - Nie im Kampf. Ein Abfall im Kampf zeigt die Karte am Kampfende, wenn die Taschen dann noch so voll sind. Eine
+    Karte, die im Kampf zu sehen war, holt am Kampfende nach.
+  - Solange die Karte zu sehen ist oder auf ihren Platz wartet, folgt sie den Taschen, ohne Sound. Ist wieder Platz,
+    verschwindet sie, auch aus der Warteschlange (`E:NoticeQueue`, `E:DismissAlert`).
+  - Nur der Schalter, die Grenze und ein neues Profil fangen neu an. Andere Einstellungen der QoL-Seite lassen den
+    Stand, wie er ist. Eine Grenze unter den freien Plätzen nimmt die Karte weg.
+  - `/eui room` und „Jetzt zeigen“ zeigen die Karte jederzeit, als „Platz schaffen“, auch mit ausgeschaltetem Hinweis.
+    Sie folgt den Taschen, bleibt aber, wenn Platz ist. Kommt der Hinweis, nimmt er ihren Platz ein.
+- Was „Platz schaffen“ weglässt:
+  - Gegenstände, die eine Quest oder ein lernbares Rezept braucht (`E:IsItemProtected`, `Core/ItemProtect.lua`).
+  - Gegenstände ohne Händlerpreis oder mit der Spielmarke „kein Wert“, gesperrte Gegenstände, Ausrüstungssets, noch
+    erstattbare Käufe und die Liste „nie verkaufen“ des Händler-Moduls (auch wenn das Modul aus ist).
+  - Essen, Trinken und Tränke, Reagenzien, Munition, Köcher, Rezepte, Questgegenstände und Schlüssel. Bei ihnen sagt
+    der Händlerpreis wenig über den Wert.
+  - Gegenstände in Berufs- und Spezialtaschen. Nur normale Taschen zählen, auch beim Zählen der freien Plätze.
+- Regeln: Die Taschen werden über den gemeinsamen Bag-Cache gelesen, jede Antwort in `pcall`. Eine geheime Antwort zählt
+  als „nicht da“. Ein eigener Event-Besitzer für das Kampfende, wie bei B6. Die Liste wird nur gebaut, wenn die Karte
+  kommt oder zu sehen ist.
+- „Minimal“ schaltet es aus. Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (19 Texte), „zerstören“ wie im
+  Löschdialog des Clients.
+- Test: `tools/qol/test_bag_space.lua` (läuft in `tools/ci/check_all.sh tests`, 89 Prüfungen). Er lädt die Datei ganz,
+  dazu EldoUIs echtes `Core/Safe.lua` und `Core/BagCache.lua`. Die Alarm-Warteschlange ist nachgebaut, soweit der Teil
+  sie sieht: Alarmleiste für Meldungen ohne Zeilen, drei Karten, wartende und schließende Karten. Geprüft werden:
+  - Wann die Karte kommt: Abfall auf die Grenze, nicht beim Login, einmal bis wieder Platz ist, nach dem Kampf, nicht
+    wenn im Kampf wieder Platz wurde.
+  - Die Karte folgt den Taschen, auch wartend, holt nach dem Kampf nach und verschwindet bei Platz, nicht beim Schließen.
+  - Andere Einstellungen, neues Profil, niedrigere Grenze, die ersten Sekunden nach Login und Ladebildschirm.
+  - Die Karte von `/eui room`, auch bei ausgeschaltetem Hinweis.
+  - Welche Gegenstände die Liste nennt und in welcher Reihenfolge, höchstens fünf, und was sie weglässt.
+  - Aufnehmen: nur mit leerem Mauszeiger (auch ohne Geld), von der aktuellen Stelle und nur ein Exemplar, das die
+    Prüfungen besteht, der Hinweis einmal pro Sitzung.
+  - Sound, Schalter, Grenze, neues Profil, Modul aus, `/eui room`, „Jetzt zeigen“, Standards, „Minimal“, Optionen.
+  - Gegenprobe: Drei absichtlich eingebaute Fehler (Karte im Kampf, geschützte Gegenstände in der Liste, Karte beim
+    Login) lassen den Test fehlschlagen.
+- Grenzen:
+  - „Billig“ heißt Händlerpreis. Ein Gegenstand, der im Auktionshaus viel wert ist (z. B. ein seltener Stoff), kann
+    trotzdem auf der Liste stehen.
+  - Gegenstände, deren Daten der Client noch nicht geladen hat, fehlen in der Liste, bis sie geladen sind.
+- Im Spiel prüfen (nach einem Neustart des Spiels):
+  - Taschen bis auf 4 freie Plätze füllen, dann einen Gegenstand plündern. Erwartung: Die Karte „Taschen fast voll“
+    mit „Noch freie Plätze: 3.“ und bis zu fünf Gegenständen, graue zuerst.
+  - Noch einen Gegenstand plündern, während die Karte zu sehen ist: Die Zahl und die Liste ändern sich, keine zweite
+    Karte.
+  - Auf eine Zeile klicken: Der Gegenstand hängt am Mauszeiger, beim ersten Mal mit einer Chatzeile. Außerhalb der
+    Taschen klicken: Blizzards Dialog „… zerstören?“ erscheint. Abbrechen legt ihn zurück.
+  - Bei einem Händler eine Zeile anklicken, dann auf das offene Händlerfenster klicken: verkauft.
+  - Questgegenstände, Essen, Munition und Gegenstände eines Ausrüstungssets stehen nie auf der Liste.
+  - Im Kampf plündern, bis die Grenze erreicht ist: Die Karte kommt erst nach dem Kampf.
+  - Platz schaffen, bis wieder 4 frei sind: Die Karte verschwindet. Beim nächsten Abfall kommt sie wieder.
+  - `/eui room`: Die Karte „Platz schaffen“ kommt auch mit vielen freien Plätzen und bleibt, wenn man etwas verkauft.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**Gegenprüfung von B7 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit `86fba91` und
+die EldoUI-Funktionen, die er nutzt, und ließ alle Prüfungen laufen (grün). Er fand keine Lua-Fehler, nichts, was ohne
+Klick löscht, verkauft oder bewegt, keine geschützten Aufrufe und keine Blizzard-Dialoge. Die Befunde und was daraus
+wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand fehlschlägt):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | Die Karte von `/eui room` verschwand beim nächsten Taschen-Event, wenn mehr als die Grenze frei war | mittel | behoben: bleibt, Titel „Platz schaffen“ |
+| 2 | Leere Liste: Die Meldung ging ohne Zeilen als Toast in die Alarmleiste, die alte Karte blieb mit toten Zeilen | mittel | behoben (`closable`) |
+| 3 | Eine wartende Karte wurde nie weggenommen oder aktualisiert und kam später mit alter Liste. Eine Karte, die gerade schließt, zählte als sichtbar | mittel | behoben (`E:NoticeQueue`) |
+| 4 | Jede Einstellung der QoL-Seite setzte den Hinweis zurück, er konnte erneut kommen. Eine niedrigere Grenze ließ die Karte stehen | klein | behoben |
+| 5 | Ein gewanderter Gegenstand wurde ohne die Filter gesucht (Ausrüstungsset, Berufstasche, gesperrt …) | klein | behoben |
+| 6 | Eine sichtbare Karte wurde nach dem Kampf nicht aktualisiert | klein | behoben |
+| 7 | Karte beim Login, wenn die Taschen erst spät geladen sind (plausibel) | klein | abgesichert: 5 Sekunden nach Login und Ladebildschirm |
+| 8 | Geld oder ein Zauber am Mauszeiger wurde nicht erkannt (plausibel) | klein | behoben (`GetCursorInfo`) |
+| 9 | Texte: Titel bei `/eui room`, Begründung der leeren Liste unvollständig, „klickt auf einen Händler“ statt Händlerfenster | klein | behoben |
+| 10 | Test: Der Nachbau zeigte jede Karte sofort, Alarmleiste und Warteschlange fehlten | klein | behoben |
+
+**B12 – Ausrüstungsset nach dem Kampf anlegen (umgesetzt):**
+- Geändert: `Modules/Character.lua`, Abschnitt „Gear sets“, der einzige Ort, an dem EldoUI Sets wechselt (Set-Knöpfe im
+  Charakterfenster, Menü des Infoleisten-Blocks „Ausrüstung“).
+- Neuer Schalter „Nach dem Kampf anlegen“ unter Charakter › Ausrüstungssets, standardmäßig aus. Er handelt später für
+  den Spieler und ist deshalb in der Liste als `acts` markiert.
+- Klickt man an, solange der Kampf läuft:
+  - Das Set wird gemerkt. Eine Meldung in Grün sagt: „EldoUI: Schaden wird angelegt, sobald der Kampf endet. Ein zweiter
+    Klick darauf behält Eure Ausrüstung.“
+  - Nur der letzte Klick zählt. Ein zweiter Klick auf dasselbe Set oder ein Klick auf das getragene Set nimmt es zurück
+    („EldoUI: kein Setwechsel nach dem Kampf.“). Ein Klick auf das getragene Set ohne gemerktes Set tut nichts.
+  - Am Kampfende (`PLAYER_REGEN_ENABLED`) wird es angelegt, mit der Chatzeile „Nach dem Kampf: Schaden angelegt.“
+  - Ist man dann tot oder stellt sich tot, wartet es, bis man wieder lebt und steht (`PLAYER_ALIVE`,
+    `PLAYER_UNGHOST`, beim Totstellen die Auren des Spielers) und außerhalb des Kampfs ist. Ein Klick, während man
+    außerhalb des Kampfs tot ist, wird genauso gemerkt („… wird angelegt, sobald Ihr wieder lebt“).
+  - Beginnt ein neuer Kampf, bevor es angelegt werden konnte, verfällt es mit „kein Setwechsel nach dem Kampf“. So kommt
+    es nie nach einem späteren, fremden Kampf. Eine Wiederbelebung im Kampf zählt dabei als neuer Kampf.
+  - Ein Klick außerhalb des Kampfs gilt vor dem gemerkten Set.
+  - Ist der Schalter inzwischen aus, das Charakter-Modul aus, das Set gelöscht oder schon angelegt, passiert nichts.
+    Schalter und Modul nehmen es sofort weg. Nach einem Neuladen ist nichts mehr gemerkt.
+  - Die Chatzeile kommt nur, wenn das Spiel den Wechsel angenommen hat (Antwort von `UseEquipmentSet`).
+  - Der Infoleisten-Block „Ausrüstung“ nimmt dafür im Kampf Klicks an (`combatClick`). Sein Menü ist EldoUIs eigenes.
+- Anzeige: Das gemerkte Set hat an der Set-Leiste einen gelben Rand. Sein Tooltip sagt „Wird angelegt, sobald der Kampf
+  endet.“ Der Tooltip des Infoleisten-Blocks zeigt „Nach dem Kampf: Schaden“. Die Klick-Hinweise lauten bei
+  eingeschaltetem Schalter „anlegen (im Kampf: sobald er endet)“.
+- Ohne den Schalter bleibt alles wie vorher („Ausrüstungssets wechseln nur außerhalb des Kampfes“).
+- Regeln: Die Events laufen nur, solange ein Set gemerkt ist, unter einem eigenen Besitzer. Set-Infos werden in `pcall`
+  gelesen; eine geheime Antwort ändert nichts. `UseEquipmentSet` läuft weiter in `pcall`.
+- Die Beschreibung des Abschnitts hieß „… nichts wird für später vorgemerkt“. Sie heißt jetzt nur „Jeder Wechsel
+  geschieht außerhalb des Kampfes“.
+- Upstream-Datei (D1): `Character.lua`, gut 100 Zeilen im Abschnitt „Gear sets“ und zwei Zeilen bei Standards und
+  Optionen. Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (10 Texte).
+- Test: `tools/character/test_gear_after_combat.lua` (läuft in `tools/ci/check_all.sh tests`, 57 Prüfungen). Er schneidet
+  den Abschnitt „Gear sets“ sowie `OnDisable` und `OnProfileChanged` aus `Character.lua` heraus und lässt sie unverändert
+  laufen. Geprüft werden:
+  - Schalter aus: wie vorher.
+  - Schalter an: gemerkt, der letzte Klick zählt, zurücknehmen, Klick außerhalb des Kampfs gilt, einmal am Kampfende.
+  - Tot, Geist, wiederbelebt, im Kampf wiederbelebt, tot außerhalb des Kampfs, Totstellen, ein neuer Kampf, geheime
+    Antworten zum Tod und zum Totstellen.
+  - Schalter, Modul oder Profil aus, Set gelöscht oder schon angelegt, das Spiel lehnt ab (Fehler oder `false`), ein
+    geheimer Set-Name. Der Block „Ausrüstung“ nimmt Klicks im Kampf an.
+  - Events nur, solange ein Set gemerkt ist. Rand, Tooltips, Hinweise, Menü, Standard und Option.
+  - Gegenprobe: Drei absichtlich eingebaute Fehler (Anlegen im Tod, Merken ohne Schalter, kein Zurücknehmen beim zweiten
+    Klick) lassen den Test fehlschlagen.
+- Offen, nur im Spiel zu klären: ob `C_EquipmentSet.UseEquipmentSet` unter den Midnight-Regeln auch aus einem Event
+  ohne Tastendruck läuft. Andere Addons wechseln Sets seit Langem nach dem Kampf. Klappt es nicht, gibt es keinen
+  Lua-Fehler, und die Chatzeile bleibt aus. Gibt das Spiel stattdessen „blockiert“ aus, steht das unter `/eui errors`.
+- Im Spiel prüfen (`/reload` reicht):
+  - Charakter › Ausrüstungssets › „Nach dem Kampf anlegen“ einschalten. Zwei Sets im Ausrüstungsmanager haben.
+  - Im Kampf auf das andere Set klicken (Set-Leiste am Charakterfenster oder Infoleisten-Block „Ausrüstung“). Erwartung:
+    die grüne Meldung, das Set bekommt einen gelben Rand.
+  - Kampf beenden. Erwartung: Das Set wird angelegt, mit der Chatzeile „Nach dem Kampf: … angelegt.“
+  - Im Kampf zweimal auf dasselbe Set klicken: Die zweite Meldung sagt „kein Setwechsel nach dem Kampf“, nach dem Kampf
+    bleibt die Ausrüstung.
+  - Im Kampf sterben, während ein Set gemerkt ist: Nach dem Wiederbeleben wird es angelegt.
+  - Schalter aus: Ein Klick im Kampf sagt wie bisher „Ausrüstungssets wechseln nur außerhalb des Kampfes“.
+  - Im Kampf den Infoleisten-Block „Ausrüstung“ anklicken: Das Menü öffnet sich, ein Set darin wird gemerkt.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**Gegenprüfung von B12 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit `9cdd6aa` und
+die EldoUI-Funktionen, die er nutzt, und ließ alle Prüfungen laufen (grün). Er fand keine Lua-Fehler, keinen Wechsel im
+Kampf, kein doppeltes Anlegen und nichts ohne Schalter. Die Befunde und was daraus wurde (Korrekturen in `dd84be6`,
+jeder Fall im Test, der gegen den alten Stand fehlschlägt):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | Ein gemerktes Set wurde auch angelegt, nachdem das Charakter-Modul ausgeschaltet war: Die eigenen Events nimmt der Modulschalter nicht mit | mittel | behoben |
+| 2 | Der Block „Ausrüstung“ nahm im Kampf keine Klicks an (`combatClick` fehlte), Hinweis und Option versprachen es | mittel | behoben |
+| 3 | Die Chatzeile kam auch, wenn das Spiel den Wechsel ablehnte (Antwort `false`) | klein–mittel | behoben |
+| 4 | Ein Klick, während man außerhalb des Kampfs tot ist, verwarf das gemerkte Set (plausibel) | klein | behoben: wird gemerkt |
+| 5 | Den Schalter ausschalten nahm das gemerkte Set erst beim nächsten Event weg | klein | behoben |
+| 6 | Ein gemerktes Set lief nie ab; bei Totstellen konnte es nach einem späteren Kampf kommen (plausibel) | klein | behoben: Totstellen wie tot, ein neuer Kampf verwirft es |
+| 7 | Test: Block im Kampf, Modul aus, Profilwechsel und Ablehnung per `false` fehlten | klein | behoben |
+
+**B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
+- Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
+  und Trinken“), standardmäßig an.
+- Beim Essen oder Trinken: ein Sound und ein Blinken des Spiels in der Taskleiste, sobald voll ist, was die Mahlzeit
+  füllt. Bei Essen ist das die Gesundheit, bei Getränken das Mana und bei Rationen beides. Eine Klasse ohne Mana bekommt
+  das Signal beim Trinken sofort.
+- Essen, das „Satt“ gibt, wartet außerdem die 10 Sekunden, die der Buff braucht. Sie zählen ab dem Beginn dieses
+  Essens, auch wenn vorher schon getrunken wurde.
+- Nach dem Beginn oder einer Änderung der Mahlzeit wartet es eine Sekunde. So zählen Essen und Trinken aus einem
+  Tastendruck (Makro) als eine Mahlzeit.
+- Ein Signal pro Mahlzeit. Kommt zu einer fertigen Mahlzeit ein Getränk oder Essen mit „Satt“ dazu, gibt es ein
+  neues Signal, sobald auch das fertig ist.
+- Einstellungen: Schalter, Sound (Standard „Chime“, „Keiner“ für Stille), Blinken in der Taskleiste, Knopf „Test“.
+  „Minimal“ schaltet es aus.
+- Was als Mahlzeit zählt:
+  - Auren mit dem Namen, den der Client für Essen (433) und Trinken (430) liefert, in jeder Sprache. Alle Ränge
+    von normalem Essen und Wasser tragen diesen Namen.
+  - Die Benutzungs-Zauber, die die Verbrauchsleiste kennt (`USE_SPELLS`, `BUFF_FOOD_SPELLS` in
+    `Modules/ConsumableBar.lua`): Rationen, Kekse sowie die nahrhaften Speisen und Getränke von Forever. Die Leiste
+    leiht nur ihre Listen und darf aus sein.
+- Regeln: Im Kampf liest es nichts. Auren laufen über `C_UnitAuras` in pcall. Geheime Auren, Gesundheit oder Mana
+  zählen als „nicht lesbar“ und werden nie verglichen. Es hört auf `UNIT_AURA` nur für Euch und liest am Kampfende
+  einmal neu (`PLAYER_REGEN_ENABLED`, eigener Besitzer, weil Tweaks dieses Event schon für das Modul belegt). Nur
+  während einer Mahlzeit schaut es viermal pro Sekunde nach, am gemeinsamen Ticker.
+- Die Namen von Essen und Trinken liest es einmal pro Sitzung. Ohne Zauber-API nimmt es wie die Verbrauchsleiste die
+  englischen Namen.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+- Test: `tools/qol/test_meal_done.lua` (läuft in `tools/ci/check_all.sh tests`, 76 Prüfungen). Er lädt die Datei
+  ganz, mit deutschen Namen für Essen und Trinken. Geprüft werden:
+  - Welche Auren zählen, geheime nie, ohne die Listen der Verbrauchsleiste nur die Namen, ohne Zauber-API die
+    englischen. Die Namen werden einmal gelesen.
+  - Gesundheit, Mana, Rationen, eine Klasse ohne Mana, „Satt“ nach 10 Sekunden ab dem Essen, auch nach einem Getränk
+    und nach einer schon fertigen Mahlzeit.
+  - Essen und Trinken aus einem Tastendruck geben ein Signal.
+  - Ein Signal pro Mahlzeit, ein neues für ein dazukommendes Getränk.
+  - Eine Mahlzeit, die im Kampf endet: Am Kampfende ist sie weg, ohne spätes Signal, und die nächste Mahlzeit bekommt
+    ihres.
+  - Nichts im Kampf, nichts bei geheimen Werten, nichts nach frühem Aufstehen.
+  - Der Ticker läuft nur während einer Mahlzeit.
+  - Schalter, Sound, Blinken, Test-Knopf, Modul aus.
+- Grenze: Ist das Spiel im Hintergrund, spielt es Sounds nur mit seiner Einstellung „Sound im Hintergrund“. Das
+  Blinken in der Taskleiste kommt immer.
+- Im Spiel prüfen (nach einem Neustart des Spiels, siehe „Stand 16.11.2026“):
+  - Mit halber Gesundheit Brot essen. Erwartung: Ein Glockenton und das Blinken, sobald die Gesundheit voll ist,
+    und nur einmal.
+  - Als Klasse mit Mana Wasser trinken: das Signal bei vollem Mana. Essen und Trinken zusammen: ein Signal für das
+    Essen, ein zweites für das Mana.
+  - Essen, das „Satt“ gibt, bei voller Gesundheit: das Signal erst nach etwa 10 Sekunden, wenn „Satt“ da ist.
+  - Eine Ration oder nahrhaftes Essen von Forever: Signal, wenn beides voll ist.
+  - Vor dem Ende aufstehen: kein Signal.
+  - Erst trinken, dann Essen mit „Satt“ dazu: das Signal erst, wenn „Satt“ da ist.
+  - Beim Essen angegriffen werden, kämpfen, danach normal regenerieren: kein Signal.
+  - `/eui qol` → Sound und Sonstiges → „Essen und Trinken“ → „Test“: Ton und Blinken.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**B8 – Quest-EP im Questlog (umgesetzt):**
+- Neu: `Modules/QoL/QuestXP.lua`, ein Teil des Moduls Quality of Life (Reiter „Quests“, Abschnitt „Belohnungen“),
+  standardmäßig an. Questie zeigt die EP beim Nutzer nicht an, nur die EP-Leiste hat sie (gelb).
+- Hinter jedem Questtitel im Questlog stehen die EP fürs Abgeben: „[24] The Collector  +1.250 EP“, in der Farbe der
+  fertigen Quests auf der EP-Leiste (Erfahrungs- und Rufleisten › „Farbe für Quest-EP“, Standard gelb). Die Zahl
+  kommt vom Spiel (`GetQuestLogRewardXP`), wie bei der EP-Leiste (`Modules/StatusBars.lua:98`), mit dem
+  Tausendertrenner des Clients.
+- Keine EP: auf der Höchststufe, bei gesperrter EP (`IsXPUserDisabled`), bei Quests ohne EP, bei geheimer oder
+  fehlerhafter Antwort.
+- Der Questlog ist die Questliste der Weltkarte (`QuestScrollFrame`), wie bei Quest Marks
+  (`Modules/QuestTint.lua`). Blizzard schreibt jeden Titel bei jedem Update neu und passt die Zeile vorher an den
+  Titel an. Darum:
+  - Die EP kommen nur dazu, wenn der Titel dabei nicht mehr Zeilen braucht. Sonst weicht das Ende des Titels einem
+    „...“.
+  - Bliebe vom Titel fast nichts übrig (unter 10 Bytes samt „[24] “), bleibt er ohne EP.
+  - Ein Titel, den das Spiel schon abschneidet, wird genauso gekürzt, damit die EP lesbar bleiben.
+- Post-Hook auf `QuestLogQuests_Update`, auch wenn die Weltkarte später lädt. Nur Text: Kein Blizzard-Frame bekommt
+  ein Feld. Was EldoUI geändert hat, steht in einer schwachen Tabelle. Ausgeschaltet bekommt jeder Titel Blizzards
+  Text zurück, aber nur, wenn dort noch EldoUIs Text steht.
+- Verträgt sich mit Quest Marks, das bei Farbenblindheit „[24 schwer]“ in denselben Titel schreibt. Dessen Wort
+  kommt zuerst hinein (`AddDifficultyWord`, wirkt nur einmal), dann wird gemessen, egal welcher Hook zuerst läuft. Die
+  EP am Ende werden erkannt und nicht doppelt gesetzt, auch nach einem Farbwechsel.
+- Das Häkchen einer verfolgten Quest setzt Blizzards Zeilencode in Retail direkt hinter den Titel (bei dessen
+  Breite). Steht es dort (ein Anker am Titel, höchstens 6 Punkte hinter dem Ende), rückt es hinter die EP und beim
+  Ausschalten zurück. Jede andere Anordnung bleibt unberührt.
+- Der Schalter folgt Blizzard UI › „World map and quest log“ › Improve. „Minimal“ schaltet ihn aus.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` („+%s EP“, „EP im Questlog“).
+- Test: `tools/qol/test_quest_xp.lua` (läuft in `tools/ci/check_all.sh tests`, 54 Prüfungen). Er lädt die Datei ganz.
+  Ein Titel ist dort ein Textfeld, das nach einer festen Zahl Zeichen umbricht. Geprüft werden:
+  - EP einmal, auch wenn der Hook ohne neues Schreiben von Blizzard läuft.
+  - Quests ohne EP, mit geheimer Antwort oder einem Fehler bleiben, wie sie sind.
+  - Lange Titel bekommen ein „...“ und behalten den Farbcode. Fast leere Titel bleiben ohne EP. Abgeschnittene
+    Titel werden gekürzt.
+  - Farbe aus der EP-Leiste, kaputte oder fehlende Farbe.
+  - Das Wort von Quest Marks, auch wenn dessen Hook später läuft; ein Fehler dort wird gemeldet.
+  - Das Häkchen rückt mit und zurück, andere Anker bleiben.
+  - Höchststufe, gesperrte EP, Schalter aus, Blizzard-Schalter aus, Modul aus: Blizzards Text zurück. Ein Titel, den
+    Blizzard inzwischen neu geschrieben hat, bleibt unberührt.
+  - Ein Hook, Standards, „Minimal“, Optionen.
+- Im Spiel prüfen (nach einem Neustart des Spiels):
+  - Questlog öffnen (L). Erwartung: hinter jedem Titel „+… EP“ in Gelb. Zwei Quests mit verschiedener Belohnung
+    zeigen verschiedene Zahlen (sonst liest das Spiel nur die ausgewählte Quest). Die Summe der fertigen Quests passt
+    zum gelben Teil der EP-Leiste.
+  - Eine verfolgte Quest: Das Häkchen steht hinter den EP, nicht darauf.
+  - Gehen die gelben EP neben gelben Questtiteln unter, die Farbe unter Erfahrungs- und Rufleisten › „Farbe für
+    Quest-EP“ ändern oder Bescheid geben.
+  - Eine Quest mit langem Titel: Die Zeile wird nicht höher und überlappt nicht. Das Ende des Titels endet auf „...“,
+    die EP bleiben sichtbar.
+  - Quests verfolgen, abschließen, abbrechen, Zonen auf- und zuklappen: EP stehen nie doppelt da.
+  - Optionen › Quality of Life › Quests › „EP im Questlog“ aus: Die EP verschwinden sofort.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**B10 – Wowhead-Links in der Spielsprache (umgesetzt):**
+- Bisher führten die Wowhead-Links (Strg+Alt-Klick im Chat, `/eui wowhead`, „Wowhead-Link kopieren“ im Loot Guide
+  und im Questmenü) nur auf die englischen Seiten.
+- Neu in `Modules/QoL.lua` (Reiter „Interface“, Abschnitt Wowhead): Auswahl „Wowhead-Sprache“. Standard
+  „Spielsprache“ folgt dem Client, so heißen Dinge auf der Seite wie im Spiel. Wählbar sind auch Englisch, Deutsch,
+  Français, Español, Italiano, Português, Русский, 한국어 und 简体中文.
+- Adresse: `https://www.wowhead.com/classic/de/item=19019`, mit „Retail“ `https://www.wowhead.com/de/…`.
+  Clients ohne eigene Wowhead-Sprache (zhTW, Englisch) bekommen die englische Seite. Ein unbekannter Wert ebenfalls,
+  nie ein kaputter Pfad.
+- Alte Profile ohne die Einstellung verhalten sich wie „Spielsprache“: Beim Nutzer kommt also ab jetzt die deutsche
+  Seite.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+- Test: `tools/qol/test_wowhead.lua` (läuft in `tools/ci/check_all.sh tests`, 48 Prüfungen). Er schneidet den
+  Adressteil aus `QoL.lua` heraus. Geprüft werden:
+  - Spielsprache für jeden Client und gewählte Sprachen.
+  - Classic und Retail, alte Profile, ein unbekannter Wert.
+  - Jede Sprache der Auswahl ergibt ihren eigenen Pfad.
+  - Kopierfeld und Loot Guide nutzen dieselbe Adresse.
+- Im Spiel prüfen: Strg+Alt-Klick auf einen Gegenstandslink im Chat. Erwartung: Das Kopierfeld zeigt
+  `https://www.wowhead.com/classic/de/item=…`. Im Browser öffnet sich die deutsche Seite mit dem deutschen Namen.
+
+**Gegenprüfung von B6, B8 und B10 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit
+`7213a3d` und ließ alle Prüfungen laufen. Er fand keine Lua-Fehler und keine Probleme mit geheimen Werten oder Taint.
+Die Befunde und was daraus wurde (Korrekturen in `f90e7f1`):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | B6: „Satt“-Wartezeit zählte ab Beginn der Mahlzeit, nicht ab dem Essen (erst trinken, dann Buff-Essen: Signal zu früh) | mittel | behoben |
+| 2 | B6: Endete die Mahlzeit im Kampf, blieb ihr Zustand stehen (spätes Fehlsignal, oder die nächste Mahlzeit ohne Signal) | mittel | behoben |
+| 3 | B8: Das Wort von Quest Marks kam nach dem Messen dazu, wenn dessen Hook später lief | klein | behoben |
+| 4 | B8: Das Häkchen verfolgter Quests sitzt an der alten Titelbreite (plausibel, Retail-Code) | klein | behoben, im Spiel prüfen |
+| 5 | B8: Farbe fest verdrahtet statt „Quest XP color“ der EP-Leiste | klein | behoben |
+| 6 | B8: EP bei gesperrter EP-Gewinnung | klein | behoben |
+| 7 | B6: Beschriftung „Signal, wenn Ihr satt seid“ verwechselbar mit dem Buff „Satt“ und mit Anrede | klein | behoben: „Signal, wenn die Mahlzeit fertig ist“ |
+| 8 | B6: keine Ersatznamen ohne Zauber-API, Namen bei jeder Aura neu gelesen | klein | behoben |
+| 9 | B6: Makro mit Essen und Trinken bei voller Gesundheit gab ein Signal zu viel | klein | behoben (eine Sekunde Wartezeit) |
+| 10 | B8: Liest `GetQuestLogRewardXP(questID)` wirklich die genannte Quest? | klein | im Spiel prüfen (die EP-Leiste nutzt denselben Aufruf) |
 
 **Schon vorhanden:** Damage-Meter-Skin, Encounter Timeline, Fokus- und Boss-Frames, frei belegbare Datenleisten
 (`RegisterDataText`), Profile pro Charakter und Talentgruppe, Nameplate-Farbregeln, 67 Tags, Aurenfilter-Editor,
@@ -469,6 +938,38 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       Sitzung 59 (16.11. 00:18, vor dem Einspielen) und hat mit C6 nichts zu tun, siehe F22 in `fehler.md`.
     - Noch offen: Guide-Assistent mit Milka (5., der Nutzer prüft das später, Milka ist ein Bankcharakter) und die
       Guide-Kette selbst bei Stufe 21/22.
+- **C7 Leisten-Schnappschüsse: welche Aktionsleisten an sind:** Bis zum Forever-Hotfix vom 13.11.2026 haben sich
+  mit Dual-Spezialisierung die Einstellungen der Aktionsleisten bei jedem Ausloggen zurückgesetzt („Fixed a bug that
+  caused Action Bar settings to reset every time players who acquired Secondary Talents logged out“). Laut Timesaver
+  (14.11.) meldete ein Spieler danach noch geleerte Leisten. Die Schnappschüsse sicherten Plätze, Makros, Tasten und
+  das Layout des Bearbeitungsmodus, aber nicht die Schalter „Aktionsleiste 2 bis 8 anzeigen“.
+  - **Umgesetzt** (`Modules/Snapshots.lua`): Ein Schnappschuss hält die sieben Werte von `GetActionBarToggles`, nur
+    wenn das Spiel klar true oder false meldet. Neuer Teil „Welche Leisten an sind“ im Wiederherstellungsfenster und
+    in den Optionen. Wiederherstellen setzt alle sieben mit einem Aufruf `SetActionBarToggles`, wie Blizzards
+    Optionen (`Blizzard_SettingsDefinitions_Frame/ActionBars.lua`, Branch `forever`), und bietet danach das Neuladen
+    an. EldoUI ruft `MultiActionBar_Update` bewusst nicht selbst auf: Es schreibt `VIEWABLE_ACTION_BAR_PAGES`, das
+    `ActionBar_PageUp` beim Blättern liest, und aus Addon-Code wäre das im Kampf verseucht. Die Prüfung beim Einloggen
+    zählt es als Zurücksetzen, wenn zwei oder mehr Leisten aus sind, die im Schnappschuss an waren, und keine neu an
+    ist. Strings zum Teilen tragen die Werte mit, außerhalb der Prüfsumme, damit ältere Versionen neue Strings
+    weiter annehmen. Test: `tools/snapshots/test_bar_toggles.lua` (31 Prüfungen, mit dem alten Code 11 Fehlschläge).
+  - **Im Spiel prüfen:**
+    1. Mit Blizzards Leisten (Aktionsleisten-Modul von EldoUI aus oder „Blizzards behalten“): `/eui snapshot take`.
+    2. Unter Optionen → Aktionsleisten zwei Leisten ausschalten, dann `/eui snapshot restore 1`. Erwartung: Der Teil
+       „Welche Leisten an sind“ ist angehakt und nennt „2 Leisten ändern sich“, der Tooltip die beiden Leisten.
+    3. Wiederherstellen, dann über die Abfrage neu laden. Erwartung: Beide Leisten sind wieder da, im Fehlerlog kein
+       `ADDON_ACTION_BLOCKED`. Danach im Kampf mit Umschalt + Mausrad bzw. Umschalt + Zahl blättern: Es geht.
+    4. Mit „Wiederherstellung nach einem Zurücksetzen anbieten“: zwei Leisten aus, ausloggen, einloggen. Erwartung: Die
+       Frage nennt „die Aktionsleisten … sind ausgeschaltet“.
+- **C8 Kampfsimulation: Richturteil als Fernkampfangriff:** Forever-Hotfix vom 11.11.2026: „Judgement changed to now
+  be considered a Ranged Attack … uses the Paladin's Ranged Hit chance“. Am 13.11. kam Richturteil des Befehls als
+  Nahkampf zurück. Die Simulation (`EldoUI_LootSim`) würfelte Richturteil mit der Zauber-Trefferchance.
+  - **Umgesetzt:** Richturteil (`Data.lua`, `rangedHit`) würfelt jetzt die Fehlschlagchance eines Fernkampfangriffs
+    aus der Trefferchance (`Engine.lua`, `Fight:SpellLands`), ohne Ausweichen wie die anderen Fernkampfangriffe der
+    Simulation. Schaden, Krit und Widerstand bleiben wie bei Zaubern, weil der Hotfix nur die Trefferchance nennt.
+    Richturteil des Befehls betrifft die Simulation nicht: Die Variante mit Siegel des Befehls richtet nie.
+    Test: `tools/lootsim/test_judgement.lua` (13 Prüfungen, ohne die Regel 5 Fehlschläge).
+  - **Offen:** Ob ein Krit des Richturteils jetzt wie ein Fernkampf-Krit zählt, sagt der Hotfix nicht. Es gibt keinen
+    Spieltest dafür, nur die Zahlen der Simulation.
 
 ## D – Infrastruktur für den Fork
 

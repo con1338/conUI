@@ -117,7 +117,7 @@ Each module name links to its section in the showcase.
 | [Deadly Boss Mods](../showcase/features/interface.md#deadly-boss-mods) | Deadly Boss Mods with EldoUI's look, layout placement and quiet chat. | `dbm` | On |
 | [Waypoints](../showcase/features/quality-of-life.md#waypoints) | `/way` coordinates, a direction arrow with distance and arrival time, pins on the world map and minimap, and a Waypoints window with export. | `waypoints` | On |
 | [Eldostar](../showcase/features/quality-of-life.md#eldostar) | EldoUI's own leveling guide: over 200 community guides for WoW: Forever, step by step in a window on your layout's guide spot, with goals that tick from the game and a waypoint to the next one. [Guide and controls](eldostar.md). | `eldostar` | On |
-| [Bar Snapshots](../showcase/features/quality-of-life.md#bar-snapshots) | Save and restore action bars, macros and key bindings; automatic backups and a restore offer after a reset. | `snapshots` | On |
+| [Bar Snapshots](../showcase/features/quality-of-life.md#bar-snapshots) | Save and restore action bars, which bars are on, macros and key bindings; automatic backups and a restore offer after a reset. | `snapshots` | On |
 | [Camp Helper](../showcase/features/quality-of-life.md#camp-helper) | Campfire and feature tooltips, class-buff clashes, a camp panel with buff timers and a warning before Camp Benefits ends. | `camp` | On |
 | [Quest Marks](../showcase/features/quality-of-life.md#quest-marks) | Tags and tints quests that are new in WoW: Forever in the quest window, quest log and quest giver lists. | `questmarks` | On |
 | [Gathering](../showcase/features/quality-of-life.md#gathering) | Remembers your herb, ore and treasure finds and shows them on the world map and minimap. | `gathering` | On |
