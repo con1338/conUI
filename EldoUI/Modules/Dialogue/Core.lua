@@ -97,11 +97,11 @@ local hooked = {}
 local function MouseOff(frame, record, depth)
 	if depth > 12 then return end
 	if E.FrameCheck(frame, "IsProtected") then return end
-	if frame.IsMouseEnabled and frame:IsMouseEnabled() then
+	if E.FrameMouse(frame, "IsMouseEnabled") then
 		record.mouse[frame] = true
 		frame:EnableMouse(false)
 	end
-	if frame.IsMouseWheelEnabled and frame:IsMouseWheelEnabled() then
+	if E.FrameMouse(frame, "IsMouseWheelEnabled") then
 		record.wheel[frame] = true
 		frame:EnableMouseWheel(false)
 	end

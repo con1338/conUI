@@ -94,7 +94,11 @@ local FALLBACK_COLORS = {
 
 -- r, g, b of a difficulty ("impossible" ... "trivial").
 function M.DifficultyRGB(kind)
-	if kind == "trivial" or kind == "header" then return Secondary() end
+	if kind == "header" then return Secondary() end
+	-- The player's pick or the color-blind safe step comes first.
+	local r, g, b = E:DifficultyOverride(kind)
+	if r then return r, g, b end
+	if kind == "trivial" then return Secondary() end
 	local colors = rawget(_G, "QuestDifficultyColors")
 	local c = type(colors) == "table" and colors[kind] or FALLBACK_COLORS[kind] or FALLBACK_COLORS.difficult
 	return c.r or 1, c.g or 1, c.b or 1
@@ -144,7 +148,10 @@ function M.LevelRGB(low, high, level)
 			c = Try(GetColor, high - 2)
 		end
 	end
-	if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end
+	if type(c) == "table" then
+		c = E:DifficultyColor(c)
+		return c.r or 1, c.g or 1, c.b or 1
+	end
 	if level < low then
 		if low - level >= 5 then return M.DifficultyRGB("impossible") end
 		return M.DifficultyRGB(low - level >= 3 and "verydifficult" or "difficult")

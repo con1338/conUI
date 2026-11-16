@@ -47,7 +47,7 @@ M.options = {
 	{ less = true, type = "toggle", key = "accentTime", label = "Time in the accent color", desc = "Write the level time in your accent color.", hidden = TimerOff },
 	{ type = "range", key = "fontSize", label = "Time size", min = 12, max = 28, step = 1, desc = "Font size of the level time.", hidden = TimerOff },
 	{ type = "range", key = "smallSize", label = "Text size", min = 9, max = 16, step = 1, desc = "Font size of the other lines.", hidden = TimerOff },
-	{ type = "range", key = "width", label = "Width", min = 100, max = 260, step = 10, desc = "Width of the timer.", hidden = TimerOff },
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 100, max = 260, step = 10, desc = "Width of the timer.", hidden = TimerOff },
 }
 
 -- The shared visibility rows, at the end of the Timer tab.

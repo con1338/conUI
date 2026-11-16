@@ -366,7 +366,7 @@ end
 -- Append the rows to the core report (/eui diag).
 E:RegisterDiagnostics("CombatHUD", function() return M.active and M:DiagnosticsLines() or {} end)
 
-E:AddCommand("hud", "  Combat HUD settings (damage meter, swing timer, loss of control, timers, death recap, cursor ring)", function()
+E:AddCommand("hud", "Combat HUD settings (damage meter, swing timer, loss of control, timers, death recap, cursor ring)", function()
 	E:ToggleConfig("module:CombatHUD")
 end, "Layout & frames")
 

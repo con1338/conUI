@@ -1,7 +1,7 @@
 -- EldoUI Flight Games: Stone Pits. Six pits on each side, four stones in
 -- each, and a store at either end. Take all the stones of one of your pits
 -- and sow them one by one to the right and round the board, past your own
--- store but never into the Horde's. The last stone in your store gives you
+-- store but never into the opponent's. The last stone in your store gives you
 -- another turn; the last in an empty pit of yours takes it and the stones
 -- across from it. When one side runs out, the other keeps what is left;
 -- the fuller store wins.
@@ -27,7 +27,7 @@ local MODES = {
 	{ key = "hard", title = "Hard", depth = 6, noise = 0 },
 }
 -- Pits 1 to 6 are yours (left to right), 7 your store, 8 to 13 the
--- Horde's (right to left along the top), 14 its store.
+-- opponent's (right to left along the top), 14 its store.
 local YOURS, HORDE = 7, 14
 
 local Pits = {}
@@ -85,7 +85,7 @@ local function Copy(pits)
 	return out
 end
 
--- The Horde's view of a board: its store less yours, searched ahead.
+-- The opponent's view of a board: its store less yours, searched ahead.
 -- Negamax with alpha-beta: a sowing that ends in your own store gives the
 -- same side another turn (the same window, no sign change).
 local function Search(pits, depth, side, alpha, beta)
@@ -189,7 +189,7 @@ function Pits:Play(k, side)
 	local at, again = Sow(self.pits, k, side)
 	self.last = at
 	local x, y = self:Middle(at)
-	local color = side == 1 and self.host.Palette()[7] or self.host.Palette()[6]
+	local color = self.host.FactionColor(side)
 	self.fx:Burst(x, y, color, 70, 0.4)
 	local gained = self.pits[Store(side)] - before
 	if gained > 1 then
@@ -282,7 +282,7 @@ end
 
 function Pits:Summary()
 	if not self.pits then return nil end
-	return L["Your store %d, the Horde's %d"]:format(self.pits[YOURS], self.pits[HORDE])
+	return L["Your store %d, the %s's %d"]:format(self.pits[YOURS], self.host.FactionName(-1), self.pits[HORDE])
 end
 
 function Pits:Draw()
@@ -292,8 +292,8 @@ function Pits:Draw()
 	for k, view in ipairs(self.views) do
 		local n = self.pits[k] or 0
 		local store = k == YOURS or k == HORDE
-		B.Tile(view.hole, store and (k == YOURS and palette[7] or palette[6]) or color("dim"), store and 0.3 or 0.45)
-		local gem = k >= 8 and palette[6] or palette[7]
+		B.Tile(view.hole, store and self.host.FactionColor(k == YOURS and 1 or -1, palette) or color("dim"), store and 0.3 or 0.45)
+		local gem = self.host.FactionColor(k >= 8 and -1 or 1, palette)
 		for g, dot in ipairs(view.gems) do
 			dot:SetShown(g <= n)
 			dot:SetVertexColor(gem[1], gem[2], gem[3], 0.95)
@@ -307,25 +307,25 @@ function Pits:Draw()
 			B.Art(view.ring, "Ring", color("gold"), 0.8)
 		end
 	end
-	self.tally:SetText(L["Alliance %d, Horde %d"]:format(self.pits[YOURS], self.pits[HORDE]))
+	self.tally:SetText(L["%s %d, %s %d"]:format(self.host.FactionName(1), self.pits[YOURS], self.host.FactionName(-1), self.pits[HORDE]))
 	local text
 	if self.result == "won" then
 		text = L["You win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde wins."]
+		text = L["The %s wins."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["A draw."]
 	elseif self.turn == 1 then
 		text = L["Pick one of your pits."]
 	else
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end
 
 M:RegisterGame({
 	key = "stonepits", order = 165, group = "board",
-	title = "Stone Pits", desc = "Sow stones round the board and fill your store before the Horde fills its own.",
+	title = "Stone Pits", desc = "Sow stones round the board and fill your store before your opponent fills theirs.",
 	controls = Key("Click one of your pits, or 1 to 6. P: pause."),
 	icon = "Interface\\Icons\\INV_Misc_Gem_Ruby_01",
 	modes = MODES,

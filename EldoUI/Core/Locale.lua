@@ -155,6 +155,33 @@ function E:GetLanguage()
 	return activeCode
 end
 
+-- The decimal mark of the language in use: "," for the languages listed in
+-- E.decimalCommas (each language folder adds its own code), "." otherwise.
+E.decimalCommas = E.decimalCommas or {}
+function E:DecimalMark()
+	return self.decimalCommas[activeCode] and "," or "."
+end
+
+-- A number text with its decimal point in the language's own mark.
+function E:LocalDecimals(text)
+	if type(text) ~= "string" or not self.decimalCommas[activeCode] then return text end
+	return (text:gsub("(%d)%.(%d)", "%1,%2"))
+end
+
+-- A word the game shows too (Yes, Cancel, Bank, Dead): the game's own
+-- wording while EldoUI speaks the client's language, else EldoUI's text, so
+-- a window never mixes two languages (Danish text with English buttons, or
+-- English text with German ones).
+--   button:SetText(E:GameText(CANCEL, L["Cancel"]))
+function E:GameText(gameText, ownText)
+	local client = GetLocale()
+	local same = activeCode == client or (ENGLISH[activeCode] and ENGLISH[client])
+	if same and type(gameText) == "string" and not (issecretvalue and issecretvalue(gameText)) and gameText ~= "" then
+		return gameText
+	end
+	return ownText
+end
+
 -- Language packs: separate (usually load-on-demand) addons that bring one
 -- or more languages. A pack is found by its folder name
 -- (EldoUI_Locale_<code>, e.g. EldoUI_Locale_daDK) or by a line in its TOC:
@@ -566,5 +593,5 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 		else
 			E:Print(E:LocaleReport())
 		end
-	end, "Tools")
+	end, "Troubleshooting")
 end, commandOwner, "modules")

@@ -71,6 +71,51 @@ M.HasCyrillic = HasCyrillic
 -- only while it was made from the same phrase, so a list edit or another
 -- profile lowers just the phrases that changed.
 local lowerPhrases = {}
+local loosePhrases = {}
+local LOOKALIKES = {
+	["а"] = "a", ["А"] = "a", ["е"] = "e", ["Е"] = "e", ["о"] = "o", ["О"] = "o",
+	["р"] = "p", ["Р"] = "p", ["с"] = "c", ["С"] = "c", ["у"] = "y", ["У"] = "y",
+	["к"] = "k", ["К"] = "k", ["м"] = "m", ["М"] = "m", ["т"] = "t", ["Т"] = "t",
+	["á"] = "a", ["à"] = "a", ["â"] = "a", ["ä"] = "a", ["ã"] = "a", ["å"] = "a",
+	["é"] = "e", ["è"] = "e", ["ê"] = "e", ["ë"] = "e", ["í"] = "i", ["ì"] = "i",
+	["î"] = "i", ["ï"] = "i", ["ó"] = "o", ["ò"] = "o", ["ô"] = "o", ["ö"] = "o",
+	["Á"] = "a", ["À"] = "a", ["Â"] = "a", ["Ä"] = "a", ["Ã"] = "a", ["Å"] = "a",
+	["É"] = "e", ["È"] = "e", ["Ê"] = "e", ["Ë"] = "e", ["Í"] = "i", ["Ì"] = "i",
+	["Î"] = "i", ["Ï"] = "i", ["Ó"] = "o", ["Ò"] = "o", ["Ô"] = "o", ["Ö"] = "o",
+	["Õ"] = "o", ["Ú"] = "u", ["Ù"] = "u", ["Û"] = "u", ["Ü"] = "u",
+	["õ"] = "o", ["ú"] = "u", ["ù"] = "u", ["û"] = "u", ["ü"] = "u",
+	["０"] = "o", ["１"] = "i", ["２"] = "2", ["３"] = "e", ["４"] = "a",
+	["５"] = "s", ["６"] = "6", ["７"] = "t", ["８"] = "8", ["９"] = "9",
+}
+
+local function IsSeparator(letter)
+	local a, b, c, d = letter:byte(1, 4)
+	local code = a
+	if #letter == 2 then code = (a - 192) * 64 + b - 128 end
+	if #letter == 3 then code = (a - 224) * 4096 + (b - 128) * 64 + c - 128 end
+	if #letter == 4 then code = (a - 240) * 262144 + (b - 128) * 4096 + (c - 128) * 64 + d - 128 end
+	return (code >= 0x2000 and code <= 0x206F) or (code >= 0x20A0 and code <= 0x20CF)
+		or (code >= 0x2190 and code <= 0x23FF) or (code >= 0x2500 and code <= 0x27BF)
+		or (code >= 0x2B00 and code <= 0x2BFF)
+		or (code >= 0x3000 and code <= 0x3004) or (code >= 0x3008 and code <= 0x301F)
+		or code == 0x3030 or (code >= 0x1F000 and code <= 0x1FAFF)
+		or (code >= 0xFF01 and code <= 0xFF0F) or (code >= 0xFF1A and code <= 0xFF20)
+		or (code >= 0xFF3B and code <= 0xFF40) or (code >= 0xFF5B and code <= 0xFF65)
+end
+
+local function FoldCharacters(text)
+	text = text:gsub("[%z\1-\127\194-\244][\128-\191]*", function(letter)
+		if LOOKALIKES[letter] then return LOOKALIKES[letter] end
+		if #letter == 1 then return letter end
+		if IsSeparator(letter) then return " " end
+		return letter
+	end)
+	return (text:lower():gsub("0", "o"):gsub("1", "i"):gsub("3", "e"):gsub("4", "a"):gsub("5", "s"):gsub("7", "t"))
+end
+
+local function LooseText(text)
+	return (text:gsub("[%p%s]", ""))
+end
 
 local function LowerPhrase(index, phrase)
 	local cached = lowerPhrases[index]
@@ -82,15 +127,30 @@ local function LowerPhrase(index, phrase)
 end
 
 -- Phrase matched in `lower` (already plain and lower case), or nil.
-function M:MatchPhrase(lower)
+function M:MatchPhrase(lower, loose, folded)
 	local whole = self.db.filterWholeWords
+	if self.db.filterDisguised then
+		folded = folded or FoldCharacters(lower)
+		loose = loose or LooseText(folded)
+	end
 	for index, phrase in ipairs(self.db.filterPhrases) do
 		if type(phrase) == "string" and phrase ~= "" then
 			local wanted = LowerPhrase(index, phrase)
-			if whole then
-				if M.FindWord(lower, wanted) then return phrase end
-			elseif lower:find(wanted, 1, true) then
-				return phrase
+			if whole and M.FindWord(lower, wanted) then return phrase end
+			if not whole and lower:find(wanted, 1, true) then return phrase end
+			if self.db.filterDisguised then
+				local cached = loosePhrases[index]
+				if not cached or cached[1] ~= phrase then
+					local normalized = LooseText(FoldCharacters(wanted))
+					local letters = {}
+					for char in normalized:gmatch(".") do letters[#letters + 1] = char end
+					cached = { phrase, normalized, "%f[%w\128-\255]" .. table.concat(letters, "[%p%s]*") .. "%f[^%w\128-\255]" }
+					loosePhrases[index] = cached
+				end
+				if cached[2] ~= "" then
+					if whole and folded:find(cached[3]) then return phrase end
+					if not whole and loose:find(cached[2], 1, true) then return phrase end
+				end
 			end
 		end
 	end
@@ -149,6 +209,7 @@ end
 ---------------------------------------------------------------------------
 local decisions, decisionCount = {}, 0  -- lineID -> true (hide) / false (show)
 local lastSeen = {}                     -- sender .. text -> time
+local repeatOrder = {}
 local channelLines, channelOrder = {}, {} -- lineID -> { channel, sender }, last 500 channel lines
 
 local function NoteChannelLine(lineID, channel, sender)
@@ -168,27 +229,40 @@ end
 -- Why a line would be hidden (a short reason), or nil. args are the event
 -- arguments after the message: sender, language, channel string, target,
 -- flags, zone channel ID, channel index, channel base name ...
-function M:HideReason(event, message, sender, channel, channelBase)
+function M:HideReason(event, message, sender, channel, channelBase, trusted)
 	local db = self.db
 	if type(message) ~= "string" or IsSecret(message) then return nil end
 	local filters = db.contentFilters
 	local public = PUBLIC[event]
 	if not filters and not (db.spamFilter and public) then return nil end
+	if filters and public and event == "CHAT_MSG_CHANNEL" and #db.channelMutes > 0
+		and self:FindMute(channelBase or channel, sender) then return "muted in this channel" end
+	-- Friends, guild and group stay unfiltered, unless the filter is set to
+	-- cover all chat.
+	if trusted and not (db.filterScope == "all" and ALL[event]) then return nil end
 	local lower = PlainLower(message)
+	local loose, folded
+	if db.spamFilter or db.filterDisguised then
+		folded = FoldCharacters(lower)
+		loose = LooseText(folded)
+	end
 	if filters then
-		if public and event == "CHAT_MSG_CHANNEL" and #db.channelMutes > 0 then
-			if self:FindMute(channelBase or channel, sender) then return "muted in this channel" end
-		end
-		if public or (db.filterScope == "all" and ALL[event]) then
-			local phrase = self:MatchPhrase(lower)
+		local whisper = event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_BN_WHISPER"
+		if public or (db.filterScope == "whispers" and whisper) or (db.filterScope == "all" and ALL[event]) then
+			local phrase = self:MatchPhrase(lower, loose, folded)
 			if phrase then return ("phrase \"%s\""):format(phrase) end
 			if db.filterCyrillic and HasCyrillic(lower) then return "Cyrillic letters" end
 		end
 	end
 	if db.spamFilter and public then
-		local key = tostring(sender) .. "\0" .. lower
+		if loose == "" then return nil end
+		local key = tostring(sender) .. "\0" .. loose
 		local now = GetTime()
 		local last = lastSeen[key]
+		if not last then
+			repeatOrder[#repeatOrder + 1] = key
+			if #repeatOrder > 2048 then lastSeen[table.remove(repeatOrder, 1)] = nil end
+		end
 		lastSeen[key] = now
 		if last and now - last < db.spamWindow then return "repeated" end
 	end
@@ -203,32 +277,62 @@ function M:IsOthersCraft(message)
 	return E.ChatParse:MatchFormat(PlainText(message), _G.TRADESKILL_LOG_THIRDPERSON) ~= nil
 end
 
+local LEARNING_FORMATS = { "ERR_LEARN_SPELL_S", "ERR_LEARN_ABILITY_S", "ERR_LEARN_PASSIVE_S", "ERR_SPELL_UNLEARNED_S" }
+
+local function LearningLine(message)
+	for _, name in ipairs(LEARNING_FORMATS) do
+		if E.ChatParse:MatchFormat(message, _G[name]) then return true end
+	end
+	return false
+end
+
+local TRUSTED_CHANNELS = {
+	CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true, CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
+	CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true, CHAT_MSG_RAID_WARNING = true,
+	CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
+}
+local function TrustedSender(event, guid, account, flags)
+	if TRUSTED_CHANNELS[event] or flags == "GM" or flags == "DEV" then return true end
+	if type(account) == "number" and account > 0 and E.PlainCall(BNIsFriend, account) == true then return true end
+	if type(guid) ~= "string" or guid == "" then return false end
+	if E.PlainCall(C_FriendList and C_FriendList.IsFriend, guid) == true
+		or E.PlainCall(IsGuildMember, guid) == true
+		or E.PlainCall(C_PartyInfo and C_PartyInfo.IsGUIDInGroup, guid) == true then return true end
+	local friend = E.PlainCall(C_BattleNet and C_BattleNet.GetAccountInfoByGUID, guid)
+	return type(friend) == "table"
+end
+
 function M:FilterLine(event, message, sender, ...)
-	if IsSecret(message) or type(message) ~= "string" then return false end
-	if event == "CHAT_MSG_SYSTEM" then return false end
+	if IsSecret(message) or type(message) ~= "string" or #message > 8192 then return false end
+	if event == "CHAT_MSG_SYSTEM" then return self.db.hideLearning == true and LearningLine(message) end
 	if event == "CHAT_MSG_TRADESKILLS" then
 		return self.db.hideOthersCrafts == true and self:IsOthersCraft(message)
 	end
 	sender = Readable(sender)
 	if not sender or self.IsMe(sender) then return false end
-	local _, channel, _, _, _, _, channelBase, _, lineID = ...
+	local _, channel, _, flags, _, _, channelBase, _, lineID, guid, account = ...
+	if IsSecret(guid) or IsSecret(account) then return false end
 	lineID = Readable(lineID)
 	channel, channelBase = Readable(channel), Readable(channelBase)
 	if event == "CHAT_MSG_CHANNEL" and lineID then NoteChannelLine(lineID, ChannelName(channelBase or channel), sender) end
 	if lineID ~= nil and decisions[lineID] ~= nil then return decisions[lineID] end
-	local hide = self:HideReason(event, message, sender, channel, channelBase) ~= nil
+	local hide = self:HideReason(event, message, sender, channel, channelBase, TrustedSender(event, guid, account, Readable(flags))) ~= nil
 	if lineID ~= nil then
 		decisions[lineID] = hide
 		decisionCount = decisionCount + 1
 		if decisionCount > 600 then
 			wipe(decisions)
 			decisionCount = 0
-			-- Repeats are only compared inside the window, so older lines go
-			-- and a spammer's recent lines stay.
 			local now, window = GetTime(), self.db.spamWindow or 0
-			for key, seen in pairs(lastSeen) do
-				if now - seen >= window then lastSeen[key] = nil end
+			local recent = {}
+			for _, key in ipairs(repeatOrder) do
+				if lastSeen[key] and now - lastSeen[key] < window then
+					recent[#recent + 1] = key
+				else
+					lastSeen[key] = nil
+				end
 			end
+			repeatOrder = recent
 		end
 	end
 	return hide
@@ -239,7 +343,11 @@ function M:ResetFilterDecisions()
 	wipe(decisions)
 	decisionCount = 0
 	wipe(lowerPhrases)
+	wipe(loosePhrases)
 	wipe(muteChannels)
+	wipe(lastSeen)
+	wipe(repeatOrder)
+	if self.SyncTradeBoard then self:SyncTradeBoard() end
 end
 
 -- For tests: how many lines the repeat filter remembers.
@@ -550,6 +658,7 @@ end
 local menuAdded = false
 
 function M:AddMuteMenu()
+	self:AddChannelMenu()
 	local menu = _G.Menu
 	if menuAdded or not (type(menu) == "table" and menu.ModifyMenu) then return end
 	menuAdded = true
@@ -574,6 +683,64 @@ function M:AddMuteMenu()
 				M:RefreshListEditor("mutes")
 			end)
 		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- The channel menu builds before ShowChatChannelContextMenu's post-hook.
+-- Each menu owns its later context so old entries cannot leave a new channel.
+---------------------------------------------------------------------------
+local channelMenuHooked, pendingChannelMenu, currentChannelMenu
+
+local function ChannelInfo(id)
+	if IsSecret(id) or type(id) ~= "number" or id <= 0 or id % 1 ~= 0 then return end
+	local info = E.PlainCall(C_ChatInfo.GetChannelInfoFromIdentifier, tostring(id))
+	if IsSecret(info) or type(info) ~= "table" or (canaccesstable and not canaccesstable(info)) then return end
+	local localID, name, kind = Readable(info.localID), Readable(info.name), Readable(info.channelType)
+	if IsSecret(info.instanceID) or localID ~= id or type(name) ~= "string" or name == "" then return end
+	local types = Enum.PermanentChatChannelType
+	if not types or (kind ~= types.None and kind ~= types.Zone and kind ~= types.Custom) then return end
+	if E.PlainCall(C_ChatInfo.IsChannelRegional, id) ~= false then return end
+	local rules = Enum.ChatChannelRuleset
+	if not rules or E.PlainCall(C_ChatInfo.GetChannelRuleset, id) ~= rules.None then return end
+	return name, Readable(info.instanceID)
+end
+
+local function CanLeaveChannel(context)
+	return Improve() and context == currentChannelMenu and context.id ~= nil
+end
+
+function M:AddChannelMenu()
+	if channelMenuHooked or not (Menu and type(Menu.ModifyMenu) == "function"
+		and ChatFrameUtil and type(ChatFrameUtil.ShowChatChannelContextMenu) == "function"
+		and type(LeaveChannelByLocalID) == "function") then return end
+	channelMenuHooked = true
+	Menu.ModifyMenu("MENU_CHAT_FRAME_CHANNEL", function(owner, root)
+		pendingChannelMenu, currentChannelMenu = nil, nil
+		if not Improve() or not root then return end
+		local context = { owner = owner }
+		pendingChannelMenu = context
+		root:CreateDivider()
+		local button = root:CreateButton(L["Leave channel"], function()
+			if not CanLeaveChannel(context) then return end
+			local name, instance = ChannelInfo(context.id)
+			if name == context.name and instance == context.instance then
+				LeaveChannelByLocalID(context.id)
+				currentChannelMenu = nil
+			end
+		end)
+		button:SetEnabled(function() return CanLeaveChannel(context) end)
+	end)
+	hooksecurefunc(ChatFrameUtil, "ShowChatChannelContextMenu", function(owner, chatType, id)
+		local context = pendingChannelMenu
+		pendingChannelMenu, currentChannelMenu = nil, nil
+		if not context or context.owner ~= owner or Readable(chatType) ~= "CHANNEL" then return end
+		id = Readable(id)
+		if type(id) == "string" and id:match("^%d+$") then id = tonumber(id) end
+		local name, instance = ChannelInfo(id)
+		if not name then return end
+		context.id, context.name, context.instance = id, name, instance
+		currentChannelMenu = context
 	end)
 end
 

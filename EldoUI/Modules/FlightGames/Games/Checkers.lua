@@ -1,8 +1,8 @@
 -- EldoUI Flight Games: Checkers. Pieces move one step forward on the dark
--- squares and capture by jumping over a Horde piece onto the empty square
+-- squares and capture by jumping over an opposing piece onto the empty square
 -- behind it, again and again in one move when they can. A capture must be
 -- taken when there is one. A piece that reaches the far row is crowned
--- and moves both ways. Take or block every Horde piece to win.
+-- and moves both ways. Take or block every opposing piece to win.
 -- Written from scratch for EldoUI.
 local _, E = ...
 local M = E.FlightGames
@@ -35,7 +35,7 @@ local function XY(i) return (i - 1) % N + 1, math.floor((i - 1) / N) + 1 end
 local function Inside(x, y) return x >= 1 and y >= 1 and x <= N and y <= N end
 local function Side(v) return v > 0 and 1 or v < 0 and -1 or 0 end
 
--- The ways a piece may go: you (1) move up the board, the Horde (-1) down;
+-- The ways a piece may go: you (1) move up the board, the opponent (-1) down;
 -- a king (2 or -2) both ways.
 local function Ways(v)
 	if v == 2 or v == -2 then return { { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 } } end
@@ -238,7 +238,7 @@ function Checkers:Play(m)
 	self:Draw()
 end
 
--- The Horde's move, searched on a copy of the board.
+-- The opponent's move, searched on a copy of the board.
 function Checkers:Choose()
 	local best, bestValue
 	local board = B.Copy(self.board)
@@ -324,7 +324,7 @@ end
 
 function Checkers:Summary()
 	if not self.taken then return nil end
-	return E:Plural(self.taken, "%d Horde piece taken", "%d Horde pieces taken"):format(self.taken)
+	return E:Plural(self.taken, "%d %s piece taken", "%d %s pieces taken"):format(self.taken, self.host.FactionName(-1))
 end
 
 function Checkers:Draw()
@@ -352,7 +352,7 @@ function Checkers:Draw()
 		piece.disc:SetShown(on)
 		piece.crown:SetShown(v == 2 or v == -2)
 		if on then
-			local c = v > 0 and palette[7] or palette[6]
+			local c = self.host.FactionColor(v > 0 and 1 or -1, palette)
 			piece.disc:SetVertexColor(c[1], c[2], c[3], 1)
 			if v == 2 or v == -2 then B.Art(piece.crown, "ChessKing", color("gold"), 1) end
 			if v > 0 then you = you + 1 else them = them + 1 end
@@ -366,25 +366,25 @@ function Checkers:Draw()
 			piece.target:SetVertexColor(g[1], g[2], g[3], 0.85)
 		end
 	end
-	self.tally:SetText(L["Alliance %d, Horde %d"]:format(you, them))
+	self.tally:SetText(L["%s %d, %s %d"]:format(self.host.FactionName(1), you, self.host.FactionName(-1), them))
 	local text
 	if self.result == "won" then
 		text = L["You win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde wins."]
+		text = L["The %s wins."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["A draw."]
 	elseif self.turn == 1 then
 		text = L["Your move."]
 	else
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end
 
 M:RegisterGame({
 	key = "checkers", order = 160, group = "board",
-	title = "Checkers", desc = "Jump and take the Horde's pieces; crown yours on the far row.",
+	title = "Checkers", desc = "Jump and take opposing pieces; crown yours on the far row.",
 	controls = Key("Click a piece, then where it goes. P: pause."),
 	icon = "Interface\\Icons\\INV_Misc_Gem_Pearl_05",
 	modes = MODES,

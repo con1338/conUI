@@ -41,7 +41,7 @@ M.options = {
 		values = { char = "This character", realm = "This realm", faction = "This faction", account = "All characters" } },
 	{ type = "select", key = "openTab", label = "Opens on", desc = "The tab the window shows when you open it.", values = TabValues },
 	{ type = "toggle", key = "chips", label = "Filter chips", desc = "A row of filters above the Overview: faction, level, fully rested, mail and lockouts." },
-	{ type = "range", key = "rowHeight", label = "Row height", desc = "Height of each Overview row in pixels.", min = 14, max = 26, step = 1 },
+	{ type = "range", unit = "px", key = "rowHeight", label = "Row height", desc = "Height of each Overview row in pixels.", min = 14, max = 26, step = 1 },
 	{ type = "toggle", key = "restedEstimate", label = "Estimate rested XP", desc = "Shows how much rested XP your offline characters have built up since logout, from the game's published rate. Estimates are marked with ~." },
 	{ type = "header", label = "Reminders" },
 	{ type = "toggle", key = "warnMail", label = "Mail that runs out soon", desc = "A few seconds after login, prints a chat line for each character with mail that is returned or deleted soon, on every realm." },
@@ -81,7 +81,7 @@ M.options = {
 
 	{ type = "tab", label = "Forget" },
 	{ type = "description", label = "Remove characters you deleted or no longer play. Their journal stays on the Saved data page until you put it back or remove it." },
-	{ type = "toggle", key = "forgetSettings", label = "Also forget their EldoUI settings", desc = "Forget also removes the character's profile choice, own settings, installer state, profile rules and key binding backup." },
+	{ type = "toggle", key = "forgetSettings", label = "Also forget their EldoUI settings", desc = "Forget also removes the character's profile choice, own settings, setup state, profile rules and key binding backup." },
 	{ type = "select", key = "forgetPick", label = "Character", desc = "Pick the character to forget.", values = ForgetValues },
 	{ type = "execute", label = "Forget character", desc = "Asks once, then removes the character picked above.", func = function()
 		if M.db.forgetPick ~= "" then

@@ -2,7 +2,7 @@
 
 EldoUI_LootData = EldoUI_LootData or {}
 local LD = EldoUI_LootData
-LD.version = "1.7.0"
+LD.version = "1.8.0"
 LD.format = 1
 LD.commit = "ec4f596146be6467ea93c57397858e329e2db852"
 LD.build = "2026-09-22"

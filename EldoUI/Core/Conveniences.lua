@@ -387,17 +387,17 @@ end, rows, "pages")
 ---------------------------------------------------------------------------
 E:RegisterConvenience({ id = "autoRanks", module = "ActionBars", setting = "ranks.auto", group = "keys", order = 900,
 	label = "Upgrade spell ranks automatically",
-	desc = "Acts for you: when you learn a higher rank of a spell, your buttons with a lower rank get the new one, out of combat. Change it later under Action Bars." })
+	desc = "Acts for you: when you learn a higher rank of a spell, your buttons with a lower rank get the new one, out of combat." })
 -- The key map's choice for a new spell: "offer" (ask, the default), "auto"
 -- or "off". Only "auto" acts for the player, so the switch is on for it
 -- alone, and turning it off goes back to asking.
 E:RegisterConvenience({ id = "newSpellKeys", setting = "keymap.newSpells", group = "keys", order = 910,
 	value = "auto", off = "offer", on = function(value) return value == "auto" end,
 	label = "Put new spells on their key",
-	desc = "Acts for you: a spell you learn goes on an empty button with its key, out of combat. Change it later under Action Bars." })
+	desc = "Acts for you: a spell you learn goes on an empty button with its key, out of combat." })
 -- Fill bars 4 and 5: its own call fills the buttons when it is turned on.
 E:RegisterConvenience({ id = "fillBars", setting = "keymap.quietFill", group = "keys", order = 920,
 	available = function() return E.SetQuietFill ~= nil and (not E.QuietFillAvailable or E:QuietFillAvailable()) end,
 	apply = function(on) E:SetQuietFill(on) end,
 	label = "Fill bars 4 and 5",
-	desc = "Acts for you: your class's out-of-combat spells (travel, tracking, poisons, pet care) go on the empty buttons of bars 4 and 5, out of combat. Change it later under Action Bars." })
+	desc = "Acts for you: your class's out-of-combat spells (travel, tracking, poisons, pet care) go on the empty buttons of bars 4 and 5, out of combat." })

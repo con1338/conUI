@@ -1,5 +1,5 @@
--- EldoUI Flight Games: Chess against the computer. You play the Alliance
--- (White, first to move) against the Horde at four levels. Every rule of
+-- EldoUI Flight Games: Chess against the computer. You play White, first
+-- to move, against the other faction at four levels. Every rule of
 -- chess holds: castling, en passant, promotion, check, checkmate,
 -- stalemate, the threefold repetition, the fifty-move rule and a draw when
 -- neither side can mate. Click a piece to see where it can go, then click
@@ -31,8 +31,6 @@ local ART = { [C.PAWN] = "ChessPawn", [C.KNIGHT] = "ChessKnight", [C.BISHOP] = "
 	[C.ROOK] = "ChessRook", [C.QUEEN] = "ChessQueen", [C.KING] = "ChessKing" }
 local PROMOTE = { C.QUEEN, C.ROOK, C.BISHOP, C.KNIGHT }
 local PROMOTE_KEYS = { Q = C.QUEEN, R = C.ROOK, B = C.BISHOP, N = C.KNIGHT }
-local ALLIANCE = "Interface\\Icons\\INV_BannerPVP_02"
-local HORDE = "Interface\\Icons\\INV_BannerPVP_01"
 
 local Chess = {}
 Chess.__index = Chess
@@ -109,8 +107,8 @@ local function New(host, mode)
 		end
 		return row
 	end
-	game.horde = Player(TOP, HORDE, L["Horde"])
-	game.alliance = Player(TOP + BOARD - 54, ALLIANCE, L["Alliance (you)"])
+	game.opponent = Player(TOP, host.FactionIcon(-1), host.FactionName(-1))
+	game.player = Player(TOP + BOARD - 54, host.FactionIcon(1), L["%s (you)"]:format(host.FactionName(1)))
 	game.state = B.Label(area, E.tokens.size.cardTitle, "title", "LEFT")
 	game.state:SetPoint("TOPLEFT", area, "TOPLEFT", PANEL_X, -(TOP + 64))
 	game.state:SetWidth(176)
@@ -353,7 +351,7 @@ end
 
 local RESULTS = {
 	won = Key("Checkmate: you win!"),
-	lost = Key("Checkmate: the Horde wins."),
+	lost = Key("Checkmate: the %s wins."),
 	stalemate = Key("Stalemate: a draw."),
 	fifty = Key("Fifty moves without a capture or a pawn move: a draw."),
 	["repeat"] = Key("The same position three times: a draw."),
@@ -366,7 +364,7 @@ function Chess:Summary()
 	if self.result == "won" then
 		return E:Plural(self.pos.full, "Checkmate in %d move", "Checkmate in %d moves"):format(self.pos.full)
 	end
-	return L[RESULTS[self.result]]
+	return L[RESULTS[self.result]]:format(self.host.FactionName(-1))
 end
 
 ---------------------------------------------------------------------------
@@ -439,10 +437,11 @@ function Chess:Draw()
 	end
 	-- The panel.
 	local secondary = self.host.Color("secondary")
+	local palette = self.host.Palette()
 	local yourTurn = pos.side == 1 and not self.result
-	self.alliance.plate:Paint(yourTurn and accent or secondary, yourTurn and 0.4 or 0.15)
-	self.horde.plate:Paint((not yourTurn and not self.result) and self.host.Palette()[6] or secondary, (not yourTurn and not self.result) and 0.4 or 0.15)
-	for side, row in pairs({ [1] = self.alliance, [-1] = self.horde }) do
+	self.player.plate:Paint(yourTurn and self.host.FactionColor(1, palette) or secondary, yourTurn and 0.4 or 0.15)
+	self.opponent.plate:Paint((not yourTurn and not self.result) and self.host.FactionColor(-1, palette) or secondary, (not yourTurn and not self.result) and 0.4 or 0.15)
+	for side, row in pairs({ [1] = self.player, [-1] = self.opponent }) do
 		local list = self.taken[side]
 		table.sort(list, function(a, b) return a > b end)
 		for i, tex in ipairs(row.taken) do
@@ -457,12 +456,12 @@ function Chess:Draw()
 	end
 	local state, hint
 	if self.result then
-		state = L[RESULTS[self.result]]
+		state = L[RESULTS[self.result]]:format(self.host.FactionName(-1))
 		hint = ""
 	elseif self.promo then
 		state, hint = L["Pick what the pawn becomes."], L["Q, R, B or N, or a click."]
 	elseif self.thread or pos.side == -1 then
-		state, hint = L["The Horde is thinking..."], ""
+		state, hint = L["The %s is thinking..."]:format(self.host.FactionName(-1)), ""
 	else
 		state = checked and L["Check! Your move."] or L["Your move."]
 		hint = L["U takes back your last move."]
@@ -495,7 +494,7 @@ end
 
 M:RegisterGame({
 	key = "chess", order = 120, group = "board",
-	title = "Chess", desc = "The Alliance against the Horde: every rule of chess, four levels of computer.",
+	title = "Chess", desc = "Every rule of chess against the computer, at four levels.",
 	controls = Key("Click a piece, then where it goes. U: take back. P: pause."),
 	actions = { { key = "U", label = "Take back" } },
 	icon = "Interface\\Icons\\INV_Misc_Ticket_Tarot_Furies",

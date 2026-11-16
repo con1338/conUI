@@ -43,11 +43,14 @@
 --   B:ForgottenList(), B:RestoreForgotten(charKey), B:RemoveForgotten(charKey)
 --                                     the Saved data page; B:ResumeForgotten()
 --                                     writes a long journal's code at login
+--   B:KeepOrphan(entry), B.OrphanJournal(entry), B.OrphanRows(entry)
+--                                     journals of another character, packed;
+--   B:RemoveOrphan(entry), B:GiveOrphan(entry)  the Saved data page
 --   B:Delete(index[, charKey])
 --   B:Code([charKey])                 the "!EUJ1!" code of the journal now
 --   B:Read(text)                      a pasted code -> payload | nil, err
 --                                     ("!EUJ1!" codes and Forever Journal
---                                     "FJ1:" codes, Import.lua)
+--                                     "FJ1:" and "FJ2:" codes, Import.lua)
 --   B:ImportText(text, mode)          paste into this character -> ok, err
 --   B:AskImportCode(), B:AskRestore(index), B:ShowRestoreMenu([owner])
 --   B.Merge(dst, src[, opts]) -> stats, B.ReplaceRecord(charKey, journal)
@@ -202,6 +205,12 @@ local function Count(list)
 	return type(list) == "table" and #list or 0
 end
 
+-- The character a journal belongs to (its GUID tag), or nil.
+local function Owner(rec)
+	local guid = type(rec) == "table" and rec.guid
+	return type(guid) == "string" and guid ~= "" and guid or nil
+end
+
 local function HasData(rec)
 	return type(rec) == "table" and (Count(rec.events) > 0 or Count(rec.goals) > 0 or Count(rec.notes) > 0
 		or Count(rec.quests) > 0)
@@ -288,9 +297,9 @@ function B:Read(text)
 	text = strtrim(text)
 	if text == "" then return nil, L["Nothing to read. Paste a journal code first."] end
 	local I = A.Import
-	if text:sub(1, 4) == "FJ1:" and I and I.ReadFJ1 then return I:ReadFJ1(text) end
+	if text:match("^FJ[12]:") and I and I.ReadCode then return I:ReadCode(text) end
 	if text:sub(1, #B.PREFIX) ~= B.PREFIX then
-		return nil, L["That is not a journal code. A journal code starts with !EUJ1! (EldoUI) or FJ1: (Forever Journal)."]
+		return nil, L["That is not a journal code. Look for !EUJ1!, FJ2: or FJ1: at the start."]
 	end
 	local kind, data = E:DecodeShareData(text)
 	if not kind then return nil, (L["The code is incomplete or damaged (%s). Copy all of it and paste it again."]):format(tostring(data)) end
@@ -634,7 +643,7 @@ function B:TakeRecord(rec, reason, charKey)
 	if not list then return nil end
 	local who = Who(charKey)
 	local entry = { at = Now(), level = who.level or TopLevel(rec), reason = reason or "hand", counts = Counts(rec),
-		size = #data, data = data, eldoui = E.version, v = tonumber(rec.v) or 0 }
+		size = #data, data = data, eldoui = E.version, v = tonumber(rec.v) or 0, guid = Owner(rec) }
 	table.insert(list, 1, entry)
 	TrimList(list)
 	A:Fire("BackedUp", charKey, entry)
@@ -713,7 +722,7 @@ function B:TakeSliced(rec, reason, charKey)
 	if not HasData(rec) then return nil end
 	local who = Who(charKey)
 	local entry = { at = Now(), level = who.level or TopLevel(rec), reason = reason or "scheduled", counts = Counts(rec),
-		eldoui = E.version, v = tonumber(rec.v) or 0 }
+		eldoui = E.version, v = tonumber(rec.v) or 0, guid = Owner(rec) }
 	local queued = WriteLater(("backup:%s:%s"):format(entry.reason, tostring(charKey)), entry, charKey, who, nil, rec, function(done)
 		local list = Store(charKey, true)
 		if not list then return end
@@ -734,7 +743,7 @@ function B:TakeBeforeUpdate(rec, charKey)
 	if not list then return nil end
 	local who = Who(charKey)
 	local entry = { at = Now(), level = who.level or TopLevel(rec), reason = "before update", counts = Counts(rec),
-		eldoui = E.version, v = tonumber(rec.v) or 0, pending = true }
+		eldoui = E.version, v = tonumber(rec.v) or 0, pending = true, guid = Owner(rec) }
 	local waiting = { charKey = charKey, at = entry.at, who = who, journal = Snapshot(rec) }
 	local writing = Writing()
 	writing[#writing + 1] = waiting
@@ -785,14 +794,65 @@ function B:Due(charKey, now)
 	return (now or Now()) - (last and tonumber(last.at) or 0) >= every
 end
 
+-- The character a backup belongs to: its GUID, read from the backed-up
+-- journal for a backup taken before backups carried it (and noted on it).
+-- nil while a backup is being written or can't be read.
+function B.EntryGUID(entry, charKey)
+	if type(entry) ~= "table" then return nil end
+	if entry.guid ~= nil or entry.pending then return Owner(entry) end
+	local data = B:EntryData(entry, charKey)
+	local guid = data and Owner(data.journal)
+	entry.guid = guid
+	return guid
+end
+
+-- Moves the backups under fromKey that belong to guid into toKey's list,
+-- newest first. One still being written stays where it is. Returns how
+-- many moved.
+function B.Claim(fromKey, toKey, guid)
+	local all = type(EldoUIDB) == "table" and EldoUIDB.journalBackups
+	local from = type(all) == "table" and all[fromKey]
+	if type(from) ~= "table" or not guid or fromKey == toKey then return 0 end
+	local moved = {}
+	for index = #from, 1, -1 do
+		local entry = from[index]
+		if type(entry) == "table" and not entry.pending and B.EntryGUID(entry, fromKey) == guid then
+			moved[#moved + 1] = table.remove(from, index)
+		end
+	end
+	if not moved[1] then return 0 end
+	if from[1] == nil then all[fromKey] = nil end
+	local to = all[toKey]
+	if type(to) ~= "table" then
+		to = {}
+		all[toKey] = to
+	end
+	for _, entry in ipairs(moved) do to[#to + 1] = entry end
+	table.sort(to, function(a, b) return (tonumber(a.at) or 0) > (tonumber(b.at) or 0) end)
+	A:MarkDirty("backups")
+	return #moved
+end
+
+-- The GUID of the journal a restore would go into, or nil.
+local function TargetGUID(charKey)
+	if charKey == E.charKey then return S.MyGUID() end
+	local root = S.Root()
+	return root and Owner(root[charKey])
+end
+
 -- mode: "merge" (keep both) or "replace". The journal as it is now is
--- backed up first.
+-- backed up first. A backup of another character's journal is refused.
 function B:Restore(index, mode, charKey)
 	charKey = charKey or E.charKey
 	local entry = self:List(charKey)[tonumber(index) or 0]
 	if type(entry) ~= "table" then return false, L["That backup is gone."] end
 	local data, err = self:EntryData(entry, charKey)
 	if not data then return false, err end
+	local theirs, mine = Owner(data.journal), TargetGUID(charKey)
+	if theirs and entry.guid == nil and not entry.pending then entry.guid = theirs end
+	if theirs and mine and theirs ~= mine then
+		return false, L["This backup is of another character's journal, so it can't be restored into this one."]
+	end
 	self:Take("before restoring", charKey)
 	return self:Apply(data.journal, mode, charKey)
 end
@@ -874,7 +934,7 @@ function B:KeepForgotten(rec, charKey)
 	local entry
 	if type(rec) == "table" and HasData(rec) then
 		entry = { charKey = charKey, at = Now(), level = who.level or TopLevel(rec), reason = "before forgetting",
-			counts = Counts(rec), eldoui = E.version, v = tonumber(rec.v) or 0 }
+			counts = Counts(rec), eldoui = E.version, v = tonumber(rec.v) or 0, guid = Owner(rec) }
 		if Rows(rec) > B.SYNC_ROWS then
 			entry.journal, entry.who = Snapshot(rec), who
 		else
@@ -981,13 +1041,174 @@ function B:RemoveForgotten(charKey)
 	return true
 end
 
+---------------------------------------------------------------------------
+-- Journals of another character (journalCache.orphans, Store.lua): a
+-- journal under this character's name that carries another character's
+-- GUID. Each one is kept packed, as a "!EUJ1!" code like a dated backup:
+-- { key, guid, at, rows, counts, size, data }. A long journal is packed by
+-- a job in slices; until its code is done the entry holds the journal
+-- (`journal`), saved with the rest, and the next login packs it. The
+-- newest ORPHANS_KEEP stay; its own character takes one back by GUID
+-- (Store.lua), and the Saved data page gives one to this character or
+-- removes it.
+---------------------------------------------------------------------------
+B.ORPHANS_KEEP = 10
+
+local orphanJobs = setmetatable({}, { __mode = "k" })   -- entry -> the job packing it
+
+local function Orphans()
+	return S.Cache().orphans
+end
+
+-- The moments of a set-aside journal, packed or not.
+function B.OrphanRows(entry)
+	if type(entry) ~= "table" then return 0 end
+	if tonumber(entry.rows) then return tonumber(entry.rows) end
+	return type(entry.journal) == "table" and Count(entry.journal.events) or 0
+end
+
+local function OrphanPacked(entry, data)
+	entry.data, entry.size, entry.journal = data, #data, nil
+	orphanJobs[entry] = nil
+	A:MarkDirty("backups")
+end
+
+-- Pack one set-aside journal: at once when it is short, by a job when it
+-- is long. true when it is packed or being packed.
+function B:PackOrphan(entry)
+	if type(entry) ~= "table" then return false end
+	if type(entry.data) == "string" then return true end
+	local journal = entry.journal
+	if type(journal) ~= "table" then return false end
+	if orphanJobs[entry] and A:JobRunning(orphanJobs[entry]) then return true end
+	entry.guid = entry.guid or Owner(journal)
+	entry.rows, entry.counts = Count(journal.events), Counts(journal)
+	local payload = { at = entry.at, charKey = entry.key, journal = journal }
+	if Rows(journal) <= B.SYNC_ROWS then
+		payload.journal = Snapshot(journal)
+		local data = E:EncodeShareData("journal", payload)
+		if type(data) ~= "string" then return false end
+		OrphanPacked(entry, data)
+		return true
+	end
+	local key = ("backup:orphan:%s:%s"):format(tostring(entry.key), tostring(entry.at))
+	local queued = A:RunJob(key, function()
+		local yield = B.Slicer(B.SLICE)
+		payload.journal = CopyRecordSliced(journal, yield, SKIP_KEYS)
+		local data = E:EncodeShareData("journal", payload, yield)
+		if type(data) ~= "string" then error("the journal could not be packed") end
+		OrphanPacked(entry, data)
+	end)
+	if queued then orphanJobs[entry] = key end
+	return queued
+end
+
+-- The newest ORPHANS_KEEP stay; older ones leave, the oldest first.
+function B:TrimOrphans()
+	local list = Orphans()
+	local removed = 0
+	while #list > B.ORPHANS_KEEP do
+		local oldest, at
+		for index, entry in ipairs(list) do
+			local when = type(entry) == "table" and tonumber(entry.at) or 0
+			if not oldest or when < at then oldest, at = index, when end
+		end
+		local entry = table.remove(list, oldest)
+		if orphanJobs[entry] then A:CancelJob(orphanJobs[entry]) end
+		removed = removed + 1
+	end
+	if removed > 0 then A:MarkDirty("backups") end
+	return removed
+end
+
+-- A journal set aside now (Store.lua): packed, and the list trimmed.
+function B:KeepOrphan(entry)
+	local list = Orphans()
+	list[#list + 1] = entry
+	local ok, err = pcall(self.PackOrphan, self, entry)
+	if not ok then geterrorhandler()(("EldoUI My Adventure: a set-aside journal stays unpacked: %s"):format(tostring(err))) end
+	self:TrimOrphans()
+	A:MarkDirty("backups")
+	return entry
+end
+
+-- At login: pack what an older version or a logout left unpacked.
+function B:ResumeOrphans()
+	local count = 0
+	for _, entry in ipairs(Orphans()) do
+		if type(entry) == "table" and type(entry.data) ~= "string" and type(entry.journal) == "table" then
+			local ok, queued = pcall(self.PackOrphan, self, entry)
+			if ok and queued then count = count + 1 end
+		end
+	end
+	self:TrimOrphans()
+	return count
+end
+
+-- The journal a set-aside entry holds (read from its code), or nil and why.
+-- A journal still waiting to be packed comes out as it is, and its job
+-- stops: the caller takes it.
+function B.OrphanJournal(entry)
+	if type(entry) ~= "table" then return nil, L["That journal is gone."] end
+	if type(entry.journal) == "table" then
+		if orphanJobs[entry] then
+			A:CancelJob(orphanJobs[entry])
+			orphanJobs[entry] = nil
+		end
+		return entry.journal
+	end
+	if type(entry.data) ~= "string" then return nil, L["That journal is gone."] end
+	local data, err = B:Read(entry.data)
+	if not data then return nil, err end
+	return data.journal
+end
+
+local function DropOrphan(entry)
+	local list = Orphans()
+	for index = #list, 1, -1 do
+		if list[index] == entry then
+			table.remove(list, index)
+			if orphanJobs[entry] then A:CancelJob(orphanJobs[entry]) end
+			orphanJobs[entry] = nil
+			A:MarkDirty("backups")
+			return true
+		end
+	end
+	return false
+end
+
+-- The player removes a set-aside journal for good (the Saved data page
+-- asks first).
+function B:RemoveOrphan(entry)
+	if not DropOrphan(entry) then return false, L["That journal is gone."] end
+	return true
+end
+
+-- A set-aside copy of this character's own journal goes into the journal
+-- it has now: merged, after a backup, so nothing from either is lost.
+function B:GiveOrphan(entry)
+	local mine = S.MyGUID and S.MyGUID()
+	if not (type(entry) == "table" and mine and (entry.guid or Owner(entry.journal)) == mine) then
+		return false, L["This journal belongs to another character."]
+	end
+	local journal, err = B.OrphanJournal(entry)
+	if not journal then return false, err end
+	if not J:Char() then return false, L["The journal is not ready yet. Try again in a moment."] end
+	self:Take("before restoring")
+	local ok, stats = self:Apply(journal, "merge")
+	if not ok then return false, stats end
+	if S.MergePlaces then S.MergePlaces(J:Char(), journal) end
+	DropOrphan(entry)
+	return true, stats
+end
+
 -- A pasted code into this character's journal (a backup is taken first).
 function B:ImportText(text, mode)
 	local data, err = self:Read(text)
 	if not data then return false, err end
 	if not J:Char() then return false, L["The journal is not ready yet. Try again in a moment."] end
 	self:Take("before importing")
-	return self:Apply(data.journal, mode)
+	return self:Apply(data.journal, data.mergeOnly and "merge" or mode)
 end
 
 ---------------------------------------------------------------------------
@@ -1033,9 +1254,9 @@ local function Run(data, how)
 	E:Print(ok and data.done[how] or (L["Nothing changed: %s"]):format(tostring(err)))
 end
 
-local function Ask(text, data)
+local function Ask(text, data, mergeOnly)
 	return E:ShowConfirm({ key = "ELDOUI_JOURNAL_RESTORE", title = L["My Adventure"], text = text, accept = L["Merge"],
-		data = data, extra = { L["Replace"], function(own) Run(own, "replace") end },
+		data = data, extra = not mergeOnly and { L["Replace"], function(own) Run(own, "replace") end } or nil,
 		onAccept = function(own) Run(own, "merge") end })
 end
 
@@ -1082,21 +1303,26 @@ function B:AskImportText(text)
 		.. ", " .. E:Plural(Count(journal.quests), "%s quest", "%s quests"):format(BreakUpLargeNumbers(Count(journal.quests)))
 		.. ", " .. E:Plural(Count(journal.notes), "%s note", "%s notes"):format(BreakUpLargeNumbers(Count(journal.notes)))
 		.. ", " .. E:Plural(Count(journal.goals), "%s goal", "%s goals"):format(BreakUpLargeNumbers(Count(journal.goals)))
-		.. "\n\n" .. L["Merge combines it with your journal: nothing from either is lost. Replace uses only the pasted one."]
-		.. "\n\n" .. L["Your journal as it is now is backed up first either way."]
+	if data.mergeOnly then
+		text1 = text1 .. "\n\n" .. L["This code contains only recent changes. Merge adds them to your journal and keeps your existing entries."]
+			.. "\n\n" .. L["Your journal as it is now is backed up first."]
+	else
+		text1 = text1 .. "\n\n" .. L["Merge combines it with your journal: nothing from either is lost. Replace uses only the pasted one."]
+			.. "\n\n" .. L["Your journal as it is now is backed up first either way."]
+	end
 	return Ask(text1, {
 		run = function(mode)
 			if not J:Char() then return false, L["The journal is not ready yet. Try again in a moment."] end
 			B:Take("before importing")
-			return B:Apply(journal, mode)
+			return B:Apply(journal, data.mergeOnly and "merge" or mode)
 		end,
 		done = { merge = L["Merged into your journal."], replace = L["Imported. Your journal is now the pasted one."] },
-	})
+	}, data.mergeOnly)
 end
 
 function B:AskImportCode()
 	E:ShowPasteBox(L["Paste a journal code"],
-		L["Paste a journal backup code: !EUJ1! from EldoUI or FJ1: from Forever Journal. You see what it holds before anything changes."],
+		L["Paste a journal backup code starting with !EUJ1!, FJ2: or FJ1:. You see what it holds before anything changes."],
 		function(text) B:AskImportText(text) end)
 end
 
@@ -1196,7 +1422,7 @@ A.BackupOptions = {
 		disabled = NoBackups, func = function() B:ShowRestoreMenu() end },
 	{ type = "execute", label = "Copy a backup code", desc = "The whole journal as one code, to keep or to paste in on another PC. Nothing is sent anywhere.",
 		func = function() if X() then X():Show("code") end end },
-	{ type = "execute", label = "Paste a journal code", desc = "Loads a code from EldoUI (!EUJ1!) or Forever Journal (FJ1:). You see what it holds, then Merge or Replace.",
+	{ type = "execute", label = "Paste a journal code", desc = "Previews a code starting with !EUJ1!, FJ2: or FJ1:. A full backup can be merged or used to replace your journal. Recent changes are merged.",
 		func = function() B:AskImportCode() end },
 	{ type = "header", label = "Export" },
 	{ type = "execute", label = "Export as Markdown", desc = "The journal as a readable document, by chapter, with goals, notes and quests. Companion names are left out.",
@@ -1229,6 +1455,48 @@ function B:Scheduled()
 	return self:Take("scheduled")
 end
 
+---------------------------------------------------------------------------
+-- Backups follow their owner. Characters that shared a first name kept
+-- their backups under one key; when a character's data moves to its own
+-- key, only its own backups come along, and the rest stay under the old
+-- key until their owner logs in and takes them. A renamed character takes
+-- its backups with its journal (Store.lua).
+---------------------------------------------------------------------------
+function B.SortOnKeyMove(db, oldKey, newKey)
+	local all = db.journalBackups
+	local mine = S.MyGUID()
+	if type(all) ~= "table" or not mine then return end
+	local here = all[newKey]
+	if type(here) == "table" then
+		local away = {}
+		for index = #here, 1, -1 do
+			local entry = here[index]
+			local guid = type(entry) == "table" and not entry.pending and B.EntryGUID(entry, newKey)
+			if guid and guid ~= mine then table.insert(away, 1, table.remove(here, index)) end
+		end
+		if away[1] then
+			local there = all[oldKey]
+			if type(there) ~= "table" then
+				there = {}
+				all[oldKey] = there
+			end
+			for _, entry in ipairs(away) do there[#there + 1] = entry end
+			if here[1] == nil then all[newKey] = nil end
+		end
+	end
+	B.Claim(oldKey, newKey, mine)
+end
+E:RegisterCharacterKeyMove(B.SortOnKeyMove)
+
+-- At login: this character's backups left under an older key of its name.
+function B.ClaimOlder()
+	local mine = S.MyGUID()
+	if not (mine and E.charKey and E.OlderCharacterKeys) then return 0 end
+	local moved = 0
+	for _, oldKey in ipairs(E:OlderCharacterKeys()) do moved = moved + B.Claim(oldKey, E.charKey, mine) end
+	return moved
+end
+
 A:AddPart("backup", {
 	order = 90,
 	-- Options.lua loads after this file: the rows go in once every file is in.
@@ -1236,8 +1504,11 @@ A:AddPart("backup", {
 		if A.AddOptionRows then A:AddOptionRows("safe", A.BackupOptions) end
 	end,
 	start = function()
+		local ok, err = pcall(B.ClaimOlder)
+		if not ok then geterrorhandler()(err) end
 		B:ResumePending()
 		B:ResumeForgotten()
+		B:ResumeOrphans()
 		if timer then timer:Cancel() end
 		timer = C_Timer.NewTimer(B.LOGIN_DELAY, function()
 			timer = nil

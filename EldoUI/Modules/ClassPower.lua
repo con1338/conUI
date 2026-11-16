@@ -1528,17 +1528,30 @@ end
 
 -- The Nameplates module's plate callbacks (ADDED/REMOVED/LAYOUT/MODE):
 -- the combo point row follows the target's plate.
+local plateQueued = false
+local function PlateComboNext()
+	plateQueued = false
+	if M.active then M:UpdatePlateCombo() end
+end
+
 local function OnPlateEvent(event, _, nameplate)
 	if not M.active then return end
 	if event == "MODE" then
 		M:UpdatePlateCombo()
-	elseif event == "LAYOUT" then
-		-- Only the target's plate matters (frames compare, units may be secret).
-		local row = M.plateCombo
-		local ok, target = pcall(C_NamePlate.GetNamePlateForUnit, "target")
-		if row and row:IsShown() and ok and target and target == nameplate then M:UpdatePlateCombo() end
-	else
-		C_Timer.After(0, function() if M.active then M:UpdatePlateCombo() end end)
+		return
+	end
+	-- Only a rogue or cat with combo points on the plate has work here.
+	if not (M.db.combo.onPlate and ComboUser()) then return end
+	-- Only the target's plate matters (frames compare, units may be secret).
+	local row = M.plateCombo
+	local ok, target = pcall(C_NamePlate.GetNamePlateForUnit, "target")
+	local isTarget = ok and target ~= nil and target == nameplate
+	if event == "LAYOUT" then
+		if row and row:IsShown() and isTarget then M:UpdatePlateCombo() end
+	elseif (isTarget or (row and row:GetParent() == nameplate)) and not plateQueued then
+		-- The target's plate came or went: next frame, once.
+		plateQueued = true
+		C_Timer.After(0, PlateComboNext)
 	end
 end
 
@@ -2139,13 +2152,13 @@ M.options = {
 	{ type = "header", label = "Position" },
 	{ type = "select", key = "attachTo", label = "Attach to", values = { MOVER = "Its own mover", PLAYER = "Under the player frame", COOLDOWNS = "Above the Cooldown Manager" },
 		desc = "Where the bars sit. Its own mover is Class Resources in move mode." },
-	{ type = "range", key = "width", label = "Width", min = 100, max = 400, step = 1,
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 100, max = 400, step = 1,
 		desc = "Width of every row. While Match the Cooldown Manager width is on, used only when that row is hidden." },
 	{ type = "toggle", key = "syncWidth", label = "Match the Cooldown Manager width", desc = "Take the width of the Cooldown Manager's essential row when it is shown." },
 	{ type = "range", key = "gap", label = "Space between rows", min = 0, max = 12, step = 1, cog = true, desc = "Gap between combo points, health, power, druid mana and the GCD bar." },
 	{ type = "header", label = "Power" },
 	{ type = "toggle", key = "power.enabled", label = "Power bar", desc = "Your mana, rage or energy." },
-	{ type = "range", key = "power.height", label = "Height", min = 4, max = 30, step = 1, desc = "Power bar height.", hidden = Off("power.enabled") },
+	{ type = "range", unit = "px", key = "power.height", label = "Height", min = 4, max = 30, step = 1, desc = "How tall the mana, rage or energy bar is.", hidden = Off("power.enabled") },
 	{ type = "select", key = "power.text", label = "Text", values = TEXT_VALUES, hidden = Off("power.enabled"),
 		desc = "Number on the power bar, straight from the game." },
 	{ type = "range", key = "power.textSize", label = "Text size", min = 8, max = 20, step = 1, cog = true, desc = "Font size of the power text.", hidden = Off("power.enabled") },
@@ -2168,10 +2181,10 @@ M.options = {
 	{ type = "toggle", key = "combo.enabled", label = "EldoUI combo points", desc = "Combo points for rogues and druids in cat form. Turn off to keep only Blizzard's." },
 	{ type = "select", key = "combo.style", label = "Style", values = { PIPS = "Pips in a row", ARC = "Arc of dots" }, hidden = Off("combo.enabled"),
 		desc = "Flat pips as wide as the bars, or round dots on an arc above them." },
-	{ type = "range", key = "combo.height", label = "Pip height", min = 4, max = 30, step = 1, desc = "Height of the pips.", hidden = NotPips },
-	{ type = "range", key = "combo.spacing", label = "Pip spacing", min = 0, max = 10, step = 1, cog = true, desc = "Gap between pips.", hidden = NotPips },
+	{ type = "range", unit = "px", key = "combo.height", label = "Pip height", min = 4, max = 30, step = 1, desc = "How tall each combo point is.", hidden = NotPips },
+	{ type = "range", unit = "px", key = "combo.spacing", label = "Pip spacing", min = 0, max = 10, step = 1, cog = true, desc = "Gap between pips.", hidden = NotPips },
 	{ type = "range", key = "combo.arcRadius", label = "Arc size", min = 20, max = 120, step = 1, desc = "Radius of the arc the dots sit on.", hidden = NotArc },
-	{ type = "range", key = "combo.arcSize", label = "Dot size", min = 6, max = 30, step = 1, desc = "Size of each dot.", hidden = NotArc },
+	{ type = "range", unit = "px", key = "combo.arcSize", label = "Dot size", min = 6, max = 30, step = 1, desc = "How big each combo point dot is.", hidden = NotArc },
 	{ type = "toggle", key = "combo.hideEmpty", label = "Hide when empty", desc = "Hide the combo points with no target or no points.", hidden = Off("combo.enabled") },
 	{ type = "select", key = "combo.colorMode", label = "Pip colors", values = { CLASS = "Class color", CUSTOM = "A color per pip" }, hidden = Off("combo.enabled"),
 		desc = "Every pip in your class color, or each pip in its own color (set below)." },
@@ -2185,21 +2198,21 @@ M.options = {
 	{ type = "color", key = "combo.fullColor", label = "Full color", desc = "Color of all pips at maximum combo points.",
 		hidden = function() return not M.db.combo.enabled or not M.db.combo.fullColorEnabled end },
 	{ type = "toggle", key = "combo.onPlate", label = "On the target's nameplate", desc = "Also show your combo points under your target's nameplate." },
-	{ type = "range", key = "combo.plateSize", label = "Nameplate pip size", min = 4, max = 16, step = 1, cog = true, desc = "Height of the pips on the nameplate.", hidden = Off("combo.onPlate") },
+	{ type = "range", unit = "px", key = "combo.plateSize", label = "Nameplate pip size", min = 4, max = 16, step = 1, cog = true, desc = "Height of the pips on the nameplate.", hidden = Off("combo.onPlate") },
 	{ type = "header", label = "Health" },
 	{ type = "toggle", key = "health.enabled", label = "Health bar", desc = "Your own health as a row in the stack." },
-	{ type = "range", key = "health.height", label = "Height", min = 4, max = 30, step = 1, desc = "Health bar height.", hidden = Off("health.enabled") },
+	{ type = "range", unit = "px", key = "health.height", label = "Height", min = 4, max = 30, step = 1, desc = "Health bar height.", hidden = Off("health.enabled") },
 	{ type = "select", key = "health.text", label = "Text", values = TEXT_VALUES, hidden = Off("health.enabled"), desc = "Number on the health bar, straight from the game." },
 	{ type = "range", key = "health.textSize", label = "Text size", min = 8, max = 20, step = 1, cog = true, desc = "Font size of the health text.", hidden = Off("health.enabled") },
 	{ type = "toggle", key = "health.classColor", label = "Class color", desc = "Class color; off uses plain green.", hidden = Off("health.enabled") },
 	{ type = "header", label = "Druid mana" },
 	{ type = "toggle", key = "druidMana.enabled", label = "Druid mana in forms", desc = "A thin mana bar while you are in bear or cat form; the power bar shows the form's rage or energy." },
-	{ type = "range", key = "druidMana.height", label = "Height", min = 2, max = 20, step = 1, desc = "Druid mana bar height.", hidden = Off("druidMana.enabled") },
+	{ type = "range", unit = "px", key = "druidMana.height", label = "Height", min = 2, max = 20, step = 1, desc = "Druid mana bar height.", hidden = Off("druidMana.enabled") },
 	{ type = "select", key = "druidMana.attach", label = "Position", values = { INSET = "Inside the power bar", STACK = "In the stack", PLAYER = "Under the player frame" }, hidden = Off("druidMana.enabled"),
 		desc = "Inside the power bar as a strip along its bottom edge, as its own row in the stack, or as a strip under EldoUI's player frame." },
 	{ type = "header", label = "Global cooldown" },
 	{ type = "toggle", key = "gcd.enabled", label = "GCD bar", desc = "A thin bar that runs down during the global cooldown after each spell, from the game's own cooldown." },
-	{ type = "range", key = "gcd.height", label = "Height", min = 2, max = 12, step = 1, desc = "GCD bar height.", hidden = Off("gcd.enabled") },
+	{ type = "range", unit = "px", key = "gcd.height", label = "Height", min = 2, max = 12, step = 1, desc = "GCD bar height.", hidden = Off("gcd.enabled") },
 }
 for _, row in ipairs(E:VisibilityOptions("visibility", { db = function() return M.db end })) do
 	table.insert(M.options, row)
@@ -2232,8 +2245,8 @@ Add({ type = "input", key = "power.ticks.RAGE", label = "Rage marks", hidden = N
 Add({ type = "input", key = "power.ticks.ENERGY", label = "Energy marks", hidden = NoTicks, desc = "Marks while the bar shows energy. Write values (40, 80), percents (50%), every N (every 20) or every N percent (every 25%). Empty = no marks." })
 Add({ type = "color", key = "power.ticks.color", label = "Mark color", hidden = NoTicks, desc = "Color of the tick marks." })
 Add({ type = "range", percent = true, key = "power.ticks.alpha", label = "Mark opacity", min = 0.1, max = 1, step = 0.05, cog = true, hidden = NoTicks, desc = "How solid the marks are." })
-Add({ type = "range", key = "power.ticks.thickness", label = "Mark width", min = 1, max = 4, step = 1, hidden = NoTicks, desc = "Width of each mark in pixels." })
-Add({ type = "range", key = "power.ticks.height", label = "Mark height", min = 20, max = 100, step = 5, hidden = NoTicks, desc = "Height of the marks as a percent of the bar's height (centered)." })
+Add({ type = "range", unit = "px", key = "power.ticks.thickness", label = "Mark width", min = 1, max = 4, step = 1, hidden = NoTicks, desc = "Width of each mark in pixels." })
+Add({ type = "range", unit = "%", key = "power.ticks.height", label = "Mark height", min = 20, max = 100, step = 5, hidden = NoTicks, desc = "Height of the marks as a percent of the bar's height (centered)." })
 
 -- Extra resource bars.
 Add({ type = "tab", label = "Extra bars" })
@@ -2249,16 +2262,16 @@ for index = 1, MAX_EXTRA do
 		desc = "What the bar shows. Combo points show as one bar that fills per point." })
 	Add({ type = "select", key = base .. "place", label = "Position", values = { STACK = "In the stack", MOVER = "Its own position" }, hidden = BarOff,
 		desc = "In the stack with the other bars, or on its own mover (Resource Bar %d in move mode).", descFill = index })
-	Add({ type = "range", key = base .. "width", label = "Width", min = 0, max = 400, step = 1, zeroText = "Stack", desc = "Width on its own position. Stack is as wide as the stack.",
+	Add({ type = "range", unit = "px", key = base .. "width", label = "Width", min = 0, max = 400, step = 1, zeroText = "Stack", desc = "Width on its own position. Stack is as wide as the stack.",
 		hidden = function() return BarOff() or Cfg().place ~= "MOVER" end })
-	Add({ type = "range", key = base .. "height", label = "Height", min = 2, max = 30, step = 1, hidden = BarOff, desc = "Height of this bar." })
+	Add({ type = "range", unit = "px", key = base .. "height", label = "Height", min = 2, max = 30, step = 1, hidden = BarOff, desc = "How tall this bar is in its stack or on its own." })
 	Add({ type = "select", key = base .. "text", label = "Text", values = { NONE = "Hidden", CURRENT = "Current", PERCENT = "Percent" }, hidden = BarOff,
 		desc = "Number on the bar, straight from the game. Percent is not shown for combo points." })
 	Add({ type = "range", key = base .. "textSize", label = "Text size", min = 8, max = 20, step = 1, cog = true, desc = "Font size of the text.",
 		hidden = function() return BarOff() or Cfg().text == "NONE" end })
 	Add({ type = "select", key = base .. "color", label = "Color", values = { POWER = "Power color", CLASS = "Class color", CUSTOM = "Own color" }, hidden = BarOff,
 		desc = "Color of the fill: the resource's own color (blue mana, red rage, yellow energy), your class color or one you pick." })
-	Add({ type = "color", key = base .. "customColor", label = "Own color", desc = "Fill color for Own color.",
+	Add({ type = "color", key = base .. "customColor", label = "Own color", desc = "The bar's color when Color is set to Own color.",
 		hidden = function() return BarOff() or Cfg().color ~= "CUSTOM" end })
 	Add({ type = "toggle", key = base .. "onlyCurrent", label = "Only while it is your power", cog = true,
 		desc = "Show the bar only while this is the power your character uses right now (a druid's energy only in cat form).",

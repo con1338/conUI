@@ -101,6 +101,8 @@ local function TypeDefaults(key)
 		nameText = "LEFT",         -- "LEFT", "CENTER" or "NONE"
 		nameTag = { preset = "name", custom = "" },
 		healthTag = { preset = "healthpercent", custom = "" },
+		healthPosition = "RIGHT",  -- "LEFT", "CENTER" or "RIGHT" inside the bar
+		healthSize = 0,            -- 0 = the plate text size, made to fit a thin bar
 		levelTag = { preset = "off", custom = "" },
 		title = false,             -- NPC title line (outside instances)
 		portrait = false,          -- class icon for players, portrait for NPCs
@@ -211,6 +213,8 @@ local M = E:NewModule("Nameplates", {
 			showInterrupted = true,
 			interruptedColor = { 0.85, 0.20, 0.20 },
 		},
+		auraCountSize = 0,         -- stack numbers on plate auras; 0 grows with the icon
+		auraTimerSize = 0,         -- countdown numbers; 0 grows with the icon
 		debuffs = {
 			filter = E:AuraFilterDefaults("HARMFUL", "mine"),
 			blizzardFilter = false, -- only debuffs Blizzard marks for nameplates
@@ -1023,44 +1027,7 @@ end
 -- In a group the tooltip lists each member who has the quest under a
 -- header with their name; only the objectives under the quest's title or
 -- under your own name are yours.
-local QuestProgress
-do
-local LINE_TYPES = Enum and Enum.TooltipDataLineType or {}
-local QUEST_LINE = LINE_TYPES.QuestObjective or 8
-local QUEST_TITLE = LINE_TYPES.QuestTitle or 17
-local QUEST_PLAYER = LINE_TYPES.QuestPlayer or 18
-
-function QuestProgress(unit)
-	if not (C_TooltipInfo and C_TooltipInfo.GetUnit) then return nil end
-	local ok, data = pcall(C_TooltipInfo.GetUnit, unit)
-	local lines = ok and type(data) == "table" and data.lines
-	if type(lines) ~= "table" then return nil end
-	local me = Query(UnitName, "player")
-	local mine = true
-	for _, line in ipairs(lines) do
-		local kind = type(line) == "table" and Plain(line.type)
-		if kind == QUEST_TITLE then
-			mine = true
-		elseif kind == QUEST_PLAYER then
-			local name = Plain(line.leftText)
-			mine = type(name) == "string" and me ~= nil and name == me
-		elseif kind == QUEST_LINE and mine then
-			local text = Plain(line.leftText)
-			if type(text) == "string" then
-				local have, need = text:match("(%d+)%s*/%s*(%d+)")
-				if have and tonumber(have) < tonumber(need) then
-					return have .. "/" .. need
-				end
-				local percent = text:match("(%d+)%%")
-				if percent and tonumber(percent) < 100 then
-					return percent .. "%"
-				end
-			end
-		end
-	end
-	return nil
-end
-end
+local PlaceSideIcons
 
 -- The progress is read once per unit and quest change, not on every
 -- event that refreshes the icons (combat flags, roster, zone): each plate
@@ -1075,7 +1042,7 @@ local function KeptQuestProgress(plate)
 	if plate.questReadKey == plate.questKey and plate.questReadEpoch == questState.epoch then
 		return plate.questProgress
 	end
-	local text = QuestProgress(plate.unit) or false
+	local text = E:QuestUnitProgress(plate.unit) or false
 	plate.questReadKey, plate.questReadEpoch, plate.questProgress = plate.questKey, questState.epoch, text
 	return text
 end
@@ -1169,6 +1136,7 @@ local function UpdateIcons(plate)
 		plate.pvpIcon:Hide()
 	end
 	UpdatePortrait(plate)
+	PlaceSideIcons(plate)
 end
 
 ---------------------------------------------------------------------------
@@ -1184,6 +1152,9 @@ end
 ---------------------------------------------------------------------------
 local STEAL_COLOR = CreateColor(0.25, 0.65, 1)
 local filterVersion = 0  -- bumped when the account-wide spell lists change
+-- Bumped with every settings, theme or spell list change: plates check
+-- their aura containers again only after it moved.
+local auraGen = 0
 local ClearAuraContainers, UpdateAuras, OnAura
 
 do
@@ -1337,14 +1308,27 @@ local function FillAuras(plate, icons, filter, max, showTimer, colorEdge)
 	return shown
 end
 
+-- Stack and countdown numbers on plate aura icons: they grow with the
+-- icon, or take the size picked on the Auras tab.
+function M.AuraTextSizes(size)
+	local timer, count = tonumber(db.auraTimerSize) or 0, tonumber(db.auraCountSize) or 0
+	return timer > 0 and timer or math.max(math.floor(size * 0.5), 8),
+		count > 0 and count or math.max(math.floor(size * 0.45), 7)
+end
+
 -- Lay out `shown` icons as a row. `shown` is our own count, not game data.
 local function LayoutRow(plate, icons, shown, size, spacing, where, x, y)
 	if shown == 0 then return end
 	local root = plate.root
 	local rowWidth = shown * size + (shown - 1) * spacing
+	local _, countSize = M.AuraTextSizes(size)
 	for index = 1, shown do
 		local icon = icons[index]
 		icon:SetSize(size, size)
+		if icon.countSize ~= countSize then
+			icon.countSize = countSize
+			E:SetFont(icon.count, countSize)
+		end
 		icon:ClearAllPoints()
 		local offset = (index - 1) * (size + spacing)
 		if where == "RIGHT" then
@@ -1375,7 +1359,7 @@ local function AuraRow(filters, max, size, spacing, timer, growth, attach)
 		filters = filters, max = max, perRow = max, size = size, spacing = spacing,
 		growth = growth, wrap = "UP", attach = attach, sort = "INDEX",
 		duration = timer and "SWIPE" or "SWIPEONLY",
-		durationSize = math.max(math.floor(size * 0.5), 8), countSize = 10,
+		durationSize = (M.AuraTextSizes(size)), countSize = select(2, M.AuraTextSizes(size)),
 		tooltip = false, -- the plate stays click-through
 		combat = true,   -- plates appear mid-fight
 		-- Aura pop-in (Effects): the client plays it on every new icon.
@@ -1445,6 +1429,13 @@ local function AuraHolder(plate, kind)
 	return holder
 end
 
+-- A plate whose type, side and settings generation are the same as at its
+-- last check keeps its containers without building their signatures again.
+local function AuraStateSame(plate, t)
+	return plate.auraGen == auraGen and plate.auraType == t and plate.auraFriendly == (plate.friendly and true or false)
+		and plate.auraMotion == (E.db.general.animations and true or false)
+end
+
 -- Match the plate's containers to the settings and point them at its
 -- unit. Returns false when the containers cannot be used.
 local function UpdateAuraContainers(plate)
@@ -1453,6 +1444,21 @@ local function UpdateAuraContainers(plate)
 	plate.containers = plate.containers or {}
 	plate.containerSigs = plate.containerSigs or {}
 	local full = plate.kind == "FULL" and plate.unit
+	local t = T(plate)
+	if AuraStateSame(plate, t) then
+		for _, kind in ipairs(AURA_KINDS) do
+			local container = plate.containers[kind]
+			if container then
+				AuraHolder(plate, kind)
+				local unit = full and plate.unit or "none"
+				widget.SetUnit(container, unit)
+				container:SetShown(unit ~= "none")
+			end
+		end
+		return true
+	end
+	plate.auraGen, plate.auraType, plate.auraFriendly = auraGen, t, plate.friendly and true or false
+	plate.auraMotion = E.db.general.animations and true or false
 	local wanted = AuraSettings(plate)
 	for _, kind in ipairs(AURA_KINDS) do
 		local settings = wanted[kind]
@@ -1465,6 +1471,8 @@ local function UpdateAuraContainers(plate)
 				local container = widget.Create(AuraHolder(plate, kind), settings)
 				if container then
 					plate.containers[kind], plate.containerSigs[kind] = container, signature
+				else
+					plate.auraGen = nil -- not made this time: try again next update
 				end
 			end
 		elseif settings then
@@ -1838,7 +1846,7 @@ end
 -- secret goes straight to the text setter; the class color is used only
 -- when the class is plain. Nothing comes from the combat log.
 local function InterruptText(text, interruptedBy)
-	local fallback = _G.INTERRUPTED or L["Interrupted"]
+	local fallback = E:GameText(_G.INTERRUPTED, L["Interrupted"])
 	local fx = FX("interrupter")
 	if not (fx and fx.enabled) or type(interruptedBy) == "nil" or not UnitNameFromGUID then
 		text:SetText(fallback)
@@ -1849,7 +1857,7 @@ local function InterruptText(text, interruptedBy)
 		text:SetText(fallback)
 		return
 	end
-	local format = _G.SPELL_INTERRUPTED_BY or L["Interrupted by %s"]
+	local format = E:GameText(_G.SPELL_INTERRUPTED_BY, L["Interrupted by %s"])
 	if IsSecret(name) then
 		if not pcall(text.SetFormattedText, text, format, name) then text:SetText(fallback) end
 		return
@@ -1999,6 +2007,12 @@ local function UpdateTargetState(plate, targetNameplate, hasTarget, focusNamepla
 			if filter.dim then dim = true end
 		end
 		root:SetScale(scale)
+		-- A grown target keeps one-pixel borders: the flat edges are sized
+		-- again for the plate's own scale (and back when it shrinks).
+		if (plate.edgeScale ~= scale or plate.edgePixel ~= E.pixel) and (plate.edgeScale or scale ~= 1) and E.SnapBorders then
+			plate.edgeScale, plate.edgePixel = scale, E.pixel
+			E:SnapBorders(root, true)
+		end
 		root:SetAlpha(alpha)
 		root:SetFrameLevel(plate.rootBase + ((filter and filter.raise) and 100 or 0))
 	end
@@ -2070,10 +2084,41 @@ local function UpdateTargetState(plate, targetNameplate, hasTarget, focusNamepla
 		plate.targetPulse = nil
 	end
 
-	local hover = plate.kind == "FULL" and not isTarget and (
+	local hovered = not isTarget and (
 		(db.mouseoverHighlight and hoverNameplate ~= nil and plate.nameplate == hoverNameplate)
 		or (db.softTargetHighlight and Soft.enemyPlate ~= nil and plate.nameplate == Soft.enemyPlate))
-	plate.hover:SetShown(hover and true or false)
+	plate.hover:SetShown((plate.kind == "FULL" and hovered) and true or false)
+
+	-- Name-only plates have no bar to mark: a short line under the name,
+	-- in the target color on your target and light on the plate under the
+	-- mouse.
+	local cue = plate.kind == "NAME" and (isTarget or hovered) and plate.nameText:IsShown()
+	local mark = plate.nameMark
+	if cue and not mark then
+		mark = plate.nameText:GetParent():CreateTexture(nil, "OVERLAY")
+		mark:SetTexture(E.media.flat)
+		plate.nameMark = mark
+	end
+	if mark then
+		if cue then
+			local name = plate.nameText
+			local width = 8
+			if type(E.PlainCall(name.GetText, name)) == "string" then
+				local measured = E.PlainCall(name.GetStringWidth, name)
+				local available = E.PlainCall(name.GetWidth, name)
+				if type(measured) == "number" and type(available) == "number" then
+					width = math.max(8, math.min(measured, available))
+				end
+			end
+			mark:ClearAllPoints()
+			mark:SetPoint("TOP", name, "BOTTOM", 0, -1)
+			mark:SetSize(width, 2)
+			if isTarget then mark:SetVertexColor(r, g, b, 1) else mark:SetVertexColor(1, 1, 1, 0.5) end
+			mark:Show()
+		else
+			mark:Hide()
+		end
+	end
 end
 
 local hoverPlate -- the nameplate under the mouse while we track it
@@ -2580,7 +2625,7 @@ local function CreatePlate(nameplate)
 	interrupt:SetValue(1)
 	interrupt.text = E:CreateText(interrupt, nil, "CENTER")
 	interrupt.text:SetPoint("CENTER")
-	interrupt.text:SetText(_G.INTERRUPTED or L["Interrupted"])
+	interrupt.text:SetText(E:GameText(_G.INTERRUPTED, L["Interrupted"]))
 	interrupt:Hide()
 	plate.interrupt = interrupt
 
@@ -2596,6 +2641,59 @@ local function CreatePlate(nameplate)
 end
 
 -- Sizes and points come only from settings, never from measuring widgets.
+-- The icons right of the bar take room only while they show (an elite
+-- icon only on an elite, quest progress only while it has text), so buffs
+-- beside the bar start next to it on an ordinary mob. The two target
+-- arrows sit the same distance out on both sides, past whatever a side
+-- can hold.
+function PlaceSideIcons(plate)
+	local root = plate.root
+	if not root then return end
+	local icons, t = db.icons, T(plate)
+	local x = 3
+	if plate.classIcon:IsShown() then x = x + icons.classificationSize + 2 end
+	plate.questIcon:ClearAllPoints()
+	plate.questIcon:SetPoint("LEFT", root, "RIGHT", x, 0)
+	plate.questText:ClearAllPoints()
+	plate.questText:SetPoint("LEFT", root, "RIGHT", x + icons.questSize + 1, 0)
+	if plate.questIcon:IsShown() then
+		x = x + icons.questSize + 2
+		if plate.questText:IsShown() then x = x + math.ceil(plate.questText:GetStringWidth() or 0) + 3 end
+	end
+	plate.petIcon:ClearAllPoints()
+	plate.petIcon:SetPoint("LEFT", root, "RIGHT", x, 0)
+	if plate.petIcon:IsShown() then x = x + icons.classificationSize + 2 end
+	local moved = plate.rightOffset ~= nil and plate.rightOffset ~= x
+	plate.rightOffset = x
+
+	local buffs = db.buffs
+	local leftRoom = -(plate.leftOffset or -4) + (db.cc.enabled and (db.cc.size + 2) or 0)
+	local rightRoom = x
+	if buffs.position == "RIGHT" and buffs.mode ~= "OFF" and t.buffs.enabled then
+		rightRoom = x + t.buffs.max * (t.buffs.size + buffs.spacing)
+	end
+	local out = math.max(leftRoom, rightRoom)
+	for index, arrow in ipairs(plate.arrows) do
+		arrow:ClearAllPoints()
+		if index == 1 then
+			arrow:SetPoint("RIGHT", root, "LEFT", -out, 0)
+		else
+			arrow:SetPoint("LEFT", root, "RIGHT", out, 0)
+		end
+	end
+	-- Buffs beside the bar follow the new room.
+	if moved and buffs.position == "RIGHT" and plate.unit then UpdateAuras(plate) end
+end
+
+-- The health text inside the bar: its own size, or the plate text size
+-- made small enough to stay inside a thin bar.
+M.HEALTH_SPOTS = { LEFT = { "LEFT", 3 }, CENTER = { "CENTER", 0 }, RIGHT = { "RIGHT", -3 } }
+function M.HealthTextSize(t, height)
+	local own = tonumber(t.healthSize) or 0
+	if own > 0 then return own end
+	return math.min(db.fontSize, math.max(math.floor(height) - 1, 7))
+end
+
 function LayoutPlate(plate)
 	local root, kind = plate.root, plate.kind
 	local t = T(plate)
@@ -2653,9 +2751,11 @@ function LayoutPlate(plate)
 	end
 
 	local size = db.fontSize
-	SetPlateFont(plate.healthText, size)
+	SetPlateFont(plate.healthText, M.HealthTextSize(t, height))
+	local spot = M.HEALTH_SPOTS[t.healthPosition] or M.HEALTH_SPOTS.RIGHT
 	plate.healthText:ClearAllPoints()
-	plate.healthText:SetPoint("RIGHT", root, "RIGHT", -3, 0)
+	plate.healthText:SetPoint(spot[1], root, spot[1], spot[2], 0)
+	plate.healthText:SetJustifyH(spot[1])
 	plate.healthText:SetShown(full and not totemOnly)
 
 	-- Texts above the bar start clear of its border.
@@ -2739,29 +2839,15 @@ function LayoutPlate(plate)
 	plate.raidIcon:SetPoint("RIGHT", root, "LEFT", left, 0)
 	plate.leftOffset = left - (t.raidMarker and (db.raidMarkerSize + 2) or 0)
 
-	-- Right of the bar: elite/rare icon, quest icon, then buffs.
+	-- Right of the bar: elite/rare icon, quest icon, pet icon, then buffs
+	-- (placed by PlaceSideIcons from what the unit shows).
 	local icons = db.icons
-	local iconsOn = t.icons
-	local x = 3
 	plate.classIcon:SetSize(icons.classificationSize, icons.classificationSize)
 	plate.classIcon:ClearAllPoints()
-	plate.classIcon:SetPoint("LEFT", root, "RIGHT", x, 0)
-	if iconsOn and icons.classification then x = x + icons.classificationSize + 2 end
+	plate.classIcon:SetPoint("LEFT", root, "RIGHT", 3, 0)
 	plate.questIcon:SetSize(icons.questSize, icons.questSize)
-	plate.questIcon:ClearAllPoints()
-	plate.questIcon:SetPoint("LEFT", root, "RIGHT", x, 0)
 	SetPlateNameFont(plate.questText, math.max(size - 1, 6))
-	plate.questText:ClearAllPoints()
-	plate.questText:SetPoint("LEFT", root, "RIGHT", x + icons.questSize + 1, 0)
-	if iconsOn and icons.quest then
-		x = x + icons.questSize + 2
-		if icons.questProgress then x = x + math.floor(size * 2.5) end
-	end
 	plate.petIcon:SetSize(icons.classificationSize, icons.classificationSize)
-	plate.petIcon:ClearAllPoints()
-	plate.petIcon:SetPoint("LEFT", root, "RIGHT", x, 0)
-	if iconsOn and icons.pet and plate.isPet then x = x + icons.classificationSize + 2 end
-	plate.rightOffset = x
 
 	plate.totemIcon:SetSize(icons.totemSize, icons.totemSize)
 	plate.totemIcon:ClearAllPoints()
@@ -2772,22 +2858,10 @@ function LayoutPlate(plate)
 	end
 
 	-- Target arrows, outside the icons on both sides, and underline.
-	local buffs = db.buffs
-	local leftX = plate.leftOffset - (db.cc.enabled and (db.cc.size + 2) or 0)
-	local rightX = x
-	if buffs.position == "RIGHT" and buffs.mode ~= "OFF" and t.buffs.enabled then
-		rightX = x + t.buffs.max * (t.buffs.size + buffs.spacing)
-	end
 	local arrowSize = math.max(height + 4, 12)
-	for index, arrow in ipairs(plate.arrows) do
-		arrow:SetSize(arrowSize, arrowSize)
-		arrow:ClearAllPoints()
-		if index == 1 then
-			arrow:SetPoint("RIGHT", root, "LEFT", leftX, 0)
-		else
-			arrow:SetPoint("LEFT", root, "RIGHT", rightX, 0)
-		end
-	end
+	for _, arrow in ipairs(plate.arrows) do arrow:SetSize(arrowSize, arrowSize) end
+	plate.rightOffset = nil
+	PlaceSideIcons(plate)
 	plate.underline:ClearAllPoints()
 	plate.underline:SetPoint("TOPLEFT", root, "BOTTOMLEFT", 0, -1 - powerRoom)
 	plate.underline:SetPoint("TOPRIGHT", root, "BOTTOMRIGHT", 0, -1 - powerRoom)
@@ -3595,8 +3669,6 @@ local SetPlateCVar -- defined with the CVars below
 local RegisterEvents, StopEventWork
 
 do -- (blocks keep the file under Lua's limit of 200 locals per chunk)
-local function RefreshIcons(plate) UpdateIcons(plate) end
-
 local function Refilter(plate)
 	if plate.kind ~= "EXTRAS" then ApplyFilters(plate) end
 end
@@ -3615,10 +3687,10 @@ local UNIT_EVENTS = {
 	UNIT_MAXPOWER = UpdatePower,
 	UNIT_NAME_UPDATE = function(plate) UpdateName(plate); UpdateTitle(plate) end,
 	UNIT_LEVEL = function(plate) UpdateColor(plate); Refilter(plate) end,
-	UNIT_CLASSIFICATION_CHANGED = function(plate) UpdateColor(plate); RefreshIcons(plate); Refilter(plate) end,
+	UNIT_CLASSIFICATION_CHANGED = function(plate) UpdateColor(plate); UpdateIcons(plate); Refilter(plate) end,
 	UNIT_FACTION = ReAdd,
 	-- Combat flag: colors, icons, filters and "Fade units out of combat".
-	UNIT_FLAGS = function(plate) UpdateColor(plate); RefreshIcons(plate); Refilter(plate) end,
+	UNIT_FLAGS = function(plate) UpdateColor(plate); UpdateIcons(plate); Refilter(plate) end,
 	UNIT_DISPLAYPOWER = function(plate) UpdateColor(plate); UpdatePower(plate) end,
 	UNIT_THREAT_LIST_UPDATE = OnThreat,
 	UNIT_AURA = OnAura,
@@ -3874,17 +3946,16 @@ local GLOBAL_EVENTS = {
 	PLAYER_REGEN_ENABLED = function() CombatOnlyEnemies(false); CombatSize(false); RecolorAll() end,
 }
 
--- Events of the module's driver that only matter for one unit. Your own
--- threat situation recolors every plate; another group member's does not
--- (a mob that another tank takes sends its plate UNIT_THREAT_LIST_UPDATE).
-local DRIVER_UNITS = { UNIT_QUEST_LOG_CHANGED = "player", UNIT_THREAT_SITUATION_UPDATE = "player" }
-
 driver:SetScript("OnEvent", function(_, event, unit, ...)
 	local global = GLOBAL_EVENTS[event]
 	if global then return global(unit, ...) end
 end)
 
 function RegisterEvents()
+	-- Events of the module's driver that only matter for one unit. Your own
+	-- threat situation recolors every plate; another group member's does not
+	-- (a mob that another tank takes sends its plate UNIT_THREAT_LIST_UPDATE).
+	local DRIVER_UNITS = { UNIT_QUEST_LOG_CHANGED = "player", UNIT_THREAT_SITUATION_UPDATE = "player" }
 	-- pcall: an event this client doesn't have must not stop the rest.
 	for event in pairs(GLOBAL_EVENTS) do
 		local unit = DRIVER_UNITS[event]
@@ -4059,7 +4130,6 @@ local function EachType(fn, which)
 	end
 end
 local function Friendly(key) return key == "friendlyNPC" or key == "friendlyPlayer" end
-local function Enemy(key) return not Friendly(key) end
 
 local function MigrateLegacy()
 	local legacy = db
@@ -4124,7 +4194,7 @@ local function MigrateLegacy()
 		end
 		if field ~= "enabled" and legacy.buffs[field] ~= nil then
 			local value = legacy.buffs[field]
-			EachType(function(t) t.buffs[field] = value end, Enemy)
+			EachType(function(t) t.buffs[field] = value end, function(key) return not Friendly(key) end)
 			legacy.buffs[field] = nil
 		end
 	end
@@ -4262,6 +4332,7 @@ end
 -- Module
 ---------------------------------------------------------------------------
 local function ApplySettings()
+	auraGen = auraGen + 1
 	CAST_NORMAL:SetRGB(RGB(db.castbar.color))
 	CAST_LOCKED:SetRGB(RGB(db.castbar.uninterruptibleColor))
 	STEAL_COLOR:SetRGB(RGB(db.buffs.stealableColor))
@@ -4321,6 +4392,27 @@ local function Refresh()
 	FirePlateCallback("MODE", nil, nil, PlateMode())
 end
 
+-- A saved profile whose own hostile, neutral or friendly color differs
+-- from the old default keeps its colors. Runs once per saved profile, and a
+-- new or reset profile is stamped before the player picks anything, so a
+-- fresh choice of General colors stays. A profile the old login check
+-- already looked at carries reactionChecked.
+function M.MigrateReactionColors(profile)
+	local modules = type(profile) == "table" and type(profile.modules) == "table" and profile.modules
+	local own = modules and type(modules.Nameplates) == "table" and modules.Nameplates
+	local colors = own and type(own.colors) == "table" and own.colors
+	if not colors or colors.reactionChecked or colors.reactionSource ~= nil then return end
+	for _, key in ipairs({ "hostile", "neutral", "friendly" }) do
+		local mine, default = colors[key], M.defaults.colors[key]
+		if type(mine) == "table" and type(default) == "table" then
+			for i = 1, 3 do
+				if math.abs((tonumber(mine[i]) or 0) - default[i]) > 0.005 then colors.reactionSource = "own" end
+			end
+		end
+	end
+end
+E:RegisterProfileMigration(M.MigrateReactionColors, "Nameplates:reactionColors", 1)
+
 function M:OnInitialize()
 	db = self.db
 	-- v0.5.0 stored the "color quest mobs" switch and the quest color under
@@ -4336,19 +4428,6 @@ function M:OnInitialize()
 		if cvars.showFriends == "SHOW" then cvars.showFriendlyPlayers = "ON" end
 		if cvars.showFriends == "HIDE" then cvars.showFriendlyPlayers = "OFF" end
 		cvars.showFriends = nil
-	end
-	-- A profile whose own hostile, neutral or friendly color
-	-- differs from the old default keeps its colors (checked once).
-	if not colors.reactionChecked then
-		colors.reactionChecked = true
-		for _, key in ipairs({ "hostile", "neutral", "friendly" }) do
-			local mine, default = colors[key], self.defaults.colors[key]
-			if type(mine) == "table" then
-				for i = 1, 3 do
-					if math.abs((mine[i] or 0) - default[i]) > 0.005 then colors.reactionSource = "own" end
-				end
-			end
-		end
 	end
 	MigrateLegacy()
 	self:Migrate()
@@ -4369,6 +4448,7 @@ function M:OnInitialize()
 	-- The spell lists of the debuff filter changed: rebuild the containers.
 	E:OnAuraFiltersChanged("Nameplates", function()
 		filterVersion = filterVersion + 1
+		auraGen = auraGen + 1
 		if M.active then E:RunOutOfCombat(Refresh) end
 	end)
 end

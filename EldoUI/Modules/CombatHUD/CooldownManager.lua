@@ -460,8 +460,9 @@ end
 ---------------------------------------------------------------------------
 local function HideOverlay(frame)
 	for _, region in ipairs({ frame:GetRegions() }) do
-		if region:IsObjectType("Texture") and region.GetAtlas and region:GetAtlas() == OVERLAY_ATLAS then
-			K.Alpha0(GROUP, region)
+		if region:IsObjectType("Texture") then
+			local atlas, readable = E.FrameAtlas(region)
+			if readable and atlas == OVERLAY_ATLAS then K.Alpha0(GROUP, region) end
 		end
 	end
 end
@@ -1121,7 +1122,7 @@ K.SwitchOptions(options, ID, {
 })
 for _, row in ipairs({
 	{ type = "toggle", key = "turnOn", label = "Turn the Cooldown Manager on", disabled = WaitOff,
-		desc = "Sets Blizzard's own Cooldown Manager option (CVar cooldownViewerEnabled) while the master switch is on. The old value comes back with Blizzard default." },
+		desc = "Turns on the game's own Cooldown Manager option while the master switch is on. Blizzard default puts back what it was before." },
 	{ type = "header", label = "Sets per class and spec" },
 	{ type = "description",
 		label = "Capture saves your Cooldown Manager layout for this class and spec. Import shows it as Blizzard's import string, ready to paste." },

@@ -60,6 +60,7 @@ local M = E:NewModule("Hardcore", {
 		pvpSound = "eldo:EldoAlarm",
 		reminders = true,           -- Self-Found notices at mail, auction house, trade
 		logMax = 300,               -- entries kept
+		zoneNote = false,           -- local recorded deaths near your level
 		rowHeight = 20,
 		transparent = false,
 		classColors = true,
@@ -258,6 +259,8 @@ function M:AddDeath(death)
 				if death[field] ~= nil and (old[field] == nil or (game and field ~= "class")) then old[field] = death[field] end
 			end
 			old.source = old.source == death.source and old.source or "both"
+			self:InvalidateDeathStatistics()
+			if self.window then self:RefreshWindow() end
 			return old, false
 		end
 	end
@@ -270,6 +273,7 @@ function M:AddDeath(death)
 	list[#list + 1] = entry
 	local cap = self:LogMax()
 	while #list > cap do table.remove(list, 1) end
+	self:InvalidateDeathStatistics()
 	if self.window then self:RefreshWindow() end
 	return entry, true
 end
@@ -277,6 +281,7 @@ end
 function M:ClearLog()
 	local data = Store()
 	if data then wipe(data.list) end
+	self:InvalidateDeathStatistics()
 	if self.window then self:RefreshWindow() end
 end
 
@@ -538,15 +543,39 @@ function M:OnEnable()
 	self:RegisterEvent("MAIL_SHOW", function() M:Remind("mail") end)
 	self:RegisterEvent("AUCTION_HOUSE_SHOW", function() M:Remind("auction") end)
 	self:RegisterEvent("TRADE_SHOW", function() M:Remind("trade") end)
+	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", function() M:CheckZoneNote() end)
+	self:RegisterEvent("ZONE_CHANGED", function() M:CheckZoneNote() end)
+	self:RegisterEvent("PLAYER_REGEN_DISABLED", function() M:ClearZoneNote() end)
+	self:RegisterEvent("PLAYER_LEVEL_UP", function(_, _, level)
+		M:ClearZoneNote()
+		M.observedLevel = M.PublicLevel(level)
+		M:InvalidateDeathStatistics()
+		M:RefreshWindow()
+	end)
+	self:RegisterUnitEvent("UNIT_LEVEL", "player", function()
+		M:ClearZoneNote()
+		M.observedLevel = nil
+		M:InvalidateDeathStatistics()
+		M:RefreshWindow()
+	end)
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+		M:ClearZoneNote()
+		M.observedLevel = nil
+		M:InvalidateDeathStatistics()
+		M:RefreshWindow()
+	end)
 	E:RegisterComm(PREFIX, function(payload, sender) M:OnNote(payload, sender) end, { trusted = "guild" })
 end
 
 function M:OnDisable()
+	self:ClearZoneNote()
 	E:UnregisterComm(PREFIX)
 	if self.window then self.window:Close() end
 end
 
 function M:OnProfileChanged()
+	self:ClearZoneNote()
+	self:InvalidateDeathStatistics()
 	if self.active and self.window then self:ApplyLook() end
 end
 

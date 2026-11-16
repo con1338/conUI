@@ -2,7 +2,7 @@
 
 local LD = EldoUI_LootData
 if not LD then return end
-LD.attuneVersion = "1.7.0-ec4f596"
+LD.attuneVersion = "1.8.0-ec4f596"
 -- key = "kind|group|side|instanceKey|minLevel-maxLevel|goalQuests|goalItems|faction:standing|links|flags (a = any goal quest, d = boss drop)|doorQuest" (tools/lootdata/overrides/attunements.json)
 LD.attunes = {
 aqual="misc|misc|both|mc|55-60|6824|17333|749:6",

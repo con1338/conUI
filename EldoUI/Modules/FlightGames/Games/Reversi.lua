@@ -1,5 +1,5 @@
 -- EldoUI Flight Games: Reversi. Place a stone so that it closes one or
--- more lines of the Horde's stones between it and another of yours; the
+-- more lines of the opponent's stones between it and another of yours; the
 -- closed stones turn to your side. No move, no turn. When the board is
 -- full or nobody can move, the side with more stones wins.
 -- Written from scratch for EldoUI.
@@ -169,7 +169,7 @@ end
 function Reversi:Play(move, v)
 	Apply(self.board, move, v)
 	self.last = Index(move.x, move.y)
-	local color = v == 1 and self.host.Palette()[7] or self.host.Palette()[6]
+	local color = self.host.FactionColor(v)
 	for _, i in ipairs(move.flips) do
 		local x, y = (i - 1) % N, math.floor((i - 1) / N)
 		self.fx:Burst((x + 0.5) * CELL, TOP + (y + 0.5) * CELL, color, CELL, 0.35)
@@ -186,7 +186,7 @@ function Reversi:NextTurn(v)
 		self.turn = v
 	elseif #Moves(self.board, -v) > 0 then
 		self.turn = -v
-		self.fx:Float(WIDTH / 2, TOP + N * CELL / 2, v == 1 and L["You have no move: the Horde goes again."] or L["The Horde has no move."],
+		self.fx:Float(WIDTH / 2, TOP + N * CELL / 2, v == 1 and L["You have no move: the %s goes again."]:format(self.host.FactionName(-1)) or L["The %s has no move."]:format(self.host.FactionName(-1)),
 			self.host.Color("warn"), E.tokens.size.small)
 	else
 		local you, them = self:Count()
@@ -200,7 +200,7 @@ function Reversi:NextTurn(v)
 	self:Draw()
 end
 
--- The Horde's move, searched on a copy of the board.
+-- The opponent's move, searched on a copy of the board.
 function Reversi:Choose()
 	local board = B.Copy(self.board)
 	local moves = Moves(board, -1)
@@ -269,13 +269,13 @@ function Reversi:Draw()
 			local stone = self.stones[i]
 			stone:SetShown(v ~= 0)
 			if v ~= 0 then
-				local c = v == 1 and palette[7] or palette[6]
+				local c = self.host.FactionColor(v, palette)
 				stone:SetVertexColor(c[1], c[2], c[3], 1)
 			end
 			local hint = self.hints[i]
 			hint:SetShown(legal[i] or false)
 			if legal[i] then
-				local c = palette[7]
+				local c = self.host.FactionColor(1, palette)
 				hint:SetVertexColor(c[1], c[2], c[3], 0.55)
 			end
 		end
@@ -287,25 +287,25 @@ function Reversi:Draw()
 		B.Place(self.lastRing, x * CELL + 2, TOP + y * CELL + 2, self.host.area)
 	end
 	local you, them = self:Count()
-	self.tally:SetText(L["Alliance %d, Horde %d"]:format(you, them))
+	self.tally:SetText(L["%s %d, %s %d"]:format(self.host.FactionName(1), you, self.host.FactionName(-1), them))
 	local text
 	if self.result == "won" then
 		text = L["You win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde wins."]
+		text = L["The %s wins."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["A draw."]
 	elseif yours then
 		text = L["Your move."]
 	else
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end
 
 M:RegisterGame({
 	key = "reversi", order = 150, group = "board",
-	title = "Reversi", desc = "Close lines of Horde stones between yours to turn them; most stones wins.",
+	title = "Reversi", desc = "Close lines of opposing stones between yours to turn them; most stones wins.",
 	controls = Key("Click a square with a dot. P: pause."),
 	icon = "Interface\\Icons\\INV_Misc_Gem_Pearl_04",
 	modes = MODES,

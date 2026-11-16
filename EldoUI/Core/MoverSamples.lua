@@ -92,8 +92,10 @@ local function RegionShows(region)
 		if E:IsSecret(text) then return true end
 		return text ~= nil and text ~= ""
 	elseif kind == "Texture" then
+		local atlas, readable = E.FrameAtlas(region)
+		if not readable or (atlas ~= nil and atlas ~= "") then return true end
 		if region:GetTexture() ~= nil then return true end
-		return region.GetAtlas ~= nil and region:GetAtlas() ~= nil
+		return false
 	end
 	return false
 end
@@ -714,38 +716,78 @@ end
 
 local TIMERS = { "12s", "4m", "38s", "1h", "6s", "2m", "45s", "9s", "20m", "3s", "1m", "15s" }
 
+-- spec.height: a button lower than it is wide (flat shapes); flipX and
+-- flipY: the row grows to the left or upward; columnsFirst fills each
+-- column before the next, as an action bar does.
 function Sample.icons(stage, spec)
 	local count = math.max(1, math.min(spec.count or 6, 24))
 	local size, gap = spec.size or 32, spec.spacing or 4
-	local columns = math.max(1, math.min(spec.columns or count, count))
+	local height = spec.height or size
+	local perRow = math.max(1, math.min(spec.columns or count, count))
 	local pool = ICON_POOLS[spec.pool or "spells"] or ICON_POOLS.spells
 	local font = spec.fontSize or E.tokens.size.small
-	local below = spec.timers and (font + 4) or 0
-	local rows = math.ceil(count / columns)
+	-- Time text below or above the icon, and a time bar under it, take
+	-- room between the rows; text on the icon takes none.
+	local timerPoint = spec.timerPoint or "BELOW"
+	local outside = timerPoint == "BELOW" or timerPoint == "ABOVE"
+	local bar = (spec.timeBar or 0) > 0 and spec.timeBar or 0
+	local below = (spec.timers and outside and (font + 4) or 0) + (bar > 0 and (bar + 2) or 0)
+	local rows = math.ceil(count / perRow)
+	local columns = spec.columnsFirst and math.ceil(count / rows) or perRow
 	for index = 1, count do
 		local slot = Part(stage, "slot", MakeSlot)
-		slot:SetSize(size, size)
-		local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
-		slot:SetPoint("TOPLEFT", stage, "TOPLEFT", column * (size + gap), -row * (size + gap + below))
+		slot:SetSize(size, height)
+		local column, row
+		if spec.columnsFirst then
+			column, row = math.floor((index - 1) / rows), (index - 1) % rows
+		else
+			column, row = (index - 1) % perRow, math.floor((index - 1) / perRow)
+		end
+		if spec.flipX then column = columns - 1 - column end
+		if spec.flipY then row = rows - 1 - row end
+		slot:SetPoint("TOPLEFT", stage, "TOPLEFT", column * (size + gap), -row * (height + gap + below))
 		PlainSlot(slot, pool[(index - 1) % #pool + 1])
 		local edge = spec.edges and #spec.edges > 0 and spec.edges[(index - 1) % #spec.edges + 1]
 		if edge then slot:SetBackdropBorderColor(edge[1], edge[2], edge[3], 1) end
 		if spec.borders == false then slot:SetBackdropBorderColor(0, 0, 0, 0) end
 		if spec.zoom then
 			local cut = math.max(0, math.min(0.3, spec.zoom / 100))
-			slot.icon:SetTexCoord(cut, 1 - cut, cut, 1 - cut)
+			slot.icon:SetTexCoord(E:IconCoords(cut, size, height))
 		end
-		SetFontSize(slot.count, font)
+		SetFontSize(slot.count, spec.countSize or font)
 		SetFontSize(slot.key, font)
 		SetFontSize(slot.timer, font)
+		local countPoint = spec.countPoint or "BOTTOMRIGHT"
+		slot.count:ClearAllPoints()
+		slot.count:SetPoint(countPoint, slot, countPoint, spec.countX or (spec.countPoint and 0 or -2), spec.countY or (spec.countPoint and 0 or 2))
+		slot.timer:ClearAllPoints()
+		if timerPoint == "BELOW" then
+			slot.timer:SetPoint("TOP", slot, "BOTTOM", spec.timerX or 0, (spec.timerY or 0) - 2 - (bar > 0 and (bar + 1) or 0))
+		elseif timerPoint == "ABOVE" then
+			slot.timer:SetPoint("BOTTOM", slot, "TOP", spec.timerX or 0, (spec.timerY or 0) + 2)
+		else
+			slot.timer:SetPoint(timerPoint, slot, timerPoint, spec.timerX or 0, spec.timerY or 0)
+		end
+		if bar > 0 then
+			slot.timeBar = slot.timeBar or slot:CreateTexture(nil, "OVERLAY")
+			slot.timeBar:ClearAllPoints()
+			slot.timeBar:SetPoint("TOPLEFT", slot, "BOTTOMLEFT", 0, -1)
+			slot.timeBar:SetSize(size * (1 - ((index - 1) % 4) * 0.2), bar)
+			slot.timeBar:SetColorTexture(E:TokenColor("accent"))
+			slot.timeBar:Show()
+		elseif slot.timeBar then
+			slot.timeBar:Hide()
+		end
+		-- "Gray out others'": every other sample stands for someone else's.
+		slot.icon:SetDesaturated(spec.grayOthers and index % 2 == 0 or false)
 		slot.count:SetText(spec.counts and index % 3 == 1 and tostring(index + 1) or "")
 		slot.key:SetText(spec.keys and tostring(index % 10) or "")
 		slot.timer:SetText(spec.timers and TIMERS[(index - 1) % #TIMERS + 1] or "")
 		local shade = index == 1 and spec.cooldown or 0
-		slot.shade:SetHeight(math.max(0.01, (size - 2) * shade))
+		slot.shade:SetHeight(math.max(0.01, (height - 2) * shade))
 		slot.shade:SetShown(shade > 0)
 	end
-	return columns * size + (columns - 1) * gap, rows * (size + below) + (rows - 1) * gap
+	return columns * size + (columns - 1) * gap, rows * (height + below) + (rows - 1) * gap
 end
 
 function Sample.grid(stage, spec)

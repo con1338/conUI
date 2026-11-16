@@ -13,7 +13,7 @@
 --   schools[school]        = { spellID, ... }   rank 1 IDs
 --   professions[theme]     = { spellID, ... }   profession casts
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 
 E.CastFXSpells = {

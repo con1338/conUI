@@ -31,7 +31,7 @@
 -- FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 -- OTHER DEALINGS IN THE SOFTWARE.
 -- Every item ID is checked against the WoW: Forever client tables of build
--- 1.60.1.70862.
+-- 1.60.1.70938.
 local _, E = ...
 
 E.BagActionsData = E.BagActionsData or {}

@@ -264,12 +264,24 @@ local function QuestSection(tooltip, link, itemID, add)
 	if not LG.active or IsCompare(tooltip) or not LG:HasData() or not SourceOn("quests") then return end
 	itemID = ItemID(link, itemID)
 	if not itemID then return end
-	Emit(CachedRows("quests", itemID, "", function()
+	-- Quests the Quest use row already names (with their count) stay out
+	-- of "Needed for"; the cache is kept per set of such quests.
+	local named, variant = {}, ""
+	if E.QuestUse and E:TooltipSectionShown("questUse") then
+		local ids = E.QuestUse.Shown(itemID, link)
+		for _, questID in ipairs(ids) do named[questID] = true end
+		variant = table.concat(ids, ",")
+	end
+	Emit(CachedRows("quests", itemID, variant, function()
 		local quests = LG:ItemQuests(itemID)
 		if not quests then return end
 		local rows = {}
+		local needed = {}
+		for _, questID in ipairs(quests.needed) do
+			if not named[questID] then needed[#needed + 1] = questID end
+		end
 		if #quests.rewards > 0 then rows[#rows + 1] = { L["Reward from"], QuestList(quests.rewards, MAX_QUESTS) } end
-		if #quests.needed > 0 then rows[#rows + 1] = { L["Needed for"], QuestList(quests.needed, MAX_QUESTS) } end
+		if #needed > 0 then rows[#rows + 1] = { L["Needed for"], QuestList(needed, MAX_QUESTS) } end
 		if quests.starts then rows[#rows + 1] = { L["Starts"], QuestList({ quests.starts }, 1) } end
 		return #rows > 0 and rows or nil
 	end), add)

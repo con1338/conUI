@@ -628,6 +628,12 @@ StoredRun = function()
 end
 
 
+-- Forget drops the character's setup backup (a whole profile copy).
+E:RegisterCharacterForget(function(db, key)
+	local backups = rawget(db, "installerBackup")
+	if type(backups) == "table" then backups[key] = nil end
+end)
+
 local function Backups(create)
 	if not InstallTarget() then return nil end
 	local backups = rawget(EldoUIDB, "installerBackup")
@@ -691,6 +697,24 @@ Backup = function(target, previous)
 	return true
 end
 Installer.Backup = Backup
+
+-- Addons the setup turned off at Finish: kept with this character's
+-- backup, so Undo the setup turns them on again, after a reload too.
+-- `title` is the addon's own title, for the question. Revert this on the
+-- last page clears them again (`addon` nil clears the whole list).
+function Installer.NoteAddonOff(addon, title)
+	local backups = Backups()
+	local backup = backups and rawget(backups, E.charKey)
+	if E.Secret(backup) or type(backup) ~= "table" or E.Secret(addon) then return false end
+	if addon == nil then
+		backup.addonsOff = nil
+		return true
+	end
+	if type(addon) ~= "string" then return false end
+	if type(backup.addonsOff) ~= "table" then backup.addonsOff = {} end
+	backup.addonsOff[addon] = (not E.Secret(title) and type(title) == "string") and title or addon
+	return true
+end
 
 function Installer.GetBackup()
 	local context = InstallTarget()
@@ -758,13 +782,19 @@ function E:UndoInstall(skipConfirm)
 		or E.Secret(switch) or type(switch) ~= "function" or E.Secret(reset) or type(reset) ~= "function"
 		or E.Secret(delete) or type(delete) ~= "function" then return false end
 	local snapshot = CopyTable(backup)
+	-- Deleting the profile the setup made also drops its backup (the
+	-- profile owner clears every reference to a deleted profile), so from
+	-- then on the backup is gone on purpose.
+	local released = false
 	local function Current()
+		local kept = not released and backup or nil
 		if not (InstallTarget(target) and self.LoadDatabase == loader and Backups() == backups
-			and rawget(backups, self.charKey) == backup and Installer.GetBackup == readBackup
-			and not E.Secret(self.Installer) and self.Installer == Installer and readBackup() == backup
+			and rawget(backups, self.charKey) == kept and Installer.GetBackup == readBackup
+			and not E.Secret(self.Installer) and self.Installer == Installer and readBackup() == kept
 			and self.SetProfile == switch and self.ResetProfile == reset and self.DeleteProfile == delete
 			and not E.Secret(self.InstallerAlt) and self.InstallerAlt == alt and (not alt or alt.UndoAttach == undoAttach)
 			and self.DeepEqual == equal) then return false end
+		if released then return InstallTarget(target) and true or false end
 		local ok, same = pcall(equal, backup, snapshot)
 		return ok and not E.Secret(same) and same == true and InstallTarget(target)
 	end
@@ -781,6 +811,7 @@ function E:UndoInstall(skipConfirm)
 	local function Undo()
 		if not Current() then return false end
 		local completed = false
+		local pending = self:PendingOutOfCombat("installer-undo")
 		local ran = self:RunOutOfCombat(function()
 			if not Current() then return end
 			local name
@@ -825,7 +856,11 @@ function E:UndoInstall(skipConfirm)
 					if not Adopt(name) then return end
 					if name == backup.profile then
 						if self.ResetProfile ~= reset or reset(self) ~= true then return end
-					elseif profiles[backup.profile] and (self.DeleteProfile ~= delete or delete(self, backup.profile) ~= true) then return end
+					elseif profiles[backup.profile] then
+						if self.DeleteProfile ~= delete then return end
+						released = true
+						if delete(self, backup.profile) ~= true then return end
+					end
 				end
 			end
 			if ReadAccountRoot() ~= target.root or self.LoadDatabase ~= loader
@@ -847,12 +882,21 @@ function E:UndoInstall(skipConfirm)
 			ForgetRun()
 			backups[self.charKey] = nil
 			completed = true
+			-- The addons the setup turned off are on again from the reload.
+			for addon in pairs(type(snapshot.addonsOff) == "table" and snapshot.addonsOff or {}) do
+				if self.TurnCompetitorBackOn then
+					local ok, err = pcall(self.TurnCompetitorBackOn, self, addon)
+					if not ok then geterrorhandler()(err) end
+				end
+			end
 			if backup.attach then
 				self:ShowReloadPrompt(L["This character uses profile %s again, as before the alt setup. Reload to finish?"]:format(HL(name)))
 			else
 				self:ShowReloadPrompt(L["Profile %s is back as it was before the setup. Reload to finish?"]:format(HL(name)))
 			end
-		end)
+		end, "installer-undo")
+		-- In combat it waits; say so, and a second undo replaces the first.
+		if not ran and not pending then self:Print(L["The undo runs when combat ends."]) end
 		return not ran or completed
 	end
 	if skipConfirm then
@@ -869,10 +913,18 @@ function E:UndoInstall(skipConfirm)
 				HL(backup.previous or backup.profile), when, HL(backup.profile))
 		end
 	end
+	local addonsOff = {}
+	for _, title in pairs(type(backup.addonsOff) == "table" and backup.addonsOff or {}) do
+		addonsOff[#addonsOff + 1] = tostring(title)
+	end
+	if #addonsOff > 0 then
+		table.sort(addonsOff)
+		text = text .. "\n\n" .. L["The addons the setup turned off are turned on again: %s."]:format(table.concat(addonsOff, ", "))
+	end
 	self:ShowConfirm({
 		title = L["Undo the setup?"],
 		text = text,
-		accept = L["Undo"], cancel = CANCEL or L["Cancel"],
+		accept = L["Undo"], cancel = E:GameText(CANCEL, L["Cancel"]),
 		onAccept = Undo,
 	})
 	return true
@@ -942,14 +994,14 @@ local function EnsureProfile(onDone)
 					local whom = count > 0 and L["%s and this character"]:format(E:Highlight(users)) or L["this character"]
 					Confirm(L["Really start %s fresh? It goes back to EldoUI's defaults for %s. A backup is kept, and the Welcome step can undo it on this character."]:format(E:Highlight(PROFILE), whom), {
 						{ L["Start fresh"], function() SwitchProfile(PROFILE, true, onDone) end },
-						{ CANCEL or L["Cancel"] },
+						{ E:GameText(CANCEL, L["Cancel"]) },
 					})
 				end },
 				{ L["Use it as it is"], function()
 					PickProfileMode("use")
 					SwitchProfile(PROFILE, false, onDone)
 				end },
-				{ CANCEL or L["Cancel"] },
+				{ E:GameText(CANCEL, L["Cancel"]) },
 			})
 		else
 			-- Missing, or made but never set up: nothing in it to lose.
@@ -963,7 +1015,7 @@ local function EnsureProfile(onDone)
 				Backup(E.profileName, E.profileName)
 				ProfileDone(onDone)
 			end },
-			{ CANCEL or L["Cancel"] },
+			{ E:GameText(CANCEL, L["Cancel"]) },
 		})
 		return
 	end
@@ -2050,16 +2102,22 @@ local ACCESS_CHOICES = {
 	{ key = "largeText", label = "Large text",
 		desc = "Every EldoUI text at 130 %. The size can be changed later, from 100 to 160 %.",
 		on = function(access) return access.largeText == true end,
-		set = function(access) access.largeText = true end,
+		-- On a small screen, at least the size that brings the smallest text
+		-- to 9 pixels (E:SmallTextAdvice).
+		set = function(access)
+			access.largeText = true
+			local _, need = E:SmallTextAdvice()
+			if need and need > (tonumber(access.textScale) or 1.3) then access.textScale = need end
+		end,
 		unset = function(access) access.largeText = false end },
 	{ key = "colorBlind", label = "Color-blind safe colors",
 		desc = "Safe colors for reactions, threat, dispel types, unit states and good, warning and bad text, with a mark next to each so color alone never carries the meaning. The kind (red, green or blue) can be picked later.",
-		on = function(access) return access.colorBlind ~= nil and access.colorBlind ~= "off" end,
+		on = function(access) return access.colorBlind == "on" end,
 		set = function(access)
 			access.colorBlind = "on"
 			if access.shapeMarks == nil then access.shapeMarks = true end
 		end,
-		unset = function(access) access.colorBlind = "off" end },
+		unset = function(access) access.colorBlind = "game" end },
 }
 Installer.ACCESS_CHOICES = ACCESS_CHOICES -- read-only, for plugins
 
@@ -2518,7 +2576,7 @@ local CHANGE_GROUPS = {
 	{ key = "blizzard", title = "Blizzard UI" },
 	{ key = "chat", title = "Chat" },
 	{ key = "cvars", title = "Game settings" },
-	{ key = "addons", title = "Other addons", note = Key("Switch back in each addon's profiles") },
+	{ key = "addons", title = "Addon profiles", note = Key("Switch back in each addon's profiles") },
 	{ key = "convenience", title = "Convenience" },
 	{ key = "class", title = "Class setup" },
 	{ key = "keys", title = "Keys and spells" },
@@ -3152,6 +3210,16 @@ end
 -- The pack a run uses: the one picked on the Welcome step, else the first.
 local Pack = {}
 
+-- The other addons the pack turns off (it hands every overlapping job to
+-- EldoUI), named before the click: "Also turns off A and B: ...", or nil.
+function Pack.TurnsOffText()
+	local C = Installer.Competitors
+	if not (session and C and C.Changes) then return nil end
+	local ok, _, off = pcall(C.Changes)
+	if not ok or type(off) ~= "table" or #off == 0 then return nil end
+	return L["Also turns off %s: EldoUI's modules take over their jobs."]:format(C.JoinNames(off))
+end
+
 function Pack.Run(key)
 	key = key or (session and session.pack)
 	return E.packs and (E.packs[key] or E.packs[E.packOrder[1]]) or {}
@@ -3625,7 +3693,11 @@ BASE[#BASE + 1] = {
 		end
 		express.button = Button(express.body, { text = L["Apply"], kind = "primary", minWidth = 150, onClick = function() Installer.Express() end })
 		express.button:SetPoint("TOPRIGHT", -12, -10)
-		Tooltip(express.button, L["Apply the pack"], L["Sets up every step with the pack at once: also chat tabs, game settings and other addons' profiles, and it turns on auto repair (your own gold), junk selling and fast loot. Then it shows your keys and spells, which change only when you press Apply there, and afterwards what changed, each part with Revert this."])
+		Tooltip(express.button, L["Apply the pack"], function(tooltip)
+			Kit.TipText(tooltip, L["Sets up every step with the pack at once: also chat tabs, game settings and other addons' profiles, and it turns on auto repair (your own gold), junk selling and fast loot. Then it shows your keys and spells, which change only when you press Apply there, and afterwards what changed, each part with Revert this."])
+			local off = Pack.TurnsOffText()
+			if off then Kit.TipText(tooltip, off) end
+		end)
 		frame.express = express
 
 		-- Undo and skip, at the bottom of the page.
@@ -3712,7 +3784,9 @@ BASE[#BASE + 1] = {
 		frame.note:ClearAllPoints()
 		frame.note:SetPoint("TOPLEFT", frame.header, "BOTTOMLEFT", 0, -(10 + height + 12))
 		if p.done then
-			frame.note:SetText(L["Setting up the profile %s. To pick another one, close this window and run %s again."]:format(HL(E.profileName), HL("/eui install")))
+			-- A run is kept per profile: on another profile, /eui install
+			-- starts over and asks the profile question again.
+			frame.note:SetText(L["Setting up the profile %s. To set up another profile instead, switch to it (or make a new one) on the Profiles page, then run %s: the setup starts over there."]:format(HL(E.profileName), HL("/eui install")))
 		elseif session.rerun then
 			frame.note:SetText(L["You ran the setup on this character before. Every step starts on \"keep\", so clicking through changes nothing, and EldoUI asks before it changes your profile."])
 		else
@@ -3721,10 +3795,13 @@ BASE[#BASE + 1] = {
 		-- The pack cards: the picked one's text, each with its own map.
 		local express = frame.express
 		local pack = Pack.Run()
+		local off = Pack.TurnsOffText()
 		if ExpressKeepsProfile(session) then
-			express.desc:SetText(L["This profile is set up already, so Apply keeps its scale, layout, look, role, Blizzard UI switches and convenience features, and sets up this character's chat tabs, game settings and other addons' profiles."])
+			express.desc:SetText(L["This profile is set up already, so Apply keeps its scale, layout, look, role, Blizzard UI switches and convenience features, and sets up this character's chat tabs, game settings and other addons' profiles."]
+				.. (off and (" " .. off) or ""))
 		else
-			express.desc:SetText(("%s %s"):format(L[pack.desc or ""], L["Apply also turns on auto repair (your own gold), junk selling and fast loot."]))
+			express.desc:SetText(("%s %s"):format(L[pack.desc or ""], L["Apply also turns on auto repair (your own gold), junk selling and fast loot."])
+				.. (off and (" " .. off) or ""))
 		end
 		express.MapSize()
 		local cardHeight = 0
@@ -3792,7 +3869,7 @@ BASE[#BASE + 1] = {
 		local pixel = E:GetPixelPerfectScale()
 		local auto = E:GetAutoScale()
 		LiveText(info, function()
-			local text = L["Your screen is %s. EldoUI is made for 1440p, so Auto makes every screen 1440 UI units tall (%s): every layout looks exactly as designed, smaller on a smaller screen and bigger on a bigger one."]:format(HL(("%dx%d"):format(width or 0, height or 0)), HL(("%.4f"):format(E:GetLayoutCanvasScale())))
+			local text = L["Your screen is %s. EldoUI is made for 1440p, so Auto draws every screen as the 2560x1440 canvas (%s), a little taller on a screen narrower than 16:9: every layout looks exactly as designed, smaller on a smaller screen and bigger on a bigger one."]:format(HL(("%dx%d"):format(width or 0, height or 0)), HL(("%.4f"):format(E:GetLayoutCanvasScale())))
 			if math.abs(auto - pixel) < 0.0001 then
 				text = text .. " " .. L["On your screen that is also pixel perfect: one UI unit is one screen pixel."]
 			end
@@ -3852,6 +3929,7 @@ BASE[#BASE + 1] = {
 		slider:SetMinMaxValues(0.4, 1.2)
 		slider:SetValueStep(0.01)
 		slider:SetObeyStepOnDrag(true)
+		E.UIKit.CollectKeyControl(slider, nil, E.UIKit.StepKeySlider)
 		local value = E:CreateText(frame, E.tokens.size.body, "LEFT")
 		value:SetPoint("LEFT", slider, "RIGHT", 12, 0)
 		frame.slider, frame.value = slider, value
@@ -4077,7 +4155,7 @@ end
 
 BASE[#BASE + 1] = {
 	key = "styles", short = "Styles", title = "Styles",
-	desc = "The skin frames every window and panel, and applies at once. Below it, one look per part of the UI: a look that makes a frame bigger moves its neighbors to make room, a look that doesn't fit your layout is grayed out, and Keep leaves that part as it is.",
+	desc = "Pick a skin for every window and panel, then a look for each part of the UI, or Keep to leave a part as it is. Looks that don't fit your layout are grayed out.",
 	Build = function(frame)
 		local _, child = ScrollArea(frame)
 		frame.rows = {}
@@ -4362,7 +4440,9 @@ BASE[#BASE + 1] = {
 			frame.rows[index] = check
 		end
 		frame.note = Secondary(LiveText(Paragraph(frame, E.tokens.size.label), function()
-			return L["Change these later, and add sound cues, in %s > General > Accessibility."]:format(HL("/eui"))
+			local text = L["Change these later, and add sound cues, in %s > General > Accessibility."]:format(HL("/eui"))
+			local hint = E.SmallTextHint and E:SmallTextHint()
+			return hint and (hint .. "\n" .. text) or text
 		end))
 		frame.note:SetPoint("TOPLEFT", 0, -#ACCESS_CHOICES * 30 - 12)
 		frame.note:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -#ACCESS_CHOICES * 30 - 12)
@@ -4667,6 +4747,7 @@ function Competitors.Apply()
 			local result = E:UseEldoUIFor(row.addon, row.job)
 			if result == "reload" then
 				c.disabled[row.addon] = true
+				Installer.NoteAddonOff(row.addon, row.title)
 				session.needsReload = true
 			end
 		else
@@ -4703,6 +4784,7 @@ PARTS.competitors = {
 			if E:CompetitorDisabledNow(addon) then E:KeepCompetitor(addon) end
 		end
 		wipe(c.disabled or {})
+		Installer.NoteAddonOff(nil)
 		local store = E:GetGlobal("competitors")
 		if store then store.choices = CopyTable(data.choices) end
 		for name, keys in pairs(data.settings or {}) do
@@ -5330,7 +5412,7 @@ BASE[#BASE + 1] = {
 }
 
 BASE[#BASE + 1] = {
-	key = "addons", short = "Other addons", title = "Other addons",
+	key = "addons", short = "Addon profiles", title = "Addon profiles",
 	desc = "EldoUI profiles for other addons you use, imported with each addon's own import function.",
 	Build = function(frame)
 		frame.rows = {}
@@ -5866,7 +5948,9 @@ end
 Installer.NotePremade = Entry.ExpressPremade
 
 -- Apply: the answers go into the profile, then the plan shown, checked
--- once more and written out of combat.
+-- once more and written out of combat. Returns false when the keys could
+-- not be set (a spell on the cursor, keys changed since the preview): the
+-- step then stays, with its warning, and nothing says "applied".
 function Work.ApplyKeysStep()
 	local k = Keys.Picks()
 	local plan = k.plan or Keys.Plan()
@@ -5879,6 +5963,7 @@ function Work.ApplyKeysStep()
 			local _, notice = E:KeysAndSpellsBlocked(plan)
 			Installer.ShowToast(notice or L["Your keys or action buttons changed since the preview. Look at the preview again before you apply."], true)
 		end
+		if why ~= "same" then return false end
 		return
 	end
 	k.state = "applied"
@@ -5985,7 +6070,7 @@ end
 
 BASE[#BASE + 1] = {
 	key = "keys", short = "Keys and spells", title = "Keys and spells",
-	desc = "How you play: keys for bars 1 to 3, your class spells and macros on empty buttons, spell ranks, and what happens later and on your other characters. Everything shows before it changes. Only this step's Apply changes it; Finish leaves your keys and buttons alone.",
+	desc = "Set up keys for bars 1 to 3 and fill empty buttons with your class spells, and see every change first. Only this step's Apply changes your keys and buttons, and Finish leaves them alone.",
 	-- Applied only by its own Apply, never by Finish.
 	explicit = true,
 	Build = function(frame)
@@ -6576,7 +6661,7 @@ end
 
 FINISH = {
 	key = "finish", short = "Finish", title = "All set",
-	desc = "Here is what Finish does. Steps marked \"Applies at Finish\" are applied now, in order. Change goes back to a step; Revert puts a step you applied back as it was. Afterwards this page lists every change, each with Revert this.",
+	desc = "Finish applies the steps marked \"Applies at Finish\", and Change goes back to a step or Revert undoes one. Afterwards this page lists every change, each with Revert this.",
 	Build = function(frame)
 		frame.review = CreateFrame("Frame", nil, frame)
 		frame.review:SetAllPoints()
@@ -6855,7 +6940,7 @@ local function ShowHelp()
 	if step and step.help then
 		-- A function builds its text now, so highlights use the current accent.
 		local help = type(step.help) == "function" and step.help() or L[step.help]
-		Confirm(help, { { OKAY or L["OK"] } }, E:Translate(step.title))
+		Confirm(help, { { E:GameText(OKAY, L["OK"]) } }, E:Translate(step.title))
 	end
 end
 
@@ -6911,9 +6996,62 @@ local function FitHeader()
 	end
 end
 
+function Installer.KeyWindowFocused()
+	return window and window:IsVisible() and window.keyNavigation.active and E.UIKit.TopWindow() == window
+		and not E.UIKit.KeyboardMenuActive()
+end
+
+function Installer.KeyTargets()
+	local targets = {}
+	local step = steps[current]
+	local function Read(owner)
+		for _, control in ipairs(owner.kitKeyOrder) do
+			if E.UIKit.KeyControlUsable(control) then
+				targets[#targets + 1] = {
+					control = control, order = #targets + 1,
+					y = math.floor((E.PlainCall(control.GetTop, control) or 0) + 0.5),
+					x = E.PlainCall(control.GetLeft, control) or 0,
+				}
+			end
+		end
+	end
+	Read(window)
+	if step and step.frame then Read(step.frame) end
+	table.sort(targets, function(a, b)
+		if a.y ~= b.y then return a.y > b.y end
+		if a.x ~= b.x then return a.x < b.x end
+		return a.order < b.order
+	end)
+	for index, entry in ipairs(targets) do targets[index] = entry.control end
+	return targets
+end
+
+function Installer.HandleKey(name)
+	if InCombatLockdown() or not Installer.KeyWindowFocused() then return false end
+	local nav = window.keyNavigation
+	if nav:Handle(name) then return true end
+	if name == "ENTER" and not nav.control then
+		return E.UIKit.RunKeyAction(window.next, window.next:GetScript("OnClick"), "LeftButton", false)
+	end
+	return false
+end
+
 local function CreateWindow()
-	window = Kit.CreateWindow("EldoUIInstaller", { width = WIDTH, height = HEIGHT, sidebar = SIDEBAR, logo = true })
+	window = Kit.CreateWindow("EldoUIInstaller", {
+		width = WIDTH, height = HEIGHT, sidebar = SIDEBAR, logo = true, keys = Installer.HandleKey,
+	})
 	window.nav = {}
+	window.kitKeyControls, window.kitKeyOrder = {}, {}
+	window.keyNavigation = E.UIKit.FocusNavigation(window, E.UIKit.FocusRing(window), Installer.KeyTargets, function(control)
+		local owner = control:GetParent()
+		while owner and owner ~= window do
+			if owner:GetObjectType() == "ScrollFrame" then E.UIKit.RevealKeyControl(owner, control); return end
+			owner = owner:GetParent()
+		end
+	end)
+	window.kitKeyEdit = function(control) window.keyNavigation:BindEdit(control, Installer.KeyWindowFocused) end
+	window:HookScript("OnShow", function() window.keyNavigation.active = true end)
+	window:HookScript("OnHide", function() window.keyNavigation.active = false end)
 	-- The whole subtitle shows: the header grows instead (FitHeader).
 	window.subtitle:SetMaxLines(0)
 	E:RegisterThemed(window.header, FitHeader)
@@ -6946,7 +7084,7 @@ local function CreateWindow()
 		Installer.Skip()
 	end)
 	E:RegisterThemed(skip, function(self) self:SetWidth(math.ceil(self.text:GetStringWidth() + 16)) end)
-	window.skip = skip
+	window.skip = E.UIKit.CollectKeyControl(skip, true)
 	Tooltip(window.skip, L["Skip this step"], L["Leave this part of the UI as it is and go on."])
 	-- How far along the setup is: an accent line over the footer.
 	-- Two screen pixels tall at the window's own scale (E:Hairline).
@@ -6995,7 +7133,20 @@ local function CreateWindow()
 	end)
 	window:RegisterEvent("PLAYER_REGEN_DISABLED")
 	window:RegisterEvent("PLAYER_REGEN_ENABLED")
+	window:RegisterEvent("GLOBAL_MOUSE_DOWN")
 	window:SetScript("OnEvent", function(_, event)
+		local nav = window.keyNavigation
+		if event == "GLOBAL_MOUSE_DOWN" then
+			if window:IsVisible() and not E.UIKit.KeyboardMenuUnderMouse() then
+				nav.active = window:IsMouseOver() and E.UIKit.TopWindow() == window
+				if not (nav.active and nav.control and nav.control:IsMouseOver()) then nav:Clear() end
+			end
+			return
+		end
+		if event == "PLAYER_REGEN_DISABLED" then
+			nav.active = false
+			nav:Clear()
+		end
 		Installer.Update()
 		-- Changes that waited for the end of combat run now: the list of
 		-- what changed reads them a moment later.
@@ -7051,6 +7202,8 @@ function Installer.Update()
 	if not step.frame then
 		step.frame = CreateFrame("Frame", nil, window.content)
 		step.frame:SetAllPoints()
+		step.frame.kitKeyControls, step.frame.kitKeyOrder = {}, {}
+		step.frame.kitKeyEdit = window.kitKeyEdit
 		step.Build(step.frame)
 	end
 	step.frame:Show()
@@ -7079,6 +7232,7 @@ function Installer.Update()
 		status = StepWord(step)
 	end
 	window.status:SetText(status)
+	window.keyNavigation:Refresh()
 end
 
 -- Show step `index`. Going back undoes the previews of the steps left
@@ -7177,6 +7331,9 @@ local function SafeApply(step, failed)
 	-- What the step changes is kept first, for "Revert this" on the last page.
 	local kept = RememberStep(step)
 	local ok, err = pcall(step.Apply, kept)
+	-- A step that could not apply this time (it said why itself) is no
+	-- error: it is not marked applied and the setup does not move on.
+	if ok and err == false then return false, "blocked" end
 	if ok then
 		-- The character's own picks, for its alts (Core/InstallerAlt.lua).
 		if E.InstallerAlt and session then
@@ -7235,8 +7392,9 @@ function Installer.ApplyCurrent(andThen)
 	EnsureProfile(function()
 		local failed = {}
 		KeepEarlierPreviews(index, failed)
-		local ok = SafeApply(step, failed)
+		local ok, why = SafeApply(step, failed)
 		Installer.Update()
+		if why == "blocked" then return end
 		if not ReportFailed(failed) and ok then
 			local name = L[step.short or step.key]
 			ShowToast(InCombatLockdown() and L["%s: applies when combat ends"]:format(name) or L["%s applied"]:format(name))
@@ -7481,8 +7639,16 @@ end
 -- stepKey (optional): open that step ("undo" undoes the last setup).
 function E:ShowInstaller(stepKey)
 	if InCombatLockdown() then
-		self:Print(L["The setup opens after combat."])
-		self:RunOutOfCombat(function() self:ShowInstaller(stepKey) end)
+		local open, admit = self.ShowInstaller, Work.ProfileTarget
+		local target = admit()
+		if not target then return end
+		local pending = self:PendingOutOfCombat("installer-open")
+		self:RunOutOfCombat(function()
+			if not E.Secret(self.ShowInstaller) and self.ShowInstaller == open and Work.ProfileTarget == admit and admit(target) then
+				open(self, stepKey)
+			end
+		end, "installer-open")
+		if not pending then self:Print(L["The setup opens after combat."]) end
 		return
 	end
 	if type(stepKey) == "string" and strtrim(stepKey):lower() == "undo" then

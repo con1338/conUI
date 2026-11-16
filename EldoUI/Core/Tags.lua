@@ -288,7 +288,7 @@ E:RegisterTag("health:absorbs", function(unit)
 	local amount = UnitGetTotalAbsorbs(unit)
 	if type(amount) == "nil" or (Plain(amount) and amount == 0) then return "" end
 	return Format("+%s", Short(amount))
-end, "UNIT_ABSORB_AMOUNT_CHANGED UNIT_MAXHEALTH", { category = "Health", desc = "Damage absorb shields on the unit (+4K), as the game reports them." })
+end, "UNIT_ABSORB_AMOUNT_CHANGED UNIT_MAXHEALTH", { category = "Health", desc = "Damage absorb shields on the unit (+4K)." })
 E:RegisterTag("health:healabsorbs", function(unit)
 	if not UnitGetTotalHealAbsorbs then return "" end
 	local amount = UnitGetTotalHealAbsorbs(unit)
@@ -564,7 +564,7 @@ E:RegisterTag("threat", function(unit)
 	local status = UnitThreatSituation("player", unit)
 	if not Plain(status) or type(status) ~= "number" then return "" end
 	return ({ [1] = L["High threat"], [2] = L["Losing aggro"], [3] = L["Tanking"] })[status] or ""
-end, "UNIT_THREAT_SITUATION_UPDATE UNIT_THREAT_LIST_UPDATE", { category = "Status", desc = "Your threat state on this unit as the game reports it (no numbers)." })
+end, "UNIT_THREAT_SITUATION_UPDATE UNIT_THREAT_LIST_UPDATE", { category = "Status", desc = "Your threat state on this unit (no numbers)." })
 
 ---------------------------------------------------------------------------
 -- Group
@@ -611,7 +611,7 @@ E:RegisterTag("difficultycolor", function(unit)
 	local level = UnitEffectiveLevel and UnitEffectiveLevel(unit) or UnitLevel(unit)
 	if not Plain(level) or not GetCreatureDifficultyColor then return "" end
 	if level <= 0 then level = 999 end
-	return ColorOf(GetCreatureDifficultyColor(level))
+	return ColorOf(E:DifficultyColor(GetCreatureDifficultyColor(level)))
 end, "UNIT_LEVEL PLAYER_LEVEL_UP", { category = "Colors", color = true, desc = "Text after it in the level difficulty color (gray, green, yellow, orange, red)." })
 E:RegisterTag("powercolor", function(unit)
 	local _, token = UnitPowerType(unit)
@@ -651,7 +651,7 @@ E:RegisterTag("threatcolor", function(unit)
 	if not Plain(status) then return "" end
 	local entry = THREAT_COLOR[status]
 	return entry and ColorOf(GameColor(entry[1], entry[2], entry[3], entry[4])) or ""
-end, "UNIT_THREAT_SITUATION_UPDATE UNIT_THREAT_LIST_UPDATE", { category = "Colors", color = true, desc = "Text after it in your threat color on this unit: yellow, orange, red as the game reports it." })
+end, "UNIT_THREAT_SITUATION_UPDATE UNIT_THREAT_LIST_UPDATE", { category = "Colors", color = true, desc = "Text after it in your threat color on this unit: yellow, orange or red." })
 
 -- Health color through a color curve: the client turns health percent
 -- into a color. As the first tag of a string it colors the whole text
@@ -679,12 +679,16 @@ local function HealthCurve()
 end
 
 local ColorResult = {}   -- marker metatable for color objects
+-- One wrapper for every render: Build reads its color at once and keeps
+-- nothing, so a health event makes no new table.
+local healthColor = setmetatable({}, ColorResult)
 E:RegisterTag("healthcolor", function(unit)
 	local curve = HealthCurve()
 	if not (curve and UnitHealthPercent) then return "" end
 	local ok, color = pcall(UnitHealthPercent, unit, true, curve)
 	if not ok or type(color) == "nil" then return "" end
-	return setmetatable({ color = color }, ColorResult)
+	healthColor.color = color
+	return healthColor
 end, HEALTH_EVENTS, { category = "Colors", color = true, desc = "Text after it colored by health: green full, yellow half, red low. Works best as the first tag." })
 
 E:RegisterTag("close", function() return "|r" end, nil, { category = "Colors", color = true, desc = "Ends a color tag. [|r] works too." })
@@ -773,6 +777,54 @@ E:RegisterTag("xp:rested", function(unit)
 	return Short(rested)
 end, XP_EVENTS, { category = "Experience", desc = "Your rested experience, shortened. Empty when you are not rested or at max level." })
 
+-- Public unfinished objective text shared by unit frames and nameplates.
+do
+	local kinds = Enum and Enum.TooltipDataLineType or {}
+	local objective, title, player = kinds.QuestObjective or 8, kinds.QuestTitle or 17, kinds.QuestPlayer or 18
+	local function Readable(value)
+		return type(value) == "table" and not E.Secret(value) and (not canaccesstable or canaccesstable(value))
+	end
+
+	function E:QuestUnitProgress(unit)
+		if type(unit) ~= "string" or self.IdentitySecret(unit) then return end
+		local provider = C_TooltipInfo and C_TooltipInfo.GetUnit
+		local data = self.PlainCall(provider, unit)
+		if not Readable(data) or not Readable(data.lines) then return end
+		local me = self.PlainCall(UnitName, "player")
+		local mine, seen = true, false
+		for _, line in ipairs(data.lines) do
+			if Readable(line) then
+				local kind = self:Readable(line.type)
+				if type(kind) ~= "number" then
+					mine = false
+				elseif kind == title then
+					mine = true
+				elseif kind == player then
+					local name = self:Readable(line.leftText)
+					mine = type(name) == "string" and me ~= nil and name == me
+				elseif kind == objective and mine then
+					local text = self:Readable(line.leftText)
+					if type(text) == "string" then
+						local have, need = text:match("(%d+)%s*/%s*(%d+)")
+						if have then
+							seen = true
+							if tonumber(have) < tonumber(need) then return have .. "/" .. need, true end
+						end
+						local percent = text:match("(%d+)%%")
+						if percent then
+							seen = true
+							if tonumber(percent) < 100 then return percent .. "%", true end
+						end
+					end
+				end
+			else
+				mine = false
+			end
+		end
+		return nil, seen
+	end
+end
+
 E:RegisterTag("quest", function(unit)
 	if not (C_QuestLog and C_QuestLog.UnitIsRelatedToActiveQuest) or UnitIsPlayer(unit) then return "" end
 	local inside = IsInInstance()
@@ -843,6 +895,7 @@ local function Build(tagString, unit, user)
 		-- type() first: getmetatable on a secret string is an error.
 		elseif type(value) == "table" and getmetatable(value) == ColorResult then
 			local color = value.color
+			value.color = nil
 			value = ""
 			if part.lead then
 				leadColor = color

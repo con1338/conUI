@@ -619,6 +619,28 @@ local RepaintBoxes -- defined with the test frames below
 local overlayHidden, peeking = false, false
 local ApplyOverlayLook -- defined with the nudge panel below
 
+-- Undo last move (Ctrl+Z in move mode): what each change of this move
+-- session replaced, newest last. { store, name, pos } for one frame (pos is
+-- a copy of the stored value, false, or NO_POSITION for none) or
+-- { store, all = copy of the whole store } for Reset all.
+local undoMoves = {}
+local UNDO_LIMIT = 40
+local NO_POSITION = {}
+
+local function RememberMove(name)
+	if not moveMode or type(name) ~= "string" then return end
+	local store = E:MoverStore()
+	local last = undoMoves[#undoMoves]
+	-- One change can pass through two writers in the same frame (detach,
+	-- then place): it is one step.
+	local now = GetTime()
+	if last and last.name == name and last.store == store and last.at == now then return end
+	local before = store[name]
+	if type(before) == "table" then before = CopyTable(before) elseif before == nil then before = NO_POSITION end
+	undoMoves[#undoMoves + 1] = { store = store, name = name, pos = before, at = now }
+	if #undoMoves > UNDO_LIMIT then table.remove(undoMoves, 1) end
+end
+
 ---------------------------------------------------------------------------
 -- Groups: every mover belongs to one group, from its module.
 ---------------------------------------------------------------------------
@@ -957,6 +979,7 @@ end
 local function SetMoverPosition(mover, left, bottom)
 	local anchor, point, x, y = MeasureRect(mover, left, bottom)
 	local pos = { point, "UIParent", point, x, y }
+	RememberMove(mover.name)
 	E:MoverStore()[mover.name] = pos
 	mover:ClearAllPoints()
 	mover:SetPoint(point, anchor, point, x, y)
@@ -1029,6 +1052,7 @@ function E:LinkMover(name, target, side)
 	if InCombatLockdown() then return false, "combat" end
 	local d = LINK_SIDES[side]
 	local pos = { "CENTER", "UIParent", "CENTER", 0, 0, link = { to = target, side = side, x = d[3] * LINK_GAP, y = d[4] * LINK_GAP } }
+	RememberMove(name)
 	self:MoverStore()[name] = pos
 	ApplyPosition(mover)
 	RememberScreen(mover, pos)
@@ -1043,6 +1067,7 @@ function E:UnlinkMover(name)
 	local pos = self:SavedMoverPosition(name)
 	if not mover or type(pos) ~= "table" or not pos.link then return false end
 	if InCombatLockdown() then return false end
+	RememberMove(name)
 	-- A normal drag read in Gamepad Mode UI is copied first, so it stays.
 	local store = self:MoverStore()
 	if store[name] ~= pos then
@@ -1141,8 +1166,12 @@ end
 -- Snapping and alignment guides
 ---------------------------------------------------------------------------
 -- Lines a dragged mover can line up with: the edges and centers of the
--- other movers on screen and the screen center. { value, "edge"|"center" }
+-- other movers on screen, the screen edges and the screen center.
+-- { value, "edge"|"center" }. A drag measures them once when it starts (the
+-- other boxes stay put while one moves) and reuses them until it ends.
 local function AlignTargets(mover)
+	local cached = mover.alignTargets
+	if cached then return cached[1], cached[2] end
 	local xs, ys = {}, {}
 	for _, other in pairs(E.movers) do
 		if other ~= mover and other:IsShown() and other.frame:IsShown() and other:GetLeft()
@@ -1159,6 +1188,12 @@ local function AlignTargets(mover)
 	local w, h = UIParent:GetSize()
 	xs[#xs + 1] = { w / 2, "centre" }
 	ys[#ys + 1] = { h / 2, "centre" }
+	-- The screen edges: a box pushed against one sits flush, not a grid
+	-- step away from it.
+	xs[#xs + 1] = { 0, "edge" }
+	xs[#xs + 1] = { w, "edge" }
+	ys[#ys + 1] = { 0, "edge" }
+	ys[#ys + 1] = { h, "edge" }
 	return xs, ys
 end
 
@@ -1178,7 +1213,7 @@ local function EachAlignment(low, size, targets, limit, fn)
 end
 
 -- Pull the mover onto the nearest edge or center of another mover (or the
--- screen center), else onto the grid.
+-- screen's edges and center), else onto the grid.
 local function Snap(mover, left, bottom)
 	if not E.db.general.snap or IsAltKeyDown() then return left, bottom end
 	local width, height = mover:GetSize()
@@ -1212,6 +1247,32 @@ end
 local function SavePosition(mover)
 	local left, bottom = Snap(mover, mover:GetLeft(), mover:GetBottom())
 	SetMoverPosition(mover, left, bottom)
+end
+
+local DropGuides -- defined with the guides below
+
+-- End a drag where the box is now and keep that place. Combat that starts
+-- during a drag ends it the same way: the box stops following the cursor,
+-- and in the lockdown the place is saved once combat is over.
+function E:EndMoverDrag(mover)
+	mover:SetScript("OnUpdate", nil)
+	if DropGuides then DropGuides() end
+	if not mover.dragging then
+		mover.alignTargets = nil
+		return false
+	end
+	mover.dragging = nil
+	mover:StopMovingOrSizing()
+	if mover:GetLeft() then
+		if InCombatLockdown() then
+			local left, bottom = Snap(mover, mover:GetLeft(), mover:GetBottom())
+			self:SaveMoverFromRect(mover, left, bottom)
+		else
+			SavePosition(mover)
+		end
+	end
+	mover.alignTargets = nil
+	return true
 end
 
 -- Guides: one line across the screen for each edge or center the dragged
@@ -1277,6 +1338,8 @@ function E:UpdateMoverGuides(mover)
 	DrawGuides()
 	return guides
 end
+
+function DropGuides() E:UpdateMoverGuides(nil) end
 
 local function GuideUpdate(mover, elapsed)
 	mover.guideWait = (mover.guideWait or 0) - elapsed
@@ -1639,18 +1702,14 @@ function E:CreateMover(frame, name, title, defaultPoint, opts)
 		-- A locked frame stays put; a click still selects it.
 		if E:IsMoverLocked(m.name) then return end
 		m.dragging = true
+		m.alignTargets = nil
+		m.alignTargets = { AlignTargets(m) }
 		m:StartMoving()
 		m.guideWait = 0
 		m:SetScript("OnUpdate", GuideUpdate)
 	end)
 	mover:SetScript("OnDragStop", function(m)
-		m:SetScript("OnUpdate", nil)
-		E:UpdateMoverGuides(nil)
-		if m.dragging then
-			m.dragging = nil
-			m:StopMovingOrSizing()
-			SavePosition(m)
-		end
+		E:EndMoverDrag(m)
 		E:SelectMover(m)
 		QueueShare()
 	end)
@@ -1658,7 +1717,11 @@ function E:CreateMover(frame, name, title, defaultPoint, opts)
 	-- click resets it to its layout position at once.
 	mover:SetScript("OnMouseUp", function(m, button)
 		if button == "RightButton" and IsShiftKeyDown() then
-			E:ResetMover(m.name)
+			if E:IsMoverLocked(m.name) then
+				E:Print(L["%s is locked. Unlock it in the move panel to reset it."]:format(L[m.title]))
+			else
+				E:ResetMover(m.name)
+			end
 		end
 		E:SelectMover(m)
 		if button == "RightButton" and not IsShiftKeyDown() then E:OpenMoverMenu(m) end
@@ -1678,7 +1741,7 @@ function E:CreateMover(frame, name, title, defaultPoint, opts)
 			E.UIKit.TipText(GameTooltip, L["Also on this spot: %s. Right-click to pick one."]:format(table.concat(others, ", ")))
 		end
 		local tr, tg, tb = unpack(E.tokens.text.secondary)
-		E:TooltipHint(GameTooltip, { L["Drag"], L["move: it snaps to the grid and to other frames, hold Alt to place it freely"] }, { L["Click"], L["nudge it with the arrows"] })
+		E:TooltipHint(GameTooltip, { L["Drag"], L["move: it snaps to the grid and to other frames, hold Alt to place it freely"] }, { L["Click"], L["select it, then nudge it with the arrows or the arrow keys (Shift: 10)"] })
 		E:TooltipHint(GameTooltip, { L["Right-click"], L["hide, lock or reset it"] }, { L["Shift-right-click"], L["back to its layout position"] })
 		GameTooltip:Show()
 	end)
@@ -1812,6 +1875,7 @@ end
 function E:ResetMover(name)
 	local mover = self.movers[name]
 	if not mover then return false end
+	RememberMove(name)
 	local store = self:MoverStore()
 	if store ~= self.db.movers and self.db.movers[name] ~= nil
 		and not (self.GamepadOverlayOwns and self:GamepadOverlayOwns(name)) then
@@ -1827,15 +1891,37 @@ function E:ResetMover(name)
 	return true
 end
 
-function E:ResetMovers()
+-- skipLocked: frames the player locked keep their place (the confirmed
+-- Reset all of move mode, the Layouts page and /eui resetlayout).
+function E:ResetMovers(skipLocked)
 	local store = self:MoverStore()
+	if moveMode then
+		undoMoves[#undoMoves + 1] = { store = store, all = CopyTable(store), at = GetTime() }
+		if #undoMoves > UNDO_LIMIT then table.remove(undoMoves, 1) end
+	end
+	local kept = {}
+	if skipLocked then
+		for name in pairs(self.db.moverLocks or {}) do
+			if self:IsMoverLocked(name) and store[name] ~= nil then kept[name] = store[name] end
+		end
+	end
 	wipe(store)
 	if store ~= self.db.movers then
 		for name in pairs(self.db.movers) do
 			if not (self.GamepadOverlayOwns and self:GamepadOverlayOwns(name)) then store[name] = false end
 		end
 	end
+	for name, pos in pairs(kept) do store[name] = pos end
 	self:RunOutOfCombat(PlaceAll)
+end
+
+-- Locked frames with a place of their own, which a confirmed reset keeps.
+local function CountLockedDrags(store)
+	local count = 0
+	for name in pairs(E.db.moverLocks or {}) do
+		if E:IsMoverLocked(name) and store[name] ~= nil then count = count + 1 end
+	end
+	return count
 end
 
 -- The Layouts page and /eui resetlayout ask first; with nothing dragged
@@ -1850,11 +1936,22 @@ function E:ConfirmResetMovers()
 		self:ConfigNotice(L["No frame was dragged: every frame is where the layout puts it."])
 		return
 	end
+	local text = L["Put every frame you dragged back where the current layout puts it?"]
+	local locked = CountLockedDrags(self:MoverStore())
+	if locked > 0 then
+		text = text .. "\n\n" .. (locked == 1 and L["1 locked frame stays where it is."] or L["%d locked frames stay where they are."]:format(locked))
+	end
+	if moveMode then text = text .. "\n\n" .. L["Undo last (Ctrl+Z) brings them back."] end
 	self:ShowConfirm({ title = L["Reset dragged frames"], accept = L["Reset"], danger = true,
-		text = L["Put every frame you dragged back where the current layout puts it?"],
+		text = text,
 		onAccept = function()
-			E:ResetMovers()
-			E:ConfigNotice(L["All frames reset to the current layout."])
+			E:ResetMovers(true)
+			if moveMode then
+				for _, mover in pairs(E.movers) do PaintOverlayText(mover) end
+				E:SelectMover(selected)
+			else
+				E:ConfigNotice(L["All frames reset to the current layout."])
+			end
 		end })
 end
 
@@ -2094,6 +2191,10 @@ end
 -- can put every frame back and leaving can return to the options window.
 ---------------------------------------------------------------------------
 local session -- { db, movers, locks, layouts, returnToConfig }
+-- Combat closed move mode: { session, filter, undo } to open it again with
+-- when combat ends, so Undo changes and Undo last move still reach back.
+local paused
+local pausing -- set while combat closes move mode
 
 -- Did anything change since move mode started (positions, links, locks,
 -- the layout choices of the box menus)?
@@ -2115,9 +2216,48 @@ function E:UndoMoveSession()
 	wipe(self.db.moverLocks)
 	for name, on in pairs(session.locks) do self.db.moverLocks[name] = on end
 	PlaceAll()
+	undoMoves = {}
 	for _, mover in pairs(self.movers) do PaintOverlayText(mover) end
 	self:SelectMover(selected)
 	return true
+end
+
+-- Take back the newest change of this move session: one drag, nudge,
+-- typed position, attach, reset or Reset all. Ctrl+Z in move mode.
+function E:UndoLastMove()
+	if not moveMode or InCombatLockdown() then return false end
+	local entry = table.remove(undoMoves)
+	if not entry then return false end
+	if entry.store ~= self:MoverStore() then
+		-- Gamepad Mode UI switched the positions: the old steps are another set.
+		undoMoves = {}
+		return false
+	end
+	if entry.all then
+		wipe(entry.store)
+		for name, pos in pairs(entry.all) do entry.store[name] = pos end
+		PlaceAll()
+		for _, mover in pairs(self.movers) do PaintOverlayText(mover) end
+		self:SelectMover(selected)
+	else
+		local pos = entry.pos
+		if pos == NO_POSITION then pos = nil end
+		entry.store[entry.name] = pos
+		local mover = self.movers[entry.name]
+		if mover then
+			ApplyPosition(mover)
+			ApplyChildren(mover)
+			PaintOverlayText(mover)
+		end
+		self:SelectMover(mover or selected)
+	end
+	QueueShare()
+	return true
+end
+
+-- How many steps Undo last move can take back.
+function E:CountMoveUndo()
+	return moveMode and #undoMoves or 0
 end
 
 ---------------------------------------------------------------------------
@@ -2272,7 +2412,10 @@ function E:ToggleMoveMode(state, filter)
 	local toggled = state == nil
 	if state == nil then state = not moveMode end
 	local wasOn = moveMode
+	local oldFilter = moveFilter
 	if state and not wasOn then
+		undoMoves = {}
+		paused = nil
 		session = {
 			db = self.db,
 			-- The drags of the mode move mode started in (Gamepad Mode UI's own
@@ -2312,15 +2455,49 @@ function E:ToggleMoveMode(state, filter)
 	-- tooltips carry the help, and the grid going away says "locked".
 	if not state then
 		local back = session and session.returnToConfig
+		if pausing and wasOn and session then
+			paused = { session = session, filter = oldFilter, undo = undoMoves }
+		elseif wasOn then
+			paused = nil
+		end
+		undoMoves = {}
 		session = nil
 		if toggled and back and self.ReopenConfigAfterMoveMode then self:ReopenConfigAfterMoveMode() end
 	end
 end
 
--- Leaving move mode when combat starts keeps protected frames safe.
+-- Leaving move mode when combat starts keeps protected frames safe. At
+-- PLAYER_REGEN_DISABLED the lockdown has not begun, so a drag in progress
+-- ends and saves at once. The session is kept and move mode opens again
+-- when combat ends, with Undo changes still reaching back to its start.
 E:RegisterEvent("PLAYER_REGEN_DISABLED", function()
-	if moveMode then E:ToggleMoveMode(false) end
+	if not moveMode then return end
+	for _, mover in pairs(E.movers) do
+		if mover.dragging then E:EndMoverDrag(mover) end
+	end
+	pausing = true
+	local ok, err = pcall(E.ToggleMoveMode, E, false)
+	pausing = nil
+	if not ok then geterrorhandler()(err) end
+	if paused then E:Print(L["Move mode closed: combat started. It opens again after combat."]) end
 end, {})
+
+E:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+	local back = paused
+	paused = nil
+	if not back or moveMode or back.session.db ~= E.db then return end
+	E:ToggleMoveMode(true, back.filter)
+	if not moveMode then return end
+	back.session.returnToConfig = back.session.returnToConfig or (session and session.returnToConfig)
+	session = back.session
+	undoMoves = back.undo or {}
+	if UpdatePanel then UpdatePanel() end
+end, {})
+
+-- Did combat close move mode, and will it open again when combat ends?
+function E:IsMoveModePaused()
+	return paused ~= nil
+end
 
 ---------------------------------------------------------------------------
 -- Grid
@@ -2402,6 +2579,15 @@ function E:ShowGrid(state)
 	grid:Show()
 end
 
+-- A new UI scale or window size while move mode is open: draw the grid
+-- for the new screen (after the scale code has run).
+local function RedrawForScreen()
+	if moveMode then C_Timer.After(0, function() E:RefreshMoveModeLook() end) end
+end
+E:RegisterPixelCallback(RedrawForScreen)
+E:RegisterEvent("UI_SCALE_CHANGED", RedrawForScreen, {})
+E:RegisterEvent("DISPLAY_SIZE_CHANGED", RedrawForScreen, {})
+
 
 ---------------------------------------------------------------------------
 -- Move panel: filters, exact X/Y, 1-pixel arrows, the selected frame's
@@ -2417,6 +2603,7 @@ local function Nudge(dx, dy)
 	if IsShiftKeyDown() then dx, dy = dx * 10, dy * 10 end
 	local pos = E:SavedMoverPosition(selected.name)
 	if UsableLink(selected, pos) then
+		RememberMove(selected.name)
 		local store = E:MoverStore()
 		if store[selected.name] ~= pos then
 			pos = CopyTable(pos)
@@ -2438,6 +2625,12 @@ E.NudgeMover = function(_, dx, dy) Nudge(dx, dy) end
 -- Where the selected mover sits now, measured from the screen the way a
 -- drag saves it (a layout may chain it to another frame; the boxes always
 -- show and edit the screen position, never the raw layout offsets).
+-- The measured point, as the move panel's title names it.
+local POINT_LABEL = { TOPLEFT = "Top left", TOP = "Top", TOPRIGHT = "Top right", LEFT = "Left", CENTER = "Center",
+	RIGHT = "Right", BOTTOMLEFT = "Bottom left", BOTTOM = "Bottom", BOTTOMRIGHT = "Bottom right" }
+-- Shown translated: L["Top left"], L["Top"], L["Top right"], L["Left"], L["Center"],
+-- L["Right"], L["Bottom left"], L["Bottom"], L["Bottom right"]
+
 local function MeasureSelected()
 	if not selected or not selected:GetLeft() then return end
 	local _, point, x, y = MeasureRect(selected, selected:GetLeft(), selected:GetBottom())
@@ -2452,6 +2645,7 @@ function SetMeasured(index, value)
 	if not point then return end
 	local pos = { point, "UIParent", point, x, y }
 	pos[index] = math.floor(value + 0.5)
+	RememberMove(selected.name)
 	E:MoverStore()[selected.name] = pos
 	ApplyPosition(selected)
 	ApplyChildren(selected)
@@ -2683,6 +2877,12 @@ local function CreateNudge()
 	-- them first, Ctrl and Alt arrows and every other key reach the game.
 	nudge.keys = Kit.KeyHandler(nudge, function(name, key)
 		if nudge.docked or Kit.MenuShown() then return false end
+		if name == "CTRL-Z" then
+			if GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus() then return false end
+			E:PeekMoveMode(false)
+			E:UndoLastMove()
+			return true
+		end
 		local arrow = NUDGE_KEYS[name:match("^SHIFT%-(.+)$") or name]
 		if arrow then
 			if not selected or (GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()) then return false end
@@ -2739,8 +2939,9 @@ local function CreateNudge()
 	Kit.Tooltip(search, L["Find a frame"], L["Show only the frames whose name contains this text."])
 	nudge.search = search
 
-	-- Row 2: exact position and grid size.
-	local function Box(label, x, y, onEnter)
+	-- Row 2: exact position and grid size. A box shows its current value
+	-- again when Enter finds no number in it.
+	local function Box(label, x, y, onEnter, tip)
 		local text = E:CreateText(nudge, E.tokens.size.body, "RIGHT")
 		text:SetPoint("TOPRIGHT", body, "TOPLEFT", x, y - 4)
 		text:SetText(label)
@@ -2749,24 +2950,30 @@ local function CreateNudge()
 		box:SetPoint("TOPLEFT", body, "TOPLEFT", x + 10, y)
 		box:SetAutoFocus(false)
 		box:SetScript("OnEnterPressed", function(b)
-			onEnter(tonumber(b:GetText()))
+			local value = tonumber(b:GetText())
+			if value then onEnter(value) end
 			b:ClearFocus()
+			if not value then E:SelectMover(selected) end
 		end)
-		box:SetScript("OnEscapePressed", function(b) b:ClearFocus() end)
+		box:SetScript("OnEscapePressed", function(b)
+			b:ClearFocus()
+			E:SelectMover(selected)
+		end)
 		E:SkinEditBox(box)
+		Kit.Tooltip(box, label, tip)
 		return box
 	end
-	nudge.x = Box("X", 40, -32, function(value) SetMeasured(4, value) end)
-	nudge.y = Box("Y", 160, -32, function(value) SetMeasured(5, value) end)
+	nudge.x = Box("X", 40, -32, function(value) SetMeasured(4, value) end,
+		L["Across from the screen point in the title to the same point of the frame: a higher number moves it right, a lower one left. Press Enter to apply."])
+	nudge.y = Box("Y", 160, -32, function(value) SetMeasured(5, value) end,
+		L["Up from the screen point in the title to the same point of the frame: a higher number moves it up, a lower one down. Press Enter to apply."])
 	nudge.grid = Box(L["Grid"], 290, -32, function(value)
 		-- The same steps and limits as the Grid size slider on the General page.
-		if value then
-			local size = math.min(math.max(math.floor(value / 4 + 0.5) * 4, 4), 128)
-			E.db.general.gridSize = size
-			nudge.grid:SetText(size)
-			E:ShowGrid(true)
-		end
-	end)
+		local size = math.min(math.max(math.floor(value / 4 + 0.5) * 4, 4), 128)
+		E.db.general.gridSize = size
+		nudge.grid:SetText(size)
+		E:ShowGrid(true)
+	end, L["The grid frames snap to, in steps of 4 from 4 to 128. Press Enter to apply."])
 
 	-- Arrows in the middle: the kit chevrons in a flat box, like the Edit
 	-- Mode panel.
@@ -2776,6 +2983,7 @@ local function CreateNudge()
 		b:SetSize(32, E.tokens.height.button)
 		E:SetTemplate(b, true)
 		b:SetPoint("TOP", body, "TOP", x, y)
+		Kit.Tooltip(b, L["Nudge"], L["One pixel per click. Hold Shift for 10."])
 		nudge.arrows[dir] = b
 		return b
 	end
@@ -2802,9 +3010,12 @@ local function CreateNudge()
 		end
 	end, L["Hide"], L["Hide this frame. It stays hidden, also after a reload, until you show it again under Hidden in this menu's view list or on the Hidden boxes page."])
 	nudge.hide:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -86)
+	nudge.undoLast = Kit.Button(nudge, L["Undo last"], 110, E.tokens.height.button, function() E:UndoLastMove() end,
+		L["Undo last"], L["Take back your last change: a drag, a nudge, a typed position, an attach or a reset. Each click goes one step further back. Ctrl+Z does the same."])
+	nudge.undoLast:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -112)
 	nudge.showHidden = Kit.Button(nudge, L["Show hidden"], 110, E.tokens.height.button, function() E:ShowHiddenMovers() end,
 		L["Show hidden"], L["Bring back the boxes you hid with Hide this box in this move session."])
-	nudge.showHidden:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -112)
+	nudge.showHidden:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -138)
 
 	-- Right column: lock and attach.
 	local lock = CreateFrame("CheckButton", nil, nudge, "UICheckButtonTemplate")
@@ -2881,9 +3092,8 @@ local function CreateNudge()
 	nudge.done:SetPoint("BOTTOMRIGHT", -10, 8)
 	Kit.SetButtonKind(nudge.done, "primary") -- the panel's one primary button
 	nudge.resetAll = Kit.Button(nudge, L["Reset all"], 80, E.tokens.height.button, function()
-		E:ResetMovers()
-		E:SelectMover(selected)
-	end, L["Reset all"], L["Every frame back to where the current layout puts it."])
+		E:ConfirmResetMovers()
+	end, L["Reset all"], L["Every frame back to where the current layout puts it. It asks first, and locked frames stay where they are."])
 	nudge.resetAll:SetPoint("RIGHT", nudge.done, "LEFT", -6, 0)
 	nudge.undo = Kit.Button(nudge, L["Undo changes"], 110, E.tokens.height.button, function() E:UndoMoveSession() end,
 		L["Undo changes"], L["Put every frame back where it was when move mode started."])
@@ -2911,6 +3121,7 @@ function UpdatePanel()
 	if not nudge then return end
 	UpdateSetupStrip()
 	nudge.undo:SetEnabled(E:MoveSessionChanged())
+	nudge.undoLast:SetEnabled(#undoMoves > 0)
 	local hidden = E:CountHiddenMovers()
 	nudge.showHidden:SetShown(hidden > 0)
 	nudge.showHidden:SetText(("%s (%d)"):format(L["Show hidden"], hidden))
@@ -2956,7 +3167,8 @@ function E:SelectMover(mover)
 	if mover then
 		mover.overlay:SetBackdropBorderColor(unpack(self.media.accentColor))
 		local point, x, y = MeasureSelected()
-		nudge.title:SetText(point and ("%s %s(%s)|r"):format(L[mover.title], E:TokenHex(E.tokens.text.secondary), point:lower()) or L[mover.title])
+		nudge.title:SetText(point and ("%s %s(%s)|r"):format(L[mover.title], E:TokenHex(E.tokens.text.secondary),
+			L[POINT_LABEL[point] or point]) or L[mover.title])
 		nudge.x:SetText(x and tostring(x) or "")
 		nudge.y:SetText(y and tostring(y) or "")
 		nudge.lock:SetChecked(self:IsMoverLocked(mover.name))
@@ -2971,7 +3183,7 @@ function E:SelectMover(mover)
 		end
 	else
 		nudge.title:SetText(L["Click a frame to nudge it"])
-		nudge.status:SetText(L["Drag frames to move them. Undo changes puts everything back."])
+		nudge.status:SetText(L["Drag frames to move them. Ctrl+Z takes back the last change, Undo changes puts everything back."])
 		nudge.x:SetText("")
 		nudge.y:SetText("")
 		nudge.lock:SetChecked(false)

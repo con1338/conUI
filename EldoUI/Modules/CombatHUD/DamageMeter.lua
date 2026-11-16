@@ -286,11 +286,11 @@ F.options = {
 	{ type = "select", key = "meter.dock", label = "Dock", hidden = NotMove,
 		values = { mover = "Own mover", chat = "Bottom right, as tall as the chat", bags = "Below the bags" },
 		desc = "Own mover: drag it in move mode. The other choices follow the chat or the bag position." },
-	{ type = "range", key = "meter.dockGap", label = "Gap", min = 0, max = 30, step = 1, hidden = NotMove,
+	{ type = "range", unit = "px", key = "meter.dockGap", label = "Gap", min = 0, max = 30, step = 1, hidden = NotMove,
 		desc = "Space to the frame the meter is docked to." },
-	{ type = "range", key = "meter.width", label = "Width", min = 200, max = 800, step = 1, hidden = NotMove,
+	{ type = "range", unit = "px", key = "meter.width", label = "Width", min = 200, max = 800, step = 1, hidden = NotMove,
 		desc = "Width of the main meter window." },
-	{ type = "range", key = "meter.height", label = "Height", min = 100, max = 600, step = 1, hidden = NotMove,
+	{ type = "range", unit = "px", key = "meter.height", label = "Height", min = 100, max = 600, step = 1, hidden = NotMove,
 		desc = "Height of the main meter window (not used when docked as tall as the chat)." },
 	{ type = "header", label = "Look", hidden = NotSkin },
 	{ type = "select", key = "meter.texture", label = "Bar texture", values = Textures, hidden = NotSkin,
@@ -307,7 +307,7 @@ F.options = {
 	{ type = "header", label = "Behavior", hidden = Off },
 	{ type = "select", key = "meter.resetOnInstance", label = "Reset on new instance", hidden = Off,
 		values = { blizzard = "Blizzard setting", on = "Yes", off = "No" },
-		desc = "Blizzard's option to clear the meter when you enter a new instance (CVar damageMeterResetOnNewInstance)." },
+		desc = "The game's own option to clear the meter when you enter a new instance." },
 }
 
 -- The shared visibility rows go before Behavior.

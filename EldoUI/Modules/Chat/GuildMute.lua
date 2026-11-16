@@ -18,8 +18,7 @@
 -- out readable. A sender not seen yet is shown. Secret lines are never
 -- read and never hidden. The server ignore list is never touched.
 -- Hooks into the Chat module (its list editor and line filter hooks) from
--- this file only. Written from scratch for EldoUI; MuteGuilds (MIT) was
--- looked at for behavior only, no code was taken.
+-- this file only. Written from scratch for EldoUI.
 local _, E = ...
 local L = E.L
 
@@ -588,7 +587,7 @@ InsertRows()
 -- off until ticked and never recommended.
 E:RegisterConvenience({ id = "guildMuteInvites", module = "Chat", setting = "guildMuteInvites", order = 140,
 	label = "Decline group invites from muted guilds",
-	desc = "Acts for you: declines group invites from members of the guilds you muted, out of combat, and says who in chat. Change it later under Chat." })
+	desc = "Acts for you: declines group invites from members of the guilds you muted, out of combat, and says who in chat." })
 E:RegisterConvenience({ id = "guildMuteDuels", module = "Chat", setting = "guildMuteDuels", order = 150,
 	label = "Decline duels from muted guilds",
-	desc = "Acts for you: declines duel requests from members of the guilds you muted, out of combat, and says who in chat. Change it later under Chat." })
+	desc = "Acts for you: declines duel requests from members of the guilds you muted, out of combat, and says who in chat." })

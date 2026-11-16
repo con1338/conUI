@@ -22,7 +22,7 @@
 -- Data: the lure items and their bonus below were checked by hand against
 -- the Classic item database (EldoUI_LootData has no lure table).
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 local L = E.L
 
@@ -195,11 +195,20 @@ local function Saved()
 	return saved.cvars
 end
 
-local function SetFishingCVar(name, value)
+-- keep: "up" never lowers the player's own value, "down" never raises it.
+-- The player's own value is the one saved before fishing changed it.
+local function SetFishingCVar(name, value, keep)
 	local saved = Saved()
 	local current = C_CVar and C_CVar.GetCVar and Clean(Try(C_CVar.GetCVar, name))
 	if current == nil then return end
 	if saved and saved[name] == nil then saved[name] = current end
+	local own = tonumber(saved and saved[name] or current)
+	local want = tonumber(value)
+	if own and want then
+		if keep == "up" and own > want then want = own end
+		if keep == "down" and own < want then want = own end
+		value = tostring(want)
+	end
 	E:SetCVar(name, value, CVAR_OWNER)
 end
 
@@ -222,12 +231,12 @@ function M:ApplyCVars(on)
 	if on then
 		if self.db.soundBoost then
 			local level = tostring(self.db.boostLevel or 1)
-			SetFishingCVar("Sound_SFXVolume", level)
-			SetFishingCVar("Sound_MasterVolume", level)
+			SetFishingCVar("Sound_SFXVolume", level, "up")
+			SetFishingCVar("Sound_MasterVolume", level, "up")
 		end
 		if self.db.soundBoost and self.db.dimOthers then
-			SetFishingCVar("Sound_MusicVolume", "0.1")
-			SetFishingCVar("Sound_AmbienceVolume", "0.1")
+			SetFishingCVar("Sound_MusicVolume", "0.1", "down")
+			SetFishingCVar("Sound_AmbienceVolume", "0.1", "down")
 		end
 		self.cvarsOn = true
 		return
@@ -481,8 +490,8 @@ local function SecureButton(name, parent)
 	button.label:SetPoint("TOP", button, "BOTTOM", 0, -2)
 	button:SetScript("OnEnter", function(self) M:ButtonTooltip(self) end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
-	-- Hover, pressed and the accent border from the Skin kit (after SetScript).
-	E:SkinHoverPress(button, button.icon, button)
+	-- Hover and pressed as on the other small HUD buttons.
+	E:SkinHudButton(button, button.icon)
 	return button
 end
 
@@ -581,7 +590,7 @@ function M:BuildBar()
 	E:BindOptionsLink(bar.count, { page = "module:Fishing", key = "showCount" })
 	bar:Hide()
 	self.bar = bar
-	E:CreateMover(bar, "EldoUI_FishingBar", "Fishing Bar", { "BOTTOM", "UIParent", "BOTTOM", 20, 240 })
+	E:CreateMover(bar, "EldoUI_FishingBar", L["Fishing Bar"], { "BOTTOM", "UIParent", "BOTTOM", 20, 240 })
 	self:StyleBar()
 end
 
@@ -948,7 +957,7 @@ M.options = {
 	{ type = "toggle", key = "catchLog", label = "Catch log", desc = "Counts every fish and item per zone and spot, and your Fishing skill-ups. The bar's count shows the log in its tooltip." },
 	{ type = "toggle", key = "feedFarming", label = "Start a Farming session", desc = "Starts the Farming module's session when fishing mode starts, so your catch counts there too." },
 	{ type = "tab", label = "Look" },
-	{ type = "range", key = "buttonSize", label = "Button size", min = 24, max = 40, step = 2, desc = "Size of the Cast, Lure and Swap buttons." },
+	{ type = "range", unit = "px", key = "buttonSize", label = "Button size", min = 24, max = 40, step = 2, desc = "Size of the Cast, Lure and Swap buttons." },
 	{ type = "toggle", key = "showCount", label = "Catch count", desc = "The catches of this session and catches per hour next to the buttons." },
 	{ type = "toggle", key = "showLabels", label = "Button names", desc = "Cast, Lure and Swap under the buttons." },
 	{ type = "select", key = "backdrop", label = "Background", order = { "panel", "transparent", "none" },

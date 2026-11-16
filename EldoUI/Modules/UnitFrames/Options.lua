@@ -193,8 +193,8 @@ table.insert(M.options, 6, { type = "select", key = "allFrames.graphics", label 
 Add({ type = "header", label = "Frame" })
 Add({ type = "toggle", key = function() return UnitPath() .. "enabled" end, label = "Enable",
 	desc = "Show EldoUI's frame for this unit. Units Blizzard draws too (player, target, focus, pet, boss) show only while Blizzard UI lets EldoUI replace or hide Blizzard's frame, so the unit never shows twice." })
-Row({ type = "range", key = "width", label = "Width", min = 60, max = 600, step = 1, desc = "Frame width in pixels." })
-Row({ type = "range", key = "height", label = "Height", min = 14, max = 120, step = 1, desc = "Frame height in pixels, power bar and info panel included." })
+Row({ type = "range", unit = "px", key = "width", label = "Width", min = 60, max = 600, step = 1, desc = "Frame width in pixels." })
+Row({ type = "range", unit = "px", key = "height", label = "Height", min = 14, max = 120, step = 1, desc = "Frame height in pixels, power bar and info panel included." })
 Row({ type = "range", percent = true, key = "scale", label = "Scale", min = 0.5, max = 2, step = 0.05, desc = "Scale of the whole frame." })
 Row({ type = "range", key = "spacing", label = "Space between frames", min = 0, max = 100, step = 1,
 	desc = "Gap between the frames of this group (boss 1-5, party pets, party targets)." }, function() return not INFO[EditKey()].count end)
@@ -222,8 +222,8 @@ Row({ type = "select", key = "strata", label = "Draw above other frames", cog = 
 	values = { BACKGROUND = "Lowest", LOW = "Low", MEDIUM = "Normal", HIGH = "High" },
 	order = { "BACKGROUND", "LOW", "MEDIUM", "HIGH" },
 	desc = "How high the frame sits among other bars. Raise it when another frame covers it. The game menu, the settings and popups always stay on top." })
-Row({ type = "range", key = "level", label = "Order on the same height", min = 0, max = 100, step = 1, cog = true, zeroText = "Auto",
-	desc = "Among frames on the same height, higher draws on top." })
+Row({ type = "range", key = "level", label = "Stacking order", min = 0, max = 100, step = 1, cog = true, zeroText = "Auto",
+	desc = "Fine-tunes which frame draws on top when two frames share the same Draw above other frames setting. Higher is on top; Auto suits most setups." })
 Row({ type = "toggle", key = "happiness", label = "Pet happiness", desc = "Blizzard's happiness icon for hunter pets, with its tooltip." },
 	Not(UnitIs("pet")))
 Row({ type = "toggle", key = "happinessBorder", label = "Happiness border", desc = "Color the frame border red, yellow or green by happiness." },
@@ -243,7 +243,7 @@ do
 		order = { "2D", "3D", "CLASS" },
 		desc = "2D picture, 3D model, or the class icon for players. A unit that is out of view or offline shows the 2D picture instead of the model." },
 		NoPortrait)
-	Row({ type = "range", key = "portraitWidth", label = "Box width", min = 0, max = 160, step = 1, zeroText = "Square",
+	Row({ type = "range", unit = "px", key = "portraitWidth", label = "Box width", min = 0, max = 160, step = 1, zeroText = "Square",
 		desc = "Width of the portrait box. Square makes it as wide as the frame is tall." }, NoBox)
 	Row({ type = "range", percent = true, key = "portraitAlpha", label = "Overlay opacity", min = 0.05, max = 1, step = 0.05,
 		desc = "How strong the portrait shows over the health bar." }, function(db) return db.portrait ~= "overlay" end)
@@ -278,7 +278,7 @@ Row({ type = "select", key = "infoPanel.position", label = "Position", values = 
 Row({ type = "input", key = "infoPanel.tag", label = "Info panel right text",
 	desc = "Tags shown on the right of the strip, e.g. [race] [class:smart]. Empty: none. The Text tags page lists every tag." },
 	function(db) return not db.infoPanel.enabled end)
-Row({ type = "range", key = "infoPanel.height", label = "Info panel height", min = 8, max = 30, step = 1,
+Row({ type = "range", unit = "px", key = "infoPanel.height", label = "Info panel height", min = 8, max = 30, step = 1,
 	desc = "Height of the strip, taken from the frame's height." }, function(db) return not db.infoPanel.enabled end)
 Row({ type = "toggle", key = "infoPanel.transparent", label = "See-through background", cog = true,
 	desc = "The strip lets the game show through a little. How much: General > Panel opacity." }, function(db) return not db.infoPanel.enabled end)
@@ -369,7 +369,7 @@ Row({ type = "toggle", key = "healAbsorbs", label = "Heal absorbs", desc = "Show
 Add({ type = "tab", label = "Power" })
 UnitPicker()
 Add({ type = "header", label = "Power bar" })
-Row({ type = "range", key = "powerHeight", label = "Height", min = 0, max = 30, step = 1, zeroText = "Hidden", desc = "Height of the power bar." }, IsOrb)
+Row({ type = "range", unit = "px", key = "powerHeight", label = "Height", min = 0, max = 30, step = 1, zeroText = "Hidden", desc = "Height of the power bar." }, IsOrb)
 Row({ type = "range", key = "powerHeight", label = "Orb size", min = 60, max = 300, step = 2,
 	desc = "Size of the power orb, ring included. It sits on its own mover, Player Frame Power Bar." }, Not(IsOrb))
 local function NoPower(db) return (db.powerHeight or 0) <= 0 or IsOrb(db) end
@@ -380,7 +380,7 @@ Row({ type = "select", key = "powerStyle", label = "Style",
 		return values
 	end,
 	desc = "Under the health bar, a smaller bar on the frame's bottom edge, or (player) a separate bar with its own mover, Player Frame Power Bar." }, NoPower)
-Row({ type = "range", key = "powerWidth", label = "Width", min = 0, max = 600, step = 1, zeroText = "Auto",
+Row({ type = "range", unit = "px", key = "powerWidth", label = "Width", min = 0, max = 600, step = 1, zeroText = "Auto",
 	desc = "Width of an edge or own-position bar. Auto makes it about as wide as the frame." },
 	function(db) return NoPower(db) or db.powerStyle == "ATTACHED" end)
 Row({ type = "toggle", key = "powerHideNPC", label = "Hide for NPCs", desc = "Only players show a power bar." }, NoPower)
@@ -418,10 +418,22 @@ Row({ type = "select", key = "healthText", label = "Health text", values = HEALT
 	desc = "Health on the bar; Dead, Ghost or Offline instead when that applies. Values come straight from the game." })
 Row({ type = "input", key = "healthTag", label = "Health tags", desc = "Your own health text. The Text tags page lists every tag with a live preview." },
 	function(db) return db.healthText ~= "CUSTOM" end)
+Row({ type = "range", key = "healthSize", label = "Health text size", min = 0, max = 24, step = 1, zeroText = "Text size",
+	desc = "Size of this frame's health text. Text size uses the size on the General tab." }, function(db) return db.healthText == "NONE" end)
+Row({ type = "range", unit = "px", key = "healthX", label = "Health text X", min = -40, max = 40, step = 1, cog = true,
+	desc = "Moves the health text left or right from its place." }, function(db) return db.healthText == "NONE" end)
+Row({ type = "range", unit = "px", key = "healthY", label = "Health text Y", min = -20, max = 20, step = 1, cog = true,
+	desc = "Moves the health text up or down from its place." }, function(db) return db.healthText == "NONE" end)
 Row({ type = "select", key = "powerText", label = "Power text", values = POWER_TEXTS,
 	desc = "Power text on the power bar (needs a power bar 8 px or taller)." })
 Row({ type = "input", key = "powerTag", label = "Power tags", desc = "Your own power text. The Text tags page lists every tag with a live preview." },
 	function(db) return db.powerText ~= "CUSTOM" end)
+Row({ type = "range", key = "powerSize", label = "Power text size", min = 0, max = 24, step = 1, zeroText = "Auto",
+	desc = "Size of this frame's power text. Auto is a little smaller than the text size, or the text size on orbs." }, function(db) return db.powerText == "NONE" end)
+Row({ type = "range", unit = "px", key = "powerX", label = "Power text X", min = -40, max = 40, step = 1, cog = true,
+	desc = "Moves the power text left or right from its place." }, function(db) return db.powerText == "NONE" end)
+Row({ type = "range", unit = "px", key = "powerY", label = "Power text Y", min = -20, max = 20, step = 1, cog = true,
+	desc = "Moves the power text up or down from its place." }, function(db) return db.powerText == "NONE" end)
 
 -- Extra texts: a list; "Remove" leaves a marker so saved lists keep their
 -- numbering.
@@ -497,8 +509,8 @@ TextRow({ type = "select", key = "attach", label = "Attach to",
 	values = { FRAME = "Frame", HEALTH = "Health bar", POWER = "Power bar", INFO = "Info panel" },
 	desc = "The part of the frame the position below refers to (Info panel needs the info panel on, General tab)." }, TextOff)
 TextRow({ type = "select", key = "anchor", label = "Attach to", values = ANCHORS, desc = "Point of that part the text sits on." }, TextOff)
-TextRow({ type = "range", key = "x", label = "X offset", min = -150, max = 150, step = 1, desc = "Horizontal shift in pixels." }, TextOff)
-TextRow({ type = "range", key = "y", label = "Y offset", min = -150, max = 150, step = 1, desc = "Vertical shift in pixels." }, TextOff)
+TextRow({ type = "range", unit = "px", key = "x", label = "X offset", min = -150, max = 150, step = 1, desc = "Horizontal shift in pixels." }, TextOff)
+TextRow({ type = "range", unit = "px", key = "y", label = "Y offset", min = -150, max = 150, step = 1, desc = "Vertical shift in pixels." }, TextOff)
 
 ---------------------------------------------------------------------------
 -- Cast bar
@@ -524,16 +536,16 @@ do
 	Row({ type = "toggle", key = "castbar.matchWidth", label = "Match its width",
 		desc = "Make the cast bar (icon included) as wide as the Cooldown Manager; it follows when the number of tracked spells changes." },
 		NotOnCooldowns)
-	Row({ type = "range", key = "castbar.anchorGap", label = "Gap to the Cooldown Manager", min = 0, max = 30, step = 1, cog = true,
+	Row({ type = "range", unit = "px", key = "castbar.anchorGap", label = "Gap to the Cooldown Manager", min = 0, max = 30, step = 1, cog = true,
 		desc = "Space between the Cooldown Manager and the cast bar." }, NotOnCooldowns)
-	Row({ type = "range", key = "castbar.width", label = "Width", min = 60, max = 600, step = 1, desc = "Width of the bar, icon included." },
+	Row({ type = "range", unit = "px", key = "castbar.width", label = "Width", min = 60, max = 600, step = 1, desc = "Width of the bar, icon included." },
 		function(db) return NoCast(db) or (not NotOnCooldowns(db) and db.castbar.matchWidth) end)
 end
-Row({ type = "range", key = "castbar.height", label = "Height", min = 8, max = 40, step = 1, desc = "Height of the bar and icon." }, NoCast)
+Row({ type = "range", unit = "px", key = "castbar.height", label = "Height", min = 8, max = 40, step = 1, desc = "Height of the bar and icon." }, NoCast)
 local function Detached(db) return NoCast(db) or (EditKey() == "player" and db.castbar.detached) end
-Row({ type = "range", key = "castbar.offsetX", label = "X offset", min = -200, max = 200, step = 1,
+Row({ type = "range", unit = "px", key = "castbar.offsetX", label = "X offset", min = -200, max = 200, step = 1,
 	desc = "Horizontal shift from the frame's right edge." }, Detached)
-Row({ type = "range", key = "castbar.offsetY", label = "Gap", min = -60, max = 60, step = 1,
+Row({ type = "range", unit = "px", key = "castbar.offsetY", label = "Gap", min = -60, max = 60, step = 1,
 	desc = "Distance between the frame and its cast bar below it." }, Detached)
 Row({ type = "select", key = "castbar.colorMode", label = "Color",
 	values = { ACCENT = "Theme accent", CLASS = "Class (players)", REACTION = "Reaction", CUSTOM = "Own color" },
@@ -551,8 +563,11 @@ Row({ type = "color", key = "castbar.backdropColor", label = "Background color",
 Add({ type = "header", label = "Other units' casts", hidden = function() return Off() or NoCastHere() or EditKey() == "player" end })
 do
 	local function NoOtherCast(db) return NoCast(db) or EditKey() == "player" end
+	Row({ type = "toggle", key = "castbar.showMyInterrupt", label = "Show my interrupt",
+		desc = "Show your known interrupt's icon and cooldown while your target or focus casts." },
+		function(db) return NoCast(db) or (EditKey() ~= "target" and EditKey() ~= "focus") end)
 	Row({ type = "toggle", key = "castbar.hideLocked", label = "Hide casts you can't interrupt",
-		desc = "Hide the bar while the cast can't be interrupted. The game decides; the client sets the bar's visibility, EldoUI never reads the answer." },
+		desc = "Hides the bar while the cast can't be interrupted." },
 		NoOtherCast)
 	Row({ type = "toggle", key = "castbar.hideUnimportant", label = "Only important spells", requiresAPI = "C_Spell.IsSpellImportant",
 		desc = "Hide the bar for spells the game does not mark as important, so only the casts that matter show." },
@@ -570,11 +585,11 @@ Row({ type = "select", key = "castbar.iconAttach", label = "Icon placement", cog
 	values = { ATTACHED = "Beside the bar", INSIDE = "Inside the bar", DETACHED = "Free (own size and offset)" },
 	desc = "Beside the bar (part of its width), inside the bar's end, or free with its own size and offset." }, NoIcon)
 local function NotFree(db) return NoIcon(db) or db.castbar.iconAttach ~= "DETACHED" end
-Row({ type = "range", key = "castbar.iconSize", label = "Icon size", min = 0, max = 64, step = 1, cog = true, zeroText = "Auto",
+Row({ type = "range", unit = "px", key = "castbar.iconSize", label = "Icon size", min = 0, max = 64, step = 1, cog = true, zeroText = "Auto",
 	desc = "Size of a free icon. Auto makes it as tall as the bar." }, NotFree)
-Row({ type = "range", key = "castbar.iconX", label = "Icon X offset", min = -100, max = 100, step = 1, cog = true,
+Row({ type = "range", unit = "px", key = "castbar.iconX", label = "Icon X offset", min = -100, max = 100, step = 1, cog = true,
 	desc = "Horizontal shift of a free icon." }, NotFree)
-Row({ type = "range", key = "castbar.iconY", label = "Icon Y offset", min = -100, max = 100, step = 1, cog = true,
+Row({ type = "range", unit = "px", key = "castbar.iconY", label = "Icon Y offset", min = -100, max = 100, step = 1, cog = true,
 	desc = "Vertical shift of a free icon." }, NotFree)
 
 Add({ type = "header", label = "Text", hidden = function() return Off() or NoCastHere() end })
@@ -591,7 +606,7 @@ Row({ type = "select", key = "castbar.timeFormat", label = "Time format",
 Row({ type = "range", key = "castbar.timeSize", label = "Time size", min = 0, max = 24, step = 1, cog = true, zeroText = "Auto",
 	desc = "Font size of the cast time. Auto follows the bar's height." }, function(db) return NoCast(db) or not db.castbar.time end)
 Row({ type = "toggle", key = "castbar.spellTarget", label = "Spell target",
-	desc = "Name of the cast's target next to the spell, as the game reports it." },
+	desc = "Name of the cast's target next to the spell." },
 	function(db) return NoCast(db) or EditKey() == "player" end)
 Row({ type = "toggle", key = "castbar.targetClassColor", label = "Target in class color", cog = true,
 	desc = "Color the target's name by class when the game tells it." },
@@ -599,7 +614,7 @@ Row({ type = "toggle", key = "castbar.targetClassColor", label = "Target in clas
 
 Add({ type = "header", label = "Timing", hidden = function() return Off() or NoCastHere() end })
 Row({ type = "toggle", key = "castbar.showInterrupted", label = "Show interrupted",
-	desc = "When the cast fails or is interrupted, the bar stays a moment in red with the reason." }, NoCast)
+	desc = "When the cast fails or is interrupted, the bar stays a moment in the interrupted color with the reason." }, NoCast)
 Row({ type = "color", key = "castbar.failedColor", label = "Interrupted color", cog = true,
 	desc = "Bar color after a failed or interrupted cast." }, function(db) return NoCast(db) or not db.castbar.showInterrupted end)
 Row({ type = "toggle", key = "castbar.showSuccess", label = "Show finished casts",
@@ -616,7 +631,7 @@ do
 		desc = "A short flash over the bar when a cast ends (needs animations on, General)." }, NoHold)
 end
 Row({ type = "toggle", key = "castbar.latency", label = "Latency zone",
-	desc = "Red zone at the end of your casts as long as your latency (from GetNetStats)." },
+	desc = "A red zone at the end of your casts, as long as your current latency." },
 	function(db) return NoCast(db) or EditKey() ~= "player" end)
 Row({ type = "toggle", key = "castbar.ticks", label = "Channel ticks",
 	desc = "Marks on the bar where your channeled spells tick (Drain Life, Mind Flay, Blizzard, Tranquility ...)." },
@@ -659,17 +674,17 @@ local function AuraTab(which, title)
 		desc = "Icons with a countdown, or one timer bar per aura with its name." }, NoBlock)
 	local function Icons(db) return NoBlock(db) or Block(db).style == "BARS" end
 	local function Bars(db) return NoBlock(db) or Block(db).style ~= "BARS" end
-	Row({ type = "range", key = P("size"), label = "Icon size", min = 12, max = 64, step = 1, desc = "Size of each icon." }, Icons)
+	Row({ type = "range", unit = "px", key = P("size"), label = "Icon size", min = 12, max = 64, step = 1, desc = "Width and height of each aura icon in this row." }, Icons)
 	Row({ type = "range", key = P("perRow"), label = "Per row", min = 1, max = 20, step = 1, desc = "Icons in one row before the next row starts." }, Icons)
 	Row({ type = "range", key = P("max"), label = "Most shown", min = 1, max = 40, step = 1, desc = texts.most }, NoBlock)
-	Row({ type = "range", key = P("barHeight"), label = "Bar height", min = 10, max = 40, step = 1, desc = "Height of each timer bar." }, Bars)
-	Row({ type = "range", key = P("barWidth"), label = "Bar width", min = 0, max = 500, step = 1, zeroText = "Auto",
+	Row({ type = "range", unit = "px", key = P("barHeight"), label = "Bar height", min = 10, max = 40, step = 1, desc = "Height of each timer bar." }, Bars)
+	Row({ type = "range", unit = "px", key = P("barWidth"), label = "Bar width", min = 0, max = 500, step = 1, zeroText = "Auto",
 		desc = "Width of each timer bar. Auto makes it as wide as the frame." }, Bars)
 	if kind == "HARMFUL" then
 		Row({ type = "select", key = P("barColor"), label = "Bar color", values = { DISPEL = "By debuff type", ACCENT = "Theme accent" },
 			desc = "Color timer bars by magic, curse, disease, poison or bleed (the game picks the color), or use the accent color." }, Bars)
 	end
-	Row({ type = "range", key = P("spacing"), label = "Spacing", min = 0, max = 20, step = 1, cog = true, desc = "Gap between icons or bars." }, NoBlock)
+	Row({ type = "range", unit = "px", key = P("spacing"), label = "Spacing", min = 0, max = 20, step = 1, cog = true, desc = "Gap between icons or bars." }, NoBlock)
 
 	Add({ type = "header", label = "Position", hidden = function() return Off() or NoAurasHere() end })
 	Row({ type = "select", key = P("anchor"), label = "Side", values = { TOP = "Above", BOTTOM = "Below", LEFT = "Left", RIGHT = "Right" },
@@ -681,8 +696,8 @@ local function AuraTab(which, title)
 		desc = "Which way a row fills." }, NoBlock)
 	Row({ type = "select", key = P("growthY"), label = "New rows", values = { UP = "Above", DOWN = "Below" }, cog = true,
 		desc = "Where a second row goes." }, NoBlock)
-	Row({ type = "range", key = P("x"), label = "X offset", min = -200, max = 200, step = 1, cog = true, desc = "Horizontal shift." }, NoBlock)
-	Row({ type = "range", key = P("y"), label = "Y offset", min = -200, max = 200, step = 1, cog = true, desc = "Vertical shift." }, NoBlock)
+	Row({ type = "range", unit = "px", key = P("x"), label = "X offset", min = -200, max = 200, step = 1, cog = true, desc = "Horizontal shift." }, NoBlock)
+	Row({ type = "range", unit = "px", key = P("y"), label = "Y offset", min = -200, max = 200, step = 1, cog = true, desc = "Vertical shift." }, NoBlock)
 
 	Add({ type = "header", label = "Order", hidden = function() return Off() or NoAurasHere() end })
 	Row({ type = "select", key = P("sort"), label = "Sort", values = { TIME = "Time left", NAME = "Name", INDEX = "Order applied" },
@@ -696,7 +711,7 @@ local function AuraTab(which, title)
 	Add({ type = "header", label = "Time and stacks", hidden = function() return Off() or NoAurasHere() end })
 	Row({ type = "select", key = P("duration"), label = "Show as",
 		values = { SWIPE = "Swipe and numbers", SWIPEONLY = "Swipe only", TEXT = "Text only", BOTH = "Swipe and text", NONE = "Nothing" },
-		desc = "How the time left shows. Numbers and text are drawn by the game from a time EldoUI never reads." }, NoBlock)
+		desc = "How the time left shows." }, NoBlock)
 	local function NoNumbers(db) return NoBlock(db) or Block(db).duration == "NONE" or Block(db).duration == "SWIPEONLY" end
 	Row({ type = "range", key = P("durationSize"), label = "Time size", min = 0, max = 24, step = 1, cog = true, zeroText = "Auto",
 		desc = "Font size of the time. Auto follows the icon size." }, NoNumbers)
@@ -704,16 +719,16 @@ local function AuraTab(which, title)
 		values = { CENTER = "Center", TOP = "Top", BOTTOM = "Bottom", TOPLEFT = "Top left", TOPRIGHT = "Top right",
 			BOTTOMLEFT = "Bottom left", BOTTOMRIGHT = "Bottom right", BELOW = "Under the icon", ABOVE = "Over the icon" },
 		desc = "Where the time sits on the icon." }, function(db) return NoNumbers(db) or Block(db).style == "BARS" end)
-	Row({ type = "range", key = P("durationX"), label = "Time X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the time." },
+	Row({ type = "range", unit = "px", key = P("durationX"), label = "Time X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the time." },
 		function(db) return NoNumbers(db) or Block(db).style == "BARS" end)
-	Row({ type = "range", key = P("durationY"), label = "Time Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the time." },
+	Row({ type = "range", unit = "px", key = P("durationY"), label = "Time Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the time." },
 		function(db) return NoNumbers(db) or Block(db).style == "BARS" end)
 	Row({ type = "range", key = P("countSize"), label = "Stack size", min = 0, max = 24, step = 1, cog = true, zeroText = "Auto",
 		desc = "Font size of the stack count. Auto follows the icon size." }, NoBlock)
 	Row({ type = "select", key = P("countPoint"), label = "Stack position", cog = true, values = ANCHORS,
 		desc = "Where the stack count sits on the icon." }, Icons)
-	Row({ type = "range", key = P("countX"), label = "Stack X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the stack count." }, Icons)
-	Row({ type = "range", key = P("countY"), label = "Stack Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the stack count." }, Icons)
+	Row({ type = "range", unit = "px", key = P("countX"), label = "Stack X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the stack count." }, Icons)
+	Row({ type = "range", unit = "px", key = P("countY"), label = "Stack Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the stack count." }, Icons)
 	Row({ type = "toggle", key = P("dispelBorder"), label = "Debuff type border",
 		desc = "Border colored by magic, curse, disease, poison or bleed (the game picks the color)." }, Icons)
 	Row({ type = "toggle", key = P("clickThrough"), label = "Click through", cog = true,
@@ -732,10 +747,16 @@ Add({ type = "tab", label = "Icons" })
 UnitPicker()
 Add({ type = "header", label = "Status icons" })
 local function I(field) return "indicators." .. field end
-Row({ type = "range", key = I("size"), label = "Icon size", min = 8, max = 40, step = 1, desc = "Size of the status icons." })
+Row({ type = "range", unit = "px", key = I("size"), label = "Icon size", min = 8, max = 40, step = 1, desc = "Size of the status icons." })
 Row({ type = "toggle", key = I("leader"), label = "Leader", desc = "Crown on the group leader (and a badge on raid assistants)." })
 Row({ type = "toggle", key = I("role"), label = "Main tank / assist", desc = "Raid main tank and main assist icons." })
 Row({ type = "toggle", key = I("pvp"), label = "PvP", desc = "Faction badge when PvP is on." })
+Row({ type = "toggle", key = I("pvpTimer"), label = "PvP countdown", cog = true,
+	desc = "Show the time left on your PvP flag beside the badge and in its tooltip." },
+	function(db) return EditKey() ~= "player" or not db.indicators.pvp end)
+Row({ type = "toggle", key = I("quest"), label = "Quest mob",
+	desc = "Show an icon on the target and focus when the unit belongs to one of your unfinished quest objectives." },
+	function() return EditKey() ~= "target" and EditKey() ~= "focus" end)
 Row({ type = "toggle", key = I("raidMarker"), label = "Raid marker", desc = "The raid target marker on this unit." })
 Row({ type = "toggle", key = I("classification"), label = "Elite and rare", desc = "Gold dragon for elites and bosses, silver for rares." },
 	UnitIs("player", "pet"))
@@ -751,9 +772,9 @@ Row({ type = "select", key = I("combatStyle"), label = "Combat look", values = {
 	desc = "Modern swords or the classic combat icon." }, NoCombat)
 Row({ type = "color", key = I("combatColor"), label = "Combat color", cog = true, desc = "Tint of the combat icon (white keeps its own colors)." }, NoCombat)
 Row({ type = "select", key = I("combatPoint"), label = "Combat position", values = ANCHORS, cog = true, desc = "Point of the frame the combat icon sits on." }, NoCombat)
-Row({ type = "range", key = I("combatX"), label = "Combat X offset", min = -100, max = 100, step = 1, cog = true, desc = "Horizontal shift of the combat icon." }, NoCombat)
-Row({ type = "range", key = I("combatY"), label = "Combat Y offset", min = -100, max = 100, step = 1, cog = true, desc = "Vertical shift of the combat icon." }, NoCombat)
-Row({ type = "range", key = I("combatSize"), label = "Combat icon size", min = 0, max = 48, step = 1, cog = true, zeroText = "Same", desc = "Size of the combat icon. Same uses the icon size above." }, NoCombat)
+Row({ type = "range", unit = "px", key = I("combatX"), label = "Combat X offset", min = -100, max = 100, step = 1, cog = true, desc = "Horizontal shift of the combat icon." }, NoCombat)
+Row({ type = "range", unit = "px", key = I("combatY"), label = "Combat Y offset", min = -100, max = 100, step = 1, cog = true, desc = "Vertical shift of the combat icon." }, NoCombat)
+Row({ type = "range", unit = "px", key = I("combatSize"), label = "Combat icon size", min = 0, max = 48, step = 1, cog = true, zeroText = "Same", desc = "Size of the combat icon. Same uses the icon size above." }, NoCombat)
 local function NotPlayer() return EditKey() ~= "player" end
 Row({ type = "toggle", key = I("resting"), label = "Resting", desc = "Shown while you rest in an inn or city." }, NotPlayer)
 local function NoResting(db) return NotPlayer() or not db.indicators.resting end
@@ -761,9 +782,9 @@ Row({ type = "select", key = I("restingStyle"), label = "Resting look", values =
 	desc = "The classic resting icon or a small zzz." }, NoResting)
 Row({ type = "color", key = I("restingColor"), label = "Resting color", cog = true, desc = "Tint of the resting icon or text." }, NoResting)
 Row({ type = "select", key = I("restingPoint"), label = "Resting position", values = ANCHORS, cog = true, desc = "Point of the frame the resting icon sits on." }, NoResting)
-Row({ type = "range", key = I("restingX"), label = "Resting X offset", min = -100, max = 100, step = 1, cog = true, desc = "Horizontal shift of the resting icon." }, NoResting)
-Row({ type = "range", key = I("restingY"), label = "Resting Y offset", min = -100, max = 100, step = 1, cog = true, desc = "Vertical shift of the resting icon." }, NoResting)
-Row({ type = "range", key = I("restingSize"), label = "Resting icon size", min = 0, max = 48, step = 1, cog = true, zeroText = "Same", desc = "Size of the resting icon. Same uses the icon size above." }, NoResting)
+Row({ type = "range", unit = "px", key = I("restingX"), label = "Resting X offset", min = -100, max = 100, step = 1, cog = true, desc = "Horizontal shift of the resting icon." }, NoResting)
+Row({ type = "range", unit = "px", key = I("restingY"), label = "Resting Y offset", min = -100, max = 100, step = 1, cog = true, desc = "Vertical shift of the resting icon." }, NoResting)
+Row({ type = "range", unit = "px", key = I("restingSize"), label = "Resting icon size", min = 0, max = 48, step = 1, cog = true, zeroText = "Same", desc = "Size of the resting icon. Same uses the icon size above." }, NoResting)
 
 ---------------------------------------------------------------------------
 -- Effects: Core/UnitFX.lua's rows for the edited unit. The player,

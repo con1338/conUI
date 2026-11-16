@@ -428,7 +428,7 @@ M:AddMenuEntry(function(root, key, record)
 	end
 	groups:CreateButton(L["New group..."], function()
 		E:ShowConfirm({ key = "ELDOUI_ALTS_NEW_GROUP", title = L["Alts"], text = L["Name of the new group:"],
-			accept = OKAY or L["OK"], edit = { maxLetters = 32 }, data = key, onAccept = AddGroup })
+			accept = E:GameText(OKAY, L["OK"]), edit = { maxLetters = 32 }, data = key, onAccept = AddGroup })
 	end)
 	local marks = root:CreateButton(L["Bank mark"])
 	marks:CreateRadio(L["None"], function() return M.db.bankMarks[key] == nil end, function() M.db.bankMarks[key] = nil M:Refresh() end)

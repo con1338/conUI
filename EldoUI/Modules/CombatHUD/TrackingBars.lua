@@ -526,7 +526,8 @@ local function AuraBar(entry, bar, index, id, name, iconFile)
 		}, Place, Dress)
 		slots[1] = { key = key .. "D", filter = filter, candidateFilters = candidateFilters, initialize = initialize }
 	end
-	entry.container = W.CreateSlots(root, { unit = bar.unit or "player", slots = slots })
+	entry.container = W.CreateSlots(root, { unit = bar.unit or "player", slots = slots,
+		poolKey = ("trackingbar:%d:%s"):format(index, tostring(entry.sig)) })
 end
 
 ---------------------------------------------------------------------------
@@ -1265,10 +1266,10 @@ M.options = {
 	{ type = "select", key = B("matchRow"), label = L["Match cooldown row width"], hidden = NoBar,
 		values = { none = L["No, own width"], essential = L["Essential row"], utility = L["Utility row"] },
 		desc = L["Take the width of a cooldown row and follow it when it changes."] },
-	{ type = "range", key = B("width"), label = L["Width"], min = 60, max = 600, step = 2,
+	{ type = "range", unit = "px", key = B("width"), label = L["Width"], min = 60, max = 600, step = 2,
 		hidden = function() return NoBar() or Edit().matchRow ~= "none" end,
 		desc = L["The bar's length."] },
-	{ type = "range", key = B("height"), label = L["Height"], min = 6, max = 40, step = 1, hidden = NoBar,
+	{ type = "range", unit = "px", key = B("height"), label = L["Height"], min = 6, max = 40, step = 1, hidden = NoBar,
 		desc = L["The bar's thickness."] },
 	{ type = "color", key = B("color"), label = L["Color"], hidden = NoBar,
 		desc = L["The bar's fill color."] },
@@ -1327,7 +1328,7 @@ local layoutOptions = {
 	{ type = "select", key = "placement", label = L["Block position"],
 		values = { stack = L["Under the cooldown rows"], mover = L["Own mover (Tracking bars)"] },
 		desc = L["Under the cooldown rows: the block hangs under the main row, after the item row and before a cast bar placed there, and moves with them. Own mover: drag it in move mode."] },
-	{ type = "range", key = "spacing", label = L["Spacing"], min = 0, max = 12, step = 1,
+	{ type = "range", unit = "px", key = "spacing", label = L["Spacing"], min = 0, max = 12, step = 1,
 		desc = L["Space between the bars of the block."] },
 	{ type = "range", key = "fontSize", label = L["Text size"], min = 8, max = 18, step = 1,
 		desc = L["Size of the name, time and count on every bar."] },

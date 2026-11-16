@@ -372,7 +372,7 @@ function M:UpdateThreat()
 		local name = UnitName(mob)
 		if issecret(name) then window.title:SetText(name) else window.title:SetText(name or "") end
 	else
-		window.title:SetText(db.source == "focus" and (_G.FOCUS or L["Focus"]) or (TARGET or L["Target"]))
+		window.title:SetText(db.source == "focus" and (E:GameText(_G.FOCUS, L["Focus"])) or (E:GameText(TARGET, L["Target"])))
 	end
 	window.empty:SetShown(count == 0)
 	window.empty:SetText(state.secret and L["Threat is hidden by the game here"] or L["No threat"])
@@ -380,15 +380,18 @@ function M:UpdateThreat()
 end
 
 -- Several events arrive in one frame (a pull): draw once.
+local function Draw()
+	if Active() then M:UpdateThreat() end
+end
 local function Queue()
-	E:Debounce("hud:threat", 0.1, function()
-		if Active() then M:UpdateThreat() end
-	end)
+	E:Debounce("hud:threat", 0.1, Draw)
 end
 
 local events = CreateFrame("Frame")
 events:SetScript("OnEvent", Queue)
-local EVENTS = { "UNIT_THREAT_LIST_UPDATE", "UNIT_THREAT_SITUATION_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED",
+-- A threat list changes on the mob it belongs to: only the target's and
+-- the focus's lists are shown (registered as unit events below).
+local EVENTS = { "UNIT_THREAT_SITUATION_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED",
 	"GROUP_ROSTER_UPDATE", "UNIT_PET", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
 
 ---------------------------------------------------------------------------
@@ -484,6 +487,7 @@ function F:Apply(db)
 	for _, event in ipairs(EVENTS) do events:RegisterEvent(event) end
 	-- A friend's target changes without a target event of our own.
 	events:RegisterUnitEvent("UNIT_TARGET", "target", "focus")
+	events:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", "target", "focus")
 	M:UpdateThreat()
 end
 
@@ -502,7 +506,7 @@ end
 local function Off() return not (M.db and M.db.threat and M.db.threat.enabled) end
 local function Textures() local v = K.TextureValues(); v[""] = L["Theme texture"]; return v end
 
-F.note = L["Lists your group on the threat table of your target or focus, as the game reports it. Where the game hides threat, the window says so."]
+F.note = L["Lists your group on the threat table of your target or focus. Where the game hides threat, the window says so."]
 F.options = {
 	{ type = "toggle", key = "threat.enabled", label = "Threat meter", desc = "A small window with one bar per group member on your target's threat table." },
 	{ type = "header", label = "What it shows", hidden = Off },
@@ -546,9 +550,9 @@ F.options = {
 	{ type = "media", key = "threat.warnSound", label = "Warning sound", mediaKind = "sound", hidden = function() return Off() or not M.db.threat.warn end,
 		desc = "Sound played once when the warning starts. None plays nothing." },
 	{ type = "header", label = "Look", hidden = Off },
-	{ type = "range", key = "threat.width", label = "Width", min = 120, max = 400, step = 1, hidden = Off, desc = "Width of the window." },
-	{ type = "range", key = "threat.barHeight", label = "Bar height", min = 10, max = 30, step = 1, hidden = Off, desc = "Height of each bar." },
-	{ type = "range", key = "threat.spacing", label = "Spacing", min = 0, max = 6, step = 1, hidden = Off, desc = "Space between bars." },
+	{ type = "range", unit = "px", key = "threat.width", label = "Width", min = 120, max = 400, step = 1, hidden = Off, desc = "Width of the window." },
+	{ type = "range", unit = "px", key = "threat.barHeight", label = "Bar height", min = 10, max = 30, step = 1, hidden = Off, desc = "Height of each player's threat bar." },
+	{ type = "range", unit = "px", key = "threat.spacing", label = "Spacing", min = 0, max = 6, step = 1, hidden = Off, desc = "Space between bars." },
 	{ type = "select", key = "threat.texture", label = "Bar texture", values = Textures, hidden = Off, desc = "Texture of the bars." },
 	{ type = "media", mediaKind = "font", default = "THEME", defaultLabel = "Theme font", key = "threat.font", label = "Font", hidden = Off, desc = "Font of names and values." },
 	{ type = "range", key = "threat.fontSize", label = "Text size", min = 8, max = 18, step = 1, hidden = Off, desc = "Size of names and values." },

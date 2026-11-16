@@ -436,7 +436,32 @@ function M:OnInitialize()
 	self:RegisterTooltip()
 end
 
+-- The group journal keeps the newest JOURNAL_KEEP players it only saw in
+-- a group; a player with a note or a mark is always kept. Runs at start.
+M.JOURNAL_KEEP = 300
+function M:TrimJournal()
+	local store = self:Store()
+	local plain = {}
+	for key, record in pairs(store) do
+		if type(record) == "table" and not record.note and not record.mark then
+			plain[#plain + 1] = { key = key, last = tonumber(record.last) or 0 }
+		end
+	end
+	if #plain <= self.JOURNAL_KEEP then return 0 end
+	table.sort(plain, function(a, b)
+		if a.last ~= b.last then return a.last > b.last end
+		return tostring(a.key) < tostring(b.key)
+	end)
+	local dropped = 0
+	for index = self.JOURNAL_KEEP + 1, #plain do
+		store[plain[index].key] = nil
+		dropped = dropped + 1
+	end
+	return dropped
+end
+
 function M:OnEnable()
+	self:TrimJournal()
 	self:AddMenus()
 	for _, event in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD" }) do
 		pcall(events.RegisterEvent, events, event)

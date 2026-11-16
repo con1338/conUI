@@ -46,7 +46,7 @@
 --               of role keys
 -- Written from scratch for EldoUI.
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 local L = E.L
 

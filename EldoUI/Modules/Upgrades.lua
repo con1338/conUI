@@ -268,6 +268,18 @@ local function IconRegion(button)
 	return button.icon or button.Icon or (name and (_G[name .. "IconTexture"] or _G[name .. "Icon"])) or button
 end
 
+-- The arrow sits in a corner of the icon; a bag window that shows the item
+-- level in that corner asks for another one.
+local function PlaceArrow(overlay, point)
+	if overlay.arrowPoint == point then return end
+	overlay.arrowPoint = point
+	local inset = overlay.arrowInset
+	local x = point:find("RIGHT") and -inset or inset
+	local y = point:find("BOTTOM") and inset or -inset
+	overlay.arrow:ClearAllPoints()
+	overlay.arrow:SetPoint(point, x, y)
+end
+
 local function Overlay(button)
 	local overlay = overlays[button]
 	if overlay then return overlay end
@@ -283,12 +295,13 @@ local function Overlay(button)
 		overlay.arrow = overlay:CreateTexture(nil, "OVERLAY")
 		overlay.arrow:SetAtlas(ARROW_ATLAS)
 		overlay.arrow:SetSize(14, 14)
-		overlay.arrow:SetPoint("TOPLEFT", -1, 1)
+		overlay.arrowInset = -1
 	else
 		overlay.arrow = E:CreateText(overlay, E.tokens.size.display, "LEFT")
-		overlay.arrow:SetPoint("TOPLEFT", 1, -1)
 		overlay.arrow:SetText("+")
+		overlay.arrowInset = 1
 	end
+	PlaceArrow(overlay, "TOPLEFT")
 
 	overlay.coin = overlay:CreateTexture(nil, "OVERLAY")
 	overlay.coin:SetTexture("Interface\\MoneyFrame\\UI-GoldIcon")
@@ -339,6 +352,7 @@ function E:SetUpgradeArrow(button, link, opts)
 	end
 	local overlay = Overlay(button)
 	local r, g, b = Green()
+	PlaceArrow(overlay, opts.arrowPoint or "TOPLEFT")
 	overlay.arrow:SetShown(upgrade and true or false)
 	if overlay.arrow.SetTextColor then overlay.arrow:SetTextColor(r, g, b) end
 	overlay.tint:SetShown(tint and true or false)
@@ -380,12 +394,14 @@ local function UpdateEldoBags()
 	local frame = _G.EldoUI_Bags
 	if not frame or not frame:IsShown() then return end
 	local cache, bagHolders = E.BagCache, frame.holders or {}
+	local bags = E.modules.Bags
+	if not (bags and bags.UpgradeOptions) then bags = nil end
 	for _, bag in ipairs(cache:BagIDs({ reagent = true })) do
 		local buttons = bagHolders[bag] and bagHolders[bag].buttons
 		if buttons then
 			for slot = 1, cache:NumSlots(bag) do
 				local button = buttons[slot]
-				if button then E:SetUpgradeArrow(button, cache:Link(bag, slot)) end
+				if button then E:SetUpgradeArrow(button, cache:Link(bag, slot), bags and bags:UpgradeOptions()) end
 			end
 		end
 	end
@@ -698,7 +714,7 @@ M.options = {
 		desc = "Percent of what you wear now, or the plain score difference. Empty slots always show the score. A simulated rating shows DPS instead." },
 	{ type = "range", key = "minPercent", label = "Smallest upgrade", unit = "%", min = 0, max = 20, step = 0.5, desc = "Gains below this are not marked." },
 	{ type = "toggle", key = "icons", label = "Arrows on icons", desc = "On bag, merchant and loot-roll icons. On Blizzard's own bag, merchant and roll windows this also needs that element's Improve switch (Blizzard UI page)." },
-	{ type = "toggle", key = "tintUnusable", label = "Red tint on unusable gear", desc = "Bag items the game marks in red (wrong armor type, level too high) get a faint red tint." },
+	{ type = "toggle", key = "tintUnusable", label = "Red tint on unusable gear", desc = "Bag items the game marks in red (wrong armor type, level too high) get a faint red tint. EldoUI's own bag window follows its \"Red icon on items you can't use\" switch instead." },
 	{ type = "toggle", key = "questRewards", label = "Quest rewards", disabled = E:BlizzardNeeds("quest-gossip-npc", "improve"),
 		desc = "Arrows on upgrade rewards and a green outline on the best choice in the quest dialogs, and in the quest log while World map and quest log has Improve on." },
 	{ type = "toggle", key = "questVendor", label = "Best vendor reward", desc = "When no reward is an upgrade, a coin marks the one that sells for most." },
@@ -730,7 +746,7 @@ M.options = {
 			local scale = ActiveScale()
 			if scale then
 				E:ShowConfirm({ key = "ELDOUI_UPGRADES_DELETE", title = L["Upgrades"], text = L["Delete the scale %s?"]:format(E:Highlight(scale.name)),
-					accept = DELETE or L["Delete"], danger = true, onAccept = function() M:DeleteScale() end })
+					accept = E:GameText(DELETE, L["Delete"]), danger = true, onAccept = function() M:DeleteScale() end })
 			end
 		end },
 	{ type = "input", key = "renameTo", label = "New name", desc = "Type a name, press Enter, then click Rename." },

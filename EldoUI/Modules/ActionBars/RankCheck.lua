@@ -496,9 +496,9 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 	if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_PlayerSpells") then M:ApplyRankCheck() end
 end, owner)
 
-E:AddCommand("rankcheck", "  list and light up the action buttons that hold a lower spell rank", function()
+E:AddCommand("rankcheck", "list and light up the action buttons that hold a lower spell rank", function()
 	M:CheckRanks()
-end, "Tools")
+end, "Keys and spells")
 
 -- The spellbook button follows "Spellbook and talents": Improve, the glows
 -- on Blizzard's bars "Action button look": Improve. Either switch changing

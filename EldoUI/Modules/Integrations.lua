@@ -82,7 +82,7 @@ local M = E:NewModule("Integrations", {
 			style = true,       -- the profile picks the "EldoUI" bar style
 			timing = true,      -- the profile carries the role's timing and bar counts
 			-- previousProfile: the BigWigs profile in use before the first EldoUI
-			-- import, for "Restore my previous BigWigs profile"
+			-- import, for "Restore your previous BigWigs profile"
 		},
 		questie = {
 			enabled = true,
@@ -1572,7 +1572,7 @@ end
 -- (optional) gets true or false. Returns whether BigWigs took the request.
 function M:SendBigWigsProfile(text, onDone)
 	local api = _G.BigWigsAPI
-	if type(api) ~= "table" or type(api.RegisterProfile) ~= "function" then return false, L["This BigWigs version has no profile API."] end
+	if type(api) ~= "table" or type(api.RegisterProfile) ~= "function" then return false, L["This BigWigs version can't take a profile from EldoUI."] end
 	local cfg = self.db.bigwigs
 	local name = self:BigWigsProfileName()
 	local okName, before = pcall(api.GetProfileName)
@@ -1591,7 +1591,7 @@ function M:SendBigWigsProfile(text, onDone)
 	return true
 end
 
--- "Restore my previous BigWigs profile": BigWigs asks in its own popup,
+-- "Restore your previous BigWigs profile": BigWigs asks in its own popup,
 -- then switches back. EldoUI's profiles stay (deleting one would switch
 -- BigWigs to Default).
 function M:RestoreBigWigsProfile()
@@ -1628,7 +1628,7 @@ function M:SendBigWigsAnchors()
 	end
 	local api = _G.BigWigsAPI
 	if type(api) ~= "table" or type(api.RegisterProfile) ~= "function" then
-		self:Print(L["This BigWigs version has no profile API."])
+		self:Print(L["This BigWigs version can't take a profile from EldoUI."])
 		return
 	end
 	local text = self:BigWigsAnchorString()
@@ -2149,29 +2149,29 @@ M.options = {
 		desc = "Stacked meters: window 2 gets its own mover, above window 1 in every layout. Ungroup the windows in Details if it snapped them together." },
 	{ type = "toggle", key = "details.size", label = "Set the window size",
 		desc = "Sizes the windows from the values below. Off: Details keeps its own size and the mover takes it over." },
-	{ type = "range", key = "details.width", label = "Window 1 width", min = 150, max = 800, step = 1,
+	{ type = "range", unit = "px", key = "details.width", label = "Window 1 width", min = 150, max = 800, step = 1,
 		desc = "Width of window 1 in UI units, when \"Set the window size\" is on." },
-	{ type = "range", key = "details.height", label = "Window 1 height", min = 80, max = 600, step = 1,
+	{ type = "range", unit = "px", key = "details.height", label = "Window 1 height", min = 80, max = 600, step = 1,
 		desc = "Height of window 1 including its title bar, when \"Set the window size\" is on." },
-	{ type = "range", key = "details.width2", label = "Window 2 width", min = 150, max = 800, step = 1,
+	{ type = "range", unit = "px", key = "details.width2", label = "Window 2 width", min = 150, max = 800, step = 1,
 		desc = "Width of window 2, when it is placed and sized by EldoUI." },
-	{ type = "range", key = "details.height2", label = "Window 2 height", min = 80, max = 600, step = 1,
+	{ type = "range", unit = "px", key = "details.height2", label = "Window 2 height", min = 80, max = 600, step = 1,
 		desc = "Height of window 2 including its title bar, when it is placed and sized by EldoUI." },
-	{ type = "range", key = "details.titleHeight", label = "Title bar height", min = 0, max = 40, step = 1,
+	{ type = "range", unit = "px", key = "details.titleHeight", label = "Title bar height", min = 0, max = 40, step = 1,
 		desc = "Room left above the window for Details' title bar. Set it to 0 if your Details skin has the bar at the bottom." },
 	{ type = "header", label = "Look" },
 	{ type = "toggle", key = "details.skin", label = "EldoUI frame",
 		desc = "Draws an EldoUI panel (art style, border and colors from the General page) around the Details windows." },
 	{ type = "toggle", key = "details.transparent", label = "See-through background",
 		desc = "The EldoUI panel behind the windows lets the game show through a little. How much: General > Panel opacity." },
-	{ type = "range", key = "details.padding", label = "Frame padding", min = 0, max = 12, step = 1,
+	{ type = "range", unit = "px", key = "details.padding", label = "Frame padding", min = 0, max = 12, step = 1,
 		desc = "Gap between the window and the EldoUI frame around it." },
 	{ type = "header", label = "Profile", hidden = function() return not DetailsProfileRows() end },
 	{ type = "execute", label = "Use the EldoUI Details profile", width = 260,
 		desc = "Imports EldoUI's Details profile for this layout through Details' own import, as \"EldoUI - <layout>\", and switches Details to it. Your own Details profiles stay in its list. Not in combat.",
 		hidden = function() return E:GetAddonSetupStatus("Details") ~= "ready" end,
 		func = function() E:ApplyAddonSetups({ Details = true }) end },
-	{ type = "execute", label = "Switch back to my Details profile", width = 260,
+	{ type = "execute", label = "Switch back to your Details profile", width = 260,
 		desc = "Details uses the profile you had before EldoUI's import again. The EldoUI profiles stay in Details' list.",
 		hidden = function() return not (Loaded("details") and type(EldoUIDB.detailsPreviousProfile) == "string") end,
 		func = function() E:RestoreDetailsProfile() end },
@@ -2208,13 +2208,13 @@ M.options = {
 	{ type = "header", label = "BigWigs" },
 	{ type = "toggle", key = "bigwigs.enabled", label = "BigWigs integration",
 		desc = "Creates the EldoUI frames BigWigs can anchor its bars to. On WoW: Forever BigWigs shows its own timers (pull, break, custom bars); boss packs are not out for Forever yet." },
-	{ type = "range", key = "bigwigs.barsWidth", label = "Bar area width", min = 120, max = 500, step = 1,
+	{ type = "range", unit = "px", key = "bigwigs.barsWidth", label = "Bar area width", min = 120, max = 500, step = 1,
 		desc = "Width of the \"Boss Timers\" mover (BigWigs and DBM). With BigWigs' \"copy width of custom anchor\" on, the bars take this width; DBM's timer bars always do." },
-	{ type = "range", key = "bigwigs.barsHeight", label = "Bar area height", min = 40, max = 500, step = 1,
+	{ type = "range", unit = "px", key = "bigwigs.barsHeight", label = "Bar area height", min = 40, max = 500, step = 1,
 		desc = "Height of the \"Boss Timers\" mover. The bars grow down from its top." },
-	{ type = "range", key = "bigwigs.emphWidth", label = "Emphasized area width", min = 120, max = 500, step = 1,
+	{ type = "range", unit = "px", key = "bigwigs.emphWidth", label = "Emphasized area width", min = 120, max = 500, step = 1,
 		desc = "Width of the \"Boss Timers: Soon\" mover, where BigWigs' emphasized and DBM's enlarged timers go." },
-	{ type = "range", key = "bigwigs.emphHeight", label = "Emphasized area height", min = 40, max = 400, step = 1,
+	{ type = "range", unit = "px", key = "bigwigs.emphHeight", label = "Emphasized area height", min = 40, max = 400, step = 1,
 		desc = "Height of the \"Boss Timers: Soon\" mover." },
 	{ type = "toggle", key = "bigwigs.messages", label = "BigWigs messages mover",
 		desc = "A mover for BigWigs' messages. BigWigs can't follow it live: send the anchors again after you move it." },
@@ -2224,13 +2224,13 @@ M.options = {
 		desc = "On: after a layout click or a drag of the BigWigs movers, BigWigs asks in its own popup whether to take the new spots. Off: send them with the button below." },
 	{ type = "toggle", key = "bigwigs.style", label = "EldoUI bar style",
 		desc = "BigWigs' bars get EldoUI's thin border, texture and font, with the accent on bars about to end. Bar colors and sounds stay as set in BigWigs." },
-	{ type = "toggle", key = "bigwigs.timing", label = "Timing for my role",
+	{ type = "toggle", key = "bigwigs.timing", label = "Timing for your role",
 		desc = "Bars move to the \"soon\" area 10 seconds before they end for tanks, 8 for healers and 7 for damage dealers, and the bar count suits the role." },
 	{ type = "execute", label = "Re-apply to BigWigs", width = 220,
 		desc = "Asks BigWigs, in its own popup, to switch to an \"EldoUI - <layout>\" profile with its bars, messages and countdown on EldoUI's movers. Declining changes nothing.",
 		func = function() M:SendBigWigsAnchors() end,
 		hidden = NotLoaded("bigwigs") },
-	{ type = "execute", label = "Restore my previous BigWigs profile", width = 260,
+	{ type = "execute", label = "Restore your previous BigWigs profile", width = 260,
 		desc = "Switches BigWigs back to the profile you used before EldoUI set it up. BigWigs asks first, and the EldoUI profiles stay in its list.",
 		func = function() M:RestoreBigWigsProfile() end,
 		hidden = function() return not Loaded("bigwigs") or type(M.db.bigwigs.previousProfile) ~= "string" end },
@@ -2257,9 +2257,9 @@ M.options = {
 		desc = "Puts Questie's \"grow from\" corner back as it was before EldoUI's change. A corner you picked in Questie since stays yours.",
 		hidden = function() return not M:ChangeApplied("questieCorner") end,
 		func = function() M:UndoChangeAndSay("questieCorner") end },
-	{ type = "range", key = "questie.width", label = "Area width", min = 160, max = 500, step = 1,
+	{ type = "range", unit = "px", key = "questie.width", label = "Area width", min = 160, max = 500, step = 1,
 		desc = "Width of the \"Questie Tracker\" mover. Questie sizes the tracker itself; its corner sits at the mover's corner." },
-	{ type = "range", key = "questie.height", label = "Area height", min = 100, max = 900, step = 1,
+	{ type = "range", unit = "px", key = "questie.height", label = "Area height", min = 100, max = 900, step = 1,
 		desc = "Height of the \"Questie Tracker\" mover." },
 }
 

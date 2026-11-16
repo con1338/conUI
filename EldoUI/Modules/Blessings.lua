@@ -13,7 +13,7 @@
 -- paladins to follow.
 -- Written from scratch for EldoUI.
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 local L = E.L
 
@@ -37,6 +37,11 @@ local M = E:NewModule("BlessingPlan", {
 		window = {},
 	},
 })
+
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "plan" }
+M.keepOnResetNote = E.Key("The blessing plan is kept too.")
 E.BlessingPlan = M
 
 local Plain = E.Plain
@@ -558,7 +563,7 @@ M.options = {
 		desc = "Opens the plan window. Click a square to pick a blessing, right-click to clear it. Also /eui blessings.",
 		func = function() M:Open() end },
 	{ type = "header", label = "Your part" },
-	{ type = "toggle", key = "announce", label = "Tell me my part",
+	{ type = "toggle", key = "announce", label = "Name your part in chat",
 		desc = "When a plan arrives from your group, one chat line names the blessings you keep up and on which classes. Paladins only." },
 	{ type = "toggle", key = "reminder", label = "On the blessing reminder",
 		desc = "The blessing reminder's tooltip names your part of the plan (Reminders, paladins only)." },

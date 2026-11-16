@@ -234,8 +234,25 @@ local function PaintNormal()
 	Paint(CrossColor())
 end
 
+-- The two colors the game picks between for a secret range answer, kept
+-- from one setup to the next and refreshed only when the look changes.
+local normalColor, tintColor
+
+local function RefreshRangeColors(db)
+	local r, g, b = CrossColor()
+	local alpha = (db.alpha or 85) / 100
+	local tint = db.rangeColor
+	if not normalColor then
+		normalColor, tintColor = CreateColor(r, g, b, alpha), CreateColor(tint[1], tint[2], tint[3], alpha)
+	else
+		normalColor:SetRGBA(r, g, b, alpha)
+		tintColor:SetRGBA(tint[1], tint[2], tint[3], alpha)
+	end
+end
+
 local function UpdateRange()
-	if not cross or not cross:IsShown() then return end
+	-- Seen, not only shown: the visibility rule fades the parent out.
+	if not cross or not cross:IsVisible() or cross:GetEffectiveAlpha() <= 0 then return end
 	local db = M.db.crosshair
 	if not db.rangeTint then return end
 	local spell = RangeSpell()
@@ -255,12 +272,8 @@ local function UpdateRange()
 	if secret then
 		-- Hand the secret answer to the game's own color switch.
 		outOfRange = "secret"
-		local r, g, b = CrossColor()
-		local alpha = (db.alpha or 85) / 100
-		local normal = CreateColor(r, g, b, alpha)
-		local tint = CreateColor(db.rangeColor[1], db.rangeColor[2], db.rangeColor[3], alpha)
 		for _, bar in ipairs(cross.bars) do
-			if bar.SetVertexColorFromBoolean then bar:SetVertexColorFromBoolean(inRange, normal, tint) end
+			if bar.SetVertexColorFromBoolean then bar:SetVertexColorFromBoolean(inRange, normalColor, tintColor) end
 		end
 		return
 	end
@@ -313,6 +326,7 @@ function C:Apply(db)
 		border:SetShown(db.border and true or false)
 	end
 	outOfRange = nil
+	RefreshRangeColors(db)
 	PaintNormal()
 	cross:Show()
 	if db.rangeTint and not rangeTicker then
@@ -346,10 +360,10 @@ C.options = {
 	{ type = "range", key = "crosshair.alpha", label = "Opacity", unit = "%", min = 10, max = 100, step = 5, hidden = CrossOff, desc = "Opacity of the crosshair, in percent." },
 	{ type = "cog", label = "Shape", dependsOn = "crosshair.enabled", desc = "Arm length, width, center gap, border and vertical offset.", options = {
 		{ type = "range", key = "crosshair.length", label = "Arm length", min = 4, max = 40, step = 1, desc = "Length of each of the four bars, in pixels." },
-		{ type = "range", key = "crosshair.thickness", label = "Arm width", min = 1, max = 6, step = 1, desc = "Thickness of the bars, in pixels." },
-		{ type = "range", key = "crosshair.gap", label = "Center gap", min = 0, max = 30, step = 1, desc = "Empty space between the center and each bar." },
+		{ type = "range", unit = "px", key = "crosshair.thickness", label = "Arm width", min = 1, max = 6, step = 1, desc = "Thickness of the bars, in pixels." },
+		{ type = "range", unit = "px", key = "crosshair.gap", label = "Center gap", min = 0, max = 30, step = 1, desc = "Empty space between the center and each bar." },
 		{ type = "toggle", key = "crosshair.border", label = "Dark border", desc = "A thin dark edge around each bar, so it shows on bright ground." },
-		{ type = "range", key = "crosshair.offsetY", label = "Y offset", min = -300, max = 300, step = 1, desc = "Moves the crosshair up or down from the screen center, in pixels (for a camera that is not centered on you)." },
+		{ type = "range", unit = "px", key = "crosshair.offsetY", label = "Y offset", min = -300, max = 300, step = 1, desc = "Moves the crosshair up or down from the screen center, in pixels (for a camera that is not centered on you)." },
 	} },
 	{ type = "toggle", key = "crosshair.rangeTint", label = "Out-of-range tint", hidden = CrossOff,
 		requires = function() return MELEE_CLASS[PlayerClass() or ""] or false end,

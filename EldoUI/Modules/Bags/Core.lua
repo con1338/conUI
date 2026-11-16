@@ -98,6 +98,8 @@ local M = E:NewModule("Bags", {
 		bagBar = false,
 		currencies = true,
 		gold = true,
+		footerSlots = "free",
+		lowestValueMark = true,
 		keyring = true,
 		reagentSection = true,
 		accountBank = true,
@@ -109,7 +111,7 @@ local M = E:NewModule("Bags", {
 		-- defaults match the game: it opens bags at the bank, a vendor, the
 		-- mailbox and the auction house, and closes what it opened.
 		autoOpen = { bank = true, merchant = true, mail = true, auction = true, trade = false, guildbank = false, professions = false },
-		autoClose = { bank = true, merchant = true, mail = true, auction = true, trade = true, guildbank = true, professions = true },
+		autoClose = { bank = true, merchant = true, mail = true, auction = true, trade = true, guildbank = true, professions = true, combat = false },
 		-- Item cooldowns on the slots (the game's own swipe and countdown)
 		cooldowns = true,
 		cooldownText = "eldoui",  -- eldoui / blizzard / off
@@ -125,6 +127,7 @@ local M = E:NewModule("Bags", {
 		itemLevel = true,
 		itemLevelMin = 1,
 		boundText = true,
+		tradeTime = true,
 		junkStyle = "both",       -- coin / dim / both / off
 		bagTint = true,           -- tint slots of profession bags
 		qualityBorder = true,
@@ -133,6 +136,7 @@ local M = E:NewModule("Bags", {
 		newGlow = true,
 		knownTint = true,         -- green icon on recipes, mounts, pets and toys you already have
 		markUnusable = true,      -- red icon on items this character can't use (Modules/Bags/Marks.lua)
+		markPetFood = true,       -- food the current Hunter pet can eat
 		markSets = true,          -- a mark on items in an equipment set
 		markFade = true,          -- fade what an open vendor, mailbox, auction house or socket window can't take
 		flashSame = true,         -- Alt-click flashes every slot with the same item
@@ -141,6 +145,7 @@ local M = E:NewModule("Bags", {
 		-- Sorting
 		sortButton = true,
 		sortDirection = "game",   -- game / ltr / rtl
+		insertDirection = "game",
 		-- Bag bar buttons of the action bar
 		bagButtonFree = true,     -- free slots written on profession bag buttons
 		ammoWarn = true,
@@ -214,6 +219,7 @@ local function Money(copper)
 	return E:FormatMoney(copper, M.db and M.db.moneyFormat)
 end
 M.Money = Money
+M.LOW_SPACE = 5
 
 local Secret = E.Secret
 
@@ -307,8 +313,8 @@ end
 ---------------------------------------------------------------------------
 local function NumSlots(bag)
 	if bag == nil then return 0 end
-	local ok, slots = pcall(C_Container.GetContainerNumSlots, bag)
-	return ok and slots or 0
+	local slots = E.PlainCall(C_Container.GetContainerNumSlots, bag)
+	return type(slots) == "number" and slots >= 0 and slots < math.huge and slots % 1 == 0 and slots or 0
 end
 
 -- Player bags in display order. `all` adds the keyring even when the
@@ -416,8 +422,8 @@ end
 -- Profession bags get a soft tint so their slots stand out.
 local function BagFamily(bag)
 	if bag == nil or bag <= 0 or bag == KEYRING then return 0 end
-	local _, family = C_Container.GetContainerNumFreeSlots(bag)
-	return family or 0
+	local _, family = E.BagCache:Free(bag)
+	return type(family) == "number" and family or 0
 end
 
 local function BagTint(bag)
@@ -425,23 +431,25 @@ local function BagTint(bag)
 end
 
 local function BagName(bag)
-	if bag == 0 then return BAG_NAME_BACKPACK or L["Backpack"] end
-	if bag == KEYRING then return type(_G.KEYRING) == "string" and _G.KEYRING or L["Keyring"] end
+	if bag == 0 then return E:GameText(BAG_NAME_BACKPACK, L["Backpack"]) end
+	if bag == KEYRING then return E:GameText(_G.KEYRING, L["Keyring"]) end
 	if IsAccountTab(bag) or (CHAR_TABS and bag >= (Enum.BagIndex.CharacterBankTab_1 or 99)) then
 		for _, bankType in ipairs({ BANK_CHARACTER, BANK_ACCOUNT }) do
-			local ok, tabs = pcall(C_Bank.FetchPurchasedBankTabData, bankType)
-			if ok and type(tabs) == "table" then
+			local tabs = E.PlainCall(C_Bank and C_Bank.FetchPurchasedBankTabData, bankType)
+			if type(tabs) == "table" and (not canaccesstable or canaccesstable(tabs)) then
 				for index, tab in ipairs(tabs) do
-					if tab.ID == bag then
-						if tab.name and tab.name ~= "" then return tab.name end
+					if not E.Secret(tab) and type(tab) == "table" and (not canaccesstable or canaccesstable(tab))
+						and E.Plain(tab.ID) == bag then
+						local name = E.Plain(tab.name)
+						if type(name) == "string" and name ~= "" then return name end
 						return (bankType == BANK_ACCOUNT and L["Account bank page %d"] or L["Bank tab %d"]):format(index)
 					end
 				end
 			end
 		end
 	end
-	local name = C_Container.GetBagName and C_Container.GetBagName(bag)
-	if name and name ~= "" then return name end
+	local name = E.PlainCall(C_Container.GetBagName, bag)
+	if type(name) == "string" and name ~= "" then return name end
 	return L["Bag %d"]:format(bag)
 end
 
@@ -561,158 +569,276 @@ end
 ---------------------------------------------------------------------------
 -- Search
 ---------------------------------------------------------------------------
-local QUALITY_NAMES = { poor = 0, common = 1, uncommon = 2, rare = 3, epic = 4, legendary = 5, artifact = 6, heirloom = 7 }
-for index = 0, 8 do
-	local name = _G["ITEM_QUALITY" .. index .. "_DESC"]
-	if type(name) == "string" then QUALITY_NAMES[name:lower()] = index end
-end
-
-local function Compare(a, op, b)
-	if not a or not b then return false end
-	if op == ">" then return a > b end
-	if op == ">=" then return a >= b end
-	if op == "<" then return a < b end
-	if op == "<=" then return a <= b end
-	return a == b
-end
-
-local function QualityValue(text)
-	local number = tonumber(text)
-	if number then return number end
-	for name, value in pairs(QUALITY_NAMES) do
-		if name:sub(1, #text) == text then return value end
-	end
-end
-
--- "a b|c" -> { { "a", "b" }, { "c" } }: words AND, bars OR. "&" is an AND too.
-local function ParseQuery(text)
-	text = strtrim(((text or ""):lower():gsub("&", " ")))
-	if text == "" then return nil end
-	local alternatives = {}
-	for part in text:gmatch("[^|]+") do
-		local words = {}
-		for word in part:gmatch("%S+") do words[#words + 1] = word end
-		if #words > 0 then alternatives[#alternatives + 1] = words end
-	end
-	return #alternatives > 0 and alternatives or nil
-end
-M.ParseQuery = ParseQuery
-
 local waitingForInfo = false
+local TooltipPrefix, CanReadSearchTable
+do
+	local QUALITY_NAMES = { poor = 0, common = 1, uncommon = 2, rare = 3, epic = 4, legendary = 5, artifact = 6, heirloom = 7 }
+	for index = 0, 8 do
+		local name = _G["ITEM_QUALITY" .. index .. "_DESC"]
+		if type(name) == "string" then QUALITY_NAMES[name:lower()] = index end
+	end
 
--- record: { short, id, quality, bound, quest, new }. Item info comes from
--- the client cache; missing info asks the server and matches later.
--- An item whose details are still loading is asked again on every look,
--- so a search typed before they arrive still redraws once they do.
-local function Info(record)
-	if not record.info then
-		local info = { C_Item.GetItemInfo(record.short) }
-		if info[1] then
-			record.info = info
-		else
-			if record.info == nil and record.id and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(record.id) end
-			record.info = false
-			waitingForInfo = true
+	local function Compare(a, op, b)
+		if not a or not b then return false end
+		if op == ">" then return a > b end
+		if op == ">=" then return a >= b end
+		if op == "<" then return a < b end
+		if op == "<=" then return a <= b end
+		return a == b
+	end
+
+	local function QualityValue(text)
+		local number = tonumber(text)
+		if number then return number end
+		for name, value in pairs(QUALITY_NAMES) do
+			if name:sub(1, #text) == text then return value end
 		end
 	end
-	return record.info or nil
-end
 
--- Name and type words compare folded (E:FoldText: case, accents and
--- Cyrillic), so "льняная" finds "Льняная ткань" and "epee" finds "Épée".
-local function Has(text, folded)
-	return type(text) == "string" and E:FoldText(text):find(folded, 1, true) ~= nil
-end
-
--- The search words: one table for the search and the Search help window,
--- so every word the search knows has its help line. An entry matches a
--- whole `word` (or one of `also`), or one of its `forms` (patterns whose
--- captures go to `test`); an entry without a test is a rule of the search
--- itself (not, or, and) and is only shown. `syntax` is the help line's
--- left side, `example` what a click on the line puts in the search box.
--- test(record, info, quality, classID, ...) -> true when the item matches.
-local function NameTest(record, info, _, _, value)
-	local name = info and info[1] or (C_Item.GetItemNameByID and record.id and C_Item.GetItemNameByID(record.id))
-	return Has(name, E:FoldText(value))
-end
-local SEARCH_WORDS = {
-	{ syntax = "silk", example = "silk", help = L["Items whose name has the word"], plain = true },
-	{ forms = { "^n:(.+)$" }, syntax = "n:silk", example = "n:silk", help = L["The name only, also for words below"], test = NameTest },
-	{ forms = { "^q([:=<>]+)(.+)$" }, syntax = "q:rare  q>=3", example = "q>=rare", help = L["Quality by name or number (0 poor to 7 heirloom)"],
-		test = function(_, _, quality, _, op, value) return Compare(quality, op == ":" and "=" or op, QualityValue(value)) end },
-	{ forms = { "^i?lvl([:=<>]+)(%d+)$" }, syntax = "ilvl>50  lvl:20", example = "ilvl>=60", help = L["Item level; \"lvl:20\" means 20 or more"],
-		test = function(record, info, _, _, op, value)
-			local level = C_Item.GetDetailedItemLevelInfo(record.short) or (info and info[4])
-			return Compare(level, op == ":" and ">=" or op, tonumber(value))
-		end },
-	{ forms = { "^t:(.+)$", "^type:(.+)$" }, syntax = "t:cloth  type:sword", example = "t:cloth", help = L["Item type, subtype or slot"],
-		test = function(_, info, _, _, value)
-			if not info then return false end
-			local slot = info[9] and _G[info[9]]
-			value = E:FoldText(value)
-			return (Has(info[6], value) or Has(info[7], value) or Has(slot, value)) and true or false
-		end },
-	{ word = "junk", example = "junk", help = L["Poor quality (gray) items"],
-		test = function(_, _, quality) return quality == QUALITY.Poor end },
-	{ word = "quest", example = "quest", help = L["Quest items"],
-		test = function(record, _, _, classID) return record.quest or classID == ITEM_CLASS.Questitem end },
-	{ word = "new", example = "new", help = L["Items new in your bags"],
-		test = function(record) return record.new == true end },
-	{ word = "gear", example = "gear", help = L["Weapons and armor"],
-		test = function(_, _, _, classID) return classID == ITEM_CLASS.Weapon or classID == ITEM_CLASS.Armor end },
-	{ word = "bound", also = { "soulbound" }, example = "bound", help = L["Items bound to you"],
-		test = function(record) return record.bound == true end },
-	{ word = "bop", example = "bop", help = L["Items that bind when picked up"],
-		test = function(_, info) return info and info[14] == 1 end },
-	{ word = "boe", example = "boe", help = L["Items that bind when equipped and are not bound yet"],
-		test = function(record, info) return info and info[14] == 2 and record.bound ~= true end },
-	{ syntax = "-word  !word", example = "gear -bound", help = L["Not: leaves out what the word finds"] },
-	{ syntax = "a b  a&b", example = "gear boe", help = L["And: items both words find"] },
-	{ syntax = "a|b", example = "junk|q:0", help = L["Or: items either side finds"] },
-}
-M.SEARCH_WORDS = SEARCH_WORDS
-local WORD_TESTS, FORM_TESTS = {}, {}
-for _, entry in ipairs(SEARCH_WORDS) do
-	if entry.word then
-		entry.syntax = entry.syntax or table.concat({ entry.word, unpack(entry.also or {}) }, "  ")
-		WORD_TESTS[entry.word] = entry.test
-		for _, word in ipairs(entry.also or {}) do WORD_TESTS[word] = entry.test end
-	elseif entry.forms then
-		for _, form in ipairs(entry.forms) do FORM_TESTS[#FORM_TESTS + 1] = { form, entry.test } end
+	local TOOLTIP_FORMS = { ["tt:"] = true, ["tip:"] = true, ["tooltip:"] = true }
+	function TooltipPrefix(word)
+		local prefix = word:match("^([!%-]?%a+:)")
+		if prefix and TOOLTIP_FORMS[(prefix:gsub("^[!%-]", ""))] then return prefix end
 	end
-end
 
-local function MatchWord(word, record)
-	local first = word:sub(1, 1)
-	if (first == "-" or first == "!") and #word > 1 then return not MatchWord(word:sub(2), record) end
-	local info = Info(record)
-	local quality = record.quality or (info and info[3])
-	local classID = info and info[12] or ClassOf(record)
-	local test = WORD_TESTS[word]
-	if test then return test(record, info, quality, classID) end
-	for _, pair in ipairs(FORM_TESTS) do
-		local a, b = word:match(pair[1])
-		if a then return pair[2](record, info, quality, classID, a, b) end
-	end
-	return NameTest(record, info, quality, classID, word)
-end
-
-local function Matches(query, record)
-	if not query then return true end
-	if not record.short or record.short == "" then return false end
-	for _, words in ipairs(query) do
-		local all = true
-		for _, word in ipairs(words) do
-			if not MatchWord(word, record) then
-				all = false
-				break
+	-- "a b|c" -> { { "a", "b" }, { "c" } }: words AND, bars OR. A tooltip
+	-- phrase continues to the next explicit separator, or ends at its closing quote.
+	local function ParseQuery(text)
+		text = strtrim((text or ""):lower())
+		if text == "" then return nil end
+		local alternatives, words = {}, {}
+		local position = 1
+		while position <= #text do
+			local first = text:sub(position, position)
+			if first == "|" then
+				if #words > 0 then alternatives[#alternatives + 1] = words end
+				words = {}
+				position = position + 1
+			elseif first == "&" or first:match("%s") then
+				position = position + 1
+			else
+				local word = text:match("^[^%s&|]+", position)
+				local prefix = TooltipPrefix(word)
+				if prefix and text:sub(position + #prefix, position + #prefix) == '"' then
+					local start = position + #prefix + 1
+					local close = text:find('"', start, true)
+					if close then
+						word = prefix .. text:sub(start, close - 1)
+						position = close + 1
+					else
+						position = position + #word
+					end
+				elseif prefix then
+					local stop = text:find("[&|]", position + #prefix) or (#text + 1)
+					word = strtrim(text:sub(position, stop - 1))
+					position = stop
+				else
+					position = position + #word
+				end
+				words[#words + 1] = word
 			end
 		end
-		if all then return true end
+		if #words > 0 then alternatives[#alternatives + 1] = words end
+		return #alternatives > 0 and alternatives or nil
 	end
-	return false
+	M.ParseQuery = ParseQuery
+
+	-- record: { short, id, quality, bound, quest, new }. Item info comes from
+	-- the client cache; missing info asks the server and matches later.
+	-- An item whose details are still loading is asked again on every look,
+	-- so a search typed before they arrive still redraws once they do.
+	local function Info(record)
+		if not record.info then
+			local info = { E.PlainCallEach(C_Item.GetItemInfo, record.short) }
+			if info[1] then
+				record.info = info
+			else
+				if record.info == nil and record.id and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(record.id) end
+				record.info = false
+				waitingForInfo = true
+			end
+		end
+		return record.info or nil
+	end
+
+	-- Name and type words compare folded (E:FoldText: case, accents and
+	-- Cyrillic), so "льняная" finds "Льняная ткань" and "epee" finds "Épée".
+	local function Has(text, folded)
+		return type(text) == "string" and E:FoldText(text):find(folded, 1, true) ~= nil
+	end
+
+	local TOOLTIP_TEXT_MAX = 256
+	local savedTooltipText, savedTooltipCount = {}, 0
+	local TOOLTIP_TEXT_FIELDS = { "leftText", "rightText" }
+
+	function CanReadSearchTable(value)
+		return type(value) == "table" and not E.Secret(value) and (not canaccesstable or canaccesstable(value))
+	end
+
+	local function SearchTooltipText(data)
+		local lines = CanReadSearchTable(data) and data.lines
+		if not CanReadSearchTable(lines) or #lines == 0 then return end
+		local fields, complete = {}, true
+		for _, line in ipairs(lines) do
+			if CanReadSearchTable(line) then
+				for _, key in ipairs(TOOLTIP_TEXT_FIELDS) do
+					local text = line[key]
+					if E.Secret(text) then
+						complete = false
+					elseif type(text) == "string" then
+						fields[#fields + 1] = E:FoldText(text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+					end
+				end
+			else
+				complete = false
+			end
+		end
+		if #fields > 0 then return table.concat(fields, "\n"), complete end
+	end
+
+	local function TooltipTest(record, _, _, _, value)
+		local native = C_TooltipInfo
+		local wanted = E:FoldText(value)
+		if not native or wanted == "" then return false end
+		local text, complete
+		if record.live then
+			if not native.GetBagItem then return false end
+			text = record.tooltipSearch
+			if not text then
+				text, complete = SearchTooltipText(E.PlainCall(native.GetBagItem, record.bag, record.slot))
+				if complete then record.tooltipSearch = text end
+			else
+				complete = true
+			end
+		elseif native.GetHyperlink then
+			local link = record.short
+			text = savedTooltipText[link]
+			if not text then
+				text, complete = SearchTooltipText(E.PlainCall(native.GetHyperlink, link))
+				if complete then
+					if savedTooltipCount >= TOOLTIP_TEXT_MAX then wipe(savedTooltipText) savedTooltipCount = 0 end
+					savedTooltipText[link] = text
+					savedTooltipCount = savedTooltipCount + 1
+				end
+			else
+				complete = true
+			end
+		else
+			return false
+		end
+		if text and text:find(wanted, 1, true) then return true end
+		if not complete then waitingForInfo = true end
+		return false
+	end
+
+	-- The search words: one table for the search and the Search help window,
+	-- so every word the search knows has its help line. An entry matches a
+	-- whole `word` (or one of `also`), or one of its `forms` (patterns whose
+	-- captures go to `test`); an entry without a test is a rule of the search
+	-- itself (not, or, and) and is only shown. `syntax` is the help line's
+	-- left side, `example` what a click on the line puts in the search box.
+	-- test(record, info, quality, classID, ...) -> true when the item matches.
+	local function NameTest(record, info, _, _, value)
+		local name = info and info[1] or (C_Item.GetItemNameByID and record.id and C_Item.GetItemNameByID(record.id))
+		return Has(name, E:FoldText(value))
+	end
+	local SEARCH_WORDS = {
+		{ syntax = "silk", example = "silk", help = L["Items whose name has the word"], plain = true },
+		{ forms = { "^n:(.+)$" }, syntax = "n:silk", example = "n:silk", help = L["The name only, also for words below"], test = NameTest },
+		{ forms = { "^q([:=<>]+)(.+)$" }, syntax = "q:rare  q>=3", example = "q>=rare", help = L["Quality by name or number (0 poor to 7 heirloom)"],
+			test = function(_, _, quality, _, op, value) return Compare(quality, op == ":" and "=" or op, QualityValue(value)) end },
+		{ forms = { "^i?lvl([:=<>]+)(%d+)$" }, syntax = "ilvl>50  lvl:20", example = "ilvl>=60", help = L["Item level; \"lvl:20\" means 20 or more"],
+			test = function(record, info, _, _, op, value)
+				local level = C_Item.GetDetailedItemLevelInfo(record.short) or (info and info[4])
+				return Compare(level, op == ":" and ">=" or op, tonumber(value))
+			end },
+		{ forms = { "^tt:(.+)$", "^tip:(.+)$", "^tooltip:(.+)$" }, syntax = 'tt:cloth  tt:"fire resistance"', example = 'tt:"fire resistance"',
+			help = L["Tooltip text. Use quotes around a phrase to add more search words after it."], test = TooltipTest },
+		{ forms = { "^r([:=<>]+)(%d+)$", "^req([:=<>]+)(%d+)$", "^rl([:=<>]+)(%d+)$" }, syntax = "r<=32  r>=20  r=30", example = "r<=32",
+			help = L['Required level. "r:32" means level 32 or lower.'],
+			test = function(_, info, _, _, op, value)
+				local required = info and E.Plain(info[5])
+				return type(required) == "number" and Compare(required, op == ":" and "<=" or op, tonumber(value))
+			end },
+		{ word = "known", example = "known", help = L["Recipes, mounts, pets or toys you already know or own"],
+			test = function(record) return E.IsItemKnown and E.PlainCall(E.IsItemKnown, E, record.link or record.short) == true end },
+		{ word = "upgrade", example = "upgrade", help = L["Gear that Upgrades rates above your equipped gear"],
+			test = function(record)
+				local upgrades = E.modules.Upgrades
+				if not (upgrades and upgrades.active) then return false end
+				local result = E.PlainCall(E.GetItemUpgrade, E, record.link or record.short)
+				return CanReadSearchTable(result) and E.Plain(result.upgrade) == true
+			end },
+		{ forms = { "^t:(.+)$", "^type:(.+)$" }, syntax = "t:cloth  type:sword", example = "t:cloth", help = L["Item type, subtype or slot"],
+			test = function(_, info, _, _, value)
+				if not info then return false end
+				local slot = info[9] and _G[info[9]]
+				value = E:FoldText(value)
+				return (Has(info[6], value) or Has(info[7], value) or Has(slot, value)) and true or false
+			end },
+		{ word = "junk", example = "junk", help = L["Poor quality (gray) items"],
+			test = function(_, _, quality) return quality == QUALITY.Poor end },
+		{ word = "quest", example = "quest", help = L["Quest items"],
+			test = function(record, _, _, classID) return record.quest or classID == ITEM_CLASS.Questitem end },
+		{ word = "new", example = "new", help = L["Items new in your bags"],
+			test = function(record) return record.new == true end },
+		{ word = "gear", example = "gear", help = L["Weapons and armor"],
+			test = function(_, _, _, classID) return classID == ITEM_CLASS.Weapon or classID == ITEM_CLASS.Armor end },
+		{ word = "bound", also = { "soulbound" }, example = "bound", help = L["Items bound to you"],
+			test = function(record) return record.bound == true end },
+		{ word = "bop", example = "bop", help = L["Items that bind when picked up"],
+			test = function(_, info) return info and info[14] == 1 end },
+		{ word = "boe", example = "boe", help = L["Items that bind when equipped and are not bound yet"],
+			test = function(record, info) return info and info[14] == 2 and record.bound ~= true end },
+		{ syntax = "-word  !word", example = "gear -bound", help = L["Not: leaves out what the word finds"] },
+		{ syntax = "a b  a&b", example = "gear boe", help = L["And: items both words find"] },
+		{ syntax = "a|b", example = "junk|q:0", help = L["Or: items either side finds"] },
+	}
+	M.SEARCH_WORDS = SEARCH_WORDS
+	local WORD_TESTS, FORM_TESTS = {}, {}
+	for _, entry in ipairs(SEARCH_WORDS) do
+		if entry.word then
+			entry.syntax = entry.syntax or table.concat({ entry.word, unpack(entry.also or {}) }, "  ")
+			WORD_TESTS[entry.word] = entry.test
+			for _, word in ipairs(entry.also or {}) do WORD_TESTS[word] = entry.test end
+		elseif entry.forms then
+			for _, form in ipairs(entry.forms) do FORM_TESTS[#FORM_TESTS + 1] = { form, entry.test } end
+		end
+	end
+
+	local function MatchWord(word, record)
+		local first = word:sub(1, 1)
+		if (first == "-" or first == "!") and #word > 1 then return not MatchWord(word:sub(2), record) end
+		local info = Info(record)
+		local quality = record.quality or (info and info[3])
+		local classID = info and info[12] or ClassOf(record)
+		local test = WORD_TESTS[word]
+		if test then return test(record, info, quality, classID) end
+		for _, pair in ipairs(FORM_TESTS) do
+			local a, b = word:match(pair[1])
+			if a then return pair[2](record, info, quality, classID, a, b) end
+		end
+		return NameTest(record, info, quality, classID, word)
+	end
+
+	local function Matches(query, record)
+		if not query then return true end
+		if not record.short or record.short == "" then return false end
+		for _, words in ipairs(query) do
+			local all = true
+			for _, word in ipairs(words) do
+				if not MatchWord(word, record) then
+					all = false
+					break
+				end
+			end
+			if all then return true end
+		end
+		return false
+	end
+	M.Matches = Matches
 end
-M.Matches = Matches
+local ParseQuery, Matches = M.ParseQuery, M.Matches
 
 local function ByFoundName(a, b)
 	if a.sortName ~= b.sortName then return a.sortName < b.sortName end
@@ -724,28 +850,64 @@ end
 function M:FindAll(text)
 	local query = ParseQuery(text)
 	if not query then return {} end
-	local found = {}
+	local found, matches = {}, {}
+	local tooltipQuery
+	for _, words in ipairs(query) do
+		for _, word in ipairs(words) do
+			if TooltipPrefix(word) then tooltipQuery = true break end
+		end
+		if tooltipQuery then break end
+	end
+	local function Add(short, id)
+		if not found[id] then found[id] = { id = id, short = short, total = 0, chars = {}, guilds = {} } end
+		return found[id]
+	end
 	local function Entry(short)
 		local id = ItemIDOf(short)
 		if not id then return end
-		local entry = found[id]
-		if entry == nil then
+		if matches[short] == nil then
 			local record = { short = short, id = id }
-			entry = Matches(query, record) and { id = id, short = short, total = 0, chars = {}, guilds = {} } or false
-			found[id] = entry
+			matches[short] = Matches(query, record) == true
 		end
-		return entry or nil
+		if not matches[short] then return end
+		return Add(short, id)
+	end
+	if tooltipQuery then
+		for _, bag in ipairs(BagIDs(true)) do
+			for slot = 1, NumSlots(bag) do
+				local info = E.BagCache:Info(bag, slot)
+				if CanReadSearchTable(info) then
+					local link = E.Plain(info.hyperlink)
+					local short = ShortItem(link)
+					local id = short and ItemIDOf(short)
+					if id then
+						local record = { short = short, id = id, link = link, quality = E.Plain(info.quality),
+							bound = E.Plain(info.isBound), bag = bag, slot = slot, live = true }
+						if Matches(query, record) then
+							local count = E.Plain(info.stackCount)
+							if type(count) ~= "number" or not (count > 0 and count < math.huge) then count = 1 end
+							local entry = Add(short, id)
+							entry.chars[E.charKey] = entry.chars[E.charKey] or { 0, 0, 0, 0 }
+							entry.chars[E.charKey][1] = entry.chars[E.charKey][1] + count
+							entry.total = entry.total + count
+						end
+					end
+				end
+			end
+		end
 	end
 	for _, key in ipairs(Store:Characters("ALL")) do
 		local char = Store:Get(key)
 		for index, location in ipairs(LOCATIONS) do
-			for _, value in ipairs(char[location] or {}) do
-				local short, count = Decode(value)
-				local entry = short and Entry(short)
-				if entry then
-					entry.chars[key] = entry.chars[key] or { 0, 0, 0, 0 }
-					entry.chars[key][index] = entry.chars[key][index] + count
-					entry.total = entry.total + count
+			if not (tooltipQuery and key == E.charKey and location == "bags") then
+				for _, value in ipairs(char[location] or {}) do
+					local short, count = Decode(value)
+					local entry = short and Entry(short)
+					if entry then
+						entry.chars[key] = entry.chars[key] or { 0, 0, 0, 0 }
+						entry.chars[key][index] = entry.chars[key][index] + count
+						entry.total = entry.total + count
+					end
 				end
 			end
 		end
@@ -797,6 +959,19 @@ local function BorderColor(quality, quest)
 end
 M.BorderColor = BorderColor
 
+-- The new-item glow has its own color, whatever the border settings: the
+-- quality color from Uncommon up, quest yellow, white below. A glow in the
+-- border color would be black, and draws nothing in additive blend.
+local function NewGlowColor(quality, quest)
+	if quest then return 1, 0.82, 0 end
+	if quality and quality >= 2 then
+		local r, g, b = C_Item.GetItemQualityColor(quality)
+		if r then return r, g, b end
+	end
+	return 1, 1, 1
+end
+M.NewGlowColor = NewGlowColor
+
 -- Item level for weapons and armor at or above the chosen minimum.
 local function ItemLevelText(short, quality)
 	local db = M.db
@@ -819,9 +994,10 @@ local function BindText(short, bound)
 end
 M.BindText = BindText
 
-local function JunkMarks(quality)
+local function JunkMarks(quality, eligible)
 	local style = M.db.junkStyle
-	local junk = quality == QUALITY.Poor and style ~= "off"
+	if eligible == nil then eligible = quality == QUALITY.Poor end
+	local junk = eligible and style ~= "off"
 	return junk and (style == "coin" or style == "both"), junk and (style == "dim" or style == "both")
 end
 M.JunkMarks = JunkMarks
@@ -877,9 +1053,23 @@ function M:StyleSlotCooldown(cooldown)
 	end
 end
 
+-- The junk coin, lock and set marks: about a third of the slot, at
+-- least 10 px.
+function M:MarkSize()
+	return math.max(10, math.floor((self.db and self.db.size or 37) * 0.3 + 0.5))
+end
+
+local styledSlots = setmetatable({}, { __mode = "k" })
+
 function M:RestyleSlotTexts()
 	for fontString, info in pairs(styledTexts) do PaintText(fontString, info.kind, info.parent) end
 	for cooldown in pairs(styledCooldowns) do self:StyleSlotCooldown(cooldown) end
+	local size = self:MarkSize()
+	for button in pairs(styledSlots) do
+		for _, key in ipairs({ "junkCoin", "lockMark", "eldoSetMark", "eldoFoodMark" }) do
+			if button[key] then button[key]:SetSize(size, size) end
+		end
+	end
 end
 
 -- Item level color: the game's quality color (Uncommon and up) or a custom one.
@@ -903,7 +1093,6 @@ end
 -- button last, so the grid would mix two looks. They never show; a slot
 -- shows its icon only while it holds an item.
 local TEMPLATE_ART = { "ItemSlotBackground", "SlotBackground", "EmptyBackground", "BagIndicator" }
-local styledSlots = setmetatable({}, { __mode = "k" })
 
 local function HideTemplateArt(button)
 	local normal = button.GetNormalTexture and button:GetNormalTexture()
@@ -941,8 +1130,8 @@ local function StyleSlot(button)
 	end
 	E:TrimIcon(icon)
 	icon:ClearAllPoints()
-	icon:SetPoint("TOPLEFT", E.pixel, -E.pixel)
-	icon:SetPoint("BOTTOMRIGHT", -E.pixel, E.pixel)
+	icon:SetPoint("TOPLEFT", E:PixelFor(button), -E:PixelFor(button))
+	icon:SetPoint("BOTTOMRIGHT", -E:PixelFor(button), E:PixelFor(button))
 	button.eldoBorder = CreateFrame("Frame", nil, button)
 	button.eldoBorder:SetAllPoints()
 	E:SetTemplate(button.eldoBorder)
@@ -969,12 +1158,12 @@ local function StyleSlot(button)
 	M:StyleSlotText(button.bind, "bind", button)
 	button.bind:SetTextColor(E:TokenColor("secondary"))
 	button.junkCoin = button:CreateTexture(nil, "OVERLAY")
-	button.junkCoin:SetSize(12, 12)
+	button.junkCoin:SetSize(M:MarkSize(), M:MarkSize())
 	button.junkCoin:SetPoint("TOPLEFT", 2, -2)
 	button.junkCoin:SetTexture("Interface\\MoneyFrame\\UI-GoldIcon")
 	-- Lock mark: one of your quests or recipes needs this item.
 	button.lockMark = button:CreateTexture(nil, "OVERLAY")
-	button.lockMark:SetSize(12, 12)
+	button.lockMark:SetSize(M:MarkSize(), M:MarkSize())
 	button.lockMark:SetPoint("TOPRIGHT", -2, -2)
 	button.lockMark:SetTexture(E.ItemProtect and E.ItemProtect.LOCK_ICON)
 	local warn = E.tokens.text.warn
@@ -1001,7 +1190,7 @@ local function PaintItem(button, record, alpha)
 	button.level:SetText(ItemLevelText(record.short, record.quality))
 	button.level:SetTextColor(M:ItemLevelColor(record.quality))
 	button.bind:SetText(BindText(record.short, record.bound))
-	local coin, dim = JunkMarks(record.quality)
+	local coin, dim = JunkMarks(record.quality, record.junk)
 	button.junkCoin:SetShown(coin and true or false)
 	button.lockMark:SetShown(M.db.protectItems and record.protected or false)
 	local icon = button.icon or button.Icon
@@ -1017,7 +1206,10 @@ local function PaintItem(button, record, alpha)
 		end
 	end
 	button.newGlow:SetShown(M.db.newGlow and record.new or false)
-	if record.new then button.newGlow:SetVertexColor(r, g, b, 0.6) end
+	if record.new then
+		local gr, gg, gb = NewGlowColor(record.quality, record.quest)
+		button.newGlow:SetVertexColor(gr, gg, gb, 0.6)
+	end
 	local count = record.total or record.count
 	button.eldoCount:SetText(count and count > 1 and tostring(count) or "")
 	button:SetAlpha(alpha)
@@ -1078,10 +1270,13 @@ local function GetLiveSlot(window, bag, slot)
 				if click then return click(self, mouse, down) end
 			end)
 		end
+		if E.modules.Merchant then E.modules.Merchant:WatchJunkSlot(button, bag) end
 		StyleSlot(button)
 		-- Alt-click attaches to mail when the Mail module is on.
-		button:HookScript("OnClick", function(self)
-			if IsAltKeyDown() and E.modules.Mail and E.modules.Mail.AttachFromBag then
+		button:HookScript("OnClick", function(self, mouse)
+			local merchant = E.modules.Merchant
+			if IsAltKeyDown() and not (merchant and merchant:IsJunkMarkClick(mouse))
+				and E.modules.Mail and E.modules.Mail.AttachFromBag then
 				E.modules.Mail:AttachFromBag(bag, self:GetID())
 			end
 		end)
@@ -1096,7 +1291,10 @@ local function GetLiveSlot(window, bag, slot)
 		button:HookScript("OnEnter", function() M:HighlightBag(window, bag) end)
 		button:HookScript("OnLeave", function() M:HighlightBag(window, nil) end)
 		-- A grouped slot names its stacks (Modules/Bags/Categories.lua).
-		button:HookScript("OnEnter", function(self) if M.StackTip then M:StackTip(self) end end)
+		button:HookScript("OnEnter", function(self)
+			if M.StackTip then M:StackTip(self) end
+			if M.LowestValueSlotTip then M:LowestValueSlotTip(self) end
+		end)
 		-- Alt-click flashes the same item (Modules/Bags/Marks.lua).
 		button:HookScript("OnClick", function(self, mouse) if M.AltFlash then M:AltFlash(self, mouse) end end)
 		-- Modifier-click disenchant / pick lock (Modules/BagActions).
@@ -1110,15 +1308,20 @@ local function LiveRecord(bag, slot)
 	local info = C_Container.GetContainerItemInfo(bag, slot)
 	if not info then return { bag = bag, slot = slot, empty = true } end
 	local questInfo = C_Container.GetContainerItemQuestInfo and C_Container.GetContainerItemQuestInfo(bag, slot)
-	return {
-		bag = bag, slot = slot,
+	local bound = E.Plain(info.isBound)
+	if type(bound) ~= "boolean" then bound = nil end
+	local record = {
+		bag = bag, slot = slot, live = true,
 		short = ShortItem(info.hyperlink) or "", id = info.itemID, link = info.hyperlink,
 		quality = info.quality, count = info.stackCount, locked = info.isLocked, icon = info.iconFileID,
-		bound = info.isBound and true or false,
+		bound = bound,
 		quest = questInfo and (questInfo.isQuestItem or questInfo.questID) and true or false,
 		new = C_NewItems and C_NewItems.IsNewItem(bag, slot) or false,
 		protected = M.db.protectItems and E.IsItemProtected and E:IsItemProtected(info.itemID, bag, slot) or false,
+		junk = E.WillSellAsJunk and E:WillSellAsJunk(bag, slot, info),
 	}
+	if M.db.tradeTime and M.TradeItemGUID then record.tradeGUID = M:TradeItemGUID(record) end
+	return record
 end
 M.LiveRecord = LiveRecord
 
@@ -1152,6 +1355,17 @@ local function PaintCooldown(button, record)
 	end
 end
 
+-- The upgrade arrow takes a corner the item level doesn't use. The red mark
+-- on gear this character can't use belongs to the Slots tab switch alone.
+local ARROW_CORNER = { TOPLEFT = "BOTTOMLEFT", TOP = "BOTTOMLEFT", LEFT = "TOPRIGHT" }
+local upgradeOptions = { noTint = true }
+
+function M:UpgradeOptions()
+	local text = self.db and self.db.text
+	upgradeOptions.arrowPoint = ARROW_CORNER[text and text.levelPoint or "TOPLEFT"] or "TOPLEFT"
+	return upgradeOptions
+end
+
 local function PaintLive(window, button, record)
 	local icon = button.icon or button.Icon
 	M.livePaints = (M.livePaints or 0) + 1
@@ -1162,7 +1376,7 @@ local function PaintLive(window, button, record)
 		SetItemButtonCount(button, record.total or record.count)
 		SetItemButtonDesaturated(button, record.locked)
 		local known = PaintItem(button, record, SlotAlpha(window, record))
-		if E.SetUpgradeArrow then E:SetUpgradeArrow(button, record.link) end
+		if E.SetUpgradeArrow then E:SetUpgradeArrow(button, record.link, M:UpgradeOptions()) end
 		if M.PaintMarks then M:PaintMarks(window, button, record, nil, known or false) end
 		return
 	end
@@ -1250,7 +1464,7 @@ local function CategoryOf(record, window)
 	end
 	local enabled = db.categories
 	if enabled.new and record.new then return "new" end
-	if enabled.junk and record.quality == QUALITY.Poor then return "junk" end
+	if enabled.junk and (record.junk == true or (record.junk == nil and record.quality == QUALITY.Poor)) then return "junk" end
 	local classID = ClassOf(record)
 	if enabled.quest and (record.quest or classID == ITEM_CLASS.Questitem) then return "quest" end
 	if enabled.equipment and (classID == ITEM_CLASS.Weapon or classID == ITEM_CLASS.Armor) then return "equipment" end
@@ -1365,7 +1579,7 @@ local function BuildSections(window, groups, live)
 		local own = (group.bag == REAGENT and REAGENT and db.reagentSection and live)
 			or (group.bag == KEYRING and KEYRING and live) or (type(group.bag) == "number" and IsAccountTab(group.bag))
 		if own and #group.records > 0 then
-			local title = group.bag == REAGENT and L["Reagents"] or group.bag == KEYRING and (KEYRING_LABEL or L["Keyring"]) or L["Account bank"]
+			local title = group.bag == REAGENT and L["Reagents"] or group.bag == KEYRING and (E:GameText(KEYRING_LABEL, L["Keyring"])) or L["Account bank"]
 			local last = sections[#sections]
 			if last.key == "warband" and IsAccountTab(group.bag) then
 				for _, record in ipairs(group.records) do table.insert(last.records, record) end
@@ -1533,10 +1747,13 @@ function M:ShowViewMenu(window, anchor)
 				M:RefreshViews()
 			end)
 		end
-		root:CreateCheckbox(L["One slot per bag type for free space"], function() return M.db.compactEmpty end, function()
-			M.db.compactEmpty = not M.db.compactEmpty
-			M:RefreshViews()
-		end)
+		-- Free space folds only in the Categories view.
+		if M.db[window.kind == "bank" and "bankView" or "view"] == "categories" then
+			root:CreateCheckbox(L["One slot per bag type for free space"], function() return M.db.compactEmpty end, function()
+				M.db.compactEmpty = not M.db.compactEmpty
+				M:RefreshViews()
+			end)
+		end
 		if next(M.db.hiddenBags) then
 			root:CreateButton(L["Show every bag again"], function()
 				wipe(M.db.hiddenBags)
@@ -1554,9 +1771,13 @@ function M.RailButtons(window, isBank)
 	local viewKey = isBank and "bankView" or "view"
 	local list = {
 		{ key = "sort", art = E:ClientIcon("Interface\\Icons\\INV_Pet_Broom"), mono = true,
-			tipTitle = isBank and (BAG_CLEANUP_BANK or L["Clean up bank"]) or (BAG_CLEANUP_BAGS or L["Clean up bags"]),
+			tipTitle = isBank and (E:GameText(BAG_CLEANUP_BANK, L["Clean up bank"])) or (E:GameText(BAG_CLEANUP_BAGS, L["Clean up bags"])),
 			tip = function(tooltip)
 				E.UIKit.TipText(tooltip, L["Runs the game's own sort."])
+				if InCombatLockdown() then
+					local warn = E.tokens.text.warn
+					tooltip:AddLine(L["Not in combat."], warn[1], warn[2], warn[3])
+				end
 				if isBank then E.UIKit.TooltipHint(tooltip, { L["Right-click"], L["clean up the account bank"] }) end
 			end,
 			onClick = function(_, mouse) M:Sort(window, mouse) end, options = { page = page, key = "sortButton" } },
@@ -1645,18 +1866,20 @@ function M:CreateWindow(kind)
 	window:SetClampedToScreen(true)
 	window:Hide()
 	E:SetPanelTemplate(window)
+	-- The window edge, title, text and accent line of every EldoUI window.
+	E:SetWindowEdge(window)
 	table.insert(UISpecialFrames, name)
 
-	window.title = E:CreateText(window, E.tokens.size.dialogTitle, "LEFT")
-	E:SetHeaderFont(window.title, 16) -- theme outline; follows theme changes
+	window.title = E.UIKit.Title(window, E.tokens.size.dialogTitle)
 	-- The title sits on the close button's middle line (TOPRIGHT -5, 22
 	-- tall), so the character button between them has one vertical line.
-	window.title:SetPoint("LEFT", window, "TOPLEFT", PAD, -16)
-	window.title:SetText(isBank and (BANK or L["Bank"]) or (INVENTORY_TOOLTIP or L["Bags"]))
+	window.title:SetPoint("LEFT", window, "TOPLEFT", 12, -16)
+	window.title:SetText(isBank and (E:GameText(BANK, L["Bank"])) or (E:GameText(INVENTORY_TOOLTIP, L["Bags"])))
 	window.accent = window:CreateTexture(nil, "ARTWORK")
 	window.accent:SetPoint("TOPLEFT", E.pixel, -30)
 	window.accent:SetPoint("TOPRIGHT", -E.pixel, -30)
-	window.accent:SetHeight(E.pixel * 2)
+	E:Hairline(window.accent, "h", 2)
+	E:AccentTexture(window.accent, 1)
 
 	local close = CreateFrame("Button", nil, window, "UIPanelCloseButtonNoScripts")
 	close:SetSize(22, 22)
@@ -1751,22 +1974,32 @@ function M:CreateWindow(kind)
 	window.currencyRow:SetPoint("BOTTOMRIGHT", -(PAD + RAIL), FOOTER)
 	window.currencyRow:SetHeight(CURRENCY_H - 2)
 
-	window.slotsText = E:CreateText(window, E.tokens.size.label, "LEFT")
+	window.slotsText = E.UIKit.Text(window, E.tokens.size.label, "LEFT", "secondary")
 	window.slotsText:SetPoint("BOTTOMLEFT", PAD, 8)
-	window.slotsText:SetTextColor(E:TokenColor("secondary"))
-	window.extraText = E:CreateText(window, E.tokens.size.label, "LEFT")
+	window.slotsText:SetWordWrap(false)
+	local slots = CreateFrame("Frame", nil, window)
+	slots:SetAllPoints(window.slotsText)
+	slots:EnableMouse(true)
+	slots:SetScript("OnEnter", function() M:ShowSlotFooter(window) end)
+	local function CloseSlotTip(anchor)
+		if GameTooltip:IsOwned(anchor) then GameTooltip:Hide() end
+	end
+	slots:SetScript("OnLeave", CloseSlotTip)
+	slots:SetScript("OnHide", CloseSlotTip)
+	window.slots = slots
+	window.extraText = E.UIKit.Text(window, E.tokens.size.label, "LEFT", "secondary")
 	window.extraText:SetPoint("LEFT", window.slotsText, "RIGHT", 10, 0)
-	window.extraText:SetTextColor(E:TokenColor("secondary"))
+	window.extraText:SetWordWrap(false)
 	if window.kind == "bags" then
 		-- The backpack's locked slots on an account without an authenticator.
 		local locked = CreateFrame("Frame", nil, window)
 		locked:SetSize(64, 16)
 		locked:SetPoint("LEFT", window.extraText, "RIGHT", 8, 0)
-		locked.text = E:CreateText(locked, E.tokens.size.label, "LEFT")
+		locked.text = E.UIKit.Text(locked, E.tokens.size.label, "LEFT", "secondary")
 		locked.text:SetPoint("LEFT")
-		locked.text:SetTextColor(E:TokenColor("secondary"))
 		locked.text:SetText(L["+4 locked"])
-		locked:SetWidth(math.max(24, (locked.text:GetStringWidth() or 0) + 2))
+		locked.text:SetWordWrap(false)
+		locked:EnableMouse(true)
 		locked:SetScript("OnEnter", function(anchor)
 			GameTooltip:SetOwner(anchor, "ANCHOR_TOP")
 			E.UIKit.TipTitle(GameTooltip, L["Locked backpack slots"])
@@ -1781,11 +2014,13 @@ function M:CreateWindow(kind)
 	local gold = CreateFrame("Frame", nil, window)
 	gold:SetSize(140, 18)
 	gold:SetPoint("BOTTOMRIGHT", -PAD, 5)
-	gold.text = E:CreateText(gold, E.tokens.size.body, "RIGHT")
+	gold.text = E.UIKit.Text(gold, E.tokens.size.body, "RIGHT")
 	gold.text:SetPoint("RIGHT")
+	gold.text:SetWordWrap(false)
 	gold:SetScript("OnEnter", function(anchor)
 		GameTooltip:SetOwner(anchor, "ANCHOR_TOP")
 		M:AddGoldLines(GameTooltip)
+		if M.AddWorthLines then M:AddWorthLines(GameTooltip, window) end
 		GameTooltip:Show()
 	end)
 	gold:SetScript("OnLeave", GameTooltip_Hide)
@@ -1800,11 +2035,17 @@ function M:CreateWindow(kind)
 	results:SetPoint("TOPRIGHT", window, "BOTTOMRIGHT", 0, -4)
 	results:SetHeight(40)
 	E:SetPanelTemplate(results)
+	-- Long results scroll inside the room the screen has.
+	results.area = E.UIKit.ScrollArea(results)
+	results.area:SetPoint("TOPLEFT", PAD, -PAD)
+	results.area:SetPoint("BOTTOMRIGHT", -PAD, PAD)
 	results.rows = {}
 	results:Hide()
 	window.results = results
 
+	window:SetScript("OnShow", function() M:WatchCooldowns() end)
 	window:SetScript("OnHide", function()
+		M:WatchCooldowns()
 		window.tourOpening = nil
 		search:ClearFocus()
 		window.highlightBag = nil
@@ -1964,18 +2205,14 @@ local function VisibleIDs(window)
 	return list, ids
 end
 
--- Slots in all and slots in use: every bag (hidden ones too), without the
--- keyring.
-local function SlotCounts(allIDs)
-	local total, used = 0, 0
-	for _, bag in ipairs(allIDs) do
-		if bag ~= KEYRING or not KEYRING then
-			local size = NumSlots(bag)
-			total = total + size
-			used = used + size - (C_Container.GetContainerNumFreeSlots(bag) or 0)
-		end
-	end
-	return total, used
+-- General-purpose slots, including those in bags hidden from this view.
+local function FixedBankTabs()
+	return C_Bank and E.PlainCall(C_Bank.ShouldUsePlayerBagsInBank) == false
+end
+
+local function SlotCounts(allIDs, bank)
+	local free, total, known, rows = E.BagCache:GeneralSlots(allIDs, bank and FixedBankTabs(), true)
+	return total, total - free, known, rows
 end
 
 -- What a live window's slot grid depends on besides the items: the view
@@ -2038,7 +2275,7 @@ function M:LayoutLive(window, columns, top)
 		for slot = 1, NumSlots(bag) do records[#records + 1] = LiveRecord(bag, slot) end
 		groups[#groups + 1] = { bag = bag, records = records }
 	end
-	local total, used = SlotCounts(allIDs)
+	local total, used, known, rows = SlotCounts(allIDs, window.kind == "bank")
 	HideAll(window)
 	local sections = MarkHidden(window, BuildSections(window, groups, true))
 	local height = self:PlaceSections(window, sections, columns, top, function(record, x, y)
@@ -2050,7 +2287,7 @@ function M:LayoutLive(window, columns, top)
 		PaintLive(window, button, record)
 	end)
 	window.liveShape = LiveShape(window)
-	return height, total, used
+	return height, total, used, known, rows
 end
 
 function M:LayoutOffline(window, columns, top)
@@ -2156,6 +2393,59 @@ function M:Refilter(window, searched)
 	end
 end
 
+-- At most this many lines: an item line counts, and so does each line
+-- under it for a character or a guild bank.
+local RESULT_LINES, RESULT_ROW = 120, 18
+
+-- The results panel opens on the side of the bag window with more room,
+-- and is never taller than that room; the rest scrolls.
+local function PlaceResults(window, results, wanted)
+	local scale, parentScale = window:GetEffectiveScale() or 1, UIParent:GetEffectiveScale() or 1
+	local screen = (UIParent:GetHeight() or 768) * parentScale / scale
+	local bottom, top = window:GetBottom() or 0, window:GetTop() or screen
+	local below, above = bottom - 8, screen - top - 8
+	local up = wanted > below and above > below
+	local height = math.max(math.min(wanted, up and above or below), RESULT_ROW + PAD * 2)
+	results:ClearAllPoints()
+	if up then
+		results:SetPoint("BOTTOMLEFT", window, "TOPLEFT", 0, 4)
+		results:SetPoint("BOTTOMRIGHT", window, "TOPRIGHT", 0, 4)
+	else
+		results:SetPoint("TOPLEFT", window, "BOTTOMLEFT", 0, -4)
+		results:SetPoint("TOPRIGHT", window, "BOTTOMRIGHT", 0, -4)
+	end
+	results:SetHeight(height)
+	results.up = up
+end
+
+local function ResultRow(results, index)
+	local rows = results.rows
+	local row = rows[index]
+	if row then return row end
+	row = CreateFrame("Button", nil, results.area.child)
+	row:SetHeight(RESULT_ROW)
+	row.left = E.UIKit.Text(row, E.tokens.size.label, "LEFT")
+	row.left:SetPoint("LEFT", 4, 0)
+	row.right = E.UIKit.Text(row, E.tokens.size.label, "RIGHT")
+	row.right:SetPoint("RIGHT", -4, 0)
+	if E.SkinRow then E:SkinRow(row) end
+	row:SetScript("OnEnter", function(entryRow)
+		if not entryRow.short then return end
+		GameTooltip:SetOwner(entryRow, "ANCHOR_RIGHT")
+		GameTooltip:SetHyperlink(entryRow.short)
+		GameTooltip:Show()
+	end)
+	row:SetScript("OnLeave", GameTooltip_Hide)
+	-- Shift-click links the item in the chat, like a bag slot.
+	row:SetScript("OnClick", function(entryRow)
+		if not entryRow.short then return end
+		local link = select(2, C_Item.GetItemInfo(entryRow.short))
+		if link and HandleModifiedItemClick then HandleModifiedItemClick(link) end
+	end)
+	rows[index] = row
+	return row
+end
+
 function M:UpdateResults(window)
 	local results = window.results
 	if not (window.allChars and window.query) then
@@ -2164,57 +2454,49 @@ function M:UpdateResults(window)
 	end
 	local rows = results.rows
 	local lines = {}
+	local function Add(line)
+		if #lines >= RESULT_LINES then return false end
+		lines[#lines + 1] = line
+		return true
+	end
 	for _, entry in ipairs(self:FindAll(window.searchText)) do
-		if #lines >= 30 then break end
 		local name = C_Item.GetItemNameByID and C_Item.GetItemNameByID(entry.id) or entry.short
 		local quality = C_Item.GetItemQualityByID and C_Item.GetItemQualityByID(entry.id)
 		local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
 		local icon = C_Item.GetItemIconByID and C_Item.GetItemIconByID(entry.id)
 		local label = (icon and ("|T%s:14:14:0:0:64:64:5:59:5:59|t "):format(icon) or "")
 			.. (color and color.hex or "|cffffffff") .. (name or "?") .. "|r"
-		lines[#lines + 1] = { left = label, right = tostring(entry.total), short = entry.short }
+		if not Add({ left = label, right = tostring(entry.total), short = entry.short }) then break end
 		for key, counts in pairs(entry.chars) do
 			local char = Store:Get(key)
 			if char then
-				lines[#lines + 1] = { left = "    " .. ClassIcon(char.class, 12) .. ClassName(char), right = Breakdown(counts), short = entry.short }
+				Add({ left = "    " .. ClassIcon(char.class, 12) .. ClassName(char), right = Breakdown(counts), short = entry.short })
 			end
 		end
 		for key, count in pairs(entry.guilds) do
 			local guild = Store:Guilds()[key]
-			lines[#lines + 1] = { left = "    " .. E:TextHex("good") .. (guild and guild.name or key) .. "|r",
-				right = Grey(LOCATION_LABEL.guild) .. " " .. count, short = entry.short }
+			Add({ left = "    " .. E:TextHex("good") .. (guild and guild.name or key) .. "|r",
+				right = Grey(LOCATION_LABEL.guild) .. " " .. count, short = entry.short })
 		end
 	end
 	if #lines == 0 then lines[1] = { left = Grey(L["Nothing found on any character."]) } end
 	for index, line in ipairs(lines) do
-		local row = rows[index]
-		if not row then
-			row = CreateFrame("Button", nil, results)
-			row:SetHeight(18)
-			row.left = E:CreateText(row, E.tokens.size.label, "LEFT")
-			row.left:SetPoint("LEFT", 4, 0)
-			row.right = E:CreateText(row, E.tokens.size.label, "RIGHT")
-			row.right:SetPoint("RIGHT", -4, 0)
-			if E.SkinRow then E:SkinRow(row) end
-			row:SetScript("OnEnter", function(entryRow)
-				if not entryRow.short then return end
-				GameTooltip:SetOwner(entryRow, "ANCHOR_RIGHT")
-				GameTooltip:SetHyperlink(entryRow.short)
-				GameTooltip:Show()
-			end)
-			row:SetScript("OnLeave", GameTooltip_Hide)
-			rows[index] = row
-		end
-		row:SetPoint("TOPLEFT", PAD, -PAD - (index - 1) * 18)
-		row:SetPoint("TOPRIGHT", -PAD, -PAD - (index - 1) * 18)
+		local row = ResultRow(results, index)
+		row:ClearAllPoints()
+		row:SetPoint("TOPLEFT", 0, -(index - 1) * RESULT_ROW)
+		row:SetPoint("TOPRIGHT", 0, -(index - 1) * RESULT_ROW)
 		row.left:SetText(line.left)
 		row.right:SetText(line.right or "")
 		row.short = line.short
 		row:Show()
 	end
 	for index = #lines + 1, #rows do rows[index]:Hide() end
-	results:SetHeight(PAD * 2 + #lines * 18)
+	local area = results.area
+	area.child:SetHeight(#lines * RESULT_ROW)
+	PlaceResults(window, results, PAD * 2 + #lines * RESULT_ROW)
 	results:Show()
+	area:ScrollToTop()
+	area:Update()
 end
 
 -- The backpack slots the game holds back until the account has an
@@ -2229,25 +2511,105 @@ local function ShowLockedSlots(window, live)
 	if window.lockedSlots then window.lockedSlots:SetShown(live and BackpackLocked() or false) end
 end
 
--- Ammo and special bags for the footer.
-local function SpecialBagText()
+-- Keep the compact special-bag and ammunition summary beside the main count.
+function M:SpecialBagText(rows)
 	local parts = {}
-	for _, bag in ipairs(BagIDs()) do
-		if bag > 0 and bag ~= KEYRING then
-			local free, family = C_Container.GetContainerNumFreeSlots(bag)
-			if family and family ~= 0 then
-				local bagName = C_Container.GetBagName and C_Container.GetBagName(bag)
-				local short = bagName and bagName:match("(%S+)$") or L["Bag"]
-				parts[#parts + 1] = ("%s %d"):format(short, free)
+	for _, row in ipairs(rows) do
+		if row.special and row.bag > 0 and row.free then
+			local short = BagName(row.bag):match("(%S+)$") or L["Bag"]
+			parts[#parts + 1] = ("%s %d"):format(short, row.free)
+		end
+	end
+	local ammo = self:AmmoCount()
+	if not ammo then return table.concat(parts, "  ") end
+	local low = ammo < self.db.ammoThreshold
+	local ammoText = (low and E:TextHex("bad") or "") .. L["Ammo %d"]:format(ammo) .. (low and "|r" or "")
+	parts[#parts + 1] = ammoText
+	return table.concat(parts, "  "), ammoText
+end
+
+function M:AddSlotFooterLines(tooltip, window)
+	local capacity = window.slotCapacity
+	E.UIKit.TipTitle(tooltip, capacity.rows and L["General bag slots"] or L["Saved bag slots"])
+	E.UIKit.TipText(tooltip, capacity.known and L["%d / %d free"]:format(capacity.total - capacity.used, capacity.total)
+		or L["Slot count unavailable"])
+	if capacity.extraClipped and capacity.ammo then E.UIKit.TipText(tooltip, capacity.ammo) end
+	local specialHeading = false
+	for _, special in ipairs({ false, true }) do
+		for _, row in ipairs(capacity.rows or {}) do
+			if (row.special == true) == special then
+				if special and not specialHeading then
+					E.UIKit.TipText(tooltip, L["Special bags"])
+					specialHeading = true
+				end
+				tooltip:AddDoubleLine(BagName(row.bag), row.free and L["%d / %d free"]:format(row.free, row.total)
+					or L["Slot count unavailable"])
 			end
 		end
 	end
-	local ammo = M:AmmoCount()
-	if ammo then
-		local low = ammo < M.db.ammoThreshold
-		parts[#parts + 1] = (low and E:TextHex("bad") or "") .. L["Ammo %d"]:format(ammo) .. (low and "|r" or "")
+end
+
+function M:ShowSlotFooter(window)
+	if not window.slotCapacity then return end
+	GameTooltip:SetOwner(window.slots, "ANCHOR_TOP")
+	self:AddSlotFooterLines(GameTooltip, window)
+	if self.AddWorthLines then self:AddWorthLines(GameTooltip, window) end
+	GameTooltip:Show()
+end
+
+function M:UpdateCapacityFooter(window, total, used, known, rows)
+	local capacity = { total = total, used = used, known = known, rows = rows }
+	window.slotCapacity = capacity
+	local free = known and total - used
+	local slots = window.slotsText
+	local text = L["? free"]
+	if known then
+		text = self.db.footerSlots == "used" and ("%d / %d"):format(used, total) or L["%d free"]:format(free)
 	end
-	return table.concat(parts, "  ")
+	slots:SetText(text)
+	E.UIKit.Paint(slots, rows and free == 0 and "bad" or rows and free and free <= self.LOW_SPACE and "warn" or "secondary")
+	local extra, locked, gold = window.extraText, window.lockedSlots, window.gold
+	local summary
+	if rows and window.kind == "bags" then summary, capacity.ammo = self:SpecialBagText(rows) end
+	extra:SetText(summary or "")
+	ShowLockedSlots(window, rows ~= nil)
+
+	local function TextWidth(label)
+		return math.ceil(label.GetUnboundedStringWidth and label:GetUnboundedStringWidth() or label:GetStringWidth()) + 1
+	end
+	local available = math.max(1, window:GetWidth() - PAD * 2)
+	local slotWidth = math.min(TextWidth(slots), available)
+	slots:SetWidth(slotWidth)
+	available = available - slotWidth
+	if gold:IsShown() then
+		local width = math.min(TextWidth(gold.text) + 1, math.max(0, available - 8))
+		gold:SetWidth(width)
+		gold.text:SetWidth(math.max(1, width))
+		available = math.max(0, available - width - 8)
+	end
+	local lockWidth = 0
+	if locked and locked:IsShown() then
+		lockWidth = math.min(TextWidth(locked.text) + 1, math.max(0, available - 8))
+		locked:SetWidth(lockWidth)
+		locked.text:SetWidth(math.max(1, lockWidth))
+		available = math.max(0, available - lockWidth - 8)
+	end
+	local wantExtra = summary and summary ~= "" and TextWidth(extra) or 0
+	local extraWidth = math.min(wantExtra, math.max(0, available - 10))
+	capacity.extraClipped = extraWidth < wantExtra
+	extra:SetWidth(math.max(1, extraWidth))
+	extra:SetShown(extraWidth > 0)
+	if lockWidth > 0 then
+		locked:ClearAllPoints()
+		locked:SetPoint("LEFT", extraWidth > 0 and extra or slots, "RIGHT", 8, 0)
+	end
+	if self.RefreshLowestValueMark then self:RefreshLowestValueMark(window) end
+	if GameTooltip:IsOwned(window.slots) and GameTooltip:IsShown() then
+		GameTooltip:ClearLines()
+		self:AddSlotFooterLines(GameTooltip, window)
+		if self.AddWorthLines then self:AddWorthLines(GameTooltip, window) end
+		GameTooltip:Show()
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -2342,7 +2704,7 @@ local function BarTooltip(button)
 	end
 	if not shown then
 		if entry.kind == "bank" and not entry.bought then
-			GameTooltip:SetText(BANK_BAG_PURCHASE or L["Buy bank space"])
+			GameTooltip:SetText(E:GameText(BANK_BAG_PURCHASE, L["Buy bank space"]))
 			E.UIKit.TipText(GameTooltip, L["Bank tabs are bought in order at the bank: the next one shows a plus."])
 		else
 			GameTooltip:SetText(entry.tab and entry.tab.name ~= "" and entry.tab.name or BagName(entry.bag))
@@ -2414,7 +2776,7 @@ function M:AddBankTabSortToggle(root, entry)
 	if not (flag and bankOpen and C_Bank and C_Bank.UpdateBankTabSettings and C_Bank.FetchPurchasedBankTabData) then return end
 	local bankType = entry.kind == "account" and BANK_ACCOUNT or BANK_CHARACTER
 	if not bankType then return end
-	root:CreateCheckbox(BAG_FILTER_IGNORE or L["Ignore when sorting"], function()
+	root:CreateCheckbox(E:GameText(BAG_FILTER_IGNORE, L["Ignore when sorting"]), function()
 		local tab = FreshTab(bankType, entry.bag)
 		return tab and TabHasFlag(tab.depositFlags, flag) or false
 	end, function()
@@ -2445,17 +2807,17 @@ function M:ShowBagMenu(entry, anchor)
 		-- The game's own per-bag settings, as in Blizzard's bag menu.
 		if entry.bag == 0 then
 			if C_Container.GetBackpackAutosortDisabled then
-				root:CreateCheckbox(BAG_FILTER_IGNORE or L["Ignore when sorting"], function() return C_Container.GetBackpackAutosortDisabled() end,
+				root:CreateCheckbox(E:GameText(BAG_FILTER_IGNORE, L["Ignore when sorting"]), function() return C_Container.GetBackpackAutosortDisabled() end,
 					function() C_Container.SetBackpackAutosortDisabled(not C_Container.GetBackpackAutosortDisabled()) end)
 			end
 			return
 		end
 		if not (C_Container.GetBagSlotFlag and flags.DisableAutoSort) then return end
-		root:CreateCheckbox(BAG_FILTER_IGNORE or L["Ignore when sorting"], function() return C_Container.GetBagSlotFlag(entry.bag, flags.DisableAutoSort) end,
+		root:CreateCheckbox(E:GameText(BAG_FILTER_IGNORE, L["Ignore when sorting"]), function() return C_Container.GetBagSlotFlag(entry.bag, flags.DisableAutoSort) end,
 			function() C_Container.SetBagSlotFlag(entry.bag, flags.DisableAutoSort, not C_Container.GetBagSlotFlag(entry.bag, flags.DisableAutoSort)) end)
 		if entry.bag == REAGENT then return end
 		root:CreateDivider()
-		root:CreateTitle(BAG_FILTER_ASSIGN_TO or L["Assign to"])
+		root:CreateTitle(E:GameText(BAG_FILTER_ASSIGN_TO, L["Assign to"]))
 		for _, pair in ipairs(SORT_FLAGS) do
 			local flag = flags[pair[1]]
 			if flag then
@@ -2547,7 +2909,8 @@ function M:PaintBarButton(button)
 	button.lock:SetShown(entry.bought == false and not entry.buy)
 	local free = ""
 	if entry.bought ~= false and entry.bag and NumSlots(entry.bag) > 0 and entry.kind ~= "keyring" then
-		free = C_Container.GetContainerNumFreeSlots(entry.bag) or ""
+		local count, _, known = E.BagCache:Free(entry.bag)
+		if known then free = count end
 	end
 	button.free:SetText(free)
 	local r, g, b = unpack(hidden and E.media.borderColor or E.media.accentColor)
@@ -2605,7 +2968,7 @@ local function GetCurrencyButton(window, index)
 	button.icon:SetSize(14, 14)
 	button.icon:SetPoint("LEFT", 0, 0)
 	E:TrimIcon(button.icon)
-	button.text = E:CreateText(button, E.tokens.size.label, "LEFT")
+	button.text = E.UIKit.Text(button, E.tokens.size.label, "LEFT")
 	button.text:SetPoint("LEFT", button.icon, "RIGHT", 4, 0)
 	button:SetScript("OnEnter", function(self)
 		if not self.currencyID then return end
@@ -2661,10 +3024,16 @@ end
 ---------------------------------------------------------------------------
 function M:UpdateWindow(window)
 	if not window or not window:IsShown() then return end
+	self:WatchCooldowns()
 	local db = self.db
 	waitingForInfo = false
-	window.accent:SetColorTexture(unpack(E.media.accentColor))
-	window:SetScale(db.scale or 1)
+	-- A window drawn at its own scale snaps its edges to whole screen
+	-- pixels again, so slot borders stay crisp at every size.
+	if window.drawnScale ~= (db.scale or 1) then
+		window:SetScale(db.scale or 1)
+		window.drawnScale = db.scale or 1
+		E:SnapBorders(window)
+	end
 	window:SetFrameStrata(db.strata or "HIGH")
 	local columns = window.kind == "bank" and db.bankColumns or db.columns
 	local live = IsLive(window)
@@ -2673,12 +3042,13 @@ function M:UpdateWindow(window)
 	local top = HEADER + self:UpdateBar(window, live)
 	local currencyHeight = self:UpdateCurrencies(window, live, char)
 	window.currencyHeight = currencyHeight
-	local height, slots, used
+	local height, slots, used, known, rows
 	if live then
-		height, slots, used = self:LayoutLive(window, columns, top)
+		height, slots, used, known, rows = self:LayoutLive(window, columns, top)
 		if not height then return end
 	else
 		height, slots, used = self:LayoutOffline(window, columns, top)
+		known = slots > 0
 	end
 	height = math.max(height, db.size)
 	local width = PAD * 2 + RAIL + columns * db.size + (columns - 1) * db.spacing
@@ -2701,11 +3071,9 @@ function M:UpdateWindow(window)
 	if window.blizzard then window.blizzard:SetShown(bankOpen) end
 	M.SetRailActive(window.allButton, window.allChars)
 	window.rail:Layout()
-	window.slotsText:SetText(("%d / %d"):format(used, slots))
-	window.extraText:SetText(live and window.kind == "bags" and SpecialBagText() or "")
-	ShowLockedSlots(window, live)
 	window.gold:SetShown(db.gold)
 	window.gold.text:SetText(Money(live and GetMoney() or char.money or 0))
+	self:UpdateCapacityFooter(window, slots, used, known, rows)
 	self:UpdateMoveButton(window)
 	self:UpdateNoMatch(window)
 	self:UpdateResults(window)
@@ -2765,7 +3133,7 @@ function M:NoteBagChanged(bag)
 end
 
 -- A slot whose look did not change keeps its paint.
-local SLOT_FIELDS = { "empty", "link", "count", "locked", "bound", "quality", "new", "quest", "protected", "icon", "freeCount", "total" }
+local SLOT_FIELDS = { "empty", "link", "count", "locked", "bound", "quality", "new", "quest", "protected", "junk", "icon", "freeCount", "total", "tradeGUID" }
 local function SameSlot(old, new)
 	for _, field in ipairs(SLOT_FIELDS) do
 		if old[field] ~= new[field] then return false end
@@ -2822,9 +3190,8 @@ function M:RepaintBags(window, bags)
 		end
 	end
 	for _, paint in ipairs(paints) do PaintLive(window, paint[1], paint[2]) end
-	local total, used = SlotCounts(allIDs)
-	window.slotsText:SetText(("%d / %d"):format(used, total))
-	window.extraText:SetText(window.kind == "bags" and SpecialBagText() or "")
+	local total, used, known, rows = SlotCounts(allIDs, window.kind == "bank")
+	self:UpdateCapacityFooter(window, total, used, known, rows)
 	self:UpdateMoveButton(window)
 	return true
 end
@@ -2867,7 +3234,8 @@ function M:UpdateLock(bag, slot)
 		if record and not record.empty and record.bag == bag and record.slot == slot then
 			local info = C_Container.GetContainerItemInfo(bag, slot)
 			record.locked = info and info.isLocked or false
-			SetItemButtonDesaturated(button, record.locked)
+			record.junk = E.WillSellAsJunk and E:WillSellAsJunk(bag, slot, info)
+			PaintLive(window, button, record)
 		end
 	end
 end
@@ -2878,7 +3246,39 @@ function M:UpdateMoney()
 		if window:IsShown() and window.viewChar == E.charKey then
 			local money = IsLive(window) and GetMoney() or Store:Me().money
 			window.gold.text:SetText(Money(money or 0))
+			local capacity = window.slotCapacity
+			if capacity then self:UpdateCapacityFooter(window, capacity.total, capacity.used, capacity.known, capacity.rows) end
 		end
+	end
+end
+
+local cooldownOwner, cooldownTimer, watchingCooldowns = {}, nil, false
+
+local function HasLiveWindow()
+	for _, window in pairs(windows) do
+		if window:IsVisible() and IsLive(window) then return true end
+	end
+	return false
+end
+
+local function QueueCooldowns()
+	if cooldownTimer then return end
+	cooldownTimer = C_Timer.NewTimer(0, function()
+		cooldownTimer = nil
+		if M.active and HasLiveWindow() then M:UpdateCooldowns() end
+	end)
+end
+
+function M:WatchCooldowns()
+	if self.active and HasLiveWindow() then
+		if not watchingCooldowns then
+			E:RegisterEvent("BAG_UPDATE_COOLDOWN", QueueCooldowns, cooldownOwner)
+			watchingCooldowns = true
+		end
+	else
+		if watchingCooldowns then E:UnregisterEvent("BAG_UPDATE_COOLDOWN", cooldownOwner) end
+		watchingCooldowns = false
+		if cooldownTimer then cooldownTimer:Cancel() cooldownTimer = nil end
 	end
 end
 
@@ -3096,6 +3496,7 @@ end
 
 function M:OnBankClosed()
 	bankOpen = false
+	self:WatchCooldowns()
 	if self.blizzardBankVisible and BankFrame then
 		E:RunOutOfCombat(function()
 			if E:BlizzardHidden(BANK_ID) then Reparent(BankFrame, tiny) end
@@ -3209,6 +3610,19 @@ function M:OnAutoBagEvent(event)
 	end
 end
 
+-- Combat-start is the last chance to close a protected bag window.
+function M:CloseForCombat()
+	if not self.db.autoClose.combat or not self:AutoBagsAllowed() or InCombatLockdown() then return end
+	local window = windows.bags
+	if not AnyOpen() and not (self:OwnBags() and window and window:IsShown()) then return end
+	if self:OwnBags() and window and window:IsShown() then
+		-- OnHide closes the native bags too. A slide would finish in combat.
+		for _, animation in pairs(window.eldoAnim or {}) do animation:Stop() end
+		window:Hide()
+	end
+	if AnyOpen() then CloseAllBags() end
+end
+
 function M:EnableAutoBags()
 	self:HookAutoBags()
 	for event in pairs(EVENT_KIND) do
@@ -3266,6 +3680,7 @@ function M:ApplyBagElement()
 	if not self:OwnBags() and windows.bags and windows.bags:IsShown() then windows.bags:Hide() end
 	if self.ApplyBlizzardBags then self:ApplyBlizzardBags() end
 	self:ApplySortDirection()
+	self:ApplyInsertDirection()
 end
 
 function M:RestoreBagFrames()
@@ -3315,6 +3730,17 @@ function M:ApplySortDirection()
 	if not (C_Container.SetSortBagsRightToLeft and C_Container.GetSortBagsRightToLeft) then return end
 	local rtl = direction == "rtl"
 	if C_Container.GetSortBagsRightToLeft() ~= rtl then C_Container.SetSortBagsRightToLeft(rtl) end
+end
+
+function M:ApplyInsertDirection()
+	local direction = self.db.insertDirection
+	if (direction ~= "first" and direction ~= "last") or not self:OwnBags() then return end
+	if not (C_Container.SetInsertItemsLeftToRight and C_Container.GetInsertItemsLeftToRight) then return end
+	local current = E.PlainCall(C_Container.GetInsertItemsLeftToRight)
+	local leftToRight = direction == "last"
+	if type(current) == "boolean" and current ~= leftToRight then
+		E.PlainCall(C_Container.SetInsertItemsLeftToRight, leftToRight)
+	end
 end
 
 E:RegisterBlizzardHandler(BAGS_ID, {
@@ -3632,9 +4058,7 @@ function M:MoveRoom(target)
 			if not HasSendMailItem(index) then free = free + 1 end
 		end
 	elseif target == "bank" then
-		for _, bag in ipairs(BankBagIDs(true)) do
-			free = free + (C_Container.GetContainerNumFreeSlots(bag) or 0)
-		end
+		free = E.BagCache:GeneralSlots(BankBagIDs(true), FixedBankTabs())
 	elseif target == "vendor" then
 		free = MOVE_BATCH
 	end
@@ -3681,6 +4105,14 @@ function M:MoveTip()
 	if InCombatLockdown() then return L["Not in combat."] end
 	if not target then return L["Open the bank, mail, trade or a vendor first."] end
 	return L["Moves up to %d of the items your search shows to %s. One batch per click; quest and recipe items stay."]:format(MOVE_BATCH, MOVE_TARGET_LABEL[target])
+end
+
+-- The sort button dims while the game refuses a sort (in combat).
+function M:UpdateSortButtons()
+	local fight = InCombatLockdown()
+	for _, window in pairs(windows) do
+		if window.sort then window.sort:SetAlpha(fight and E.tokens.disabledAlpha or 1) end
+	end
 end
 
 function M:UpdateMoveButton(window)
@@ -3783,6 +4215,20 @@ local function TotalOnAccount(itemID)
 		M.linesCache.count = M.linesCache.count + 1
 	end
 	return total
+end
+
+-- The current character's fresh carried count and the total in the
+-- character inventory snapshots, with the saved carried count replaced.
+function E:GatheringItemCounts(itemID)
+	if not (M:CountsActive() and M.db.tooltip.enabled and C_Item) then return end
+	local count = E.PlainCall(C_Item.GetItemCount, itemID, false, false, false, false)
+	if type(count) ~= "number" or count < 0 or count >= math.huge or count % 1 ~= 0 then return end
+	if not M.db.altChars then return count end
+	local total = TotalOnAccount(itemID)
+	local own = Store:Get(E.charKey)
+	local saved = own and own.counts and own.counts[itemID]
+	local savedBags = saved and saved[1] or 0
+	return count, total - savedBags + count
 end
 
 function M:HookTooltips()
@@ -4005,7 +4451,6 @@ function M:OnEnable()
 	self:RegisterEvent("PLAYER_MONEY", function() M:UpdateMoney() end)
 	self:RegisterEvent("CURRENCY_DISPLAY_UPDATE", function() M:UpdateCurrencyRow() end)
 	self:RegisterEvent("ITEM_LOCK_CHANGED", function(_, _, bag, slot) M:UpdateLock(bag, slot) end)
-	self:RegisterEvent("BAG_UPDATE_COOLDOWN", function() M:UpdateCooldowns() end)
 	-- Quests change the lock marks, on Blizzard's bag windows too.
 	-- Quest items: the shown bags repaint (the categories view, where an
 	-- item changes section, redraws whole).
@@ -4023,9 +4468,17 @@ function M:OnEnable()
 	self:RegisterEvent("QUEST_REMOVED", QuestsChanged)
 	local function MoveTargetChanged() M:UpdateMoveButton(windows.bags) end
 	for _, event in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_INFO_UPDATE", "TRADE_SHOW", "TRADE_CLOSED",
-		"TRADE_PLAYER_ITEM_CHANGED", "MERCHANT_SHOW", "MERCHANT_CLOSED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
+		"TRADE_PLAYER_ITEM_CHANGED", "MERCHANT_SHOW", "MERCHANT_CLOSED" }) do
 		self:RegisterEvent(event, MoveTargetChanged)
 	end
+	-- In combat the game refuses a sort and a move: both buttons dim.
+	local function CombatChanged(_, event)
+		if event == "PLAYER_REGEN_DISABLED" then M:CloseForCombat() end
+		MoveTargetChanged()
+		M:UpdateSortButtons()
+	end
+	self:RegisterEvent("PLAYER_REGEN_DISABLED", CombatChanged)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", CombatChanged)
 	self:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player", function() M:UpdateBagButtons(); M:CheckAmmo() end)
 	self:RegisterEvent("GET_ITEM_INFO_RECEIVED", function()
 		if waitingForInfo then Schedule("Refresh", 0.3) end
@@ -4044,9 +4497,12 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	if self.ResetLowestValue then self:ResetLowestValue() end
+	if self.ClearTradeMarks then self:ClearTradeMarks() end
 	E:UnregisterEvent("PLAYER_REGEN_ENABLED", M.prebuildEvents)
 	E:UnregisterEvent("BAG_CONTAINER_UPDATE", M.prebuildEvents)
 	self:DisableAutoBags()
+	self:WatchCooldowns()
 	for _, window in pairs(windows) do window:Hide() end
 	self:RestoreBagFrames()
 	if BankFrame then E:RunOutOfCombat(function() RestoreParent(BankFrame) end) end
@@ -4067,6 +4523,7 @@ function M:SyncTooltipMode()
 end
 
 function M:OnProfileChanged()
+	if self.ResetLowestValue then self:ResetLowestValue() end
 	self:SyncTooltipMode()
 	if not self.active then return end
 	self:ParseCustomCategories()
@@ -4109,6 +4566,11 @@ end
 local VIEW_VALUES = { single = "One grid", categories = "Categories", bags = "Bag by bag" }
 
 local function NotCategories() return M.db and M.db.view ~= "categories" and M.db.bankView ~= "categories" end
+-- Rows that only act in the Categories view are grayed with the reason in
+-- the other views.
+local function OnlyCategories()
+	if NotCategories() then return L["Pick Categories as the bag or bank view first."] end
+end
 local function NotOneGrid()
 	if M.db and M.db.view ~= "single" and M.db.bankView ~= "single" then return L["Pick One grid as the bag or bank view first."] end
 end
@@ -4148,8 +4610,8 @@ M.options = {
 	{ type = "range", key = "columns", label = "Bag columns", desc = "Slots per row in the bag window.", min = 6, max = 24, step = 1 },
 	{ type = "range", key = "bankColumns", label = "Bank columns", desc = "Slots per row in the bank window.", min = 6, max = 30, step = 1 },
 	{ type = "range", key = "size", label = "Slot size", desc = "Size of each slot in pixels.", min = 24, max = 52, step = 1 },
-	{ type = "range", key = "spacing", label = "Spacing", desc = "Gap between slots in pixels.", min = 0, max = 10, step = 1 },
-	{ type = "range", percent = true, key = "scale", label = "Size", desc = "Size of the bag and bank windows, from 50 to 150 percent.", min = 0.5, max = 1.5, step = 0.05 },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", desc = "Gap between slots in pixels.", min = 0, max = 10, step = 1 },
+	{ type = "range", percent = true, key = "scale", label = "Window scale", desc = "Size of the bag, bank and guild bank windows, from 50 to 150 percent.", min = 0.5, max = 1.5, step = 0.05 },
 	{ type = "toggle", key = "reverse", label = "Fill from the bottom", desc = "One-grid view: the first bag slot sits at the bottom right instead of the top left.", disabled = NotOneGrid },
 	{ type = "toggle", key = "packSections", label = "Pack sections", desc = "Small sections (categories or bags) share a row instead of starting a new one." },
 	{ type = "execute", label = "Show hidden sections", testSafe = true, func = function() M:ShowAllSections() end,
@@ -4158,6 +4620,8 @@ M.options = {
 	{ type = "toggle", key = "bagBar", label = "Bag bar in the window", desc = "A row of your bags (or bank tabs) under the search box: click one to hide or show its slots, drag bags in and out, right-click for the game's bag options." },
 	{ type = "toggle", key = "currencies", label = "Tracked currencies", desc = "Currencies you track in the game's currency list (Show on backpack) appear over the footer of the bag window." },
 	{ type = "toggle", key = "gold", label = "Gold", desc = "Your gold in the footer; hover it for every character's gold." },
+	{ type = "select", key = "footerSlots", label = "Slot counter", values = { free = "Free slots", used = "Used of total" }, order = { "free", "used" },
+		desc = "How the bag and bank footers display space. Hover the count to see the bags separately." },
 	{ type = "toggle", key = "keyring", label = "Keyring", desc = "Shows the keyring's slots in the bag window, in their own section." },
 	{ type = "toggle", key = "reagentSection", label = "Reagent bag in its own section", desc = "One-grid view: the reagent bag gets its own section. Off puts its slots into the main grid.", disabled = NotOneGrid },
 	{ type = "toggle", key = "accountBank", label = "Account bank", desc = "Shows the account bank pages in the bank window when the game lets you view them.", hidden = NoAccountBank },
@@ -4170,10 +4634,16 @@ M.options = {
 		values = { MEDIUM = "Medium", HIGH = "High (default)", DIALOG = "Dialog (over most windows)" }, cog = true },
 	{ type = "header", label = "Open and close with" },
 	{ type = "description", label = "Which windows open your bags with them. A window only closes the bags it opened; bags you opened yourself stay open." },
+	{ type = "cog", label = "Close bags", desc = "Choose when open bags close.", options = {
+		{ type = "toggle", key = "autoClose.combat", label = "In combat",
+			desc = "Closes open bags as combat starts. Bags opened during combat stay open." },
+	} },
 	{ type = "header", label = "Sorting" },
 	{ type = "toggle", key = "sortButton", label = "Sort button", desc = "Shows the broom that runs the game's own bag and bank sort. Right-click it at the bank to sort the account bank." },
 	{ type = "select", key = "sortDirection", label = "Sort direction", desc = "The game's own sort setting. Game setting leaves it as it is.",
 		values = { game = "Game setting", ltr = "Top-down", rtl = "Bottom-up" } },
+	{ type = "select", key = "insertDirection", label = "New items go to", desc = "Choose which bag receives new items first. Game setting leaves the current choice unchanged.",
+		values = { game = "Game setting", first = "First bag", last = "Last bag" }, order = { "game", "first", "last" } },
 	{ type = "description", label = "Right-click a bag in the bag bar, or a bank tab, to keep it out of sorting or give it a kind of item. Sorting is always the game's own." },
 
 	{ type = "tab", label = "Slots" },
@@ -4187,8 +4657,8 @@ M.options = {
 			{ type = "range", key = "text.levelSize", label = "Text size", desc = "Size of the item level number.", min = 8, max = 20, step = 1 },
 			{ type = "select", key = "text.levelOutline", label = "Outline", desc = "Outline around the item level (and the bind text).", values = OUTLINE_VALUES },
 			{ type = "select", key = "text.levelPoint", label = "Position", desc = "Corner or edge of the slot the item level sits in.", values = POINT_VALUES },
-			{ type = "range", key = "text.levelX", label = "X offset", desc = "Moves the item level left or right, in pixels.", min = -12, max = 12, step = 1 },
-			{ type = "range", key = "text.levelY", label = "Y offset", desc = "Moves the item level up or down, in pixels.", min = -12, max = 12, step = 1 },
+			{ type = "range", unit = "px", key = "text.levelX", label = "X offset", desc = "Moves the item level left or right, in pixels.", min = -12, max = 12, step = 1 },
+			{ type = "range", unit = "px", key = "text.levelY", label = "Y offset", desc = "Moves the item level up or down, in pixels.", min = -12, max = 12, step = 1 },
 			{ type = "select", key = "text.levelColor", label = "Color", desc = "The game's quality color of the item, or one color for every item level.",
 				values = { quality = "Item quality", custom = "Custom color" } },
 			{ type = "color", key = "text.levelCustom", label = "Custom color", desc = "Color of every item level number.", hidden = function() return M.db.text.levelColor ~= "custom" end },
@@ -4196,24 +4666,29 @@ M.options = {
 	{ type = "range", key = "itemLevelMin", label = "Item level from", desc = "Gear below this item level shows no number.", min = 1, max = 100, step = 1, dependsOn = "itemLevel" },
 	{ type = "toggle", key = "boundText", label = "BoE and BoU text", desc = "Gear that binds when equipped or used and is not bound yet says so in the bottom corner.",
 		cog = { { type = "range", key = "text.bindSize", label = "Text size", desc = "Size of the BoE and BoU text.", min = 7, max = 16, step = 1 } } },
+	{ type = "toggle", key = "tradeTime", label = "Tradeable loot", desc = "Show how many minutes remain to trade bound loot with eligible group members. On by default." },
 	{ type = "range", key = "text.countSize", label = "Stack count size", desc = "Size of the number of items in a stack.", min = 8, max = 22, step = 1,
 		cog = {
 			{ type = "select", key = "text.countOutline", label = "Outline", desc = "Outline around the stack count.", values = OUTLINE_VALUES },
 			{ type = "select", key = "text.countPoint", label = "Position", desc = "Corner or edge of the slot the stack count sits in.", values = POINT_VALUES },
-			{ type = "range", key = "text.countX", label = "X offset", desc = "Moves the stack count left or right, in pixels.", min = -12, max = 12, step = 1 },
-			{ type = "range", key = "text.countY", label = "Y offset", desc = "Moves the stack count up or down, in pixels.", min = -12, max = 12, step = 1 },
+			{ type = "range", unit = "px", key = "text.countX", label = "X offset", desc = "Moves the stack count left or right, in pixels.", min = -12, max = 12, step = 1 },
+			{ type = "range", unit = "px", key = "text.countY", label = "Y offset", desc = "Moves the stack count up or down, in pixels.", min = -12, max = 12, step = 1 },
 		} },
 	{ type = "toggle", key = "cooldowns", label = "Item cooldowns", desc = "Potions, hearthstones and other items on cooldown show the game's cooldown swipe on their slot.",
 		cog = { { type = "select", key = "cooldownText", label = "Countdown numbers", desc = "Numbers on the swipe: EldoUI's cooldown text (Fonts and text page), the game's own (its Action Bars setting), or none.",
 			values = { eldoui = "EldoUI cooldown text", blizzard = "Game setting", off = "None" } } } },
-	{ type = "select", key = "junkStyle", label = "Mark junk", desc = "Gray items: a coin in the corner, a darker icon, both, or nothing.",
+	{ type = "select", key = "junkStyle", label = "Mark junk", desc = "A coin, a darker icon, both, or nothing. Live bag marks follow Merchant's junk rules while that module is on, and mark gray items while it is off.",
 		values = { coin = "Coin icon", dim = "Darken", both = "Coin and darken", off = "Off" } },
 	{ type = "toggle", key = "knownTint", label = "Tint items you already know",
 		desc = "Recipes, mounts, pets and toys you already know or own get a green icon, like at the merchant and the auction house." },
 	{ type = "toggle", key = "newGlow", label = "Glow on new items", desc = "Items you just got glow until you close your bags." },
+	{ type = "toggle", key = "lowestValueMark", label = "Mark the lowest value stack",
+		desc = "When five or fewer ordinary slots are free, marks the lowest value eligible stack. Protected stacks stay unmarked." },
 	{ type = "toggle", key = "bagTint", label = "Tint the slots of profession bags", desc = "Empty slots of herb, enchanting and other special bags get a green border." },
 	{ type = "toggle", key = "markUnusable", label = "Red icon on items you can't use",
 		desc = "Gear, recipes and other items this character can't use yet (level, skill, class or armor type) get a red icon, as the game's tooltip shows in red." },
+	{ type = "toggle", key = "markPetFood", label = "Pet food",
+		desc = "Hunters with a pet see a food mark on bag items their current pet can eat." },
 	{ type = "toggle", key = "markSets", label = "Mark equipment set items", desc = "Items in one of your equipment sets get a small mark in the bottom corner." },
 	{ type = "toggle", key = "markFade", label = "Fade what the open window can't take",
 		desc = "With a vendor, the Send Mail tab, the auction house or the socket window open, items it can't take fade, like a search miss: no sell price, soulbound, not for sale, not a gem." },
@@ -4234,23 +4709,23 @@ M.options = {
 
 	{ type = "tab", label = "Categories" },
 	{ type = "description", label = "The Categories view sorts items into sections; one that is off goes to Other. Your own categories come first and use the search syntax." },
-	{ type = "toggle", key = "compactEmpty", label = "One slot per bag type for free space", desc = "Free space shows as one slot per bag type with the number free; drop items on it. Off shows every free slot." },
-	{ type = "toggle", key = "groupItems", label = "Group stacks",
+	{ type = "toggle", key = "compactEmpty", label = "One slot per bag type for free space", desc = "Free space shows as one slot per bag type with the number free; drop items on it. Off shows every free slot.", disabled = OnlyCategories },
+	{ type = "toggle", key = "groupItems", label = "Group stacks", disabled = OnlyCategories,
 		desc = "Stacks of the same item show as one slot with the total count. A click, drag or split acts on one of the stacks, as on any slot, and the tooltip says how many stacks there are." },
-	{ type = "toggle", key = "groupPartial", label = "Keep partial stacks apart", dependsOn = "groupItems",
+	{ type = "toggle", key = "groupPartial", label = "Keep partial stacks apart", dependsOn = "groupItems", disabled = OnlyCategories,
 		desc = "Only full stacks are grouped; a stack that is not full keeps its own slot." },
-	{ type = "toggle", key = "groupApart", label = "Stacks apart at a vendor, mail, bank or trade", dependsOn = "groupItems",
+	{ type = "toggle", key = "groupApart", label = "Stacks apart at a vendor, mail, bank or trade", dependsOn = "groupItems", disabled = OnlyCategories,
 		desc = "While a vendor, the Send Mail tab, the bank or a trade is open, every stack shows on its own slot, so you can pick the one you want." },
 	{ type = "toggle", key = "categories.new", label = "New", desc = "Items you just got, until you close your bags.", hidden = NotCategories },
-	{ type = "toggle", key = "categories.equipment", label = "Equipment", desc = "Weapons and armor." },
-	{ type = "toggle", key = "categories.consumable", label = "Consumables", desc = "Food, potions, scrolls, bandages and the like." },
-	{ type = "toggle", key = "categories.quest", label = "Quest items", desc = "Items for quests and items that start one." },
-	{ type = "toggle", key = "categories.tradegoods", label = "Trade goods", desc = "Trade goods, reagents, gems and enhancements." },
-	{ type = "toggle", key = "categories.recipe", label = "Recipes", desc = "Recipes, patterns, plans and formulas." },
-	{ type = "toggle", key = "categories.ammo", label = "Ammo", desc = "Arrows and bullets." },
-	{ type = "toggle", key = "categories.container", label = "Bags", desc = "Bags and quivers you carry." },
-	{ type = "toggle", key = "categories.keys", label = "Keys", desc = "Keys outside the keyring." },
-	{ type = "toggle", key = "categories.junk", label = "Junk", desc = "Gray items, at the end." },
+	{ type = "toggle", key = "categories.equipment", label = "Equipment", desc = "Weapons and armor.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.consumable", label = "Consumables", desc = "Food, potions, scrolls, bandages and the like.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.quest", label = "Quest items", desc = "Items for quests and items that start one.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.tradegoods", label = "Trade goods", desc = "Trade goods, reagents, gems and enhancements.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.recipe", label = "Recipes", desc = "Recipes, patterns, plans and formulas.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.ammo", label = "Ammo", desc = "Arrows and bullets.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.container", label = "Bags", desc = "Bags and quivers you carry.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.keys", label = "Keys", desc = "Keys outside the keyring.", disabled = OnlyCategories },
+	{ type = "toggle", key = "categories.junk", label = "Junk", desc = "Gray items, at the end.", disabled = OnlyCategories },
 	{ type = "header", label = "Your categories" },
 	{ type = "description", label = "Make your own categories with a name, color, search and place. Drop an item on a section title in the bag window to file it there." },
 	{ type = "execute", label = "Edit categories", testSafe = true, func = function() if M.ShowCategoryEditor then M:ShowCategoryEditor() end end,
@@ -4259,7 +4734,7 @@ M.options = {
 	{ type = "tab", label = "Transfers" },
 	{ type = "header", label = "Move what you searched" },
 	{ type = "toggle", key = "moveThese", label = "\"Move these\" button",
-		desc = "Acts for you when you click it; off by default. At the bank, mail, trade or a vendor, a button by the search box moves up to 12 searched items per click. Quest, recipe and never-sell items stay." },
+		desc = "Off by default. At the bank, mail, trade or a vendor, a button by the search box moves up to 12 searched items per click. Quest, recipe and never-sell items stay." },
 	{ type = "header", label = "Protection" },
 	{ type = "toggle", key = "protectItems", label = "Protect quest and recipe items",
 		desc = "A small lock on items an open quest needs, items that start a quest you haven't done, and recipes one of your characters can still learn. On by default." },

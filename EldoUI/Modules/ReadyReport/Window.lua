@@ -72,7 +72,9 @@ end
 
 local function FoodText(row)
 	if row.state ~= "ok" then return "" end
-	return row.food and Good(L["yes"]) or Bad(L["no"])
+	if row.food then return Good(L["yes"]) end
+	if row.eating then return Grey(L["eating"]) end
+	return Bad(L["no"])
 end
 
 local function DurabilityText(row)
@@ -113,7 +115,7 @@ function M:Columns()
 	end
 	if checks.food then
 		columns[#columns + 1] = { key = "food", title = L["Food"], width = 50,
-			value = function(row) return row.food and 1 or 0 end, text = FoodText }
+			value = function(row) return row.food and 2 or (row.eating and 1 or 0) end, text = FoodText }
 	end
 	if checks.durability then
 		columns[#columns + 1] = { key = "durability", title = L["Durability"], width = 80, align = "RIGHT",
@@ -211,6 +213,21 @@ local function FitSummary(frame)
 	frame.fittingSummary = nil
 end
 
+-- The share of the ready check still left, 0 to 1, or nil when no check
+-- runs or the game gives no time.
+function M.TimerValue()
+	if not M.checking or not M.checkLength then return nil end
+	local left = type(GetReadyCheckTimeLeft) == "function" and E.PlainCallAll(GetReadyCheckTimeLeft) or nil
+	if type(left) ~= "number" then return nil end
+	return math.max(0, math.min(1, left / M.checkLength))
+end
+
+function M.UpdateTimer(bar)
+	local value = M.TimerValue()
+	if not value then bar:Hide() return end
+	bar:SetValue(value)
+end
+
 local function CreateTab(content)
 	local frame = CreateFrame("Frame", nil, content)
 	frame:SetAllPoints()
@@ -230,6 +247,17 @@ local function CreateTab(content)
 	frame.status = Kit.Text(frame.toolbar, E.tokens.size.small, "RIGHT", "secondary")
 	frame.status:SetPoint("LEFT", frame.share, "RIGHT", 8, 0)
 	frame.status:SetPoint("RIGHT", -4, 0)
+	-- A thin bar in the gap under the toolbar: the time left to answer the
+	-- ready check. It shows only while a check runs.
+	frame.timer = CreateFrame("StatusBar", nil, frame)
+	frame.timer:SetPoint("TOPLEFT", frame.toolbar, "BOTTOMLEFT", 2, -3)
+	frame.timer:SetPoint("TOPRIGHT", frame.toolbar, "BOTTOMRIGHT", -2, -3)
+	frame.timer:SetHeight(3)
+	E:UseBarTexture(frame.timer)
+	frame.timer:SetStatusBarColor(E:TokenColor("accent", 0.85))
+	frame.timer:SetMinMaxValues(0, 1)
+	frame.timer:Hide()
+	frame.timer:SetScript("OnUpdate", function(bar) M.UpdateTimer(bar) end)
 	frame.summaryArea = Kit.ScrollArea(frame)
 	frame.summaryArea:SetPoint("TOPLEFT", frame.toolbar, "BOTTOMLEFT", 2, -8)
 	frame.summaryArea:SetPoint("TOPRIGHT", frame.toolbar, "BOTTOMRIGHT", -2, -8)
@@ -249,6 +277,9 @@ end
 local function UpdateTab(frame)
 	local rows, order, line, unknown = M.rows or {}, M.summaryOrder or {}, M.summaryLine or "", M.unknown or 0
 	local previous = frame.summary:GetText()
+	local timeLeft = M.TimerValue()
+	if timeLeft then frame.timer:SetValue(timeLeft) end
+	frame.timer:SetShown(timeLeft ~= nil)
 	frame.post:SetShown(M.db.postButton)
 	frame.post:SetEnabled(#rows > 1 and not InCombatLockdown())
 	frame.share:SetShown(M.db.share)
@@ -349,7 +380,14 @@ function M:Open()
 	if not self.active or InCombatLockdown() then return false end
 	local win = self:BuildWindow()
 	self:Refresh()
-	return win:Open("report")
+	local opened = win:Open("report")
+	-- Aura changes are heard only while the report shows them.
+	if win.frame and not win.auraHooked then
+		win.auraHooked = true
+		win.frame:HookScript("OnHide", function() M:SyncAuraUnits() end)
+	end
+	self:SyncAuraUnits()
+	return opened
 end
 
 function M:Close()

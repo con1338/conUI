@@ -34,6 +34,8 @@ local M = E:NewModule("Alerts", {
 		fatigue = true,
 		afk = true,
 		flash = true,
+		vibrate = false,
+		vibrateStrength = 0.6,
 		channel = "Master",
 		soundHigh = "eldo:EldoAlarm",   -- media ids (bare keys from before are migrated)
 		soundLow = "eldo:EldoChime",
@@ -61,8 +63,29 @@ local function SoundFile(id)
 end
 M.SoundFile = SoundFile
 
+local alarmTimers = {}
+
 function M:Play(id)
-	E:PlayMedia(id, self.db.channel, { fallback = FALLBACK })
+	local played, handle = E:PlayMedia(id, self.db.channel, { fallback = FALLBACK })
+	handle = E.Plain(handle)
+	if E.Plain(played) ~= true or type(handle) ~= "number" or not (handle >= 0 and handle < math.huge) then return end
+	if alarmTimers[handle] then alarmTimers[handle]:Cancel() end
+	local timer
+	timer = C_Timer.NewTimer(3, function()
+		if alarmTimers[handle] ~= timer then return end
+		alarmTimers[handle] = nil
+		E:StopMedia(handle, 250)
+	end)
+	alarmTimers[handle] = timer
+end
+
+local function StopAlarms()
+	local timers = alarmTimers
+	alarmTimers = {}
+	for handle, timer in pairs(timers) do
+		timer:Cancel()
+		E:StopMedia(handle, 250)
+	end
 end
 
 -- Saved before the media list: "EldoAlarm" and the other bare keys.
@@ -91,6 +114,7 @@ end
 function M:Alert(sound)
 	self:Play(sound)
 	self:Flash()
+	if self.db.vibrate then E:PulseGamepad("Low", self.db.vibrateStrength) end
 end
 
 ---------------------------------------------------------------------------
@@ -129,6 +153,8 @@ local function AddSound(api, spellID, trigger, sound, channel)
 	local info = { spellID = spellID, unitToken = "player", soundFileName = SoundFile(sound), outputChannel = channel }
 	local ok, handle
 	if api == "full" then
+		-- A debuff that drops and lands again every tick plays once in a while.
+		info.throttleSeconds = 2
 		ok, handle = pcall(C_UnitAuras.AddAuraSound, trigger, info)
 	else
 		ok, handle = pcall(C_UnitAuras.AddPrivateAuraAppliedSound, info)
@@ -172,6 +198,13 @@ function M:RetryAuraSounds(event, _, state)
 end
 
 function M:RegisterAuraSounds()
+	-- General > Mute EldoUI sounds silences the aura alarms too.
+	if E.db.general.soundMute then
+		self.pendingRegister = nil
+		self:ClearAuraSounds()
+		self.auraStatus = self.db.auras and L["Muted: General > Mute EldoUI sounds is on."] or nil
+		return
+	end
 	if self.db.auras and AuraApi() and AuraSoundsRestricted() then
 		self.pendingRegister = true
 		self.auraStatus = L["Aura alarms wait for combat to end."]
@@ -288,6 +321,9 @@ end
 -- Enable / disable
 ---------------------------------------------------------------------------
 function M:OnEnable()
+	E:OnSoundMuteChanged("Alerts", function()
+		if M.active then M:RegisterAuraSounds() end
+	end)
 	self:MigrateSounds()
 	self:RegisterEvent("MIRROR_TIMER_START", "MIRROR_TIMER_START")
 	self:RegisterEvent("MIRROR_TIMER_STOP", "MIRROR_TIMER_STOP")
@@ -297,6 +333,7 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	StopAlarms()
 	self:UnregisterEvent("MIRROR_TIMER_START")
 	self:UnregisterEvent("MIRROR_TIMER_STOP")
 	self:UnregisterEvent("PLAYER_REGEN_DISABLED")
@@ -316,7 +353,7 @@ function M:OnProfileChanged()
 end
 
 M.options = {
-	{ type = "description", label = "Sound alarms when you stand in harm, played by the game itself; EldoUI never reads the combat log. Off by default: turn it on under Modules." },
+	{ type = "description", label = "Sound alarms when you stand in harm, played by the game itself. Off by default: turn it on under Modules." },
 	{ type = "header", label = "What to warn about" },
 	{ type = "toggle", key = "auras", label = "Standing in bad stuff", desc = "When one of the spell IDs below lands on you." },
 	{ type = "toggle", key = "stacks", label = "Warn again when it stacks", desc = "Play the stack sound each time the same bad aura gains another stack.", dependsOn = "auras" },
@@ -324,7 +361,11 @@ M.options = {
 	{ type = "toggle", key = "fatigue", label = "Fatigue", desc = "When you swim into deep water fatigue." },
 	{ type = "toggle", key = "afk", label = "Attacked while AFK", desc = "Alarm when something hits you while you are marked AFK." },
 	{ type = "toggle", key = "flash", label = "Red screen-edge flash", desc = "For breath, fatigue and AFK alarms and the Test buttons. Aura alarms are sound only, because the game plays them." },
-	{ type = "input", key = "spells", label = "Spell IDs", desc = "Your own list, separated by commas or spaces. Find an ID on Wowhead (the number in the link)." },
+	{ type = "toggle", key = "vibrate", label = "Vibrate the gamepad", requiresAPI = "C_GamePad.SetVibration",
+		desc = "Pulse your active gamepad for breath, fatigue and AFK alarms and the Test buttons. Aura alarms are played by the game and cannot pulse." },
+	{ type = "range", percent = true, key = "vibrateStrength", label = "Vibration strength", min = 0.1, max = 1, step = 0.05,
+		dependsOn = "vibrate", requiresAPI = "C_GamePad.SetVibration", desc = "How strong the pulse is." },
+	{ type = "input", key = "spells", label = "Spell IDs", desc = "Your own list, separated by commas or spaces. Find an ID on Wowhead (the number in the link).", dependsOn = "auras" },
 	{ type = "execute", less = true, label = "Check aura alarms", desc = "Shows whether aura alarms are running and how many spell IDs they watch.", func = function()
 		E:Print(M.active and (M.auraStatus or L["Aura alarms are off."]) or E:ModuleOffHint("Alerts"))
 	end },
@@ -332,13 +373,13 @@ M.options = {
 	{ type = "select", key = "channel", label = "Sound channel", desc = "Which game volume slider the alarm sounds follow.", values = CHANNELS },
 	{ type = "media", mediaKind = "sound", filter = FILE_SOUNDS, key = "soundHigh", channel = "channel", label = "Danger sound",
 		desc = "Played when you stand in something from the spell list, when your breath runs out and when something attacks you while you are AFK. Sound files only: the game plays aura sounds from a file." },
-	{ type = "media", mediaKind = "sound", filter = FILE_SOUNDS, key = "soundLow", channel = "channel", label = "Fatigue sound",
+	{ type = "media", mediaKind = "sound", filter = FILE_SOUNDS, key = "soundLow", channel = "channel", label = "Fatigue sound", dependsOn = "fatigue",
 		desc = "Played when you swim into deep water fatigue." },
-	{ type = "media", mediaKind = "sound", filter = FILE_SOUNDS, key = "soundStack", channel = "channel", label = "Stack sound",
+	{ type = "media", mediaKind = "sound", filter = FILE_SOUNDS, key = "soundStack", channel = "channel", label = "Stack sound", dependsOn = "stacks",
 		desc = "Played when a bad aura from the spell list stacks again." },
 	{ type = "execute", label = "Test danger", desc = "Play the danger alarm once.", func = function() M:Alert(M.db.soundHigh) end },
-	{ type = "execute", label = "Test fatigue", desc = "Play the fatigue alarm once.", func = function() M:Alert(M.db.soundLow) end },
-	{ type = "execute", label = "Test stack", desc = "Play the stack sound once.", func = function() M:Play(M.db.soundStack) end },
+	{ type = "execute", label = "Test fatigue", dependsOn = "fatigue", desc = "Play the fatigue alarm once.", func = function() M:Alert(M.db.soundLow) end },
+	{ type = "execute", label = "Test stack", dependsOn = "stacks", desc = "Play the stack sound once.", func = function() M:Alert(M.db.soundStack) end },
 }
 
 -- Style presets (DESIGN.md §5): sounds, the flash and which alarms are on.

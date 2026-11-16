@@ -43,6 +43,24 @@ function E:OnMediaChanged(owner, fn)
 	callbacks[owner] = fn
 end
 
+-- Sounds handed to the game (aura sounds) play without EldoUI, so the
+-- modules that register them hear when General > Mute EldoUI sounds changes.
+local muteWatchers, lastMute = {}, nil
+function E:OnSoundMuteChanged(owner, fn)
+	muteWatchers[owner] = fn
+	if lastMute == nil and self.db then lastMute = self.db.general.soundMute and true or false end
+end
+
+function E:CheckSoundMute()
+	local muted = self.db.general.soundMute and true or false
+	if muted == lastMute then return end
+	lastMute = muted
+	for _, fn in pairs(muteWatchers) do
+		local ok, err = pcall(fn, muted)
+		if not ok then geterrorhandler()(err) end
+	end
+end
+
 function E:RegisterMedia(kind, id, name, value, info)
 	local list = registry[kind]
 	if not list or type(id) ~= "string" or value == nil then return end
@@ -754,6 +772,8 @@ local function CreateTintCards(canvas)
 		card.label:SetPoint("CENTER")
 		card.label:SetText(L[E.panelTintNames[key]])
 		card:SetScript("OnClick", PickTint)
+		E.UIKit.CollectKeyControl(card, true)
+		if card.kitKeyControl then card.kitKeyControl.blocked = function() return not E:PanelTintApplies() end end
 		card:SetScript("OnEnter", function(self) PaintTintCard(self, self.selected, true) end)
 		card:SetScript("OnLeave", function(self) PaintTintCard(self, self.selected, false) end)
 		E.UIKit.Tooltip(card, L[E.panelTintNames[key]], key == "none" and L["The plain dark panels."]

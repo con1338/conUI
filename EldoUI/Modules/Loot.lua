@@ -58,9 +58,11 @@ local M = E:NewModule("Loot", {
 		masterDisenchanter = "", -- the same for the Disenchanter
 		masterAnnounce = false, -- posts who got the item to the group after you give it
 		fastLoot = false,       -- takes every slot for you while auto loot is on: off by default (DESIGN.md 5)
+		skipBindConfirm = false,
 		lootBindTag = true,     -- row marks, each from what the game reports: bind tag on the icon
 		lootDetails = false,    -- a second line with the equip slot and item type
 		lootValue = false,      -- vendor price of the stack
+		lootRoomNotice = true,  -- names a low-value bag stack after the game reports no room
 		lootUpgrade = true,     -- the Upgrades module's arrow on the icon
 		lootNewLook = true,     -- "New look" for an appearance you have not collected (Appearances)
 		lootQuestStart = true,  -- "Starts a quest" on items that begin a quest
@@ -186,8 +188,7 @@ end
 ---------------------------------------------------------------------------
 -- EldoUI loot window
 ---------------------------------------------------------------------------
-local ROW_GAP = 4
-local TITLE_HEIGHT = 30
+local ROW = { gap = 4, title = 30 } -- the gap between rows; the title's height
 
 -- A small text button in the window's title (Loot all, Link).
 local function TitleButton(frame, text, width)
@@ -217,8 +218,8 @@ local function LinkChannel(choice)
 end
 
 local CHANNEL_NAMES = {
-	INSTANCE_CHAT = _G.INSTANCE_CHAT or L["Instance"], RAID = _G.RAID or L["Raid"],
-	PARTY = _G.PARTY or L["Party"], SAY = _G.SAY or L["Say"],
+	INSTANCE_CHAT = E:GameText(_G.INSTANCE_CHAT, L["Instance"]), RAID = E:GameText(_G.RAID, L["Raid"]),
+	PARTY = E:GameText(_G.PARTY, L["Party"]), SAY = E:GameText(_G.SAY, L["Say"]),
 }
 
 local LINE_MAX, LINE_COUNT = 255, 3 -- the game's chat line limit; lines per click
@@ -335,6 +336,7 @@ function M:CreateLootFrame()
 	frame:EnableMouse(true)
 	E:SetPanelTemplate(frame)
 	frame.title = E:CreateText(frame, E.tokens.size.cardTitle, "LEFT")
+	E:UseNameFont(frame.title)
 	E:SetHeaderFont(frame.title, 14) -- theme outline; follows theme changes
 	frame.title:SetPoint("TOPLEFT", 8, -7)
 	frame.title:SetPoint("TOPRIGHT", -70, -7)
@@ -342,6 +344,11 @@ function M:CreateLootFrame()
 	frame.accent:SetPoint("TOPLEFT", E.pixel, -24)
 	frame.accent:SetPoint("TOPRIGHT", -E.pixel, -24)
 	frame.accent:SetHeight(E.pixel * 2)
+	frame.roomNotice = E:CreateText(frame, E.tokens.size.small, "LEFT")
+	frame.roomNotice:SetPoint("TOPLEFT", 8, -ROW.title)
+	frame.roomNotice:SetWordWrap(true)
+	frame.roomNotice:Hide()
+	frame:HookScript("OnHide", function() M:EndLootRoomNotice() end)
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButtonNoScripts")
 	close:SetSize(20, 20)
 	close:SetPoint("TOPRIGHT", 0, -2)
@@ -349,14 +356,14 @@ function M:CreateLootFrame()
 	E:SkinCloseButton(close)
 	frame.close = close
 	-- Loot all: takes every slot, on the player's click only.
-	local all = TitleButton(frame, _G.LOOT_ALL or ALL or L["All"], 46)
+	local all = TitleButton(frame, E:GameText(_G.LOOT_ALL or ALL, L["All"]), 46)
 	all:SetScript("OnClick", function(clicked, mouse)
 		if E:IsOptionsLinkClick(clicked, mouse) then return end
 		M.DrainLoot()
 	end)
 	all:SetScript("OnEnter", function(button)
 		GameTooltip:SetOwner(button, "ANCHOR_TOP")
-		GameTooltip:SetText(_G.LOOT_ALL or L["Loot all"])
+		GameTooltip:SetText(E:GameText(_G.LOOT_ALL, L["Loot all"]))
 		E.UIKit.TipTitle(GameTooltip, L["Takes every item you can take."], true)
 		GameTooltip:Show()
 	end)
@@ -443,14 +450,14 @@ end
 
 function M:LayoutLoot()
 	local frame, db = self.lootFrame, self.db
-	local y = -TITLE_HEIGHT
+	local y = -ROW.title - self:LayoutLootRoomNotice(frame)
 	local shown = 0
 	for _, row in ipairs(frame.rows) do
 		if row:IsShown() and row.slot then
 			row:ClearAllPoints()
 			row:SetPoint("TOPLEFT", 6, y)
 			row:SetPoint("TOPRIGHT", -6, y)
-			y = y - db.iconSize - ROW_GAP
+			y = y - db.iconSize - ROW.gap
 			shown = shown + 1
 		end
 	end
@@ -494,6 +501,7 @@ local function RowTags(db, slot, link, quantity, sellPrice)
 end
 
 local function SetupRow(row, slot, db)
+	row.roomItem = nil
 	local texture, name, quantity, currencyID, quality, locked, isQuestItem = GetLootSlotInfo(slot)
 	if not texture then return false end
 	if currencyID and CurrencyContainerUtil and CurrencyContainerUtil.GetCurrencyContainerInfo then
@@ -517,6 +525,7 @@ local function SetupRow(row, slot, db)
 	-- Item marks: only what the game reports for this slot.
 	local link = not currencyID and GetLootSlotLink(slot) or nil
 	if E:IsSecret(link) or type(link) ~= "string" then link = nil end
+	row.roomItem = link ~= nil and link ~= ""
 	local bindType, equipLoc, subType, sellPrice
 	if link then
 		local _, _, _, _, _, _, itemSubType, _, itemEquipLoc, _, price, _, _, bind = C_Item.GetItemInfo(link)
@@ -564,8 +573,97 @@ local function SetupRow(row, slot, db)
 	return true
 end
 
+-- The game reports that loot did not fit. Free-space estimates only tell
+-- when to retire that warning after the player's bags change.
+do
+	local function HasItem(frame)
+		for _, row in ipairs(frame.rows) do
+			if row.slot and row.roomItem and row:IsShown() then return true end
+		end
+		return false
+	end
+
+	local function GeneralFree()
+		local bags = E.BagCache
+		local free, _, known = bags:GeneralSlots(bags:BagIDs(), false, true)
+		free = E.Plain(free)
+		if E.Plain(known) == true and type(free) == "number" and free >= 0 and free < math.huge then return free end
+	end
+
+	local function ClearWarning(frame, session)
+		if session and session.full then
+			session.full, session.free = nil, nil
+			E.BagCache:UnregisterCallback(frame.roomNotice)
+		end
+		frame.roomNotice:SetText("")
+		frame.roomNotice:Hide()
+	end
+
+	function M:EndLootRoomNotice()
+		local frame = self.lootFrame
+		local session = frame and frame.roomSession
+		if not session then return end
+		frame.roomSession = nil
+		self:UnregisterEvent("UI_ERROR_MESSAGE")
+		ClearWarning(frame, session)
+	end
+
+	function M:LayoutLootRoomNotice(frame)
+		local session = frame.roomSession
+		if not (session and session.full) then return 0 end
+		if session.profile ~= self.db or not self.db.lootRoomNotice or not HasItem(frame) then
+			ClearWarning(frame, session)
+			return 0
+		end
+		local bags = E.modules.Bags
+		local item = bags and bags.LowestValueItem and bags:LowestValueItem()
+		local name, value
+		if type(item) == "table" and not E.Secret(item) and (not canaccesstable or canaccesstable(item)) then
+			name, value = E.Plain(item.name), E.Plain(item.value)
+		end
+		if frame.roomSession ~= session or not session.full then return 0 end
+		local text = frame.roomNotice
+		if type(name) ~= "string" or name == "" or type(value) ~= "number" or not (value >= 0 and value < math.huge) then
+			text:SetText("")
+			text:Hide()
+			return 0
+		end
+		text:SetWidth(self.db.width - 16)
+		text:SetTextColor(E:TokenColor("warn"))
+		text:SetText(L["No room. Lowest value in your bags is %s (%s)."]:format(name:gsub("[\r\n]", " "), E:FormatMoney(value)))
+		text:Show()
+		return math.ceil(text:GetStringHeight() or 0) + ROW.gap
+	end
+
+	function M:BeginLootRoomNotice()
+		local frame = self.lootFrame
+		local session = { profile = self.db }
+		frame.roomSession = session
+		self:RegisterEvent("UI_ERROR_MESSAGE", function(_, _, _, message)
+			if frame.roomSession ~= session or self.db ~= session.profile or not self.db.lootRoomNotice
+				or not self.active or not frame:IsShown() or not E:BlizzardAllowed(LOOT_ID, "replace") then return end
+			local full = E.Plain(rawget(_G, "ERR_INV_FULL"))
+			message = E.Plain(message)
+			if type(full) ~= "string" or full == "" or message ~= full or not HasItem(frame) then return end
+			session.full, session.free = true, GeneralFree()
+			E.BagCache:RegisterCallback(frame.roomNotice, function()
+				if frame.roomSession ~= session or not session.full then return end
+				local free = GeneralFree()
+				if free and session.free and free > session.free then
+					ClearWarning(frame, session)
+				elseif free then
+					session.free = free
+				end
+				self:LayoutLoot()
+			end)
+			self:LayoutLoot()
+		end)
+	end
+end
+
 function M:ShowLoot()
 	local frame, db = self.lootFrame, self.db
+	self:EndLootRoomNotice()
 	local r, g, b = unpack(E.media.accentColor)
 	frame.accent:SetColorTexture(r, g, b, 1)
 	frame.title:SetText(UnitExists("target") and UnitIsDead("target") and UnitName("target") or LOOT)
@@ -593,12 +691,16 @@ function M:ShowLoot()
 		frame:SetPoint("TOPLEFT", self.lootAnchor, "TOPLEFT")
 	end
 	E:SlideIn(frame, "LEFT")
+	self:BeginLootRoomNotice()
 end
 
 function M:UpdateLootSlot(slot)
 	local frame = self.lootFrame
 	local row = frame and frame.rows[slot]
-	if row and row.slot == slot then SetupRow(row, slot, self.db) end
+	if row and row.slot == slot then
+		SetupRow(row, slot, self.db)
+		if frame.roomSession and frame.roomSession.full then self:LayoutLoot() end
+	end
 end
 
 -- Draw the shown rows again (an item's data arrived, a mark switch moved).
@@ -826,6 +928,57 @@ local function FastLoot(_, _, autoLoot)
 	DrainLoot()
 end
 
+-- Solo confirmation follows the clicked slot across the next frame, after
+-- the native event handler has shown its matching question.
+local bindPending, bindGeneration, bindOwner = {}, 0, {}
+
+local function ClearBindConfirmations()
+	bindGeneration = bindGeneration + 1
+	for slot, timer in pairs(bindPending) do
+		timer:Cancel()
+		bindPending[slot] = nil
+	end
+end
+
+local function SoloBindConfirm(_, _, slot)
+	if not (M.active and M.db.skipBindConfirm and E:BlizzardAllowed(LOOT_ID)) then return end
+	if E.PlainCall(IsInGroup) ~= false then return end
+	slot = E.Plain(slot)
+	local count = E.PlainCall(GetNumLootItems)
+	if type(slot) ~= "number" or slot % 1 ~= 0 or slot < 1
+		or type(count) ~= "number" or not (slot <= count and count < math.huge) then return end
+	local link = E.PlainCall(GetLootSlotLink, slot)
+	if type(link) ~= "string" or link == "" or bindPending[slot] then return end
+	local generation = bindGeneration
+	bindPending[slot] = C_Timer.NewTimer(0, function()
+		bindPending[slot] = nil
+		if generation ~= bindGeneration or not (M.active and M.db.skipBindConfirm and E:BlizzardAllowed(LOOT_ID)) then return end
+		if E.PlainCall(IsInGroup) ~= false or E.PlainCall(GetLootSlotLink, slot) ~= link then return end
+		local dialog = E.PlainCall(StaticPopup_FindVisible, "LOOT_BIND")
+		if type(dialog) ~= "table" or (canaccesstable and not canaccesstable(dialog)) then return end
+		if E.PlainCall(dialog.IsShown, dialog) ~= true or E.Plain(dialog.data) ~= slot then return end
+		if generation ~= bindGeneration or not (M.active and M.db.skipBindConfirm and E:BlizzardAllowed(LOOT_ID))
+			or E.PlainCall(IsInGroup) ~= false or type(ConfirmLootSlot) ~= "function" then return end
+		local accepted, result = pcall(ConfirmLootSlot, slot)
+		if accepted and not E.Secret(result) and result ~= false and generation == bindGeneration
+			and E.PlainCall(StaticPopup_FindVisible, "LOOT_BIND") == dialog
+			and E.Plain(dialog.data) == slot and type(StaticPopup_Hide) == "function" then
+			StaticPopup_Hide("LOOT_BIND", slot)
+		end
+	end)
+end
+
+function M:ApplyBindConfirmations()
+	ClearBindConfirmations()
+	if self.active and self.db.skipBindConfirm and E:BlizzardAllowed(LOOT_ID) then
+		E:RegisterEvent("LOOT_BIND_CONFIRM", SoloBindConfirm, bindOwner)
+		E:RegisterEvent("LOOT_CLOSED", ClearBindConfirmations, bindOwner)
+	else
+		E:UnregisterEvent("LOOT_BIND_CONFIRM", bindOwner)
+		E:UnregisterEvent("LOOT_CLOSED", bindOwner)
+	end
+end
+
 -- A closed loot ends its drain and forgets its state.
 E:RegisterEvent("LOOT_CLOSED", function()
 	StopDrain()
@@ -916,6 +1069,11 @@ function M:ApplyLootWindow()
 	-- EldoUI's window
 	if own then
 		if not self.lootFrame then self:CreateLootFrame() end
+		local roomSession = self.lootFrame.roomSession
+		if roomSession and roomSession.profile ~= self.db then
+			self:EndLootRoomNotice()
+			self:BeginLootRoomNotice()
+		end
 		self:RegisterEvent("LOOT_OPENED", function() self:ShowLoot() end)
 		self:RegisterEvent("LOOT_SLOT_CLEARED", function(_, _, slot)
 			for _, row in ipairs(self.lootFrame.rows) do
@@ -929,6 +1087,7 @@ function M:ApplyLootWindow()
 		self:RegisterEvent("LOOT_SLOT_CHANGED", function(_, _, slot) self:UpdateLootSlot(slot) end)
 		self:RegisterEvent("OPEN_MASTER_LOOT_LIST", function() self:OnMasterLootList() end)
 		self:RegisterEvent("LOOT_CLOSED", function()
+			self:EndLootRoomNotice()
 			self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
 			if self.masterMenu and E.UIKit.MenuShown() then E.UIKit.CloseMenu() end
 			self.masterSlot, self.masterRow, self.masterMenu = nil, nil, nil
@@ -937,6 +1096,7 @@ function M:ApplyLootWindow()
 		end)
 		self:RefreshLootRows()
 	else
+		self:EndLootRoomNotice()
 		for _, event in ipairs({ "LOOT_OPENED", "LOOT_SLOT_CLEARED", "LOOT_SLOT_CHANGED", "LOOT_CLOSED", "GET_ITEM_INFO_RECEIVED", "OPEN_MASTER_LOOT_LIST" }) do
 			self:UnregisterEvent(event)
 		end
@@ -993,13 +1153,15 @@ local rollBars = {}
 M.rollBars = rollBars -- exposed for inspection
 local hideWarned = false
 local MarkRollBar -- set below, with the loot history
-local ROLL_TICK = "EldoUI.Loot.rolls" -- the shared ticker key of the roll timers
-local ROLL_STEP = 0.1                 -- the timer bars move this often
+local ROLL_TIME = {
+	tick = "EldoUI.Loot.rolls", -- the shared ticker key of the roll timers
+	step = 0.1,                 -- the timer bars move this often
+	grace = 10,                 -- seconds a rolled bar waits for its result after the roll's time is up
+	restored = 120,             -- seconds a bar rebuilt after a reload waits for its result
+}
 
 -- The time left on every open roll, ten times a second on the shared
 -- ticker. Only while a roll is open: the last one to end stops it.
-local KEEP_GRACE = 10     -- seconds a rolled bar waits for its result after the roll's time is up
-local KEEP_RESTORED = 120 -- seconds a bar rebuilt after a reload waits for its result
 
 -- The timer's color: the accent, the bad color in the last quarter.
 local function TimerColor(bar, left, total)
@@ -1020,7 +1182,8 @@ local function RollTick()
 		if bar.rollID then
 			open = true
 			local left = GetLootRollTimeLeft(bar.rollID)
-			if left then
+			-- A secret answer (an addon restriction is on): the bar keeps its time.
+			if type(left) == "number" and not E:IsSecret(left) then
 				bar.timer:SetValue(left)
 				bar.endsAt = now + left / 1000
 				local _, total = bar.timer:GetMinMaxValues()
@@ -1030,20 +1193,25 @@ local function RollTick()
 			open = true
 			local left = (bar.endsAt or now) - now
 			bar.timer:SetValue(math.max(0, left * 1000))
-			if left < -(bar.grace or KEEP_GRACE) then M:ReleaseRollBar(bar) end
+			if left < -(bar.grace or ROLL_TIME.grace) then M:ReleaseRollBar(bar) end
 		end
 	end
-	if not open then E.Ticker:Unsubscribe(ROLL_TICK) end
+	-- Once a second, the game's open rolls are checked against the bars.
+	if open and now >= (M.nextRollSync or 0) and M.SyncRolls then
+		M.nextRollSync = now + 1
+		M:SyncRolls()
+	end
+	if not open then E.Ticker:Unsubscribe(ROLL_TIME.tick) end
 end
 
 local function WatchRolls()
 	for _, bar in ipairs(rollBars) do
 		if bar.rollID or (bar.waiting and not bar.result) then
-			if not E.Ticker:IsSubscribed(ROLL_TICK) then E.Ticker:Subscribe(ROLL_TICK, ROLL_STEP, RollTick, M) end
+			if not E.Ticker:IsSubscribed(ROLL_TIME.tick) then E.Ticker:Subscribe(ROLL_TIME.tick, ROLL_TIME.step, RollTick, M) end
 			return
 		end
 	end
-	E.Ticker:Unsubscribe(ROLL_TICK)
+	E.Ticker:Unsubscribe(ROLL_TIME.tick)
 end
 
 local function RollTexture(button, info)
@@ -1265,10 +1433,9 @@ LayoutRolls = function()
 		-- The shared scroll range uses whole UI units. Round the capacity
 		-- outward and the available view inward, without shrinking any row.
 		content = math.ceil(content)
-		-- Our four-row viewport cap follows the native desktop/gamepad
-		-- presentation budget. Every additional roll stays scrollable.
-		local capacity = math.ceil(4 * (height + 4) - 4)
-		view = math.max(math.ceil(height), math.min(content, math.floor(available), capacity))
+		-- Every open roll shows at once; only rolls that no longer fit on the
+		-- screen scroll.
+		view = math.max(math.ceil(height), math.min(content, math.floor(available)))
 		if not RollNumber(view, true) then return end
 	end
 	rollLayoutBusy = true
@@ -1431,6 +1598,7 @@ local function UpdateBarArrow(bar)
 	if E.UpdateRollVerdict then E:UpdateRollVerdict(bar, bar.rollID) end
 	if not E.SetUpgradeArrow then return end
 	local link = M.db.rollArrows and bar.rollID and GetLootRollItemLink and GetLootRollItemLink(bar.rollID) or nil
+	if E:IsSecret(link) then link = nil end
 	E:SetUpgradeArrow(bar.iconBox, link, { noTint = true })
 end
 
@@ -1449,20 +1617,22 @@ end
 local STATE = Enum and Enum.EncounterLootDropRollState or {}
 -- A choice's name: the client's own string, else EldoUI's text. Read when
 -- shown, like every other text of the bar.
-local NEED_LABEL = { "NEED", Key("Need") }
-local GREED_LABEL = { "GREED", Key("Greed") }
-local TRANSMOG_LABEL = { "TRANSMOGRIFY", Key("Transmog") }
-local PASS_LABEL = { "PASS", Key("Pass") }
+local ROLL_LABEL = {
+	need = { "NEED", Key("Need") },
+	greed = { "GREED", Key("Greed") },
+	transmog = { "TRANSMOGRIFY", Key("Transmog") },
+	pass = { "PASS", Key("Pass") },
+}
 local STATE_LABEL = {
-	[STATE.NeedMainSpec or 0] = NEED_LABEL,
+	[STATE.NeedMainSpec or 0] = ROLL_LABEL.need,
 	[STATE.NeedOffSpec or 1] = { nil, Key("Need (off spec)") },
-	[STATE.Transmog or 2] = TRANSMOG_LABEL,
-	[STATE.Greed or 3] = GREED_LABEL,
-	[STATE.Pass or 5] = PASS_LABEL,
+	[STATE.Transmog or 2] = ROLL_LABEL.transmog,
+	[STATE.Greed or 3] = ROLL_LABEL.greed,
+	[STATE.Pass or 5] = ROLL_LABEL.pass,
 }
 local CHOICE_LABEL = {
-	[ROLL_NEED] = NEED_LABEL, [ROLL_GREED] = GREED_LABEL, [ROLL_TRANSMOG] = TRANSMOG_LABEL,
-	[ROLL_DE] = { "ROLL_DISENCHANT", Key("Disenchant") }, [ROLL_PASS] = PASS_LABEL,
+	[ROLL_NEED] = ROLL_LABEL.need, [ROLL_GREED] = ROLL_LABEL.greed, [ROLL_TRANSMOG] = ROLL_LABEL.transmog,
+	[ROLL_DE] = { "ROLL_DISENCHANT", Key("Disenchant") }, [ROLL_PASS] = ROLL_LABEL.pass,
 }
 local function LabelText(label)
 	if not label then return nil end
@@ -1474,10 +1644,10 @@ end
 -- The group's choices on a bar, in this order; Need counts main and off
 -- spec together. Forever's history has no Disenchant state.
 local GROUP_CHOICES = {
-	{ label = NEED_LABEL, atlas = "lootroll-toast-icon-need-up", file = "Interface\\Buttons\\UI-GroupLoot-Dice-Up" },
-	{ label = TRANSMOG_LABEL, atlas = "lootroll-toast-icon-transmog-up", file = "Interface\\Buttons\\UI-GroupLoot-Coin-Up" },
-	{ label = GREED_LABEL, atlas = "lootroll-toast-icon-greed-up", file = "Interface\\Buttons\\UI-GroupLoot-Coin-Up" },
-	{ label = PASS_LABEL, atlas = "lootroll-toast-icon-pass-up", file = "Interface\\Buttons\\UI-GroupLoot-Pass-Up" },
+	{ label = ROLL_LABEL.need, atlas = "lootroll-toast-icon-need-up", file = "Interface\\Buttons\\UI-GroupLoot-Dice-Up" },
+	{ label = ROLL_LABEL.transmog, atlas = "lootroll-toast-icon-transmog-up", file = "Interface\\Buttons\\UI-GroupLoot-Coin-Up" },
+	{ label = ROLL_LABEL.greed, atlas = "lootroll-toast-icon-greed-up", file = "Interface\\Buttons\\UI-GroupLoot-Coin-Up" },
+	{ label = ROLL_LABEL.pass, atlas = "lootroll-toast-icon-pass-up", file = "Interface\\Buttons\\UI-GroupLoot-Pass-Up" },
 }
 local CHOICE_GROUP = {
 	[STATE.NeedMainSpec or 0] = 1, [STATE.NeedOffSpec or 1] = 1, [STATE.Transmog or 2] = 2,
@@ -1660,25 +1830,35 @@ end
 MarkRollBar = function(bar)
 	local db = M.db
 	local link = bar.link
+	local serial, rollID = bar.serial, bar.rollID
+	local function Current()
+		return bar.serial == serial and bar.rollID == rollID and bar.link == link
+	end
 	local r, g, b = QualityColor(bar.quality)
 	if db.rollMarkBorder and link then
 		local upgrade = E.GetItemUpgrade and E:GetItemUpgrade(link)
+		if not Current() then return end
 		if upgrade and upgrade.upgrade then
 			r, g, b = E:TokenColor("good")
 		elseif E.Appearances and E.Appearances.State then
 			local ok, state = pcall(E.Appearances.State, E.Appearances, link)
+			if not Current() then return end
 			if ok and state == "unknown" then r, g, b = E:TokenColor("accent") end
 		end
 	end
-	bar.iconBox:SetBackdropBorderColor(r, g, b, 1)
 	local level = ""
 	if db.rollItemLevel and link then
 		local _, _, _, _, _, _, _, _, equipLoc, _, _, classID = C_Item.GetItemInfo(link)
+		if not Current() then return end
 		if (classID == 2 or classID == 4) and type(equipLoc) == "string" and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" then
 			local itemLevel = C_Item.GetDetailedItemLevelInfo and C_Item.GetDetailedItemLevelInfo(link)
+			if not Current() then return end
 			if type(itemLevel) == "number" and not E:IsSecret(itemLevel) then level = tostring(itemLevel) end
 		end
 	end
+	if not Current() then return end
+	bar.iconBox:SetBackdropBorderColor(r, g, b, 1)
+	if not Current() then return end
 	bar.iconBox.level:SetText(level)
 end
 
@@ -1822,7 +2002,7 @@ function M:RestoreWaitingRolls()
 				bar.bop:SetText("")
 				bar.timer:Hide()
 				if E.SetUpgradeArrow then E:SetUpgradeArrow(bar.iconBox, nil) end
-				self:WaitForRoll(bar, KEEP_RESTORED)
+				self:WaitForRoll(bar, ROLL_TIME.restored)
 				LayoutRolls()
 				E:SlideIn(bar, "RIGHT")
 			end
@@ -1833,83 +2013,226 @@ end
 -- The game can start a roll before the item's details have reached the
 -- client (often when several items go up for roll at once). When the roll
 -- names its item, EldoUI asks the client for it and builds the bar once
--- GET_ITEM_INFO_RECEIVED says it is there, with no timer in between.
--- Without an item, the roll is tried again a little later. Either way it
--- waits only while the roll's time runs.
+-- its details are ready. Item events wake it immediately; one shared
+-- retry keeps rolls moving when the item was cached before the roll data.
+-- Pending rolls are watched only while their time remains.
 local ROLL_RETRY = 0.25
-local pendingRolls = {} -- [rollID] = { tries, rollTime, item }
+local PENDING_ROLL_TICK = "EldoUI.Loot.pending"
+local pendingRolls = {} -- [rollID] = { rollTime, item, reading }
+local RetryPendingRolls
 
+-- The time left in milliseconds, or nil once the roll is over. While an
+-- addon restriction is on the game answers with a secret value: the roll
+-- is still open, its time unknown (returns true).
 local function RollTimeLeft(rollID)
 	local left = GetLootRollTimeLeft(rollID)
-	if type(left) ~= "number" or E:IsSecret(left) or left <= 0 then return nil end
+	if E:IsSecret(left) then return true end
+	if type(left) ~= "number" or left <= 0 then return nil end
 	return left
 end
 
+-- A value EldoUI may compare or count with: nil for a secret one.
+local function Plain(value)
+	if E:IsSecret(value) then return nil end
+	return value
+end
+
 local function RollItemID(rollID)
-	local link = GetLootRollItemLink and GetLootRollItemLink(rollID)
+	local link = GetLootRollItemLink and Plain(GetLootRollItemLink(rollID))
 	if type(link) ~= "string" or E:IsSecret(link) then return nil end
 	return tonumber(link:match("|Hitem:(%d+)"))
 end
 
--- An item the client was asked for arrived: the rolls waiting on it go on.
-local function ItemArrived(_, _, itemID)
-	if type(itemID) ~= "number" or E:IsSecret(itemID) then return end
+local function WatchPendingRolls()
+	if not (M.active and E:BlizzardAllowed(ROLL_ID, "replace")) then wipe(pendingRolls) end
+	if next(pendingRolls) then
+		if not E.Ticker:IsSubscribed(PENDING_ROLL_TICK) then
+			E.Ticker:Subscribe(PENDING_ROLL_TICK, ROLL_RETRY, RetryPendingRolls, M)
+		end
+	else
+		E.Ticker:Unsubscribe(PENDING_ROLL_TICK)
+	end
+end
+
+local function OwnsPendingRoll(rollID, wait)
+	if pendingRolls[rollID] ~= wait then return false end
+	local own = M.active and E:BlizzardAllowed(ROLL_ID, "replace")
+	return own and pendingRolls[rollID] == wait
+end
+
+-- A read can deliver another roll event before returning. Keep its record
+-- until the bar is complete so a nested start cannot admit the same roll.
+local function BeginRollRead(rollID, rollTime, expected)
+	if not (M.active and E:BlizzardAllowed(ROLL_ID, "replace")) then return nil end
+	local wait = pendingRolls[rollID]
+	if expected and wait ~= expected then return nil end
+	if wait and wait.reading then return nil end
+	for _, bar in ipairs(rollBars) do if bar.rollID == rollID then return nil end end
+	wait = wait or {}
+	wait.rollTime = rollTime or wait.rollTime
+	wait.reading = true
+	wait.bar, wait.serial, wait.link = nil, nil, nil
+	pendingRolls[rollID] = wait
+	return wait
+end
+
+local function FinishRollRead(wait)
+	wait.reading = nil
+	WatchPendingRolls()
+end
+
+local function ContinueRollRead(rollID, wait, bar, serial)
+	local sameBar = not bar or (bar.rollID == rollID and bar.serial == serial and bar.link == wait.link)
+	if OwnsPendingRoll(rollID, wait) and sameBar then return true end
+	if pendingRolls[rollID] == wait then pendingRolls[rollID] = nil end
+	if bar and sameBar then M:ReleaseRollBar(bar) end
+	FinishRollRead(wait)
+	return false
+end
+
+-- A failed read stays visible to the caller and leaves this roll retryable.
+-- A newer roll or reused bar keeps its own state when the old call unwinds.
+local function RunRollRead(read, self, rollID, wait)
+	local ok, failure = pcall(read, self, rollID, wait)
+	if ok then return end
+	local cleaned, cleanupFailure = pcall(function()
+		if pendingRolls[rollID] == wait then
+			local bar = wait.bar
+			if bar and bar.rollID == rollID and bar.serial == wait.serial and bar.link == wait.link then self:ReleaseRollBar(bar) end
+		end
+	end)
+	local finished, finishFailure = pcall(FinishRollRead, wait)
+	if not cleaned then failure = tostring(failure) .. "\n" .. tostring(cleanupFailure) end
+	if not finished then failure = tostring(failure) .. "\n" .. tostring(finishFailure) end
+	error(failure, 0)
+end
+
+local function PendingRollSnapshot(itemID)
+	local pending = {}
 	for rollID, wait in pairs(pendingRolls) do
-		if wait.item == itemID then
-			if RollTimeLeft(rollID) then
-				M:StartRoll(rollID, wait.rollTime)
-			else
-				pendingRolls[rollID] = nil
-			end
+		if not itemID or wait.item == itemID then pending[#pending + 1] = { rollID, wait } end
+	end
+	return pending
+end
+
+local function ResumePendingRoll(rollID, wait)
+	if wait.reading or not OwnsPendingRoll(rollID, wait) then return end
+	local left = RollTimeLeft(rollID)
+	if not OwnsPendingRoll(rollID, wait) then return end
+	if left then M:StartRoll(rollID, wait.rollTime, wait)
+	else pendingRolls[rollID] = nil end
+end
+
+local function TryResumePendingRoll(rollID, wait)
+	local ok, failure = pcall(ResumePendingRoll, rollID, wait)
+	if not ok and failure ~= wait.lastFailure then
+		wait.lastFailure = failure
+		geterrorhandler()(failure)
+	end
+end
+
+local function SyncOpenRoll(rollID)
+	local wait = pendingRolls[rollID]
+	if wait then
+		TryResumePendingRoll(rollID, wait)
+	else
+		M:StartRoll(rollID)
+	end
+end
+
+RetryPendingRolls = function()
+	for _, entry in ipairs(PendingRollSnapshot()) do TryResumePendingRoll(entry[1], entry[2]) end
+	WatchPendingRolls()
+end
+
+-- An item the client was asked for arrived: the rolls waiting on it go on.
+local function ItemArrived(_, _, itemID, success)
+	if type(itemID) ~= "number" or E:IsSecret(itemID) then return end
+	for _, entry in ipairs(PendingRollSnapshot(itemID)) do
+		local rollID, wait = entry[1], entry[2]
+		if pendingRolls[rollID] == wait then
+			if not E:IsSecret(success) and success == false then
+				wait.item = nil
+			else TryResumePendingRoll(rollID, wait) end
 		end
 	end
+	WatchPendingRolls()
 end
 E:RegisterEvent("GET_ITEM_INFO_RECEIVED", ItemArrived, pendingRolls)
 
-function M:RetryRoll(rollID, rollTime)
-	if not RollTimeLeft(rollID) then
+local function RetryRollRead(_, rollID, wait)
+	local left = RollTimeLeft(rollID)
+	if not ContinueRollRead(rollID, wait) then return end
+	if not left then
 		pendingRolls[rollID] = nil
+		FinishRollRead(wait)
 		return
 	end
-	local wait = pendingRolls[rollID] or { tries = 0 }
-	pendingRolls[rollID] = wait
-	wait.rollTime = rollTime
 	local itemID = RollItemID(rollID)
+	if not ContinueRollRead(rollID, wait) then return end
 	if itemID and C_Item and C_Item.RequestLoadItemDataByID then
 		if wait.item ~= itemID then
 			wait.item = itemID
-			pcall(C_Item.RequestLoadItemDataByID, itemID)
+			local ok = pcall(C_Item.RequestLoadItemDataByID, itemID)
+			if not ok and pendingRolls[rollID] == wait then wait.item = nil end
 		end
-		return
-	end
-	wait.item = nil
-	wait.tries = wait.tries + 1
-	local tries = wait.tries
-	C_Timer.After(ROLL_RETRY, function()
-		if pendingRolls[rollID] ~= wait or wait.tries ~= tries then return end
-		if not RollTimeLeft(rollID) then
-			pendingRolls[rollID] = nil
-			return
-		end
-		self:StartRoll(rollID, rollTime)
-	end)
+	else wait.item = nil end
+	FinishRollRead(wait)
 end
 
-function M:StartRoll(rollID, rollTime)
-	if not (self.active and E:BlizzardAllowed(ROLL_ID, "replace")) then return end
-	for _, b in ipairs(rollBars) do
-		if b.rollID == rollID then return end -- already shown
+function M:RetryRoll(rollID, rollTime, expected)
+	local wait = BeginRollRead(rollID, rollTime, expected)
+	if not wait then return end
+	RunRollRead(RetryRollRead, self, rollID, wait)
+end
+
+local function StartRollRead(self, rollID, wait)
+	local left = RollTimeLeft(rollID)
+	if not ContinueRollRead(rollID, wait) then return end
+	if not left then
+		pendingRolls[rollID] = nil
+		FinishRollRead(wait)
+		return
 	end
 	local texture, name, count, quality, bindOnPickUp, canNeed, canGreed, canDisenchant,
 		reasonNeed, reasonGreed, reasonDisenchant, _, canTransmog = GetLootRollItemInfo(rollID)
-	if not texture or not name then
-		self:RetryRoll(rollID, rollTime)
+	if not ContinueRollRead(rollID, wait) then return end
+	if not name then
+		wait.reading = nil
+		self:RetryRoll(rollID, wait.rollTime, wait)
 		return
 	end
-	pendingRolls[rollID] = nil
+	-- Secret answers still make a bar: the name and icon show as the game
+	-- gives them, and whatever needs a plain value (count, color, binding,
+	-- which choices are open) falls back to the game's own checks.
+	local link = GetLootRollItemLink and Plain(GetLootRollItemLink(rollID)) or nil
+	if not ContinueRollRead(rollID, wait) then return end
+	local duration = Plain(wait.rollTime) or (C_Loot and C_Loot.GetLootRollDuration and Plain(C_Loot.GetLootRollDuration(rollID)))
+	if not ContinueRollRead(rollID, wait) then return end
+	left = RollTimeLeft(rollID)
+	if not ContinueRollRead(rollID, wait) then return end
+	if not left then
+		pendingRolls[rollID] = nil
+		FinishRollRead(wait)
+		return
+	end
+	if left == true then left = nil end
+	if type(duration) ~= "number" or duration <= 0 then duration = left or 60000 end
+	left = left or duration
+	count, quality, bindOnPickUp = Plain(count), Plain(quality), Plain(bindOnPickUp)
+	if E:IsSecret(canTransmog) then canTransmog = false end
+	if E:IsSecret(canDisenchant) then canDisenchant = false end
+	if E:IsSecret(canNeed) then canNeed = true end
+	if E:IsSecret(canGreed) then canGreed = true end
+	reasonNeed, reasonGreed, reasonDisenchant = Plain(reasonNeed), Plain(reasonGreed), Plain(reasonDisenchant)
+	local now = GetTime()
+	if not ContinueRollRead(rollID, wait) then return end
 	local bar = self:FreeRollBar()
+	local serial = bar.serial
+	if not ContinueRollRead(rollID, wait) then return end
 	bar.rollID = rollID
-	bar.link = GetLootRollItemLink and GetLootRollItemLink(rollID) or nil
+	bar.link = link
+	wait.bar, wait.serial, wait.link = bar, serial, link
 	local can = { canNeed = canNeed, canGreed = canGreed and not canTransmog, canDisenchant = canDisenchant, canTransmog = canTransmog }
 	local reasons = { canNeed = reasonNeed, canGreed = reasonGreed, canDisenchant = reasonDisenchant }
 	for _, button in ipairs(bar.buttons) do
@@ -1930,33 +2253,86 @@ function M:StartRoll(rollID, rollTime)
 	end
 	SizeRollBar(bar)
 	local r, g, b = QualityColor(quality)
-	bar.iconBox.icon:SetTexture(texture)
-	bar.iconBox.count:SetText(count and count > 1 and count or "")
+	bar.iconBox.icon:SetTexture(texture or E:ClientIcon(134400))
+	bar.iconBox.count:SetText(type(count) == "number" and count > 1 and count or "")
 	bar.quality = quality
 	MarkRollBar(bar)
+	if not ContinueRollRead(rollID, wait, bar, serial) then return end
 	bar.name:SetText(name)
 	bar.name:SetTextColor(r, g, b)
-	bar.bop:SetText(self.db.rollBoP and bindOnPickUp and (ITEM_BIND_ON_PICKUP or L["Binds when picked up"]) or "")
+	bar.bop:SetText(self.db.rollBoP and bindOnPickUp and (E:GameText(ITEM_BIND_ON_PICKUP, L["Binds when picked up"])) or "")
 	bar.urgent = nil
-	local duration = rollTime or (C_Loot and C_Loot.GetLootRollDuration and C_Loot.GetLootRollDuration(rollID))
-	if not duration or duration <= 0 then duration = GetLootRollTimeLeft(rollID) or 60000 end
 	bar.timer:SetMinMaxValues(0, duration)
-	local left = GetLootRollTimeLeft(rollID) or duration
 	bar.timer:SetValue(left)
-	bar.endsAt = GetTime() + left / 1000
+	bar.endsAt = now + left / 1000
 	TimerColor(bar, left, duration)
 	UpdateBarArrow(bar)
+	if not ContinueRollRead(rollID, wait, bar, serial) then return end
 	UpdateChoices(bar, BarDrop(bar))
+	if not ContinueRollRead(rollID, wait, bar, serial) then return end
 	LayoutRolls()
+	if not ContinueRollRead(rollID, wait, bar, serial) then return end
 	E:SlideIn(bar, "RIGHT")
+	if not ContinueRollRead(rollID, wait, bar, serial) then return end
+	pendingRolls[rollID] = nil
+	FinishRollRead(wait)
 	WatchRolls()
+end
+
+function M:StartRoll(rollID, rollTime, expected)
+	if E:IsSecret(rollID) or rollID == nil then return end
+	local wait = BeginRollRead(rollID, rollTime, expected)
+	if not wait then return end
+	RunRollRead(StartRollRead, self, rollID, wait)
+end
+
+-- Rolls the game ended for the player (CANCEL_LOOT_ROLL): the open-roll
+-- list may still name them while the others roll, so they never get a
+-- second bar.
+local endedRolls = {}
+
+-- Every roll the game has open gets a bar, whatever happened to its start
+-- event: a burst of rolls, a roll that started while a restriction hid its
+-- details, or one missed while the switch was off. Runs after roll events,
+-- after combat and boss fights, and every second while a roll is shown.
+function M:SyncRolls()
+	if not (self.active and E:BlizzardAllowed(ROLL_ID, "replace") and GetActiveLootRollIDs) then return end
+	local ok, ids = pcall(GetActiveLootRollIDs)
+	if not ok or type(ids) ~= "table" or E:IsSecret(ids) then return end
+	local open = {}
+	for _, rollID in ipairs(ids) do
+		if not E:IsSecret(rollID) and rollID ~= nil then
+			open[rollID] = true
+			local shown = false
+			for _, bar in ipairs(rollBars) do
+				if bar.rollID == rollID then shown = true break end
+			end
+			if not endedRolls[rollID] and not shown then
+				local started, failure = pcall(SyncOpenRoll, rollID)
+				if not started then geterrorhandler()(failure) end
+			end
+		end
+	end
+	if not next(open) then wipe(endedRolls) end
+	-- A bar whose roll the game no longer lists and whose time is up ends.
+	for _, bar in ipairs(rollBars) do
+		local rollID = bar.rollID
+		if rollID and not open[rollID] and not RollTimeLeft(rollID) then self:EndRoll(rollID) end
+	end
+	WatchPendingRolls()
+end
+
+function M.SyncRollsSoon()
+	E:Debounce("Loot:SyncRolls", 0.1, function() M:SyncRolls() end)
 end
 
 -- The game ended a roll: CANCEL_LOOT_ROLL once the player rolled (or the
 -- time ran out), CANCEL_ALL_LOOT_ROLLS (rollID nil) when every roll is
 -- off. A bar the player rolled on waits for the winner when Keep is on.
 function M:EndRoll(rollID)
-	if rollID == nil then wipe(pendingRolls) else pendingRolls[rollID] = nil end
+	if E:IsSecret(rollID) then return end
+	if rollID == nil then wipe(pendingRolls) else pendingRolls[rollID] = nil; endedRolls[rollID] = true end
+	WatchPendingRolls()
 	for _, bar in ipairs(rollBars) do
 		if bar.rollID and (rollID == nil or bar.rollID == rollID) then
 			if rollID ~= nil and self.db.rollKeep and bar.choice ~= nil then
@@ -2165,19 +2541,35 @@ function M:ToggleHistory()
 	end
 end
 
+-- Moments a roll can have started without a bar: the end of combat, of a
+-- boss fight or of an addon restriction, a loading screen, a group change.
+-- They have their own owner: the loot feed listens to the end of combat too.
+local missedRolls = { "PLAYER_REGEN_ENABLED", "ENCOUNTER_END", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE",
+	"ADDON_RESTRICTION_STATE_CHANGED", "LOOT_HISTORY_UPDATE_ENCOUNTER" }
+function missedRolls.Listen(on)
+	for _, event in ipairs(missedRolls) do
+		if on then E:RegisterEvent(event, M.SyncRollsSoon, missedRolls) else E:UnregisterEvent(event, missedRolls) end
+	end
+end
+
 function M:ApplyRolls()
 	local own = self.active and E:BlizzardAllowed(ROLL_ID, "replace")
 	if not self.rollAnchor then self:CreateRollAnchor() end
 	self.rollAnchor:SetSize(self.db.rollWidth, self.db.rollHeight)
 	if own then
-		self:RegisterEvent("START_LOOT_ROLL", function(_, _, rollID, rollTime) self:StartRoll(rollID, rollTime) end)
-		self:RegisterEvent("CANCEL_LOOT_ROLL", function(_, _, rollID) self:EndRoll(rollID) end)
+		-- A failed bar never takes the next start event or the check after
+		-- it down with it.
+		self:RegisterEvent("START_LOOT_ROLL", function(_, _, rollID, rollTime)
+			if not E:IsSecret(rollID) and rollID ~= nil then endedRolls[rollID] = nil end
+			M.SyncRollsSoon()
+			self:StartRoll(rollID, rollTime)
+		end)
+		self:RegisterEvent("CANCEL_LOOT_ROLL", function(_, _, rollID) self:EndRoll(rollID) M.SyncRollsSoon() end)
 		self:RegisterEvent("CANCEL_ALL_LOOT_ROLLS", function() self:EndRoll(nil) end)
-		self:RegisterEvent("LOOT_HISTORY_UPDATE_DROP", function() self:CheckRollResults() end)
+		self:RegisterEvent("LOOT_HISTORY_UPDATE_DROP", function() self:CheckRollResults() M.SyncRollsSoon() end)
+		missedRolls.Listen(true)
 		-- Rolls that started before a /reload or before the switch went on.
-		if GetActiveLootRollIDs then
-			for _, rollID in ipairs(GetActiveLootRollIDs()) do self:StartRoll(rollID) end
-		end
+		self:SyncRolls()
 		self:RestoreWaitingRolls()
 		for _, bar in ipairs(rollBars) do
 			if bar.rollID or bar.waiting or bar.rollPreview then
@@ -2189,6 +2581,7 @@ function M:ApplyRolls()
 		LayoutRolls()
 	else
 		for _, event in ipairs({ "START_LOOT_ROLL", "CANCEL_LOOT_ROLL", "CANCEL_ALL_LOOT_ROLLS", "LOOT_HISTORY_UPDATE_DROP" }) do self:UnregisterEvent(event) end
+		missedRolls.Listen(false)
 		self:EndRoll(nil)
 	end
 
@@ -2245,15 +2638,18 @@ end
 -- (from the game's loot lines about them, with their own quality floor and
 -- time on screen). A loot line the game hides adds nothing.
 ---------------------------------------------------------------------------
-local FEED_MOVER = "EldoUI_LootFeed"
-local MONEY_ICON = "Interface\\Icons\\INV_Misc_Coin_01"
-local REP_ICON = "Interface\\Icons\\Achievement_Reputation_01"
-local SKILL_ICON = "Interface\\Icons\\INV_Misc_Book_11"
-local XP_ICON = "Interface\\Icons\\Spell_Holy_SurgeOfLight"
-local HONOR_ICONS = { Alliance = "Interface\\Icons\\INV_BannerPVP_02", Horde = "Interface\\Icons\\INV_BannerPVP_01" }
-local UNKNOWN_ICON = 134400 -- INV_Misc_QuestionMark, in every client
+-- The feed's mover, its fixed icons and the gray of secondary text.
+local FEED = {
+	MOVER = "EldoUI_LootFeed",
+	MONEY_ICON = "Interface\\Icons\\INV_Misc_Coin_01",
+	REP_ICON = "Interface\\Icons\\Achievement_Reputation_01",
+	SKILL_ICON = "Interface\\Icons\\INV_Misc_Book_11",
+	XP_ICON = "Interface\\Icons\\Spell_Holy_SurgeOfLight",
+	HONOR_ICONS = { Alliance = "Interface\\Icons\\INV_BannerPVP_02", Horde = "Interface\\Icons\\INV_BannerPVP_01" },
+	UNKNOWN_ICON = 134400, -- INV_Misc_QuestionMark, in every client
+	GREY_TEXT = { 0.65, 0.65, 0.7 },
+}
 local function CoinString(copper) return E:FormatMoney(copper) end -- the Money style (Fonts and text page)
-local GREY_TEXT = { 0.65, 0.65, 0.7 }
 
 -- Lines are matched by the shared parser (Core/ChatParse.lua): the
 -- client's own format strings, secret text never read.
@@ -2289,17 +2685,18 @@ end
 -- Entries: { kind, key, icon, name, r, g, b, count, amount, link, ilvl, value }
 ---------------------------------------------------------------------------
 local function ItemEntry(link, count, floor)
+	link = ChatParse:ItemLink(link) or link
 	local name, _, quality, itemLevel, _, _, _, _, _, texture, sellPrice, classID = C_Item.GetItemInfo(link)
 	if not quality then
 		-- Not cached yet: show the link as it came, in its link's color.
 		local id = tonumber(link:match("item:(%d+)"))
-		texture = id and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id) or UNKNOWN_ICON
+		texture = id and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id) or FEED.UNKNOWN_ICON
 		quality = LinkQuality(link) or 1
 	end
 	if quality < (floor or M.db.toastQuality) then return nil end
 	local r, g, b = QualityColor(quality)
 	local plainName = name or link:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")
-	local entry = { kind = "item", key = "item:" .. (link:match("item:([%-%d:]+)") or plainName), icon = texture or UNKNOWN_ICON,
+	local entry = { kind = "item", key = "item:" .. (link:match("item:([%-%d:]+)") or plainName), icon = texture or FEED.UNKNOWN_ICON,
 		name = plainName, r = r, g = g, b = b, count = count or 1, link = link, quality = quality }
 	local weaponOrArmor = classID == (Enum.ItemClass and Enum.ItemClass.Weapon or 2) or classID == (Enum.ItemClass and Enum.ItemClass.Armor or 4)
 	if weaponOrArmor then
@@ -2317,7 +2714,7 @@ local function CurrencyEntry(link, count)
 	local r, g, b = QualityColor(info and info.quality or 1)
 	local maxQuantity = info and tonumber(info.maxQuantity) or 0
 	local capped = maxQuantity > 0 and (tonumber(info.quantity) or 0) >= maxQuantity
-	return { kind = "currency", key = "currency:" .. (id or name), icon = info and info.iconFileID or UNKNOWN_ICON,
+	return { kind = "currency", key = "currency:" .. (id or name), icon = info and info.iconFileID or FEED.UNKNOWN_ICON,
 		name = name, r = r, g = g, b = b, count = count or 1, link = link, capped = capped }
 end
 
@@ -2332,7 +2729,7 @@ local function SkillIcon(skill)
 			end
 		end
 	end
-	return SKILL_ICON
+	return FEED.SKILL_ICON
 end
 
 -- A group member's loot: their own floor and time, their name beside it.
@@ -2386,7 +2783,7 @@ local function OnXPUpdate(_, _, unit)
 	local gained = xp - last
 	if level > lastLevel then gained = (lastMax or last) - last + xp end
 	if gained > 0 then
-		M:AddGain({ kind = "xp", key = "xp", icon = XP_ICON, amount = gained, r = 0.6, g = 0.45, b = 1 })
+		M:AddGain({ kind = "xp", key = "xp", icon = FEED.XP_ICON, amount = gained, r = 0.6, g = 0.45, b = 1 })
 	end
 end
 
@@ -2397,7 +2794,7 @@ local function OnHonorMessage(_, _, text)
 	local amount = fields and not fields.dishonor and tonumber(fields.honor)
 	if not (amount and amount > 0) then return end
 	local faction = UnitFactionGroup("player")
-	M:AddGain({ kind = "honor", key = "honor", icon = HONOR_ICONS[faction] or HONOR_ICONS.Alliance, amount = amount, r = 1, g = 0.82, b = 0 })
+	M:AddGain({ kind = "honor", key = "honor", icon = FEED.HONOR_ICONS[faction] or FEED.HONOR_ICONS.Alliance, amount = amount, r = 1, g = 0.82, b = 0 })
 end
 
 local function OnMoneyMessage(_, _, text)
@@ -2406,9 +2803,9 @@ local function OnMoneyMessage(_, _, text)
 	local fields = Parse("money", text)
 	local copper = MoneyFromText(fields and fields.money or text)
 	if copper and copper > 0 then
-		M:AddGain({ kind = "money", key = "money", icon = MONEY_ICON, amount = copper, r = 1, g = 0.82, b = 0 })
+		M:AddGain({ kind = "money", key = "money", icon = FEED.MONEY_ICON, amount = copper, r = 1, g = 0.82, b = 0 })
 	elseif fields then
-		M:AddGain({ kind = "money", key = "money:" .. fields.money, icon = MONEY_ICON, name = fields.money, r = 1, g = 0.82, b = 0 })
+		M:AddGain({ kind = "money", key = "money:" .. fields.money, icon = FEED.MONEY_ICON, name = fields.money, r = 1, g = 0.82, b = 0 })
 	end
 end
 
@@ -2418,7 +2815,7 @@ local function OnFactionMessage(_, _, text)
 	local fields = Parse("rep", text)
 	if not fields or not fields.faction then return end
 	local amount = tonumber(fields.amount) or (fields.loss and -tonumber(fields.loss)) or nil
-	M:AddGain({ kind = "rep", key = "rep:" .. fields.faction, icon = REP_ICON, name = fields.faction, amount = amount,
+	M:AddGain({ kind = "rep", key = "rep:" .. fields.faction, icon = FEED.REP_ICON, name = fields.faction, amount = amount,
 		r = amount and amount < 0 and 1 or 0.4, g = amount and amount < 0 and 0.3 or 0.6, b = amount and amount < 0 and 0.3 or 1 })
 end
 
@@ -2465,7 +2862,7 @@ local function EntryText(entry, db, look)
 		local amount = entry.amount
 		local sign = amount and (amount >= 0 and "+" or "") or ""
 		local main = amount and (sign .. BreakUpLargeNumbers(amount) .. " " .. entry.name) or entry.name
-		return main, _G.REPUTATION or L["Reputation"]
+		return main, E:GameText(_G.REPUTATION, L["Reputation"])
 	end
 	if kind == "skill" then
 		return entry.name, entry.rank and tostring(entry.rank) or ""
@@ -2486,7 +2883,7 @@ local function EntryText(entry, db, look)
 		if look and look.toast and db.toastLegendary and (entry.quality or 0) >= 5 then
 			detail[#detail + 1] = Hex(entry.r or 1, entry.g or 1, entry.b or 1) .. L["Legendary!"] .. "|r"
 		end
-		if db.feedItemLevel and entry.ilvl and entry.ilvl > 0 then detail[#detail + 1] = (_G.ITEM_LEVEL_ABBR or L["iLvl"]) .. " " .. entry.ilvl end
+		if db.feedItemLevel and entry.ilvl and entry.ilvl > 0 then detail[#detail + 1] = (E:GameText(_G.ITEM_LEVEL_ABBR, L["iLvl"])) .. " " .. entry.ilvl end
 		if db.feedValue and (entry.price or 0) > 0 then detail[#detail + 1] = CoinString(entry.price * (entry.count or 1)) end
 	end
 	return main, table.concat(detail, "  ")
@@ -2520,7 +2917,7 @@ end
 
 local function CreateGainRow(stack)
 	local row = CreateFrame("Frame", nil, UIParent)
-	E:AddMoverContent(stack.mode == "feed" and FEED_MOVER or "EldoUI_LootToasts", row)
+	E:AddMoverContent(stack.mode == "feed" and FEED.MOVER or "EldoUI_LootToasts", row)
 	row:SetFrameStrata("MEDIUM")
 	row:SetClampedToScreen(true)
 	E:SetTemplate(row)
@@ -2533,7 +2930,7 @@ local function CreateGainRow(stack)
 	row.text = E:CreateText(row, E.tokens.size.body, "LEFT")
 	row.text:SetWordWrap(false)
 	row.detail = E:CreateText(row, E.tokens.size.small, "RIGHT")
-	row.detail:SetTextColor(GREY_TEXT[1], GREY_TEXT[2], GREY_TEXT[3])
+	row.detail:SetTextColor(FEED.GREY_TEXT[1], FEED.GREY_TEXT[2], FEED.GREY_TEXT[3])
 	row.stack = stack
 	row:EnableMouse(true)
 	-- The mouse over a row stops its time (and brings it back while it
@@ -2582,7 +2979,7 @@ local function PaintRow(row, look)
 	row.iconBox:SetSize(iconSize, iconSize)
 	row.iconBox:ClearAllPoints()
 	-- Through E:ClientIcon: an icon this client lacks gets its stand-in.
-	row.iconBox.icon:SetTexture(E:ClientIcon(entry.icon, UNKNOWN_ICON))
+	row.iconBox.icon:SetTexture(E:ClientIcon(entry.icon, FEED.UNKNOWN_ICON))
 	local total = db.feedBagCount and entry.kind == "item" and not entry.who and entry.link and C_Item.GetItemCount and C_Item.GetItemCount(entry.link)
 	row.iconBox.count:SetText(type(total) == "number" and not E:IsSecret(total) and total > 0 and tostring(total) or "")
 	row.text:ClearAllPoints()
@@ -2884,9 +3281,9 @@ function M:CreateToastAnchor()
 end
 
 function M:CreateFeedAnchor()
-	self.feedAnchor = CreateFrame("Frame", FEED_MOVER, UIParent)
+	self.feedAnchor = CreateFrame("Frame", FEED.MOVER, UIParent)
 	self.feedAnchor:SetSize(self.db.feedWidth, self.db.feedRowHeight)
-	E:CreateMover(self.feedAnchor, FEED_MOVER, L["Loot Feed"], { "RIGHT", "UIParent", "RIGHT", -700, 0 },
+	E:CreateMover(self.feedAnchor, FEED.MOVER, L["Loot Feed"], { "RIGHT", "UIParent", "RIGHT", -700, 0 },
 		{ sizeKeys = { width = { key = "feedWidth", min = 160, max = 480 } }, sample = { kind = "toast" } })
 end
 
@@ -2930,7 +3327,7 @@ function M:ApplyToasts()
 	for anchorMode, anchor in pairs({ toast = self.toastAnchor, feed = self.feedAnchor }) do
 		local shown = showToasts and anchorMode == mode
 		anchor:SetShown(shown)
-		local mover = E.movers[anchorMode == "feed" and FEED_MOVER or "EldoUI_LootToasts"]
+		local mover = E.movers[anchorMode == "feed" and FEED.MOVER or "EldoUI_LootToasts"]
 		if mover then mover:SetShown(shown) end
 	end
 	for other, stack in pairs(stacks) do
@@ -2954,23 +3351,23 @@ function M:ShowSamples()
 	if db.feedItems then
 		for quality = math.max(db.toastQuality, 1), 4 do
 			local r, g, b = QualityColor(quality)
-			samples[#samples + 1] = { kind = "item", key = "sample:item" .. quality, icon = UNKNOWN_ICON,
+			samples[#samples + 1] = { kind = "item", key = "sample:item" .. quality, icon = FEED.UNKNOWN_ICON,
 				name = _G["ITEM_QUALITY" .. quality .. "_DESC"] or L["Item"], r = r, g = g, b = b, count = quality == 1 and 5 or 1,
 				ilvl = quality > 1 and (20 + quality * 5) or nil, price = 1250 * quality }
 		end
 	end
-	if db.toastMoney then samples[#samples + 1] = { kind = "money", key = "sample:money", icon = MONEY_ICON, amount = 12345, r = 1, g = 0.82, b = 0 } end
-	if db.feedRep then samples[#samples + 1] = { kind = "rep", key = "sample:rep", icon = REP_ICON, name = _G.FACTION or L["Faction"], amount = 250, r = 0.4, g = 0.6, b = 1 } end
+	if db.toastMoney then samples[#samples + 1] = { kind = "money", key = "sample:money", icon = FEED.MONEY_ICON, amount = 12345, r = 1, g = 0.82, b = 0 } end
+	if db.feedRep then samples[#samples + 1] = { kind = "rep", key = "sample:rep", icon = FEED.REP_ICON, name = E:GameText(_G.FACTION, L["Faction"]), amount = 250, r = 0.4, g = 0.6, b = 1 } end
 	if db.feedCurrency then
 		local r, g, b = QualityColor(1)
-		samples[#samples + 1] = { kind = "currency", key = "sample:currency", icon = UNKNOWN_ICON, name = _G.CURRENCY or L["Currency"], count = 3, r = r, g = g, b = b }
+		samples[#samples + 1] = { kind = "currency", key = "sample:currency", icon = FEED.UNKNOWN_ICON, name = E:GameText(_G.CURRENCY, L["Currency"]), count = 3, r = r, g = g, b = b }
 	end
-	if db.feedSkill then samples[#samples + 1] = { kind = "skill", key = "sample:skill", icon = SKILL_ICON, name = _G.SKILL or L["Skill"], rank = 150, r = 0.4, g = 0.8, b = 1 } end
-	if db.feedXP then samples[#samples + 1] = { kind = "xp", key = "sample:xp", icon = XP_ICON, amount = 1450, r = 0.6, g = 0.45, b = 1 } end
-	if db.feedHonor then samples[#samples + 1] = { kind = "honor", key = "sample:honor", icon = HONOR_ICONS.Alliance, amount = 62, r = 1, g = 0.82, b = 0 } end
+	if db.feedSkill then samples[#samples + 1] = { kind = "skill", key = "sample:skill", icon = FEED.SKILL_ICON, name = E:GameText(_G.SKILL, L["Skill"]), rank = 150, r = 0.4, g = 0.8, b = 1 } end
+	if db.feedXP then samples[#samples + 1] = { kind = "xp", key = "sample:xp", icon = FEED.XP_ICON, amount = 1450, r = 0.6, g = 0.45, b = 1 } end
+	if db.feedHonor then samples[#samples + 1] = { kind = "honor", key = "sample:honor", icon = FEED.HONOR_ICONS.Alliance, amount = 62, r = 1, g = 0.82, b = 0 } end
 	if db.feedOthers then
 		local r, g, b = QualityColor(db.feedOthersQuality)
-		samples[#samples + 1] = { kind = "item", key = "sample:other", icon = UNKNOWN_ICON, name = _G["ITEM_QUALITY" .. db.feedOthersQuality .. "_DESC"] or L["Item"],
+		samples[#samples + 1] = { kind = "item", key = "sample:other", icon = FEED.UNKNOWN_ICON, name = _G["ITEM_QUALITY" .. db.feedOthersQuality .. "_DESC"] or L["Item"],
 			r = r, g = g, b = b, count = 1, who = L["Group member"], hold = db.feedOthersTime }
 	end
 	if not (self.active and db.toasts) then
@@ -3012,6 +3409,7 @@ E:RegisterProfileMigration(M.RetireGreedGreens, "Loot:greedGreens", 1)
 ---------------------------------------------------------------------------
 function M:Apply()
 	self:ApplyLootWindow()
+	self:ApplyBindConfirmations()
 	self:ApplyRolls()
 	self:ApplyToasts()
 end
@@ -3032,9 +3430,12 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	self:ApplyBindConfirmations()
+	self:EndLootRoomNotice()
 	self:ClearGains()
 	if self.lootFrame then self.lootFrame:Hide() end
 	self:EndRoll(nil)
+	missedRolls.Listen(false)
 	E.Ticker:UnsubscribeOwner(self)
 	-- Blizzard's loot window listens again at once; its roll frames after a reload.
 	SetBlizzardLootEvents(true)
@@ -3057,6 +3458,8 @@ E:RegisterBlizzardHandler(LOOT_ID, {
 	owner = "Loot",
 	apply = function() if M.active then M:Apply() end end,
 	undo = function()
+		M:ApplyBindConfirmations()
+		M:EndLootRoomNotice()
 		SetBlizzardLootEvents(true)
 		if M.lootFrame then M.lootFrame:Hide() end
 		M:UnregisterEvent("LOOT_READY")
@@ -3077,6 +3480,7 @@ E:RegisterBlizzardHandler(ROLL_ID, {
 	undo = function()
 		M:EndRoll(nil)
 		for _, event in ipairs({ "START_LOOT_ROLL", "CANCEL_LOOT_ROLL", "CANCEL_ALL_LOOT_ROLLS" }) do M:UnregisterEvent(event) end
+		missedRolls.Listen(false)
 		if next(blizzRollScale) then RestoreBlizzardRolls() end
 	end,
 	reload = { skin = true, hide = true, replace = true },
@@ -3084,7 +3488,7 @@ E:RegisterBlizzardHandler(ROLL_ID, {
 	legacy = function() return M.db and M.db.enabled ~= false and M.db.rolls and true or false end,
 })
 
-E:AddCommand("loothistory", "  open or close Blizzard's loot history", function() M:ToggleHistory() end, "Tools")
+E:AddCommand("loothistory", "open or close Blizzard's loot history", function() M:ToggleHistory() end, "Tools")
 
 ---------------------------------------------------------------------------
 -- Options
@@ -3120,9 +3524,9 @@ M.options = {
 		desc = "Blizzard's window, Blizzard's window in the EldoUI look, or EldoUI's own quality-colored window." },
 	{ type = "toggle", key = "atCursor", label = "Open at the mouse", hidden = LootOff,
 		desc = "Off uses the spot you set in move mode (/eui move). For Blizzard's window this needs the Move switch and sets the game's \"loot under mouse\" option." },
-	{ type = "range", key = "iconSize", label = "Row height", min = 20, max = 48, step = 1, hidden = OwnLootOff,
+	{ type = "range", unit = "px", key = "iconSize", label = "Row height", min = 20, max = 48, step = 1, hidden = OwnLootOff,
 		desc = "Height of each row and size of its icon in EldoUI's window." },
-	{ type = "range", key = "width", label = "Width", min = 180, max = 400, step = 2, hidden = OwnLootOff,
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 180, max = 400, step = 2, hidden = OwnLootOff,
 		desc = "Width of EldoUI's loot window." },
 	{ type = "range", key = "fontSize", label = "Text size", min = 10, max = 18, step = 1, hidden = OwnLootOff,
 		desc = "Size of the item names in EldoUI's window." },
@@ -3153,6 +3557,8 @@ M.options = {
 		desc = "A second line under the name with where the item is worn and what kind it is." },
 	{ type = "toggle", key = "lootValue", label = "Vendor price", hidden = OwnLootOff,
 		desc = "What a vendor pays for the whole stack, at the right of the row." },
+	{ type = "toggle", key = "lootRoomNotice", label = "Lowest value when loot does not fit", hidden = OwnLootOff,
+		desc = "Names the lowest-value stack in your bags when the game says your inventory is full. On by default." },
 	{ type = "toggle", key = "lootUpgrade", label = "Upgrade arrow", hidden = OwnLootOff,
 		desc = "A green arrow on items that beat what you wear (Upgrades module)." },
 	{ type = "toggle", key = "lootNewLook", label = "New look", hidden = OwnLootOff,
@@ -3166,16 +3572,19 @@ M.options = {
 			local standing, _, title = E:StandsBack(M, "fastloot")
 			return standing and L["Handled by %s. Type %s to choose."]:format(title, E:Highlight("/eui addons")) or nil
 		end,
-		desc = "Acts for you when turned on: when the game auto loots, takes every item at once instead of one by one. Works with either window. Off by default: turn it on here or in the installer." },
+		desc = "Acts for you when turned on: when the game auto loots, takes every item at once instead of one by one. Works with either window. Off by default: turn it on here or in the setup." },
+
+	{ type = "toggle", acts = true, key = "skipBindConfirm", label = "Skip solo loot confirmation", hidden = LootOff,
+		desc = "Acts for you when turned on: confirms Bind on Pickup items when you loot alone. Group loot and other confirmations still ask. Off by default." },
 
 	{ type = "tab", label = "Rolls" },
 	{ type = "header", label = "Group loot rolls" },
 	{ type = "description", label = "You always roll yourself: EldoUI never picks Need, Greed or Pass for you." },
 	{ type = "select", key = "rollMode", label = "Roll frames", values = MODES, reload = true,
 		desc = "Blizzard's roll frames, Blizzard's in the EldoUI look, or EldoUI's roll bars. Going back from EldoUI's bars takes effect after a reload." },
-	{ type = "range", key = "rollWidth", label = "Roll bar width", min = 240, max = 480, step = 4, hidden = OwnRollsOff,
+	{ type = "range", unit = "px", key = "rollWidth", label = "Roll bar width", min = 240, max = 480, step = 4, hidden = OwnRollsOff,
 		desc = "Width of each EldoUI roll bar." },
-	{ type = "range", key = "rollHeight", label = "Roll bar height", min = 28, max = 56, step = 1, hidden = OwnRollsOff,
+	{ type = "range", unit = "px", key = "rollHeight", label = "Roll bar height", min = 28, max = 56, step = 1, hidden = OwnRollsOff,
 		desc = "Height of each EldoUI roll bar; the icon and buttons follow it." },
 	{ type = "select", key = "rollGrow", label = "New rolls go", values = { DOWN = "Below", UP = "Above" },
 		desc = "Which way more rolls stack from the roll spot (EldoUI's bars, and Blizzard's frames with the Move switch)." },
@@ -3260,8 +3669,8 @@ M.options = {
 	{ type = "toggle", key = "feedQualityBorder", label = "Quality border", dependsOn = "toasts", hidden = function() return M.db.toastMode ~= "feed" end,
 		desc = "Item rows take the item's quality color on their border.",
 		cog = {
-			{ type = "range", key = "feedRowHeight", label = "Row height", min = 16, max = 40, step = 1, desc = "Height of each row; the icon follows it." },
-			{ type = "range", key = "feedWidth", label = "Width", min = 160, max = 480, step = 4, desc = "Width of the feed." },
+			{ type = "range", unit = "px", key = "feedRowHeight", label = "Row height", min = 16, max = 40, step = 1, desc = "Height of each row; the icon follows it." },
+			{ type = "range", unit = "px", key = "feedWidth", label = "Width", min = 160, max = 480, step = 4, desc = "Width of the feed." },
 			{ type = "range", key = "feedFontSize", label = "Text size", min = 9, max = 18, step = 1, desc = "Text size in the feed." },
 		} },
 }
@@ -3270,13 +3679,18 @@ M.options = {
 -- step and the Conveniences page (Core/Conveniences.lua), off until ticked.
 E:RegisterConvenience({ id = "fastLoot", module = "Loot", setting = "fastLoot", order = 50,
 	label = "Faster auto loot",
-	desc = "Acts for you: when the game auto loots, every item is taken at once instead of one by one. Change it later under Loot.",
+	desc = "Acts for you: when the game auto loots, every item is taken at once instead of one by one.",
 	suits = E.ConvenienceRules.Everyone,
 	blocked = function()
 		local standing, _, title = E:StandsBack(M, "fastloot")
 		if standing then return L["Handled by %s. Type %s to choose."]:format(title, E:Highlight("/eui addons")) end
 		return E:BlizzardNeedsReason(LOOT_ID)
 	end })
+
+E:RegisterConvenience({ id = "skipBindConfirm", module = "Loot", setting = "skipBindConfirm", order = 55,
+	label = "Skip solo loot confirmation",
+	desc = "Acts for you: confirms Bind on Pickup items when you loot alone. Group loot and other confirmations still ask. Change this in Loot settings.",
+	blocked = function() return E:BlizzardNeedsReason(LOOT_ID) end })
 
 ---------------------------------------------------------------------------
 -- Style presets

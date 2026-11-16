@@ -170,7 +170,7 @@ function Ace.CheckBox(widget)
 		E:AccentTexture(self.check, 1)
 		if self.highlight then
 			self.highlight:SetTexture(E.media.flat)
-			self.highlight:SetVertexColor(1, 1, 1, 0.12)
+			self.highlight:SetVertexColor(1, 1, 1, E.tokens.hover.control)
 			self.highlight:ClearAllPoints()
 			self.highlight:SetAllPoints(box)
 		end

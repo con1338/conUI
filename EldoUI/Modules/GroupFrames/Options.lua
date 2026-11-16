@@ -84,10 +84,10 @@ M.options = {
 	{ type = "header", label = "Frames" },
 	{ type = "select", key = "engine", label = "Frame source", values = ENGINES, wide = true,
 		desc = "Auto uses EldoUI's frames and switches to Blizzard's frames if the client's group headers don't work. Skinned needs the Skin switch for party and raid frames on the Blizzard UI page." },
-	{ type = "toggle", key = "skinBlizzard", label = "Skin Blizzard's frames when Auto falls back", cog = true,
+	{ type = "toggle", key = "skinBlizzard", label = "Skin the game's frames when they're used", cog = true,
 		desc = "Only when the Skin switch for party and raid frames is on (Blizzard UI page)." },
-	{ type = "toggle", key = "fallbackNotice", label = "Tell me when Auto switches to Blizzard's frames", cog = true,
-		desc = "One chat line the first time Auto falls back in a session." },
+	{ type = "toggle", key = "fallbackNotice", label = "Notify when the game's frames are used", cog = true,
+		desc = "A chat line the first time in a session that Auto switches to the game's party and raid frames." },
 	{ type = "select", key = "graphics", label = "Group-frame graphics", wide = true, -- lint: unused-key ok (Core/UnitGraphics.lua reads it)
 		values = function() return E.UnitGraphics and E.UnitGraphics:Values(M.db and M.db.graphics) or {} end,
 		order = { "FOLLOW", "MODERN", "VANILLA", "PORTRAITBARS" },
@@ -119,6 +119,7 @@ M.options = {
 	{ type = "tab", label = "Indicators" },
 	{ type = "header", label = "Icons" },
 	{ type = "toggle", key = "indicators.leader", label = "Leader and assistant", desc = "The group leader's crown and the raid assistant's mark." },
+	{ type = "toggle", key = "indicators.masterLooter", label = "Master looter", desc = "The game's master looter mark on the member who hands out the loot, while the group uses master loot." },
 	{ type = "toggle", key = "indicators.mainTank", label = "Main tank and main assist", desc = "The raid's own main tank and main assist marks." },
 	{ type = "toggle", key = "indicators.raidTarget", label = "Raid target marker", desc = "Skull, cross and the other markers on members." },
 	{ type = "toggle", key = "indicators.readyCheck", label = "Ready check", desc = "Ready, not ready and waiting during a ready check; the result stays a while, then fades." },
@@ -130,13 +131,13 @@ M.options = {
 	{ type = "toggle", key = "indicators.afk", label = "AFK text", desc = "Shows AFK in place of the health text." },
 	{ type = "header", label = "Borders" },
 	{ type = "select", key = "indicators.aggroSource", label = "Threat border on", values = { any = "Any enemy", target = "Your target" },
-		desc = "Any enemy: the member has threat on something. Your target: the member's threat state on what you have targeted, as the game reports it. The border itself is on the Effects tab.",
+		desc = "Any enemy: the member has threat on something. Your target: the member's threat state on what you have targeted. The border itself is on the Effects tab.",
 		hidden = function() return not (M.db.effects and M.db.effects.threat and M.db.effects.threat.enabled) end },
 	{ type = "toggle", key = "indicators.target", label = "Target border", desc = "Accent border on the member you have targeted." },
 	{ type = "toggle", key = "indicators.mouseover", label = "Mouse-over highlight", desc = "Light accent tint on the frame under the mouse." },
 	{ type = "header", label = "Highlights" },
 	{ type = "toggle", key = "dispel.enabled", label = "Dispellable debuff highlight", desc = "Marks members with a debuff that can be dispelled. The game decides which debuffs count." },
-	{ type = "toggle", key = "dispel.mine", label = "Only debuffs I can dispel", desc = "Off: any debuff someone in the group can dispel.",
+	{ type = "toggle", key = "dispel.mine", label = "Only debuffs you can dispel", desc = "Off: any debuff someone in the group can dispel.",
 		hidden = function() return not M.db.dispel.enabled end },
 	{ type = "select", key = "dispel.style", label = "Highlight look", values = { BORDER = "Border in the dispel color", GLOW = "Glow", BOTH = "Border and glow" },
 		desc = "The border takes the debuff type's color (magic, curse, disease, poison). The glow's style and color are set on the Glows page.",
@@ -190,12 +191,12 @@ local function AddSection(section)
 	else
 		Add({ type = "toggle", key = "enabled", label = "Enable", desc = ENABLE_DESC[section] })
 	end
-	Add({ type = "range", key = "width", label = "Width", min = 40, max = 300, step = 1, desc = "Frame width." })
-	Add({ type = "range", key = "height", label = "Height", min = 16, max = 120, step = 1, desc = "Frame height." })
-	Add({ type = "range", key = "spacing", label = "Spacing", min = 0, max = 30, step = 1, desc = "Gap between frames. Buffs or debuffs below the frame need the icon size plus a few pixels." })
+	Add({ type = "range", unit = "px", key = "width", label = "Width", min = 40, max = 300, step = 1, desc = "Width of each party or raid frame." })
+	Add({ type = "range", unit = "px", key = "height", label = "Height", min = 16, max = 120, step = 1, desc = "Height of each frame. Buff and debuff icons are capped at this height." })
+	Add({ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 30, step = 1, desc = "Gap between frames. Buffs or debuffs below the frame need the icon size plus a few pixels." })
 	Add({ type = "toggle", key = "splitSpacing", label = "Own vertical spacing", cog = true,
 		desc = "Use a different gap between rows than between columns." })
-	Add({ type = "range", key = "spacingY", label = "Vertical spacing", min = 0, max = 15, step = 1, cog = true,
+	Add({ type = "range", unit = "px", key = "spacingY", label = "Vertical spacing", min = 0, max = 15, step = 1, cog = true,
 		desc = "Gap between rows.", hidden = function() return not DB().splitSpacing end })
 	if section ~= "tanks" then
 		Add({ type = "select", key = "growth", label = "Growth direction", values = GROWTHS, desc = "Where the next member goes." })
@@ -226,6 +227,9 @@ local function AddSection(section)
 	if section ~= "tanks" then
 		Add({ type = "select", key = "sortBy", label = "Sort by", values = SORT_NAMES,
 			desc = "Order of the members. Role, Class, Name and Join order sort the whole raid, ignoring groups. Changes wait until combat ends." })
+		Add({ type = "select", key = "roleOrder", label = "Role order", values = { TANK = "Tanks first", HEALER = "Healers first" },
+			order = { "TANK", "HEALER" }, hidden = function() return DB().sortBy ~= "ROLE" end,
+			desc = "Sorting by role: tanks, then healers, then damage, or healers before tanks." })
 		Add({ type = "select", key = "sortDir", label = "Sort direction", values = { ASC = "Ascending", DESC = "Descending" }, cog = true,
 			desc = "Descending turns the order around (last group or Z first)." })
 	end
@@ -250,7 +254,7 @@ local function AddSection(section)
 		desc = "Bottom to top makes the health bars grow upward, like healer grids." })
 	Add({ type = "toggle", key = "reverseFill", label = "Reverse fill", cog = true,
 		desc = "The health fills from the other side (right to left, or top to bottom)." })
-	Add({ type = "range", key = "powerHeight", label = "Power bar height (0 hides it)", min = 0, max = 12, step = 1, desc = "Height of the mana, rage or energy bar." })
+	Add({ type = "range", unit = "px", key = "powerHeight", label = "Power bar height (0 hides it)", min = 0, max = 12, step = 1, desc = "Height of the mana, rage or energy bar." })
 	Add({ type = "select", key = "powerFilter", label = "Power bar on", values = { ALL = "Everyone", HEALERS = "Healers only" },
 		desc = "Healers only shows the bar on members with the healer role; the others get a taller health bar.",
 		hidden = function() return (DB().powerHeight or 0) <= 0 end })
@@ -293,9 +297,11 @@ local function AddSection(section)
 
 	Add({ type = "header", label = "Icons" })
 	Add({ type = "toggle", key = "roleIcon", label = "Role icon", desc = "Tank, healer or damage icon." })
+	Add({ type = "toggle", key = "roleDamage", label = "Damage icon", dependsOn = "roleIcon", cog = true,
+		desc = "The role icon on damage dealers too. Off: only tanks and healers get one." })
 	Add({ type = "select", key = "icons.topPosition", label = "Role and leader icons", values = POSITIONS,
 		desc = "Corner of the row with the role, leader and main tank icons." })
-	Add({ type = "range", key = "icons.topSize", label = "Role and leader icon size", zeroText = "Auto", min = 0, max = 32, step = 1, cog = true,
+	Add({ type = "range", unit = "px", key = "icons.topSize", label = "Role and leader icon size", zeroText = "Auto", min = 0, max = 32, step = 1, cog = true,
 		desc = "0 fits the icons to the font and frame." })
 	Add({ type = "select", key = "icons.raidPosition", label = "Raid marker", values = POSITIONS, desc = "Where the skull, cross and other markers sit." })
 	Add({ type = "range", key = "icons.raidSize", label = "Raid marker size", zeroText = "Auto", min = 0, max = 32, step = 1, cog = true,
@@ -312,7 +318,7 @@ local function AddSection(section)
 	Add({ type = "header", label = "Debuffs", hidden = AurasOff })
 	Add({ type = "toggle", key = "debuffs.enabled", label = "Show debuffs", desc = "Debuff icons; the game does the filtering.", hidden = AurasOff })
 	Add({ type = "range", key = "debuffs.max", label = "Debuff icons", min = 0, max = MAX_ICONS, step = 1, desc = "How many icons at most.", hidden = Off("debuffs") })
-	Add({ type = "range", key = "debuffs.size", label = "Debuff icon size", min = 8, max = 40, step = 1, desc = "Capped by the frame height.", hidden = Off("debuffs") })
+	Add({ type = "range", unit = "px", key = "debuffs.size", label = "Debuff icon size", min = 8, max = 40, step = 1, desc = "Capped by the frame height.", hidden = Off("debuffs") })
 	Add({ type = "select", key = "debuffs.position", label = "Debuff position", values = AURA_POSITIONS, desc = "Corner or edge the icons start from, or one row under the frame (leave room with Spacing).", hidden = Off("debuffs") })
 	Add({ type = "toggle", key = "debuffs.timer", label = "Debuff countdown numbers", cog = true, hidden = Off("debuffs"),
 		desc = "Time left on the debuff icons, drawn by the game in the shared EldoUI cooldown look (Fonts and text > Cooldown numbers)." })
@@ -321,7 +327,7 @@ local function AddSection(section)
 	Add({ type = "header", label = "Buffs", hidden = AurasOff })
 	Add({ type = "toggle", key = "buffs.enabled", label = "Show buffs", desc = "Buff icons, for example your heals over time.", hidden = AurasOff })
 	Add({ type = "range", key = "buffs.max", label = "Buff icons", min = 0, max = MAX_ICONS, step = 1, desc = "How many icons at most.", hidden = Off("buffs") })
-	Add({ type = "range", key = "buffs.size", label = "Buff icon size", min = 8, max = 32, step = 1, desc = "Capped by the frame height.", hidden = Off("buffs") })
+	Add({ type = "range", unit = "px", key = "buffs.size", label = "Buff icon size", min = 8, max = 32, step = 1, desc = "Capped by the frame height.", hidden = Off("buffs") })
 	Add({ type = "select", key = "buffs.position", label = "Buff position", values = AURA_POSITIONS, desc = "Corner or edge the icons start from, or one row under the frame (leave room with Spacing).", hidden = Off("buffs") })
 	Add({ type = "select", key = "buffs.style", label = "Buff look", values = { ICONS = "Spell icons", SQUARES = "Colored squares" }, hidden = Off("buffs"),
 		desc = "Squares are small colored indicators in the corner, like healer frames; the timer swipe stays." })
@@ -340,7 +346,7 @@ local function AddSection(section)
 	Add({ type = "header", label = "Defensives", hidden = AurasOff })
 	Add({ type = "toggle", key = "defensives.enabled", label = "Big defensive", desc = "One icon for a big defensive cooldown, from Blizzard's defensive filter.", hidden = AurasOff })
 	Add({ type = "toggle", key = "defensives.external", label = "External defensives too", desc = "Also show defensives others cast on the member.", hidden = Off("defensives") })
-	Add({ type = "range", key = "defensives.size", label = "Defensive icon size", min = 8, max = 40, step = 1, desc = "Capped by the frame height.", hidden = Off("defensives") })
+	Add({ type = "range", unit = "px", key = "defensives.size", label = "Defensive icon size", min = 8, max = 40, step = 1, desc = "Capped by the frame height.", hidden = Off("defensives") })
 	Add({ type = "select", key = "defensives.position", label = "Defensive position", values = POSITIONS, desc = "Where the icon sits.", hidden = Off("defensives") })
 	Add({ type = "toggle", key = "defensives.timer", label = "Defensive countdown numbers", cog = true, hidden = Off("defensives"),
 		desc = "Time left on the defensive icon, drawn by the game in the shared EldoUI cooldown look." })
@@ -410,7 +416,7 @@ E:RegisterStyles("GroupFrames", {
 				buffs = NO_BUFFS, defensives = { enabled = false } }),
 			raid40 = Section(52, 20, 1, "RIGHT", 5, { maxColumns = 8, powerHeight = 0, nameLength = 5, fontSize = 9, roleIcon = false, texts = Texts("off"),
 				buffs = NO_BUFFS, defensives = { enabled = false } }),
-			indicators = { leader = false, mainTank = false, mouseover = false },
+			indicators = { leader = false, masterLooter = false, mainTank = false, mouseover = false },
 		} },
 	{ key = "Perl", title = "Boxed", desc = "Party frames to match the Boxed unit frames: a boxed 3D portrait, a name bar, a thick health bar with value and percent, buffs and debuffs below, a class badge.",
 		settings = {
@@ -424,6 +430,6 @@ E:RegisterStyles("GroupFrames", {
 			raid40 = Section(64, 30, 1, "RIGHT", 5, { maxColumns = 8, powerHeight = 0, nameLength = 5, fontSize = 11, roleIcon = false, texts = Texts("off") }),
 			tanks = { enabled = true, targets = true, assists = true, width = 120, height = 26, spacing = 2 },
 			pets = { enabled = true, inParty = true, inRaid = true, width = 80, height = 22, maxColumns = 8 },
-			indicators = { leader = true, mainTank = true, readyCheck = true },
+			indicators = { leader = true, masterLooter = true, mainTank = true, readyCheck = true },
 		} },
 })

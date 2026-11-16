@@ -1,16 +1,17 @@
 -- EldoUI Merchant: vendor conveniences and the Blizzard merchant window.
 --
 -- Module features (each with its own toggle). Repair and selling junk are
--- on by default (design decision); every purchase asks first.
+-- off until chosen; every purchase asks first.
 --   * Repair: guild funds first, then your own gold. Not enough gold? It
 --     repairs as soon as you have it while the vendor is still open.
 --   * Sell junk: gray items plus your own "always sell" list, in batches of
---     12 (so the buyback tab can undo a mistake), re-checked after each
---     batch; items the server refused are tried again. Never sold: your
+--     12, re-checked after each batch; refused items are tried again. Never sold: your
 --     "never sell" list, unbound gray gear (option), items you can still
 --     get a refund for, items in an equipment set, and (option, on) items
 --     one of your quests or recipes needs (E:IsItemProtected); the
 --     summary says how many were kept.
+--     An optional limit allows one batch per visit, so those sales stay
+--     in the buyback tab. The summary says how many are left.
 --   * Buy back this visit (option, off): a "Buy back (N)" button
 --     restores what you sold since the window opened. One click, out of
 --     combat; it never buys anything sold on an earlier visit.
@@ -54,7 +55,10 @@ local M = E:NewModule("Merchant", {
 		autoRepair = "off",     -- off, personal, guild (guild funds, then your own); acts for the player, so off until chosen
 		waitForGold = true,
 		sellJunk = false,       -- acts for the player: off until chosen
+		keepJunkBuyback = false, -- limit junk sales to the buyback tab's 12 stacks
 		sellList = "",          -- item IDs, names or links always sold, any quality
+		markJunk = "ctrlalt",   -- two-modifier right click, or off
+		junkButton = true,
 		keepGreyGear = false,   -- keep gray weapons and armor that aren't bound
 		keepList = "",          -- item IDs or names never sold
 		protectItems = true,    -- never sell what a quest or recipe of yours needs
@@ -99,7 +103,12 @@ local M = E:NewModule("Merchant", {
 	},
 })
 
-local BATCH = 12 -- the buyback tab holds 12 items, so a mistake stays undoable
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "restock" }
+M.keepOnResetNote = E.Key("Your restock list is kept too.")
+
+local BATCH = 12 -- the buyback tab holds the last 12 sold stacks
 local MAX_PASSES = 8
 local floor, max, min = math.floor, math.max, math.min
 
@@ -205,7 +214,12 @@ local function HasRefund(bag, slot)
 	local getInfo = C_Container.GetContainerItemPurchaseInfo
 	if not getInfo then return false end
 	local ok, info = pcall(getInfo, bag, slot, false)
-	return ok and type(info) == "table" and (info.refundSeconds or 0) > 0
+	if not ok or E.Secret(info) then return true end
+	if type(info) ~= "table" then return false end
+	if canaccesstable and not canaccesstable(info) then return true end
+	local seconds = info.refundSeconds
+	if E.Secret(seconds) then return true end
+	return type(seconds) == "number" and seconds > 0
 end
 
 -- Items saved in an equipment set are never sold.
@@ -213,7 +227,7 @@ local function InEquipmentSet(bag, slot)
 	local getInfo = C_Container.GetContainerItemEquipmentSetInfo
 	if not getInfo then return false end
 	local ok, inSet = pcall(getInfo, bag, slot)
-	return ok and inSet == true
+	return not ok or E.Secret(inSet) or inSet == true
 end
 
 -- Items one of your quests or recipes needs (Core/ItemProtect.lua).
@@ -226,71 +240,254 @@ function M:NeverSell(itemID, name)
 	return InList(ParseList(self.db.keepList), itemID, name) ~= nil
 end
 
+local keepText, sellText, keepRules, sellRules
+local function JunkRules()
+	if not keepRules or keepText ~= M.db.keepList then
+		keepText, keepRules = M.db.keepList, ParseList(M.db.keepList)
+	end
+	if not sellRules or sellText ~= M.db.sellList then
+		sellText, sellRules = M.db.sellList, ParseList(M.db.sellList)
+	end
+	return keepRules, sellRules
+end
+
+-- One rule for the sale queue and the junk marks in both bag windows.
+local function JunkItem(bag, slot, info, keep, always)
+	if E.Secret(info) or type(info) ~= "table" or (canaccesstable and not canaccesstable(info)) then return false end
+	local link, id, quality = E.Plain(info.hyperlink), E.Plain(info.itemID), E.Plain(info.quality)
+	local count = E.Plain(info.stackCount)
+	if type(link) ~= "string" or type(id) ~= "number" or type(quality) ~= "number"
+		or type(count) ~= "number" or count < 1 or count % 1 ~= 0
+		or E.Secret(info.hasNoValue) or info.hasNoValue or E.Secret(info.isLocked) or info.isLocked then return false end
+	local name, _, _, _, _, _, _, _, _, _, price = E.PlainCallEach(C_Item.GetItemInfo, link)
+	local grey = quality == Enum.ItemQuality.Poor
+	local listed = not grey and #always > 0 and InList(always, id, name)
+	if not (grey or listed) or type(price) ~= "number" or price <= 0 or InList(keep, id, name)
+		or (grey and KeepGreyGear(bag, slot, info))
+		or HasRefund(bag, slot) or InEquipmentSet(bag, slot) then return false end
+	if Protected(id, bag, slot) then return false, true end
+	return true, false, price
+end
+
+-- A missing result lets bag windows use their gray-only marks while this
+-- module is off. The visit limit does not change which items are junk.
+function E:WillSellAsJunk(bag, slot, info)
+	if not M.active then return nil end
+	if E.Secret(bag) or type(bag) ~= "number" then return false end
+	if bag < 0 or bag > (NUM_BAG_SLOTS or 4) then
+		local bags = self.modules.Bags
+		if not (bags and bags.active and bags:BankIsOpen()) then return false end
+	end
+	local keep, always = JunkRules()
+	info = info or self.BagCache:Info(bag, slot)
+	local eligible = JunkItem(bag, slot, info, keep, always)
+	if eligible and not M.db.sellJunk and self:IsItemProtected(info.itemID, bag, slot) then return false end
+	return eligible
+end
+
 -- The slots to sell, and how many junk slots were kept for a quest or recipe.
-local function JunkSlots()
-	local keep = ParseList(M.db.keepList)
-	local always = ParseList(M.db.sellList)
+local function JunkSlots(manual)
+	local keep, always = JunkRules()
 	local list, kept = {}, 0
 	local bags = E.BagCache
+	local profile = M.db
 	for _, bag in ipairs(bags:BagIDs()) do
 		for slot = 1, bags:NumSlots(bag) do
 			local info = bags:Info(bag, slot)
-			if info and not info.hasNoValue and not info.isLocked then
-				local name, _, _, _, _, _, _, _, _, _, price = C_Item.GetItemInfo(info.hyperlink)
-				local grey = info.quality == Enum.ItemQuality.Poor
-				local listed = not grey and #always > 0 and InList(always, info.itemID, name)
-				if (grey or listed) and (price or 0) > 0 and not InList(keep, info.itemID, name)
-					and not (grey and KeepGreyGear(bag, slot, info))
-					and not HasRefund(bag, slot) and not InEquipmentSet(bag, slot) then
-					if Protected(info.itemID, bag, slot) then
-						kept = kept + 1
-					else
-						list[#list + 1] = { bag = bag, slot = slot, link = info.hyperlink, value = price * (info.stackCount or 1) }
-					end
+			local eligible, protected, price = JunkItem(bag, slot, info, keep, always)
+			if eligible and manual and E:IsItemProtected(info.itemID, bag, slot) then eligible, protected = false, true end
+			if protected then
+				kept = kept + 1
+			elseif eligible then
+				local count = E.Plain(info.stackCount)
+				if type(count) == "number" and count >= 1 and count % 1 == 0 then
+					list[#list + 1] = { bag = bag, slot = slot, link = E.Plain(info.hyperlink), value = price * count }
 				end
 			end
 		end
 	end
+	if M.db ~= profile or not M.active then return {}, 0 end
 	return list, kept
 end
 M.JunkSlots = JunkSlots
 
 -- One batch, then a re-check: items still in place were refused and are
 -- tried again in the next pass.
-function M:SellJunk(pass)
+function M:SellJunk(pass, visit, manual)
 	pass = pass or 1
+	visit = visit or self.visit
+	if not self.active or self.visit ~= visit then return end
+	if pass == 1 and (self.junkSelling or (self.junkBuybackLimited and not manual)) then return end
 	if pass == 1 then
 		self.junkTotal, self.junkCount, self.attempted = 0, 0, {}
+		self.junkKept = nil
+		if manual then self.junkBuybackLimited = nil end
 	end
 	-- Count what the last batch really sold.
-	for _, item in ipairs(self.attempted) do
-		local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
-		if not (info and info.hyperlink == item.link) then
-			self.junkTotal = self.junkTotal + item.value
-			self.junkCount = self.junkCount + 1
+	local profile = self.db
+	local total, count, previous = self.junkTotal, self.junkCount, self.attempted
+	for _, item in ipairs(previous) do
+		local ok, info = pcall(C_Container.GetContainerItemInfo, item.bag, item.slot)
+		local readable = ok and not E.Secret(info) and (info == nil
+			or (type(info) == "table" and (not canaccesstable or canaccesstable(info))
+				and not E.Secret(info.hyperlink) and type(info.hyperlink) == "string"))
+		if readable and not (info and info.hyperlink == item.link) then
+			total = total + item.value
+			count = count + 1
 		end
 	end
+	if not self.active or self.visit ~= visit or self.db ~= profile then return end
+	self.junkTotal, self.junkCount = total, count
 	self.attempted = {}
-	local list, kept = JunkSlots()
-	if #list == 0 or pass > MAX_PASSES or not MerchantOpen() then
+	local list, kept = JunkSlots(manual)
+	if not self.active or self.visit ~= visit or self.db ~= profile then return end
+	if pass > 1 and self.db.keepJunkBuyback then self.junkBuybackLimited = true end
+	local limited = self.junkBuybackLimited
+	if #list == 0 or limited or pass > MAX_PASSES or not MerchantOpen() or (pass > 1 and (manual or not self.db.sellJunk)) then
 		if self.db.summary and self.junkTotal > 0 then
 			self:Print((self.junkCount == 1 and L["Sold %d junk item and earned %s."] or L["Sold %d junk items and earned %s."]):format(self.junkCount, E:EconomyMoney(self.junkTotal)))
 		end
 		if self.db.summary and kept > 0 then
 			self:Print(E:Plural(kept, "Kept %d item your quests or recipes need.", "Kept %d items your quests or recipes need."):format(kept))
 		end
+		if self.db.summary and limited and #list > 0 then
+			self:Print(E:Plural(#list, "%d junk item is left in your bags.", "%d junk items are left in your bags."):format(#list))
+		end
 		self.junkKept = kept
+		self.junkSelling = nil
+		self:UpdateButtons()
 		return
 	end
+	-- One submitted batch fits in buyback, even if a delayed bag read cannot
+	-- tell a refused stack from an identical item now occupying its slot.
+	self.junkBuybackLimited = self.db.keepJunkBuyback
+	self.junkSelling = true
+	local attempted = self.attempted
 	for index = 1, min(BATCH, #list) do
+		if not self.active or self.visit ~= visit or not MerchantOpen() then break end
 		local item = list[index]
-		C_Container.UseContainerItem(item.bag, item.slot)
-		self.attempted[#self.attempted + 1] = item
+		local info = E.PlainCall(C_Container.GetContainerItemInfo, item.bag, item.slot)
+		if type(info) == "table" and (not canaccesstable or canaccesstable(info)) and E.Plain(info.hyperlink) == item.link
+			and JunkItem(item.bag, item.slot, info, JunkRules())
+			and (not manual or (not E:IsItemProtected(info.itemID, item.bag, item.slot)
+				and Allowed("improve") and Additions() and E.PlainCall(InCombatLockdown) == false)) then
+			if not self.active or self.visit ~= visit or self.db ~= profile or not MerchantOpen() then return end
+			local current = E.PlainCall(C_Container.GetContainerItemInfo, item.bag, item.slot)
+			if type(current) ~= "table" or (canaccesstable and not canaccesstable(current))
+				or E.Plain(current.hyperlink) ~= item.link or E.Plain(current.itemID) ~= E.Plain(info.itemID)
+				or E.Plain(current.quality) ~= E.Plain(info.quality) or E.Plain(current.stackCount) ~= E.Plain(info.stackCount)
+				or E.Secret(current.isLocked) or current.isLocked
+				or E.Secret(current.hasNoValue) or current.hasNoValue then break end
+			if manual and (not self.db.junkButton or not Allowed("improve") or not Additions()
+				or E.PlainCall(InCombatLockdown) ~= false or E:StandsBack(self, "selljunk")) then break end
+			if not self.active or self.visit ~= visit or self.db ~= profile or not MerchantOpen() then return end
+			local used = pcall(C_Container.UseContainerItem, item.bag, item.slot)
+			if self.visit ~= visit or not self.active or not MerchantOpen() then return end
+			if used then
+				attempted[#attempted + 1] = item
+			end
+		end
 	end
 	C_Timer.After(0.6, function()
-		if MerchantOpen() then self:SellJunk(pass + 1) end
+		if self.active and self.visit == visit and MerchantOpen() then self:SellJunk(pass + 1, visit, manual) end
 	end)
 end
+
+local function RefreshJunkMarks()
+	local bags = E.modules.Bags
+	if not (bags and bags.active) then return end
+	bags:RefreshViews()
+	if bags.RepaintBlizzardBags then bags:RepaintBlizzardBags() end
+end
+
+local JUNK_MODIFIERS = {
+	ctrlalt = { label = "Ctrl+Alt" },
+	ctrlshift = { label = "Ctrl+Shift" },
+	altshift = { label = "Alt+Shift" },
+}
+
+function M:IsJunkMarkClick(mouse)
+	if not self.active or mouse ~= "RightButton" or not JUNK_MODIFIERS[self.db.markJunk] then return false end
+	local alt, ctrl, shift = IsAltKeyDown(), IsControlKeyDown(), IsShiftKeyDown()
+	if self.db.markJunk == "ctrlalt" then return ctrl and alt and not shift end
+	if self.db.markJunk == "ctrlshift" then return ctrl and shift and not alt end
+	return alt and shift and not ctrl
+end
+
+-- The marking click runs after the slot's own click handler, which stays
+-- in place: replacing that handler would stop a right-click from using the
+-- item. The marking gesture always holds two modifier keys, so the slot
+-- treats it as a modified click and does not use the item.
+function M:WatchJunkSlot(button, bag)
+	button:HookScript("OnClick", function(own, mouse, down)
+		if not down and M:IsJunkMarkClick(mouse) then M:ToggleJunk(bag, own:GetID()) end
+	end)
+end
+
+local function EditJunkList(text, id, name, add)
+	local out = {}
+	for entry in (text or ""):gmatch("[^,;\n]+") do
+		local parsed = ParseList(entry)[1]
+		if not (parsed and (parsed.key == id or (name and parsed.key == name:lower()))) then
+			out[#out + 1] = strtrim(entry)
+		end
+	end
+	if add then out[#out + 1] = tostring(id) end
+	return table.concat(out, ", ")
+end
+
+function M:ToggleJunk(bag, slot)
+	local profile = self.db
+	if not self.active or E.PlainCall(InCombatLockdown) ~= false
+		or E.Secret(bag) or E.Secret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return false end
+	local info = E.PlainCall(C_Container.GetContainerItemInfo, bag, slot)
+	if type(info) ~= "table" or (canaccesstable and not canaccesstable(info)) then return false end
+	local id, link = E.Plain(info.itemID), E.Plain(info.hyperlink)
+	local quality = E.Plain(info.quality)
+	if type(id) ~= "number" or type(link) ~= "string" or type(quality) ~= "number" or E.Secret(info.isLocked) or info.isLocked
+		or HasRefund(bag, slot) or InEquipmentSet(bag, slot)
+		or (E.IsItemProtected and E:IsItemProtected(id, bag, slot)) then return false end
+	local name, _, _, _, _, _, _, _, _, _, price = E.PlainCallEach(C_Item.GetItemInfo, link)
+	if type(name) ~= "string" or type(price) ~= "number" or price <= 0
+		or E.Secret(info.hasNoValue) or info.hasNoValue then return false end
+	local latest = E.PlainCall(C_Container.GetContainerItemInfo, bag, slot)
+	if type(latest) ~= "table" or (canaccesstable and not canaccesstable(latest))
+		or E.Plain(latest.itemID) ~= id or E.Plain(latest.hyperlink) ~= link then return false end
+	if self.db ~= profile or not self.active then return false end
+	local key = quality == Enum.ItemQuality.Poor and "keepList" or "sellList"
+	local other = key == "keepList" and "sellList" or "keepList"
+	local present = InList(ParseList(self.db[key]), id, name) ~= nil
+	self.db[key] = EditJunkList(self.db[key], id, name, not present)
+	self.db[other] = EditJunkList(self.db[other], id, name, false)
+	RefreshJunkMarks()
+	if E.RefreshTooltipSections then E:RefreshTooltipSections() end
+	self:UpdateButtons()
+	return true
+end
+
+local function RegisterJunkTooltip()
+	if not E.RegisterTooltipSection then return end
+	E:RegisterTooltipSection("junkMark", {
+		order = 34, title = "Junk mark", module = "Merchant", default = "always",
+		desc = "Shows whether an item is on your Always sell or Never sell list, with the marking shortcut.",
+		item = function(_, link, id, add)
+			id = E.Plain(id)
+			if type(id) ~= "number" then return end
+			local name = E.PlainCall(C_Item.GetItemInfo, link or id)
+			if type(name) ~= "string" then return end
+			local keep, always = JunkRules()
+			local label = InList(keep, id, name) and L["Never sell"] or (InList(always, id, name) and L["Marked as junk"])
+			if not label then return end
+			local modifier = JUNK_MODIFIERS[M.db.markJunk]
+			add(label, modifier and L["%s-right-click to unmark"]:format(modifier.label) or nil)
+		end,
+	})
+end
+local junkTooltipOwner = {}
+E:RegisterEvent("PLAYER_LOGIN", function()
+	RegisterJunkTooltip()
+	E:UnregisterEvent("PLAYER_LOGIN", junkTooltipOwner)
+end, junkTooltipOwner, "modules")
 
 ---------------------------------------------------------------------------
 -- Restock list: { id, name, amount } per item
@@ -531,7 +728,7 @@ function M:Offer(plan, automatic)
 	local details = L["%s\n\nTotal: %s%s"]:format(self:PlanText(plan), E:EconomyMoney(PlanCost(plan)), SkippedText(plan))
 	-- A question this one replaces clears only its own pending purchase.
 	E:ShowConfirm({ key = "ELDOUI_MERCHANT_RESTOCK", title = L["Merchant"], text = L["Buy exactly these items?\n\n%s"]:format(details),
-		accept = PURCHASE or L["Buy"], data = plan,
+		accept = E:GameText(PURCHASE, L["Buy"]), data = plan,
 		onAccept = function(own)
 			if M.pendingPlan == own then M:BuyPlan(own) end
 			M.pendingPlan = nil
@@ -583,7 +780,7 @@ function M:ConfirmPurchase(index, quantity)
 	local pending = { index = index, itemID = itemID, quantity = quantity }
 	E:ShowConfirm({ key = "ELDOUI_MERCHANT_BUY", title = L["Merchant"],
 		text = L["Buy %s for %s?"]:format(("%d x %s"):format(quantity, name), CostText(index, lots)),
-		accept = PURCHASE or L["Buy"], data = pending,
+		accept = E:GameText(PURCHASE, L["Buy"]), data = pending,
 		onAccept = function(own)
 			local p = M.pendingPurchase == own and own or nil
 			M.pendingPurchase = nil
@@ -599,7 +796,7 @@ function M:AskQuantity(index)
 	local maxStack = max(GetMerchantItemMaxStack(index) or perBuy, perBuy)
 	local pending = { index = index, default = maxStack }
 	E:ShowConfirm({ key = "ELDOUI_MERCHANT_QUANTITY", title = L["Merchant"], text = L["How many %s? (sold in lots of %d)"]:format(name, perBuy),
-		accept = OKAY or L["OK"], edit = { text = tostring(maxStack), numeric = true, maxLetters = 5 }, data = pending,
+		accept = E:GameText(OKAY, L["OK"]), edit = { text = tostring(maxStack), numeric = true, maxLetters = 5 }, data = pending,
 		onAccept = function(own, typed)
 			local p = M.pendingQuantity == own and own or nil
 			M.pendingQuantity = nil
@@ -1655,7 +1852,7 @@ function M:FillRow(row, facts, line)
 	row.name:SetTextColor(r, g, b)
 	if self.db.knownTint and facts.known then
 		row.icon:SetVertexColor(unpack(E.knownTint))
-		row.name:SetText(name .. " " .. E:TokenHex(E.media.text.secondary) .. "(" .. (ITEM_SPELL_KNOWN or L["Already known"]) .. ")|r")
+		row.name:SetText(name .. " " .. E:TokenHex(E.media.text.secondary) .. "(" .. (E:GameText(ITEM_SPELL_KNOWN, L["Already known"])) .. ")|r")
 	elseif facts.usable then
 		row.icon:SetVertexColor(1, 1, 1)
 	else
@@ -1849,6 +2046,39 @@ function M:CreateBuybackButton()
 	self.buybackButton = button
 end
 
+function M:SellJunkBatch()
+	local visit, profile = self.visit, self.db
+	if not (self.active and self.db.junkButton and Allowed("improve") and Additions() and MerchantOpen())
+		or E.PlainCall(InCombatLockdown) ~= false or self.junkSelling or E:StandsBack(self, "selljunk") then return false end
+	if self.visit ~= visit or self.db ~= profile then return false end
+	self:SellJunk(1, visit, true)
+	self:UpdateButtons()
+	return true
+end
+
+function M:UpdateJunkButton(improve)
+	local profile = self.db
+	local visit = self.visit
+	local button = self.sellJunkButton
+	if not self.active then if button then button:Hide() end return end
+	if not button and improve and self.db.junkButton then
+		button = FlatButton(MerchantFrame, L["Sell junk"], 230, 22)
+		button:SetScript("OnClick", function() M:SellJunkBatch() end)
+		E.UIKit.Tooltip(button, L["Sell junk"], L["Sell up to 12 eligible stacks. Each click starts one batch, which can be restored from the vendor's buyback tab."])
+		self.sellJunkButton = button
+	end
+	if not button then return end
+	local show = improve and self.db.junkButton and not E:StandsBack(self, "selljunk")
+	local list, value = {}, 0
+	if show then list = JunkSlots(true) end
+	if self.db ~= profile or self.visit ~= visit or not self.active then return end
+	for _, item in ipairs(list) do value = value + item.value end
+	button:SetText(L["Sell junk (%d, %s)"]:format(#list, Money(value)))
+	E.UIKit.RefitButton(button)
+	button:SetEnabled(not self.junkSelling and E.PlainCall(InCombatLockdown) == false)
+	button:SetShown(show and #list > 0 and true or false)
+end
+
 ---------------------------------------------------------------------------
 -- Restock / ammo buttons ("Improve")
 ---------------------------------------------------------------------------
@@ -1885,8 +2115,27 @@ function M:CreateButtons()
 	self.editButton:Hide()
 end
 
+local function LayoutJunkButton(self)
+	local button = self.sellJunkButton
+	if not button or not button:IsShown() then return end
+	local parent, anchor, point, relativePoint, offset = MerchantFrame, MerchantFrame, "TOPLEFT", "BOTTOMLEFT", -4
+	if self.list and self.list:IsShown() then
+		parent = self.list.footer
+		anchor, point, relativePoint, offset = parent, "BOTTOMLEFT", "BOTTOMLEFT", 0
+	elseif self.buybackButton and self.buybackButton:IsShown() then
+		anchor = self.buybackButton
+	end
+	local ownPoint, ownAnchor, ownRelative, x, y = E.PlainCallAll(button.GetPoint, button)
+	if E.PlainCall(button.GetParent, button) == parent and ownPoint == point and ownAnchor == anchor
+		and ownRelative == relativePoint and x == 0 and y == offset then return end
+	button:SetParent(parent)
+	button:ClearAllPoints()
+	button:SetPoint(point, anchor, relativePoint, 0, offset)
+end
+
 -- In the item list's footer when it shows, else beside the window.
 function M:LayoutButtons()
+	LayoutJunkButton(self)
 	if not self.restockButton then return end
 	local inList = self.list and self.list:IsShown()
 	local holder = inList and self.list.footer or MerchantFrame
@@ -1916,6 +2165,7 @@ function M:UpdateButtons()
 	local improve = Allowed("improve") and Additions() and MerchantOpen()
 	self:CreateBuybackButton()
 	self:UpdateBuybackButton()
+	self:UpdateJunkButton(improve)
 	if not improve then
 		if self.restockButton then
 			self.restockButton:Hide()
@@ -2093,12 +2343,15 @@ function M:WatchBags(open)
 end
 
 function M:OnEnable()
+	RefreshJunkMarks()
 	self:RegisterEvent("MERCHANT_SHOW", function()
 		self:WatchBags(true)
 		-- Each visit has its own number: work queued for one visit never
 		-- runs in the next, however fast the vendor closes and reopens.
 		self.visit = (self.visit or 0) + 1
 		local visit = self.visit
+		self.junkBuybackLimited = nil
+		self.junkSelling = nil
 		self.repairPending = nil
 		-- Before the junk sale, so those items count as sold on this visit.
 		self:NoteBuybackStart()
@@ -2128,14 +2381,17 @@ function M:OnEnable()
 		self:UpdateList()
 	end)
 	self:WatchBags(MerchantOpen())
-	self:RegisterEvent("PLAYER_REGEN_DISABLED", function() self:UpdateBuybackButton() end)
-	self:RegisterEvent("PLAYER_REGEN_ENABLED", function() self:UpdateBuybackButton() end)
+	self:RegisterEvent("PLAYER_REGEN_DISABLED", function() self:UpdateButtons() end)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", function() self:UpdateButtons() end)
 	self:RegisterEvent("MERCHANT_CLOSED", function()
 		self:WatchBags(false)
 		self.visit = (self.visit or 0) + 1
+		self.attempted = {}
+		self.junkSelling = nil
 		self.repairPending = nil
 		self.buybackBefore = nil
 		if self.buybackButton then self.buybackButton:Hide() end
+		if self.sellJunkButton then self.sellJunkButton:Hide() end
 		self.pendingPlan, self.pendingPurchase, self.pendingQuantity = nil, nil, nil
 		E:CancelConfirm("ELDOUI_MERCHANT_RESTOCK")
 		E:CancelConfirm("ELDOUI_MERCHANT_BUY")
@@ -2155,6 +2411,10 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	self.visit = (self.visit or 0) + 1
+	self.attempted = {}
+	self.junkSelling = nil
+	RefreshJunkMarks()
 	for _, event in ipairs({ "MERCHANT_SHOW", "MERCHANT_UPDATE", "BAG_UPDATE_DELAYED", "MERCHANT_CLOSED", "PLAYER_MONEY",
 		"PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "INPUT_DEVICE_INTERFACE_TRANSITION" }) do
 		self:UnregisterEvent(event)
@@ -2164,7 +2424,10 @@ function M:OnDisable()
 end
 
 function M:OnProfileChanged()
+	self.visit = (self.visit or 0) + 1
+	self.attempted, self.junkSelling = {}, nil
 	self:MigrateRestockString()
+	RefreshJunkMarks()
 	if not self.active then return end
 	self:ApplyBlizzard()
 	if self.list then
@@ -2190,7 +2453,7 @@ M.options = {
 	{ type = "tab", label = "General" },
 	{ type = "header", label = "General" },
 	{ type = "select", key = "autoRepair", disabled = HandledBy("repair"), label = "Repair automatically at vendors",
-		desc = "Acts for you when turned on: repairs all gear when you open a vendor who can repair, guild bank first if you choose it, then your own gold. Off until you pick it here or in the installer.",
+		desc = "Acts for you when turned on: repairs all gear when you open a vendor who can repair, guild bank first if you choose it, then your own gold. Off until you pick it here or in the setup.",
 		values = function()
 			local values = { off = L["Off"], personal = L["Own gold"], guild = L["Guild bank, then own gold"] }
 			-- Without a guild bank in the game, the guild choice stays only while it is the saved one.
@@ -2201,10 +2464,12 @@ M.options = {
 		disabled = function() return M.db.autoRepair == "off" and L["Pick a repair mode first."] end,
 		desc = "If your gold is short, the repair happens when you get the money while the vendor is still open." },
 	{ type = "toggle", acts = true, key = "sellJunk", disabled = HandledBy("selljunk"), label = "Sell gray items at vendors",
-		desc = "Acts for you when turned on: sells gray items (and your \"always sell\" list) when you open a vendor, 12 at a time so the buyback tab can undo it. Refused items are tried again. Off by default." },
+		desc = "Acts for you when turned on: sells gray items and items on your Always sell list in batches of 12 at vendors. Retries refused sales if the sale limit is off. Off by default." },
+	{ type = "toggle", key = "keepJunkBuyback", label = "Keep every sale undoable", dependsOn = "sellJunk",
+		desc = "Limits automatic junk selling to one batch of up to 12 stacks per visit. Later sales can replace them in the buyback tab. The summary says how many junk items are left. Off by default." },
 	{ type = "toggle", key = "summary", label = "Print what was earned and spent", desc = "One chat line: \"Sold 8 junk items and earned 1g 20s\", repairs and restocks." },
 	{ type = "toggle", key = "buybackButton", label = "\"Buy back this visit\" button",
-		desc = "Acts for you when you click it; off by default. A \"Buy back (3)\" button under the vendor buys back everything you sold this visit, out of combat." },
+		desc = "Off by default. A \"Buy back (3)\" button under the vendor buys back everything you sold this visit, out of combat." },
 	{ type = "toggle", key = "recordPrices", label = "Remember vendor prices",
 		desc = "Saves what vendors charge for items, so the Auction House module can show crafting costs for reagents bought from vendors." },
 	{ type = "description", label = "These change Blizzard's merchant window. Switch them on under Blizzard UI > Items, NPCs and economy > Merchant window.",
@@ -2214,6 +2479,12 @@ M.options = {
 
 	{ type = "tab", label = "Junk" },
 	{ type = "header", label = "Junk rules" },
+	{ type = "select", key = "markJunk", label = "Mark junk",
+		values = { off = "Off", ctrlalt = "Ctrl+Alt", ctrlshift = "Ctrl+Shift", altshift = "Alt+Shift" },
+		order = { "off", "ctrlalt", "ctrlshift", "altshift" },
+		desc = "Hold both modifiers and right-click an item in EldoUI bags or bank. Gray items toggle Never sell, other items toggle Always sell. Protected items stay unchanged." },
+	{ type = "toggle", key = "junkButton", label = "Sell junk button",
+		desc = "Show the junk count and value at a vendor. One click sells up to 12 stacks, with the same item protection as automatic selling. Requires Merchant Improve." },
 	{ type = "description", label = "Sells gray items and your \"always sell\" list; never your \"never sell\" list, refundable items or items in an equipment set." },
 	{ type = "toggle", key = "keepGreyGear", label = "Keep unbound gray gear", desc = "Gray weapons and armor that aren't bound stay in your bags, e.g. for transmog or selling to players." },
 	{ type = "toggle", key = "protectItems", label = "Protect quest and recipe items",
@@ -2252,9 +2523,9 @@ M.options = {
 		values = { rows = "Rows", grid = "Grid of tiles" } }, -- no-L: select values are translated by Core/Config.lua
 	{ type = "select", key = "listColumns", label = "Columns", desc = "One or two columns of rows.", dependsOn = "list",
 		values = { [1] = "One", [2] = "Two" }, hidden = function() return M.db.listLayout == "grid" end },
-	{ type = "range", key = "listWidth", label = "Column width", desc = "Width of one column of rows in pixels.", dependsOn = "list",
+	{ type = "range", unit = "px", key = "listWidth", label = "Column width", desc = "Width of one column of rows in pixels.", dependsOn = "list",
 		min = 220, max = 400, step = 10, hidden = function() return M.db.listLayout == "grid" end },
-	{ type = "range", key = "listRowHeight", label = "Row height", desc = "Height of every row; the icon follows.", dependsOn = "list",
+	{ type = "range", unit = "px", key = "listRowHeight", label = "Row height", desc = "Height of every row; the icon follows.", dependsOn = "list",
 		min = 16, max = 34, step = 1, hidden = function() return M.db.listLayout == "grid" end },
 	{ type = "toggle", key = "listZebra", label = "Striped rows", desc = "A faint tint on every other row.", dependsOn = "list",
 		hidden = function() return M.db.listLayout == "grid" end },
@@ -2262,9 +2533,9 @@ M.options = {
 		min = 2, max = 6, step = 1, hidden = function() return M.db.listLayout ~= "grid" end },
 	{ type = "range", key = "gridRows", label = "Grid rows", desc = "How many lines of tiles before it scrolls. Columns times rows is how many items you see at once.", dependsOn = "list",
 		min = 2, max = 12, step = 1, hidden = function() return M.db.listLayout ~= "grid" end },
-	{ type = "range", key = "gridCellWidth", label = "Tile width", desc = "Width of one tile in pixels; long names wrap onto a second line.", dependsOn = "list",
+	{ type = "range", unit = "px", key = "gridCellWidth", label = "Tile width", desc = "Width of one tile in pixels; long names wrap onto a second line.", dependsOn = "list",
 		min = 100, max = 240, step = 10, hidden = function() return M.db.listLayout ~= "grid" end },
-	{ type = "range", key = "gridIconSize", label = "Tile icon size", desc = "Size of the item icon; the tile height follows.", dependsOn = "list",
+	{ type = "range", unit = "px", key = "gridIconSize", label = "Tile icon size", desc = "Size of the item icon; the tile height follows.", dependsOn = "list",
 		min = 20, max = 48, step = 1, hidden = function() return M.db.listLayout ~= "grid" end },
 	{ type = "range", key = "listFontSize", label = "Text size", desc = "Text size of names and prices.", dependsOn = "list", min = 9, max = 16, step = 1 },
 	{ type = "select", key = "listMoney", label = "Prices as", desc = "How prices are written. \"Use general setting\" follows Fonts and text > Money.", dependsOn = "list",
@@ -2313,20 +2584,20 @@ do
 		-- Own gold unless the player picks the guild bank (the setup's choice).
 		value = function(pick) return pick and pick.repairMode == "guild" and "guild" or "personal" end,
 		label = "Repair automatically at vendors",
-		desc = "Acts for you: repairs all gear when you open a vendor who can repair. Change it later under Merchant.",
+		desc = "Acts for you: repairs all gear when you open a vendor who can repair.",
 		suits = Rules.Everyone, blocked = HandledBy("repair") })
 	E:RegisterConvenience({ id = "sellJunk", module = "Merchant", setting = "sellJunk", order = 20,
 		label = "Sell gray items at vendors",
-		desc = "Acts for you: sells gray items when you open a vendor, 12 at a time so the buyback tab can undo it. Change it later under Merchant.",
+		desc = "Acts for you: sells gray items when you open a vendor, in batches of 12. Only the last 12 sold stacks stay in the buyback tab.",
 		suits = Rules.Everyone, blocked = HandledBy("selljunk") })
 	E:RegisterConvenience({ id = "autoRestock", module = "Merchant", setting = "autoRestock", order = 30,
 		label = "Offer to restock when a vendor opens",
-		desc = "Acts for you: asks to buy what your restock list is missing when you open a vendor who sells it, and buys only after you say yes. Change it later under Merchant.",
+		desc = "Acts for you: asks to buy what your restock list is missing when you open a vendor who sells it, and buys only after you say yes.",
 		suits = Rules.Reagents })
 	-- Ammo is filled for hunters only (AmmoID).
 	E:RegisterConvenience({ id = "autoAmmo", module = "Merchant", setting = "autoAmmo", order = 40,
 		label = "Offer to fill ammo when a vendor opens",
-		desc = "Acts for you: asks to fill your quiver or ammo pouch when you open a vendor who sells your ammo, and buys only after you say yes. Change it later under Merchant.",
+		desc = "Acts for you: asks to fill your quiver or ammo pouch when you open a vendor who sells your ammo, and buys only after you say yes.",
 		available = Rules.Class("HUNTER"), suits = Rules.Class("HUNTER") })
 end
 

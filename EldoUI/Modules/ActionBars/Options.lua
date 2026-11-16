@@ -37,6 +37,23 @@ local BLIZZARD_BAR = {
 	show = "Always keep Blizzard's",
 	hide = "Hide (follows the Hide switch)",
 }
+-- One line per choice in the dropdown, translated when it opens.
+local function ChoiceDescs(descs)
+	return function()
+		local out = {}
+		for value, text in pairs(descs) do out[value] = L[text] end
+		return out
+	end
+end
+local BLIZZARD_BAR_DESCS = ChoiceDescs({
+	auto = E.Key("Hidden while this EldoUI bar is on and the Replace switch is on."),
+	show = E.Key("Blizzard's bar stays next to EldoUI's."),
+	hide = E.Key("Always hidden, while the Hide switch is on."),
+})
+local FILL_ORDER_DESCS = ChoiceDescs({
+	rows = E.Key("The buttons fill each row before the next row starts."),
+	columns = E.Key("The buttons fill each column from the first corner, as on an upright bar."),
+})
 local FLYOUT = { AUTO = "Automatic", UP = "Up", DOWN = "Down", LEFT = "Left", RIGHT = "Right" }
 local SPECIAL_MODE = { eldoui = "EldoUI bar", blizzard = "Blizzard's bar", hide = "Hidden" }
 local STYLE = { fill = "Soft fill", accent = "Accent border", none = "None" }
@@ -125,39 +142,40 @@ local function AddBar(index)
 			end })
 	end
 	opt({ type = "select", key = "blizzard", label = "Blizzard's bar", values = BLIZZARD_BAR,
-		desc = "Blizzard's own bar %d. Hide when replaced: hidden while this EldoUI bar is on and the Replace switch is on. Keep: it stays. Hide: always hidden (needs the Hide switch).", descFill = index })
+		desc = "What happens to Blizzard's own bar %d.", descFill = index, valueDescs = BLIZZARD_BAR_DESCS })
 
 	opt({ type = "header", label = "Layout" })
 	opt({ type = "range", key = "buttons", label = "Buttons", min = 1, max = index == 3 and 9 or 12, step = 1, desc = index == 3
 		and E.Key("How many buttons the bar shows, up to nine. Keys 10 to 12 of the key sets use the Consumable Bar.")
 		or E.Key("How many buttons the bar shows.") })
 	opt({ type = "range", key = "perRow", label = "Buttons per row", min = 1, max = 12, step = 1, desc = "Buttons in each row: this sets how wide the grid is. With the fill order set to columns first, the same grid fills column by column." })
-	opt({ type = "range", key = "size", label = "Button size", min = 16, max = 80, step = 1, desc = "Width of each button in pixels. Square buttons are as high as they are wide." })
+	opt({ type = "range", unit = "px", key = "size", label = "Button size", min = 16, max = 80, step = 1, desc = "Width of each button in pixels. Square buttons are as high as they are wide." })
 	opt({ type = "select", key = "aspect", label = "Button shape", values = ASPECT,
 		desc = "Width to height of the buttons. Wide shapes are lower than they are wide; the icon is cropped to fit, never stretched." })
-	opt({ type = "range", key = "spacing", label = "Spacing", min = 0, max = 20, step = 1, desc = "Gap between buttons in pixels." })
+	opt({ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 20, step = 1, desc = "Gap between buttons in pixels." })
 	opt({ type = "range", key = "scale", label = "Scale", unit = "%", min = 50, max = 200, step = 5, desc = "Size of the whole bar in percent." })
 	opt({ type = "select", key = "growth", label = "Growth direction", values = GROWTH, desc = "Corner the first button sits in and the direction the rest follow." })
 	opt({ type = "select", key = "fillOrder", label = "Fill order", values = FILL_ORDER,
-		desc = "Rows first: the buttons fill each row before the next row starts. Columns first: they fill each column from the first corner before the next column starts, as on an upright bar. Default: Rows first." })
+		desc = "The order the buttons fill the grid in.", valueDescs = FILL_ORDER_DESCS })
 	opt({ type = "select", key = "flyout", label = "Flyout direction", values = FLYOUT, cog = true, desc = "Which way spell flyouts (for example portals or pets) open from this bar." })
 	opt({ type = "toggle", key = "showGrid", label = "Show empty slots", desc = "Show buttons with nothing on them. Empty slots always show while you drag a spell." })
 	opt({ type = "toggle", key = "backdrop", label = "Background", desc = "Draw an EldoUI panel behind the bar.",
-		cog = { { type = "range", key = prefix .. "backdropPadding", label = "Background padding", min = 0, max = 16, step = 1, desc = "Space between the buttons and the edge of the backdrop." } } })
+		cog = { { type = "range", unit = "px", key = prefix .. "backdropPadding", label = "Background padding", min = 0, max = 16, step = 1, desc = "Space between the buttons and the edge of the backdrop." } } })
 	opt({ type = "toggle", key = "clickThrough", label = "Click through", desc = "Mouse clicks go through the bar to the world. Keybinds still work." })
 
 	opt({ type = "header", label = "Text" })
 	opt({ type = "toggle", key = "ownText", label = "Own text settings",
 		desc = "Give this bar its own keybind, count and macro text (the gear). Off: the bar uses the Text tab.",
 		cog = {
-			{ type = "toggle", key = prefix .. "text.showHotkey", label = "Show keybind", desc = "Show the key bound to each button of this bar." },
-			{ type = "range", key = prefix .. "text.hotkeySize", label = "Keybind size", min = 6, max = 24, step = 1, desc = "Text size of the keybind on this bar." },
+			{ type = "toggle", key = prefix .. "text.showHotkey", label = "Show keybind", desc = "Show the key bound to each button of this bar. On bars 1 to 3, Keybinds > Show the keys on bars 1 to 3 shows them even when this is off." },
+			{ type = "range", key = prefix .. "text.hotkeySize", label = "Keybind size", min = 6, max = 24, step = 1, desc = "Font size of the key shown in the corner of this bar's buttons." },
 			{ type = "select", key = prefix .. "text.hotkeyPosition", label = "Keybind position", values = ANCHORS, desc = "Where on the button the keybind sits on this bar." },
 			{ type = "toggle", key = prefix .. "text.showCount", label = "Show count", desc = "Show charges and item counts on this bar." },
-			{ type = "range", key = prefix .. "text.countSize", label = "Count size", min = 6, max = 24, step = 1, desc = "Text size of the count on this bar." },
-			{ type = "select", key = prefix .. "text.countPosition", label = "Count position", values = ANCHORS, desc = "Where on the button the count sits on this bar." },
+			{ type = "range", key = prefix .. "text.countSize", label = "Count size", min = 6, max = 24, step = 1, desc = "Font size of charges and item counts on this bar." },
+			{ type = "select", key = prefix .. "text.countPosition", label = "Count position", values = ANCHORS, desc = "Where on the button the count sits on this bar. If the macro name uses the same row, the count moves to the opposite edge." },
 			{ type = "toggle", key = prefix .. "text.showMacro", label = "Show macro name", desc = "Show the name of macros on this bar." },
 			{ type = "range", key = prefix .. "text.macroSize", label = "Macro name size", min = 6, max = 24, step = 1, desc = "Text size of macro names on this bar." },
+			{ type = "select", key = prefix .. "text.macroPosition", label = "Macro name position", values = ANCHORS, desc = "Where on the button the macro name sits on this bar." },
 		} })
 
 	-- While the bar is hidden it follows the hidden-bar rule; its own
@@ -173,7 +191,7 @@ local function AddBar(index)
 			row.hidden = function() return (own and own()) or M:BarOneInVehicle() end
 		end
 	end, index >= 3 and HiddenReason or nil)) do Add(row) end
-	opt({ type = "range", key = "alpha", label = "Opacity", unit = "%", min = 0, max = 100, step = 5, desc = "Opacity of the bar while it is shown and not faded." })
+	opt({ type = "range", key = "alpha", label = "Opacity", unit = "%", min = 0, max = 100, step = 5, desc = "Opacity of the bar while it is shown and not faded. At 0 % the bar takes no clicks and shows no tooltips, like a hidden bar." })
 	opt({ type = "input", key = "customVisibility", label = "Custom conditions", cog = true,
 		desc = "Advanced: macro conditions ending in show or hide, for example \"[mod:shift] show; hide\". When filled they replace the Show rule. The bar always hides in pet battles." })
 
@@ -194,6 +212,9 @@ Add({ type = "execute", label = "Keybind mode", desc = "Hover any EldoUI button 
 Add({ type = "header", label = "Bar 1" })
 Add({ type = "toggle", key = "pageVehicle", label = "Vehicle actions on bar 1", desc = "Bar 1 shows the actions of vehicles, override bars and possessed units, like Blizzard's main bar, and stays shown in vehicles. Always on while EldoUI hides Blizzard's override bar." })
 Add({ type = "toggle", key = "pageForms", label = "Stance and form pages", desc = "Bar 1 switches page with stance, form and stealth, like Blizzard's main bar." })
+Add({ type = "toggle", key = "prowlPage", label = "Prowl uses its own page",
+	desc = "Use a separate page on bar 1 while your Druid is in cat form and prowling.", dependsOn = "pageForms",
+	hidden = function() local _, class = E.PlainCallAll(UnitClass, "player"); return class ~= "DRUID" end })
 Add({ type = "header", label = "Behavior" })
 Add({ type = "select", key = "tooltips", label = "Tooltips", values = { enabled = "Always", nocombat = "Out of combat only", disabled = "Never" }, desc = "When hovering a button shows its tooltip." })
 -- Casting on key press is a protected game setting: no addon can change
@@ -229,8 +250,8 @@ Add({ type = "header", label = "New spells" })
 -- module's settings; the Action Bars refresh applies them.
 local function KeymapRoot() return E:NewSpellsRecord() end
 Add({ type = "select", key = "newSpells", root = KeymapRoot, -- lint: unused-key ok (read by Core/KeybindNewSpells.lua)
-	label = "Put new spells on their key", values = { offer = "Offer", auto = "Automatically", off = "Off" },
-	desc = "A spell you learn goes to its key on bars 1 to 3; a talent spell relearned after a talent reset returns to its old button. Offer asks first; Automatically places it out of combat. Empty buttons only." })
+	label = "Put new spells on their key", values = { offer = "Ask me", auto = "Automatic", off = "Off" },
+	desc = "A spell you learn goes to its key on bars 1 to 3; a talent spell relearned after a talent reset returns to its old button. Ask me asks first; Automatic places it out of combat. Empty buttons only." })
 Add({ type = "execute", label = "Take off the last new spells", desc = "Take the spells EldoUI last put on your bars off again, where a button still holds them. Same as /eui spells undo.",
 	func = function() E:RunOutOfCombat(function() E:UndoNewSpells() end, "KeybindNewSpells:undo") end,
 	disabled = function() return not E:HasNewSpellsUndo() end })
@@ -282,17 +303,18 @@ Add({ type = "execute", label = "Check ranks now", desc = "List the action slots
 ---------------------------------------------------------------------------
 Add({ type = "tab", label = "Bars" })
 -- Preview: the picked bar with sample spells, in its button count, grid,
--- size and spacing, with its keybind and count texts (E:ConfigSample,
+-- shape, growth, fill order and spacing, with its keybind and count texts (E:ConfigSample,
 -- Core/MoverSamples.lua).
 local function UpdatePreview(canvas)
 	local db = M.db
 	local bar = db and db.bars and db.bars[db.optionsBar or 1]
 	if not (canvas and bar) then return end
 	local text = bar.ownText and bar.text or db
-	E:ConfigSample(canvas, "icons", {
-		count = bar.buttons, columns = bar.perRow, size = bar.size, spacing = bar.spacing,
-		keys = text.showHotkey, counts = text.showCount, fontSize = text.hotkeySize or db.fontSize, cooldown = 0.4,
-	})
+	local spec = M:SampleShape(bar)
+	spec.count, spec.columns = bar.buttons, bar.perRow
+	spec.keys, spec.counts, spec.fontSize, spec.cooldown = text.showHotkey, text.showCount, text.hotkeySize or db.fontSize, 0.4
+	spec.zoom = db.buttonZoom
+	E:ConfigSample(canvas, "icons", spec)
 end
 Add({ type = "preview", label = "Preview", height = 96, create = UpdatePreview, update = UpdatePreview,
 	desc = "The picked bar with sample spells, in its size, grid and texts." })
@@ -307,10 +329,15 @@ for index = 1, NUM_BARS do AddBar(index) end
 -- Buttons
 ---------------------------------------------------------------------------
 Add({ type = "tab", label = "Buttons" })
+Add({ type = "select", key = "rightClickTarget", label = "Right-click casts on",
+	values = { normal = "Normal target", player = "Yourself" },
+	desc = "Choose the target for right-clicked actions on EldoUI bars. Applies after combat." })
 Add({ type = "header", label = "Look" })
 Add({ type = "range", key = "buttonZoom", label = "Icon zoom", min = 0, max = 20, step = 1, desc = "Percent of the icon edge cut away, so the round icon border doesn't show." })
 Add({ type = "select", key = "highlightStyle", label = "Mouse-over highlight", values = STYLE, desc = "How a button shows that the mouse is over it." })
 Add({ type = "select", key = "pushedStyle", label = "Pressed look", values = STYLE, desc = "How a button shows that it is pressed." })
+Add({ type = "select", key = "checkedStyle", label = "Active look", values = STYLE,
+	desc = "How a button shows that its spell is on: an active stance or form, Auto Attack, Auto Shot or a toggled aura. Default: Accent border." })
 Add({ type = "toggle", key = "flyoutSkin", label = "Skin flyouts", desc = "Give spell flyout buttons the EldoUI look. Blizzard's flyout follows the Skin switch of Action button look." })
 Add({ type = "select", key = "endCaps", label = "Main bar end caps", values = { keep = "Keep", hide = "Hide" },
 	desc = "The gryphons beside Blizzard's main bar (also with this module off; needs \"Let EldoUI change this\" on Main action bar) and, with Vanilla Original, beside EldoUI's bar 1." })
@@ -326,7 +353,6 @@ Add({ type = "color", key = "equippedColor", label = "Equipped color", dependsOn
 Add({ type = "header", label = "Proc glow" })
 Add({ type = "select", key = "procGlow", label = "Look", values = { blizzard = "As set on the Glows page", eldoui = "EldoUI accent pulse", none = "None" },
 	desc = "How a button shows that its spell has procced. The look of \"As set\" is the \"Action bar procs\" row on the Glows page. The game says which spell; EldoUI only draws it." })
-Add({ type = "description", label = "Assisted Highlight (the rotation helper) is off on WoW: Forever, so there is no option for it." })
 Add({ type = "header", label = "Masque" })
 Add({ type = "toggle", key = "masque", label = "Use Masque", reload = true,
 	desc = "When the Masque addon is loaded, let it skin EldoUI's buttons (one Masque group per bar). EldoUI's own button art steps aside.",
@@ -378,19 +404,20 @@ Add({ type = "tab", label = "Text" })
 Add({ type = "select", key = "textPreset", label = "Text style", values = TextPresetValues,
 	desc = "A ready-made set of the text settings below. Changing one of them turns this to Custom. Bars with their own text settings (Bars tab) keep those." })
 Add({ type = "header", label = "Keybind" })
-Add({ type = "toggle", key = "showHotkey", label = "Show keybind", desc = "Show the key bound to each button." })
+Add({ type = "toggle", key = "showHotkey", label = "Show keybind", desc = "Show the key bound to each button. On bars 1 to 3, Keybinds > Show the keys on bars 1 to 3 shows them even when this is off." })
 Add({ type = "toggle", key = "hotkeyAbbrev", label = "Short key names", desc = "Write keys short: S for Shift, C for Ctrl, A for Alt, M4 for mouse button 4, MwU for wheel up." })
-Add({ type = "range", key = "fontSize", label = "Keybind size", min = 6, max = 24, step = 1, desc = "Text size of the keybind." })
+Add({ type = "range", key = "fontSize", label = "Keybind size", min = 6, max = 24, step = 1, desc = "Font size of the key shown in the button's corner." })
 Add({ type = "select", key = "hotkeyPosition", label = "Keybind position", values = ANCHORS, desc = "Where on the button the keybind sits." })
 Add({ type = "color", key = "hotkeyColor", label = "Keybind color", desc = "Color of the keybind text (out of range may tint it, Buttons tab)." })
 Add({ type = "header", label = "Charges and count" })
 Add({ type = "toggle", key = "showCount", label = "Show count", desc = "Show charges and item counts." })
-Add({ type = "range", key = "countSize", label = "Count size", min = 6, max = 24, step = 1, desc = "Text size of the count." })
-Add({ type = "select", key = "countPosition", label = "Count position", values = ANCHORS, desc = "Where on the button the count sits." })
+Add({ type = "range", key = "countSize", label = "Count size", min = 6, max = 24, step = 1, desc = "Font size of charges and item counts." })
+Add({ type = "select", key = "countPosition", label = "Count position", values = ANCHORS, desc = "Where on the button the count sits. If the macro name uses the same row, the count moves to the opposite edge." })
 Add({ type = "color", key = "countColor", label = "Count color", desc = "Color of charges and item counts." })
 Add({ type = "header", label = "Macro name" })
 Add({ type = "toggle", key = "showMacro", label = "Show macro name", desc = "Show the name of macros on their button." })
-Add({ type = "range", key = "macroSize", label = "Macro name size", min = 6, max = 24, step = 1, desc = "Text size of the macro name." })
+Add({ type = "select", key = "macroPosition", label = "Macro name position", values = ANCHORS, desc = "Where on the button the macro name sits." })
+Add({ type = "range", key = "macroSize", label = "Macro name size", min = 6, max = 24, step = 1, desc = "Font size of the macro name. Make it small if long names cover the icon." })
 Add({ type = "color", key = "macroColor", label = "Macro name color", desc = "Color of macro names." })
 Add({ type = "header", label = "Font" })
 Add({ type = "select", key = "textOutline", label = "Outline", values = OUTLINE, desc = "Outline of every button text. Theme follows the outline set on the Fonts and text page.",
@@ -408,7 +435,7 @@ Add({ type = "header", label = "Cooldown numbers" })
 Add({ type = "select", key = "cooldownText", label = "Drawn by", values = { eldoui = "EldoUI format", blizzard = "Game setting", off = "Off" },
 	desc = "EldoUI format: seconds, minutes and hours with colors and tenths at the end. Game setting: follows Options > Action Bars > Show cooldown numbers. Off: no numbers.",
 	cog = {
-		{ type = "range", unit = "s", key = "cooldownMinDuration", label = "Minimum length", min = 0, max = 10, step = 0.5, desc = "Cooldowns shorter than this in total (seconds) show no numbers, so the global cooldown stays quiet. The game checks the length; EldoUI never reads it." },
+		{ type = "range", unit = "s", key = "cooldownMinDuration", label = "Minimum length", min = 0, max = 10, step = 0.5, desc = "Cooldowns shorter than this show no numbers, so the global cooldown doesn't flash numbers on every button." },
 	} })
 Add({ type = "range", key = "cooldownSize", label = "Number size", min = 8, max = 32, step = 1, desc = "Text size of the cooldown numbers at the normal base size (smaller on small buttons). The Size under Fonts and text > Cooldown numbers scales it: 16 keeps this size, 24 makes it half again as big." })
 Add({ type = "toggle", key = "cooldownOwnLook", label = "Own colors and thresholds",
@@ -454,14 +481,14 @@ local function AddSpecialBar(key, title, hasHappiness)
 		Add({ type = "range", key = prefix .. "buttons", label = "Buttons", min = 1, max = 10, step = 1, desc = "How many pet buttons show.", hidden = eldoui })
 	end
 	Add({ type = "range", key = prefix .. "perRow", label = "Buttons per row", min = 1, max = 10, step = 1, desc = "Buttons in each row: this sets how wide the grid is. With the fill order set to columns first, the same grid fills column by column.", hidden = eldoui })
-	Add({ type = "range", key = prefix .. "size", label = "Button size", min = 16, max = 64, step = 1, desc = "Width and height of each button.", hidden = eldoui })
-	Add({ type = "range", key = prefix .. "spacing", label = "Spacing", min = 0, max = 20, step = 1, desc = "Gap between buttons.", hidden = eldoui })
+	Add({ type = "range", unit = "px", key = prefix .. "size", label = "Button size", min = 16, max = 64, step = 1, desc = "Width and height of each button.", hidden = eldoui })
+	Add({ type = "range", unit = "px", key = prefix .. "spacing", label = "Spacing", min = 0, max = 20, step = 1, desc = "Gap between buttons.", hidden = eldoui })
 	Add({ type = "range", key = prefix .. "scale", label = "Scale", unit = "%", min = 50, max = 200, step = 5, desc = "Size of the whole bar in percent.", hidden = eldoui })
 	Add({ type = "select", key = prefix .. "growth", label = "Growth direction", values = GROWTH, desc = "Corner the first button sits in.", hidden = eldoui })
 	Add({ type = "select", key = prefix .. "fillOrder", label = "Fill order", values = FILL_ORDER,
 		desc = "Rows first: the buttons fill each row before the next row starts. Columns first: they fill each column from the first corner before the next column starts, as on an upright bar. Default: Rows first.", hidden = eldoui })
 	Add({ type = "toggle", key = prefix .. "backdrop", label = "Background", desc = "Draw an EldoUI panel behind the bar.", hidden = eldoui,
-		cog = { { type = "range", key = prefix .. "backdropPadding", label = "Background padding", min = 0, max = 16, step = 1, desc = "Space around the buttons inside the backdrop." } } })
+		cog = { { type = "range", unit = "px", key = prefix .. "backdropPadding", label = "Background padding", min = 0, max = 16, step = 1, desc = "Space around the buttons inside the backdrop." } } })
 	if hasHappiness then
 		Add({ type = "toggle", key = prefix .. "happiness", label = "Happiness border", desc = "Color the pet bar border by the happiness the game reports for your pet (green, yellow, red).", hidden = eldoui, disabled = E:BlizzardNeeds("pet-stance-bars", "improve") })
 		Add({ type = "toggle", key = prefix .. "autocastGlow", label = "Autocast glow", desc = "Show the game's spinning glow on pet abilities set to autocast." })
@@ -469,7 +496,7 @@ local function AddSpecialBar(key, title, hasHappiness)
 	for _, row in ipairs(VisibilityRows(prefix .. "fade", eldoui, function(row)
 		if row.type == "header" then row.label = texts.fade end
 	end)) do Add(row) end
-	Add({ type = "range", key = prefix .. "alpha", label = "Opacity", unit = "%", min = 0, max = 100, step = 5, desc = "Opacity while shown and not faded.", hidden = eldoui })
+	Add({ type = "range", key = prefix .. "alpha", label = "Opacity", unit = "%", min = 0, max = 100, step = 5, desc = "Opacity while shown and not faded. At 0 % the bar takes no clicks and shows no tooltips, like a hidden bar.", hidden = eldoui })
 	Add({ type = "input", key = prefix .. "customVisibility", label = "Custom conditions", cog = true, hidden = eldoui,
 		desc = key == "pet" and L["Advanced: macro conditions ending in show or hide; when filled they replace the Show rule. The bar only ever shows while you have a pet with a bar."]
 			or L["Advanced: macro conditions ending in show or hide; when filled they replace the Show rule. The bar only ever shows when you have stances or forms."] })
@@ -488,15 +515,15 @@ Add({ type = "select", key = "vehicle.overrideBar", label = "Vehicle bar", value
 	desc = "Bar 1: Blizzard's override and vehicle bar is hidden and EldoUI's bar 1 shows the vehicle's actions (needs the Hide switch of Vehicle bars and bar 1 on). Blizzard's: its own skinned vehicle bar shows." })
 Add({ type = "select", key = "vehicle.exit", label = "Leave vehicle button", values = { auto = "When Blizzard's is hidden", always = "Always EldoUI's", never = "Never" },
 	desc = "EldoUI's movable leave-vehicle button. Shown while you can leave a vehicle or a flight path early. Automatic: only when Blizzard's button is hidden with its bar." })
-Add({ type = "range", key = "vehicle.exitSize", label = "Leave button size", min = 20, max = 64, step = 1, desc = "Size of EldoUI's leave-vehicle button." })
+Add({ type = "range", unit = "px", key = "vehicle.exitSize", label = "Leave button size", min = 20, max = 64, step = 1, desc = "Size of EldoUI's leave-vehicle button." })
 Add({ type = "select", key = "vehicle.seat", label = "Seat indicator", values = { keep = "Blizzard's place", move = "EldoUI mover", hide = "Hidden" },
 	desc = "The vehicle seat picker. Mover needs the Move switch of Vehicle bars, Hidden the Hide switch." })
 Add({ type = "range", key = "vehicle.seatScale", label = "Seat indicator scale", unit = "%", min = 50, max = 200, step = 5, desc = "Size of the seat indicator in percent while it uses the EldoUI mover." })
 Add({ type = "header", label = "Possess bar" })
 Add({ type = "select", key = "possess.mode", label = "Mode", values = { eldoui = "EldoUI frame", blizzard = "Blizzard's bar" },
 	desc = "The cancel and attack buttons while you control another unit. EldoUI frame: Blizzard's buttons in a movable EldoUI frame (needs the Replace switch of Vehicle bars)." })
-Add({ type = "range", key = "possess.size", label = "Button size", min = 16, max = 64, step = 1, desc = "Size of the possess buttons." })
-Add({ type = "range", key = "possess.spacing", label = "Spacing", min = 0, max = 20, step = 1, desc = "Gap between the possess buttons." })
+Add({ type = "range", unit = "px", key = "possess.size", label = "Button size", min = 16, max = 64, step = 1, desc = "Size of the possess buttons." })
+Add({ type = "range", unit = "px", key = "possess.spacing", label = "Spacing", min = 0, max = 20, step = 1, desc = "Gap between the possess buttons." })
 Add({ type = "range", key = "possess.scale", label = "Scale", unit = "%", min = 50, max = 200, step = 5, desc = "Size of the possess frame in percent." })
 Add({ type = "header", label = "Zone ability" })
 Add({ type = "range", key = "extra.scale", label = "Scale", unit = "%", min = 50, max = 200, step = 5, desc = "Size of the zone ability button in percent.", disabled = E:BlizzardNeeds("extra-zone-ability", "move") })
@@ -664,15 +691,15 @@ end
 -- a size keeps the layout's own button size.
 local TEXTS = {
 	standard = { textPreset = "standard", showHotkey = true, fontSize = 13, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11 },
+		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11, macroPosition = "BOTTOM" },
 	compact = { textPreset = "compact", showHotkey = true, fontSize = 10, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 11, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 9 },
+		showCount = true, countSize = 11, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 9, macroPosition = "BOTTOM" },
 	large = { textPreset = "large", showHotkey = true, fontSize = 16, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 17, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 13 },
+		showCount = true, countSize = 17, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 13, macroPosition = "BOTTOM" },
 	macros = { textPreset = "macros", showHotkey = true, fontSize = 12, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 13, countPosition = "BOTTOMRIGHT", showMacro = true, macroSize = 10 },
+		showCount = true, countSize = 13, countPosition = "TOPLEFT", showMacro = true, macroSize = 10, macroPosition = "BOTTOM" },
 	clean = { textPreset = "clean", showHotkey = false, fontSize = 13, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11 },
+		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11, macroPosition = "BOTTOM" },
 }
 local function Buttons(text, zoom, size, spacing)
 	local settings = CopyTable(TEXTS[text])

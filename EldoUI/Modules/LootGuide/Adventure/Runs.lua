@@ -1404,12 +1404,16 @@ local function History()
 	return type(api) == "table" and api or nil
 end
 
+local function ReadableLootTable(value)
+	return type(value) == "table" and not E.Secret(value) and (not canaccesstable or canaccesstable(value))
+end
+
 local function ReadDrop(encounter, key)
 	local api = History()
 	if not (api and api.GetSortedInfoForDrop) then return nil end
 	R.stats.lootReads = R.stats.lootReads + 1
 	local ok, info = pcall(api.GetSortedInfoForDrop, encounter, key)
-	if ok and type(info) == "table" then return info end
+	if ok and ReadableLootTable(info) then return info end
 	return nil
 end
 
@@ -1576,7 +1580,7 @@ local function Observe(encounter, key, info)
 	local id = ("%d:%d"):format(encounter, key)
 	local watch = Watch(unit)
 	local seen = type(watch[id]) == "table" and watch[id] or nil
-	if type(info) ~= "table" then info = ReadDrop(encounter, key) end
+	if not ReadableLootTable(info) then info = ReadDrop(encounter, key) end
 	-- The game numbers its drops again after its history starts over: the
 	-- same key with another drop time or item is a new drop, never the old one.
 	local start = type(info) == "table" and Number(info.startTime) or nil
@@ -1650,10 +1654,10 @@ lootEvents:SetScript("OnEvent", function(_, event, encounter, key)
 			local api = History()
 			if not (R.lootOn and api and api.GetSortedDropsForEncounter) then return end
 			local ok, drops = pcall(api.GetSortedDropsForEncounter, encounter)
-			if not ok or type(drops) ~= "table" then return end
+			if not ok or not ReadableLootTable(drops) then return end
 			for position, drop in ipairs(drops) do
 				if position > R.LOOT_CAP then break end
-				if type(drop) == "table" then Observe(encounter, drop.lootListKey, drop) end
+				if ReadableLootTable(drop) then Observe(encounter, drop.lootListKey, drop) end
 			end
 		end)
 	elseif event == "LOOT_HISTORY_CLEAR_HISTORY" then
@@ -2138,6 +2142,17 @@ local function TakeBackupOf(unit, reason, charKey)
 end
 R.TakeBackupOf = TakeBackupOf
 
+-- Forget: the runs leave the account file after one backup of them is
+-- kept with the character's run backups (the Saved data page lists them).
+-- Runs that could not be backed up stay.
+E:RegisterCharacterForget(function(db, key)
+	local root = type(db.journalRuns) == "table" and db.journalRuns
+	local unit = root and root[key]
+	if type(unit) ~= "table" then return end
+	if type(unit.list) == "table" and unit.list[1] and not TakeBackupOf(unit, "before forgetting", key) then return end
+	root[key] = nil
+end)
+
 function R:TakeBackup(reason, charKey)
 	return TakeBackupOf(self:Store(charKey), reason, charKey)
 end
@@ -2305,6 +2320,7 @@ end
 local REASONS = E:TranslateValues({
 	hand = E.Key("by hand"), ["before restoring"] = E.Key("before restoring"), ["before importing"] = E.Key("before importing"),
 	["before clearing"] = E.Key("before clearing"), ["before update"] = E.Key("before an EldoUI update"),
+	["before forgetting"] = E.Key("before forgetting"),
 })
 
 function R.Describe(entry)

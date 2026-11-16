@@ -136,13 +136,18 @@ end
 -- Resolve an entry: attributes for the secure button, icon, label, whether
 -- the character can use it at all, and its spell/item for cooldowns.
 -- Returns nil for an entry that can't be resolved (deleted macro ...).
-local function Resolve(entry)
+local function Resolve(entry, rankContext)
 	local kind, value = entry.kind, entry.value
 	local info = { attributes = {} }
 	local a = info.attributes
 	if kind == "spell" then
 		local id = tonumber(value)
 		if not id then return nil end
+		local ranks = E:GetModule("ActionBars")
+		if ranks and ranks.HighestKnownRank then
+			if rankContext and not rankContext.scan and ranks.RankScan then rankContext.scan = ranks:RankScan() end
+			id = ranks:HighestKnownRank(id, rankContext and rankContext.scan) or id
+		end
 		a.type, a.spell = "spell", id
 		info.icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
 		info.label = C_Spell.GetSpellName and C_Spell.GetSpellName(id) or L["Spell %s"]:format(id)
@@ -496,7 +501,7 @@ local function CreateHeader()
 	local ok, err = pcall(SecureHandlerExecute, header, PROBE)
 	if not ok then
 		probeFailed = tostring(err)
-		geterrorhandler()("EldoUI Quickdraw: the secure menu code does not run on this game build, so Quickdraw stays off: " .. probeFailed)
+		geterrorhandler()("EldoUI Quickdraw: this version of the game can't run the Quickdraw menu, so Quickdraw stays off: " .. probeFailed)
 	end
 	return not probeFailed
 end
@@ -695,12 +700,12 @@ end
 
 -- Resolved entries of a menu, with unavailable ones left out when the
 -- player chose "hide".
-local function ResolveList(entries, allowSub)
+local function ResolveList(entries, allowSub, rankContext)
 	local list = {}
 	for _, entry in ipairs(entries or {}) do
 		if #list >= MAX_ENTRIES then break end
 		if entry.kind ~= "submenu" or allowSub then
-			local info = Resolve(entry)
+			local info = Resolve(entry, rankContext)
 			if info and (info.available or M.db.unusable ~= "hide") then
 				list[#list + 1] = { entry = entry, info = info }
 			end
@@ -713,7 +718,8 @@ local function KeyOwned(key)
 	return type(key) == "string" and key ~= ""
 end
 
-function M:BuildMenu(index, menuDB)
+function M:BuildMenu(index, menuDB, rankContext)
+	rankContext = rankContext or {}
 	local menu = CreateMenuFrames(index)
 	local db = self.db
 	local trigger = menu.trigger
@@ -721,7 +727,7 @@ function M:BuildMenu(index, menuDB)
 	ClearOverrideBindings(trigger)
 	ClearOverrideBindings(menu.cancel)
 	-- Sub-menus: one palette each, in entry order.
-	local list = ResolveList(menuDB.entries, true)
+	local list = ResolveList(menuDB.entries, true, rankContext)
 	local subCount = 0
 	for _, item in ipairs(list) do
 		if item.info.submenu then
@@ -732,7 +738,7 @@ function M:BuildMenu(index, menuDB)
 				menu.subs[subCount] = palette
 			end
 			palette.isSub = true
-			FillPalette(palette, menuDB, ResolveList(item.entry.entries, false), true)
+			FillPalette(palette, menuDB, ResolveList(item.entry.entries, false, rankContext), true)
 			SetRef(trigger, "s" .. subCount, palette)
 			item.subIndex = subCount
 		end
@@ -804,11 +810,12 @@ function M:Rebuild()
 	end
 	self:Normalize()
 	local on = self.active and CreateHeader()
+	local rankContext = {}
 	for index = 1, MAX_MENUS do
 		local menuDB = on and self.db.menus[index]
-		if menuDB then self:BuildMenu(index, menuDB) else self:ReleaseMenu(index) end
+		if menuDB then self:BuildMenu(index, menuDB, rankContext) else self:ReleaseMenu(index) end
 	end
-	if self.editor and self.editor:IsShown() then self:RefreshEditor() end
+	if self.editor and self.editor:IsShown() then self:RefreshEditor(rankContext) end
 end
 
 ---------------------------------------------------------------------------
@@ -1126,7 +1133,7 @@ local function ConfirmDeleteMenu()
 	local menu = CurrentMenu()
 	if not menu then return end
 	local count = #(menu.entries or {})
-	E:ShowConfirm({ title = L["Delete menu"], accept = DELETE or L["Delete"], danger = true,
+	E:ShowConfirm({ title = L["Delete menu"], accept = E:GameText(DELETE, L["Delete"]), danger = true,
 		text = E:Plural(count, "Delete the menu %s and its %d entry?", "Delete the menu %s and its %d entries?"):format(menu.name or "", count)
 			.. " " .. L["This can't be undone."],
 		-- Combat may start while the question is open: DeleteMenu checks again.
@@ -1416,9 +1423,10 @@ function M:CreateEditor()
 	self.editor = editor
 end
 
-function M:RefreshEditor()
+function M:RefreshEditor(rankContext)
 	local editor = self.editor
 	if not editor then return end
+	rankContext = rankContext or {}
 	self:Normalize()
 	local db = self.db
 	local accent = E.media.accentText
@@ -1460,7 +1468,7 @@ function M:RefreshEditor()
 		local entry = list and list[index]
 		slot.index = index
 		if entry then
-			local info = Resolve(entry)
+			local info = Resolve(entry, rankContext)
 			slot.empty = false
 			slot.isSub = entry.kind == "submenu"
 			slot.label = info and info.label or L["Not found"]
@@ -1490,7 +1498,7 @@ function M:ToggleEditor(show)
 		return
 	end
 	if probeFailed then
-		E:Print(L["Quickdraw can't run on this game build (the secure menu code failed). See /eui errors."])
+		E:Print(L["Quickdraw can't run on this version of the game, so it is turned off for now."])
 		return
 	end
 	if not self.editor then self:CreateEditor() end
@@ -1510,7 +1518,7 @@ function M:OnEnable()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function() M:Rebuild() end)
 	-- Things that change what an entry resolves to (a new spell, a bag item,
 	-- an edited macro or equipment set); rebuilt out of combat.
-	for _, event in ipairs({ "SPELLS_CHANGED", "BAG_UPDATE_DELAYED", "UPDATE_MACROS", "EQUIPMENT_SETS_CHANGED", "NEW_MOUNT_ADDED" }) do
+	for _, event in ipairs({ "SPELLS_CHANGED", "LEARNED_SPELL_IN_SKILL_LINE", "BAG_UPDATE_DELAYED", "UPDATE_MACROS", "EQUIPMENT_SETS_CHANGED", "NEW_MOUNT_ADDED" }) do
 		self:RegisterEvent(event, function() M:QueueRebuild() end)
 	end
 	self:RegisterEvent("PLAYER_REGEN_DISABLED", function()
@@ -1532,7 +1540,7 @@ function M:QueueRebuild()
 end
 
 function M:OnDisable()
-	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED", "BAG_UPDATE_DELAYED", "UPDATE_MACROS",
+	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED", "LEARNED_SPELL_IN_SKILL_LINE", "BAG_UPDATE_DELAYED", "UPDATE_MACROS",
 		"EQUIPMENT_SETS_CHANGED", "NEW_MOUNT_ADDED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
 		self:UnregisterEvent(event)
 	end
@@ -1565,7 +1573,7 @@ end
 M.options = {
 	{ type = "tab", label = "Menus" },
 	{ type = "description", label = "Hold a menu's key to show its entries around the cursor; point at one and let go to use it. Escape cancels. Works in combat." },
-	{ type = "description", label = "The secure menu code does not run on this game build, so Quickdraw is off. See /eui errors.", tone = "warning",
+	{ type = "description", label = "Quickdraw can't run on this version of the game, so it is turned off for now.", tone = "warning",
 		hidden = function() return not probeFailed end },
 	{ type = "execute", label = "Open the menu editor", desc = "Make menus, set their keys and drag spells, items, macros and mounts onto them (/eui quickdraw).",
 		func = function() M:ToggleEditor(true) end },
@@ -1597,15 +1605,15 @@ M.options = {
 	{ type = "select", key = "release", label = "Use an entry by", values = { release = "Letting go of the key", click = "Clicking it" },
 		desc = "Letting go: point and release the key. Clicking: the menu stays open after you let go; click an entry, press the key again or Escape to close." },
 	{ type = "cog", label = "Offset", desc = "Move where menus open, in pixels.", options = {
-		{ type = "range", key = "offsetX", label = "X offset", min = -400, max = 400, step = 1, desc = "Moves the menu center right (positive) or left." },
-		{ type = "range", key = "offsetY", label = "Y offset", min = -400, max = 400, step = 1, desc = "Moves the menu center up (positive) or down." },
+		{ type = "range", unit = "px", key = "offsetX", label = "X offset", min = -400, max = 400, step = 1, desc = "Moves the menu center right (positive) or left." },
+		{ type = "range", unit = "px", key = "offsetY", label = "Y offset", min = -400, max = 400, step = 1, desc = "Moves the menu center up (positive) or down." },
 	} },
 	{ type = "header", label = "Look" },
-	{ type = "range", key = "iconSize", label = "Icon size", min = 24, max = 64, step = 1, desc = "Size of each entry in pixels." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 24, step = 1, desc = "Gap between entries (a ring grows with it)." },
+	{ type = "range", unit = "px", key = "iconSize", label = "Icon size", min = 24, max = 64, step = 1, desc = "Size of each entry in pixels." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 24, step = 1, desc = "Gap between entries (a ring grows with it)." },
 	{ type = "range", key = "scale", label = "Scale", unit = "%", min = SCALE_MIN, max = SCALE_MAX, step = 5, desc = "Size of the whole menu in percent (100 = normal size)." },
 	{ type = "toggle", key = "labels", label = "Labels", desc = "The name of each entry under its icon." },
-	{ type = "toggle", key = "cooldowns", label = "Cooldown swipes", desc = "Spells and items show their cooldown, as the game gives it." },
+	{ type = "toggle", key = "cooldowns", label = "Cooldown swipes", desc = "Spells and items show their cooldown." },
 	{ type = "select", key = "unusable", label = "Entries you can't use", values = { dim = "Grayed out", hide = "Left out", show = "Shown normally" },
 		desc = "Grayed out: unknown spells, items you don't carry and entries on cooldown or out of mana are gray. Left out: spells you don't know and items you don't have are not in the menu at all." },
 }

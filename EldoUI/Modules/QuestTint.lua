@@ -267,6 +267,7 @@ local function DifficultyHex(questID, level, difficulty)
 		color = Call(GetQuestDifficultyColor, level, false, questID)
 	end
 	if type(color) ~= "table" or type(color.r) ~= "number" then return nil end
+	color = E:DifficultyColor(color)
 	return ("|cff%02x%02x%02x"):format(color.r * 255 + 0.5, color.g * 255 + 0.5, color.b * 255 + 0.5)
 end
 
@@ -382,48 +383,28 @@ local function Lines(fontString)
 	return type(lines) == "number" and lines or nil
 end
 
--- Drops the last UTF-8 character of a plain string.
-local function DropLastChar(text)
-	return (text:gsub("[%z\1-\127\194-\244][\128-\191]*$", ""))
-end
-
 -- The quest log and tracker already start titles with "[24] " (or
--- "[24+] "); in color-blind mode the difficulty word goes inside.
--- keepLines (the tracker, whose block height Blizzard has already laid
--- out): the title never takes more lines than before; the short word
--- comes first, then the end of the title gives way to "...".
-function M:AddDifficultyWord(fontString, questID, keepLines)
-	if not (fontString and fontString.GetText and self.db.levelWord and self:ColorBlind()) then return false end
-	local text = Clean(fontString:GetText())
-	if type(text) ~= "string" then return false end
+-- "[24+] "); in color-blind mode the difficulty word goes inside. Returns
+-- the new title and its parts (code, level, elite, word, title), or nil when
+-- there is no level prefix or no word for the quest. short: the short word.
+function M:DifficultyTitle(text, questID, short)
+	if type(text) ~= "string" or not (self.db.levelWord and self:ColorBlind()) then return nil end
 	local code, rest = text:match("^(|c%x%x%x%x%x%x%x%x)(.*)$")
 	if not code then code, rest = "", text end
 	local level, elite, after = rest:match("^%[(%d+)(%+?)%] (.*)$")
-	if not level then return false end
+	if not level then return nil end
 	local difficulty = self:Difficulty(questID)
-	local word = M.DifficultyWord(difficulty)
-	if not word then return false end
-	local before = keepLines and Lines(fontString)
-	local function Put(w, title)
-		fontString:SetText(code .. "[" .. level .. elite .. " " .. w .. "] " .. title)
-	end
-	Put(word, after)
-	if not before then return true end
-	local now = Lines(fontString)
-	if not now or now <= before then return true end
-	word = M.DifficultyShort(difficulty) or word
-	Put(word, after)
-	now = Lines(fontString)
-	-- The title's color code ends with "|r": keep it at the end.
-	local tail = after:match("|r$") and "|r" or ""
-	local title = tail ~= "" and after:sub(1, -3) or after
-	local guard = 0
-	while now and now > before and #title > 1 and guard < 200 do
-		guard = guard + 1
-		title = DropLastChar(title):gsub("%s+$", "")
-		Put(word, title .. "..." .. tail)
-		now = Lines(fontString)
-	end
+	local word = short and M.DifficultyShort(difficulty) or M.DifficultyWord(difficulty)
+	if not word then return nil end
+	return code .. "[" .. level .. elite .. " " .. word .. "] " .. after, code, level, elite, word, after
+end
+
+-- The quest log's own title strings (not the tracker, see below).
+function M:AddDifficultyWord(fontString, questID)
+	if not (fontString and fontString.GetText) then return false end
+	local text = self:DifficultyTitle(Clean(fontString:GetText()), questID)
+	if not text then return false end
+	fontString:SetText(text)
 	return true
 end
 
@@ -453,6 +434,11 @@ end
 E:RegisterCharacterKeyMove(function(db, oldKey, newKey)
 	local all = type(db.global) == "table" and db.global.QuestTint
 	E.MoveCharacterEntry(type(all) == "table" and all.reminders, oldKey, newKey)
+end)
+
+E:RegisterCharacterForget(function(db, key)
+	local all = type(db.global) == "table" and db.global.QuestTint
+	if type(all) == "table" and type(all.reminders) == "table" then all.reminders[key] = nil end
 end)
 
 local function Reminders()
@@ -543,55 +529,151 @@ end
 -- Quest tracker (Blizzard's objective tracker)
 --
 -- Blizzard writes a quest's title into block.HeaderText during
--- UpdateSingle; with the quest difficulty colors on, the title carries a
--- color code, so SetTextColor alone would not show. The post-hook swaps
--- that leading code for the tint's (same length: the layout is unchanged)
--- and sets the text color for titles without one. Hovering a title runs
--- the block's UpdateHighlight, which recolors it; a hook on it tints again.
+-- UpdateSingle and lays the tracker out from that string, so EldoUI never
+-- writes into it. A new quest's tint and the difficulty word are drawn on
+-- EldoUI's own string over the title, with the same font and width; the
+-- game's string stays as it is and is only faded out while the overlay
+-- shows. Hovering a title runs the block's UpdateHighlight, which recolors
+-- it; a hook on it dresses the block again.
 ---------------------------------------------------------------------------
-local trackerTinted, hookedBlocks, hookedModules = Weak(), Weak(), Weak()
+local overlays, faded, hookedBlocks, hookedModules = Weak(), Weak(), Weak(), Weak()
+local fitCache, fitCount = {}, 0
+local FIT_CACHE_MAX = 200
+M.trackerMeasures = 0 -- text measures made for tracker titles so far
 
--- Blizzard's own color for a block title, to put back when a block that
--- showed a new quest is reused for an original one. Only reads.
-local function TrackerTitleColor(block, questID)
-	local cvar = C_CVar and C_CVar.GetCVarBool and C_CVar.GetCVarBool("showQuestDifficultyColor")
-	if cvar and questID and GetDifficultyColor and C_PlayerInfo and C_PlayerInfo.GetContentDifficultyQuestForPlayer then
-		local normal, highlight = GetDifficultyColor(C_PlayerInfo.GetContentDifficultyQuestForPlayer(questID))
-		local c = block.isHighlighted and highlight or normal
-		if type(c) == "table" and c.r then return c.r, c.g, c.b end
-	end
-	local colors = rawget(_G, "OBJECTIVE_TRACKER_COLOR")
-	local c = type(colors) == "table" and colors[block.isHighlighted and "HeaderHighlight" or "Header"]
-	if type(c) == "table" and c.r then return c.r, c.g, c.b end
-	local fallback = rawget(_G, block.isHighlighted and "HIGHLIGHT_FONT_COLOR" or "NORMAL_FONT_COLOR")
-	if type(fallback) == "table" and fallback.r then return fallback.r, fallback.g, fallback.b end
-	return 1, 1, 1
+-- The overlay a tracker block shows, or nil.
+function M.TrackerOverlay(block)
+	local own = overlays[block]
+	return own and own:IsShown() and own or nil
 end
 
-function M:TintTrackerBlock(block, questID)
+local function HideOverlay(block)
+	local own = overlays[block]
+	if own then own:Hide() end
+	if faded[block] then
+		faded[block] = nil
+		if block.HeaderText and block.HeaderText.SetAlpha then block.HeaderText:SetAlpha(1) end
+	end
+end
+
+local function Overlay(block, text)
+	local own = overlays[block]
+	if not own then
+		own = block:CreateFontString(nil, "OVERLAY") -- EldoUI's own string
+		overlays[block] = own
+	end
+	local font, size, flags = E.PlainCallAll(text.GetFont, text)
+	if type(font) == "string" and type(size) == "number" then own:SetFont(font, size, flags) end
+	local justify = E.PlainCall(text.GetJustifyH, text)
+	if type(justify) == "string" then own:SetJustifyH(justify) end
+	-- A string without a set width is as wide as its text and never wraps.
+	local width = E.PlainCall(text.GetWidth, text)
+	local natural = E.PlainCall(text.GetUnboundedStringWidth, text)
+	if type(width) ~= "number" or width <= 0
+		or (type(natural) == "number" and natural >= width - 0.5 and Lines(text) == 1) then
+		width = nil
+	end
+	own:ClearAllPoints()
+	own:SetPoint("TOPLEFT", text, "TOPLEFT", 0, 0)
+	own:SetWidth(width or 0)
+	return own, width
+end
+
+local function Measure(own, text)
+	own:SetText(text)
+	M.trackerMeasures = M.trackerMeasures + 1
+	return Lines(own)
+end
+
+-- The title with the difficulty word, on no more lines than the game's own
+-- title: the short word first, then the end of the title gives way to
+-- "...". Reuse the fit only when the title, width and overlay font still
+-- match, so a font change cannot reuse an old line measurement.
+function M:FitTrackerTitle(own, title, questID, lines, width)
+	local full, code, level, elite, _, after = self:DifficultyTitle(title, questID)
+	if not full then return title end
+	if not lines then return full end
+	local font, size, flags = E.PlainCallAll(own.GetFont, own)
+	local key
+	if type(font) == "string" and type(size) == "number" and (flags == nil or type(flags) == "string") then
+		key = table.concat({ font, tostring(size), flags or "", tostring(lines), tostring(width), full }, "\1")
+		if fitCache[key] then return fitCache[key] end
+	end
+	local result = full
+	local now = Measure(own, full)
+	if now and now > lines then
+		local shortTitle, _, _, _, short = self:DifficultyTitle(title, questID, true)
+		result = shortTitle
+		now = Measure(own, shortTitle)
+		if now and now > lines then
+			-- The title's color code ends with "|r": keep it at the end.
+			local tail = after:match("|r$") and "|r" or ""
+			local body = tail ~= "" and after:sub(1, -3) or after
+			local chars = {}
+			for char in body:gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars + 1] = char end
+			local prefix = code .. "[" .. level .. elite .. " " .. short .. "] "
+			local function Cut(n)
+				return prefix .. (table.concat(chars, "", 1, n):gsub("%s+$", "")) .. "..." .. tail
+			end
+			-- The longest start of the title that still fits.
+			local lo, hi = 0, #chars - 1
+			while lo < hi do
+				local mid = math.floor((lo + hi + 1) / 2)
+				local got = Measure(own, Cut(mid))
+				if got and got <= lines then lo = mid else hi = mid - 1 end
+			end
+			result = Cut(lo)
+		end
+	end
+	if key then
+		if fitCount >= FIT_CACHE_MAX then fitCache, fitCount = {}, 0 end
+		fitCache[key], fitCount = result, fitCount + 1
+	end
+	return result
+end
+
+function M:DressTrackerBlock(block, questID)
 	local text = type(block) == "table" and block.HeaderText
-	if not (text and text.SetTextColor) then return end
+	if not (text and text.GetText) then return end
 	if not hookedBlocks[block] and type(block.UpdateHighlight) == "function" then
 		hookedBlocks[block] = true
 		hooksecurefunc(block, "UpdateHighlight", function(b)
-			if M.active then M:TintTrackerBlock(b, b.poiQuestID) end
+			if M.active then M:DressTrackerBlock(b, b.poiQuestID) end
 		end)
 	end
-	if Allowed("objective-tracker") and self.db.tracker and self:IsNew(questID) then
-		text:SetTextColor(Color())
-		local title = text.GetText and Clean(text:GetText())
-		if type(title) == "string" then
-			local hex = self:Hex()
-			local recoloured, count = title:gsub("^|c%x%x%x%x%x%x%x%x", hex)
-			if count > 0 and recoloured ~= title then text:SetText(recoloured) end
-		end
-		trackerTinted[block] = true
-	elseif trackerTinted[block] then
-		-- Blizzard writes a fresh title (and its color code) on every
-		-- update, but keeps the text color; put Blizzard's color back.
-		trackerTinted[block] = nil
-		text:SetTextColor(TrackerTitleColor(block, Clean(questID)))
+	local allowed = M.active and Allowed("objective-tracker")
+	local tint = allowed and self.db.tracker and self:IsNew(questID)
+	local word = allowed and self.db.levelWord and self:ColorBlind()
+	local title = Clean(text:GetText())
+	if type(title) ~= "string" or title == "" or not (tint or word) then return HideOverlay(block) end
+	local shown = title
+	if tint then shown = title:gsub("^|c%x%x%x%x%x%x%x%x", self:Hex()) end
+	local own, width = Overlay(block, text)
+	if word then
+		-- Without a set width the string does not wrap: nothing to fit.
+		local lines = width and Lines(text) or nil
+		shown = self:FitTrackerTitle(own, shown, Clean(questID), lines, width)
 	end
+	if shown == title and not tint then return HideOverlay(block) end
+	local r, g, b
+	if tint then
+		r, g, b = Color()
+	else
+		r, g, b = E.PlainCallAll(text.GetTextColor, text)
+		if type(r) ~= "number" then r, g, b = 1, 0.82, 0 end
+	end
+	own:SetTextColor(r, g, b)
+	own:SetText(shown)
+	own:Show()
+	if not faded[block] then
+		faded[block] = true
+		text:SetAlpha(0)
+	end
+end
+
+-- Every block with an overlay goes back to the game's own title.
+function M:UndressTracker()
+	for block in pairs(overlays) do HideOverlay(block) end
 end
 
 local function TrackerQuestID(quest)
@@ -608,10 +690,7 @@ function M:HookTrackerModule(module)
 		if not M.active then return end
 		local questID = TrackerQuestID(quest)
 		local block = questID and type(mod.GetExistingBlock) == "function" and mod:GetExistingBlock(questID)
-		if block then
-			M:TintTrackerBlock(block, questID)
-			if Allowed("objective-tracker") then M:AddDifficultyWord(block.HeaderText, questID, true) end
-		end
+		if block then M:DressTrackerBlock(block, questID) end
 	end)
 end
 
@@ -624,10 +703,7 @@ function M:UpdateTracker()
 			for _, blocks in pairs(used) do
 				if type(blocks) == "table" then
 					for id, block in pairs(blocks) do
-						if type(block) == "table" then
-							self:TintTrackerBlock(block, block.poiQuestID or id)
-							if Allowed("objective-tracker") then self:AddDifficultyWord(block.HeaderText, block.poiQuestID or id, true) end
-						end
+						if type(block) == "table" then self:DressTrackerBlock(block, block.poiQuestID or id) end
 					end
 				end
 			end
@@ -818,6 +894,7 @@ function M:OnDisable()
 	events:UnregisterAllEvents()
 	if self.questTag then self.questTag:Hide() end
 	if self.HideChainLines then self:HideChainLines() end
+	self:UndressTracker()
 end
 
 function M:OnProfileChanged()

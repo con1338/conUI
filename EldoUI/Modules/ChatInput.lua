@@ -15,7 +15,7 @@
 --   * Drafts: a message closed with Escape, or open during a loading
 --     screen, is kept (per character, at most the time you set) and comes
 --     back with Ctrl+Shift+Z. Secure slash commands are never kept.
---   * "Mira is typing": off by default. With "Share that I am typing" on,
+--   * "Mira is typing": off by default. With "Share that you are typing" on,
 --     typing in party chat sends one short addon message at most every
 --     few seconds to your party (party only, never during chat lockdown);
 --     party members who share theirs show above the edit box.
@@ -169,6 +169,31 @@ function M.Header(editBox)
 	return type(command) == "string" and command or nil
 end
 
+-- A whisper target with a surname holds a space, which a typed "/w Name"
+-- line would cut at: such a target goes back through the game's own
+-- SendTell, which keeps the name whole. Returns the target or nil.
+function M.TellTarget(editBox)
+	if Readable(editBox:GetChatType()) ~= "WHISPER" then return nil end
+	local target = Readable(editBox:GetTellTarget())
+	return type(target) == "string" and target:find(" ", 1, true) and target or nil
+end
+
+-- Open the chat line to `target` the game's way and put `text` in it.
+local function ReopenTell(target, chatFrame, text, fallback)
+	local util = rawget(_G, "ChatFrameUtil")
+	local tell = util and util.SendTell or rawget(_G, "ChatFrame_SendTell")
+	if type(tell) ~= "function" then return false end
+	tell(target, chatFrame)
+	local active = util and util.GetActiveWindow or rawget(_G, "ChatEdit_GetActiveWindow")
+	local box = type(active) == "function" and active() or fallback
+	if box and type(text) == "string" and text ~= "" then
+		box:SetText(text)
+		if box.SetCursorPosition then pcall(box.SetCursorPosition, box, #text) end
+	end
+	return true
+end
+M.ReopenTell = ReopenTell
+
 ---------------------------------------------------------------------------
 -- Edit box state (EldoUI's own tables: nothing is written onto the box)
 ---------------------------------------------------------------------------
@@ -257,7 +282,9 @@ function M:UpdateCounter(editBox)
 	frame.text:SetText(text)
 	frame:SetWidth(math.max(40, (frame.text:GetStringWidth() or 40) + 4))
 	frame:ClearAllPoints()
-	frame:SetPoint("RIGHT", editBox, "RIGHT", -8, 0)
+	-- Just above the box's right end: inside it, it would cover the emoji
+	-- button and the last letters typed.
+	frame:SetPoint("BOTTOMRIGHT", editBox, "TOPRIGHT", -8, 2)
 	frame:SetFrameLevel((editBox:GetFrameLevel() or 1) + 5)
 	frame:Show()
 end
@@ -270,7 +297,7 @@ end
 function M:OnPreSend(editBox)
 	if not (self.active and editBox) then return end
 	local s = State(editBox)
-	s.pending, s.pendingHeader = nil, nil
+	s.pending, s.pendingHeader, s.pendingTell = nil, nil, nil
 	s.sent = true
 	if not self.db.split then return end
 	local text = TextOf(editBox)
@@ -286,6 +313,7 @@ function M:OnPreSend(editBox)
 	editBox:SetText(parts[1])
 	s.pending = strtrim(text:sub(#parts[1] + 1))
 	s.pendingHeader = header
+	s.pendingTell = M.TellTarget(editBox)
 end
 
 -- After the game sent part 1 and cleared the box: the rest comes back,
@@ -293,8 +321,8 @@ end
 function M:AfterEnter(editBox)
 	local s = state[editBox]
 	if not s then return end
-	local pending, header = s.pending, s.pendingHeader
-	s.pending, s.pendingHeader = nil, nil
+	local pending, header, tell = s.pending, s.pendingHeader, s.pendingTell
+	s.pending, s.pendingHeader, s.pendingTell = nil, nil, nil
 	if s.sent then
 		s.sent = nil
 		-- The sent text is no draft: an Escape on the next empty box keeps nothing.
@@ -305,6 +333,7 @@ function M:AfterEnter(editBox)
 		self:StopTyping()
 	end
 	if not (self.active and pending and header) then return end
+	if tell and ReopenTell(tell, editBox.chatFrame, pending, editBox) then return end
 	local open = ChatFrameUtil and ChatFrameUtil.OpenChat or rawget(_G, "ChatFrame_OpenChat")
 	if open then open(header .. " " .. pending, editBox.chatFrame) end
 end
@@ -334,6 +363,7 @@ function M:OnTextChanged(editBox, userInput)
 	s.last = text
 	if text ~= "" then
 		s.header = M.Header(editBox)
+		s.tell = M.TellTarget(editBox)
 		s.draftText = text
 	end
 	if userInput then self:NoteTyping(editBox) end
@@ -397,11 +427,12 @@ local function Keepable(text)
 	return true
 end
 
-function M:SaveDraft(text, header)
+function M:SaveDraft(text, header, tell)
 	if (self.db.draftMinutes or 0) <= 0 or Lockdown() or not Keepable(text) then return false end
 	if header and not Keepable(header) then header = nil end
+	if type(tell) ~= "string" or tell == "" then tell = nil end
 	local store = DraftStore()
-	store.draft = { text = strtrim(text):sub(1, 2000), header = header, at = time() }
+	store.draft = { text = strtrim(text):sub(1, 2000), header = header, tell = tell, at = time() }
 	return true
 end
 
@@ -425,6 +456,12 @@ function M:RestoreDraft(editBox)
 	local draft = self:Draft()
 	if not draft then return false end
 	local text = draft.text
+	-- A whisper to a name with a surname: the game's own tell keeps it whole.
+	if type(draft.tell) == "string" and ReopenTell(draft.tell, editBox.chatFrame, text, editBox) then
+		self:ClearDraft()
+		self:UpdateCounter(editBox)
+		return true
+	end
 	if draft.header and draft.header ~= "" then text = draft.header .. " " .. text end
 	SetBoxText(editBox, text)
 	self:ClearDraft()
@@ -436,7 +473,7 @@ end
 function M:AfterEscape(editBox)
 	local s = state[editBox]
 	if not s then return end
-	if s.draftText and s.draftText ~= "" then self:SaveDraft(s.draftText, s.header) end
+	if s.draftText and s.draftText ~= "" then self:SaveDraft(s.draftText, s.header, s.tell) end
 	s.draftText, s.last = nil, ""
 	wipe(s.undo)
 	wipe(s.redo)
@@ -448,7 +485,7 @@ end
 function M:SaveOpenDrafts()
 	for editBox in pairs(state) do
 		local text = editBox:IsShown() and TextOf(editBox)
-		if text and text ~= "" then self:SaveDraft(text, M.Header(editBox)) end
+		if text and text ~= "" then self:SaveDraft(text, M.Header(editBox), M.TellTarget(editBox)) end
 	end
 end
 
@@ -647,13 +684,14 @@ M.options = {
 	{ type = "range", key = "maxLetters", label = "Longest message", min = 510, max = 2000, step = 10, dependsOn = "split",
 		desc = "How many letters the edit box takes while splitting is on (links count with their hidden part)." },
 	{ type = "toggle", key = "counter", label = "Part counter", desc = "Shows 1/3 on the edit box while a message needs more than one part, and the letters used close to the 255 limit." },
-	{ type = "range", key = "counterSize", label = "Text size", min = 9, max = 16, step = 1, desc = "Size of the part counter and the typing line." },
+	{ type = "range", key = "counterSize", label = "Text size", min = 9, max = 16, step = 1, desc = "Size of the part counter and the typing line.",
+		disabled = function() return not (M.db.counter or M.db.showTyping) and L["Turn on \"Part counter\" or \"Show who is typing\" first."] end },
 	{ type = "header", label = "Undo and drafts" },
 	{ type = "toggle", key = "undo", label = "Undo and redo", desc = "Ctrl+Z undoes your last change in the edit box, Ctrl+Y brings it back. One step per word or paste." },
 	{ type = "range", key = "draftMinutes", label = "Keep drafts", unit = "min", min = 0, max = 60, step = 1,
 		zeroText = "Off", desc = "A message closed with Escape, or open during a loading screen, comes back with Ctrl+Shift+Z for this long. Secure commands (/cast and the like) are never kept." },
 	{ type = "header", label = "Party typing" },
-	{ type = "toggle", key = "shareTyping", label = "Share that I am typing", desc = "While you type in party chat, your party members who use EldoUI see that you are typing. Sends one short addon message at most every 4 seconds, party only, never during chat lockdown. Off by default." },
+	{ type = "toggle", key = "shareTyping", label = "Share that you are typing", desc = "While you type in party chat, your party members who use EldoUI see that you are typing. Sends one short addon message at most every 4 seconds, party only, never during boss fights. Off by default." },
 	{ type = "toggle", key = "showTyping", label = "Show who is typing", desc = "\"Mira is typing...\" above the edit box when party members share theirs." },
 }
 

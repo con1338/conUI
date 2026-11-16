@@ -40,7 +40,7 @@ QD.options = {
 	{ type = "select", key = "plateLook", label = L["Icon look"], hidden = GuideOff, dependsOn = "plates",
 		values = QD.PLATE_LOOK_TITLE, order = { "scroll", "exclamation", "dot", "bronze", "safe" },
 		desc = L["A scroll, the quest giver's exclamation mark, a dot in your accent color, a scroll in a bronze frame, or a yellow square with a mark that reads for every kind of color blindness."] },
-	{ type = "range", key = "plateSize", label = L["Icon size"], min = 8, max = 32, step = 1, hidden = GuideOff, dependsOn = "plates",
+	{ type = "range", unit = "px", key = "plateSize", label = L["Icon size"], min = 8, max = 32, step = 1, hidden = GuideOff, dependsOn = "plates",
 		desc = L["Size of the nameplate icon."] },
 	{ type = "select", key = "platePosition", label = L["Icon position"], hidden = GuideOff, dependsOn = "plates",
 		values = { top = L["Above the name"], left = L["Left of the bar"], right = L["Right of the bar"] }, order = { "top", "left", "right" },

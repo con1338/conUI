@@ -93,9 +93,9 @@ end
 local function ModsLabel(mods)
 	if mods == "" then return nil end
 	local parts = {}
-	if mods:find("CTRL-", 1, true) then parts[#parts + 1] = CTRL_KEY or L["Ctrl"] end
-	if mods:find("ALT-", 1, true) then parts[#parts + 1] = ALT_KEY or L["Alt"] end
-	if mods:find("SHIFT-", 1, true) then parts[#parts + 1] = SHIFT_KEY or L["Shift"] end
+	if mods:find("CTRL-", 1, true) then parts[#parts + 1] = E:GameText(CTRL_KEY, L["Ctrl"]) end
+	if mods:find("ALT-", 1, true) then parts[#parts + 1] = E:GameText(ALT_KEY, L["Alt"]) end
+	if mods:find("SHIFT-", 1, true) then parts[#parts + 1] = E:GameText(SHIFT_KEY, L["Shift"]) end
 	return table.concat(parts, " + ")
 end
 
@@ -620,9 +620,9 @@ local SHIFT, CTRL, ALT = 3, 12, 48
 local function ModifierName(mask)
 	mask = mask or 0
 	local parts = {}
-	if bit.band(mask, CTRL) ~= 0 then table.insert(parts, CTRL_KEY or L["Ctrl"]) end
-	if bit.band(mask, ALT) ~= 0 then table.insert(parts, ALT_KEY or L["Alt"]) end
-	if bit.band(mask, SHIFT) ~= 0 then table.insert(parts, SHIFT_KEY or L["Shift"]) end
+	if bit.band(mask, CTRL) ~= 0 then table.insert(parts, E:GameText(CTRL_KEY, L["Ctrl"])) end
+	if bit.band(mask, ALT) ~= 0 then table.insert(parts, E:GameText(ALT_KEY, L["Alt"])) end
+	if bit.band(mask, SHIFT) ~= 0 then table.insert(parts, E:GameText(SHIFT_KEY, L["Shift"])) end
 	return #parts > 0 and table.concat(parts, " + ") or nil
 end
 
@@ -668,7 +668,7 @@ local function BlizzardActionName(info)
 		local name, icon = GetMacroInfo(info.actionID)
 		return name and L["%s %s"]:format(name, E:TextHex("secondary") .. L["(macro)"] .. "|r"), icon
 	elseif kind == types.Interaction or kind == 3 then
-		if info.actionID == 1 then return TARGET or L["Target"] end
+		if info.actionID == 1 then return E:GameText(TARGET, L["Target"]) end
 		if M.db.showTargetMenu then return ACTION_LABEL.menu end
 		return nil
 	elseif kind == types.PetAction or kind == 4 then
@@ -921,7 +921,7 @@ function M:CreateWindow()
 	end)
 	window.value = value
 
-	local add = CreateButton(window, ADD or L["Add"], 90, function() self:AddPending() end)
+	local add = CreateButton(window, E:GameText(ADD, L["Add"]), 90, function() self:AddPending() end)
 	add:SetPoint("TOPLEFT", action, "BOTTOMLEFT", 0, -10)
 	window.add = add
 
@@ -1158,7 +1158,7 @@ M.options = {
 	{ type = "description", label = "Hovering a frame lists your bindings in the tooltip, grouped by modifier: the game's Click Casting and EldoUI's." },
 	{ type = "toggle", key = "party", label = "Party and raid frames", desc = "EldoUI's group frames, and Blizzard's when their Improve switch is on." },
 	{ type = "toggle", key = "unitFrames", label = "Player, target and focus frames", desc = "EldoUI's unit frames." },
-	{ type = "toggle", key = "heldOnly", label = "Only the modifier I hold", desc = "Hold Shift, Ctrl or Alt to see just those clicks; no modifier shows plain clicks." },
+	{ type = "toggle", key = "heldOnly", label = "Only the held modifier", desc = "Hold Shift, Ctrl or Alt to see just those clicks; no modifier shows plain clicks." },
 	{ type = "toggle", key = "showTargetMenu", label = "List \"Open menu\" clicks too", desc = "Also list the clicks that open the frame's menu." },
 }
 

@@ -96,6 +96,7 @@ E:RegisterPrivate("training", {
 	petScanned = false, -- Hunters: Beast Training was open once
 	demon = false,    -- the demon last summoned (warlocks)
 	trainers = {},    -- class trainers you opened: name -> { map, x, y (0-100), class, portal }
+	ridingCost = {},  -- riding spellID -> the cost a riding trainer asked (copper)
 })
 
 local floor, max, min = math.floor, math.max, math.min
@@ -177,6 +178,15 @@ local catalog            -- { spells = { entry, ... }, weapons = { entry, ... },
 local overrides = {}     -- spellID -> list of ranks that replace each other
 local classToken, playerFaction, playerRace
 
+-- Riding: Apprentice at 40 and Journeyman at 60, taught by the riding
+-- trainers of every race (skill line 762 in the client's tables, build
+-- 1.60.1.70862). The cost a trainer asks replaces the fallback here.
+local RIDING = {
+	{ id = 33388, level = 40, cost = 1000000 },                      -- Apprentice Riding, 100 g
+	{ id = 33391, level = 60, cost = 10000000, requires = { 33388 } }, -- Journeyman Riding, 1,000 g
+}
+M.RIDING = RIDING
+
 local function RaceAllowed(spell)
 	if spell.race == nil and spell.races == nil then return true end
 	if spell.races then return tContains(spell.races, playerRace) end
@@ -223,6 +233,12 @@ local function BuildCatalog()
 				break
 			end
 		end
+	end
+	-- Riding, for every class.
+	local seen = type(Store().ridingCost) == "table" and Store().ridingCost or {}
+	for _, riding in ipairs(RIDING) do
+		local cost = tonumber(seen[riding.id]) or riding.cost
+		Add(catalog.spells, { kind = "riding", id = riding.id, key = riding.id, cost = cost, level = riding.level, requiredIds = riding.requires })
 	end
 	-- Warlock grimoires.
 	if classToken == "WARLOCK" and D.warlockTomes then
@@ -361,10 +377,14 @@ local function KnownByLaterRank(id)
 	return false
 end
 
+local function KnowsSpell(id)
+	return SpellKnown(id) or KnownByLaterRank(id)
+end
+
 local function IsKnown(entry)
 	if entry.kind == "tome" then return Store().petLearned[entry.key] == true end
 	if entry.kind == "pet" and Store().petLearned[entry.id] then return true end
-	return SpellKnown(entry.id) or KnownByLaterRank(entry.id)
+	return KnowsSpell(entry.id)
 end
 
 local function IsIgnored(entry)
@@ -408,7 +428,7 @@ local function TrainingFactions(entry)
 			end
 		end
 		return list
-	elseif entry.kind == "tome" then
+	elseif entry.kind == "tome" or entry.kind == "riding" then
 		return {}
 	end
 	local role = roles[entry.kind == "pet" and "PET" or classToken]
@@ -433,6 +453,7 @@ end
 -- Sorting into groups
 ---------------------------------------------------------------------------
 local view = { spells = {}, weapons = {}, totals = {} }
+local frame
 E.Training = M
 
 -- Read-only counts for other pages (the journal's Today and level-up page):
@@ -444,6 +465,7 @@ function M:Totals()
 end
 local filter = ""
 local playerLevel = 1
+local watchedSpells = {}
 
 -- Sorts an entry into its group. Upcoming entries more than `soon` levels
 -- away are marked `far`: they show while "All later levels" is on.
@@ -463,12 +485,12 @@ local function Classify(entry, level, soon)
 		if entry.level > level + soon then return Upcoming() end
 		return "pet"
 	end
-	if entry.requiredTalentId and not (SpellKnown(entry.requiredTalentId) or KnownByLaterRank(entry.requiredTalentId)) then
+	if entry.requiredTalentId and not KnowsSpell(entry.requiredTalentId) then
 		return "talent"
 	end
 	if entry.level > level then return Upcoming() end
 	for _, id in ipairs(entry.requiredIds or {}) do
-		if not (SpellKnown(id) or KnownByLaterRank(id)) then return "missing" end
+		if not KnowsSpell(id) then return "missing" end
 	end
 	return "available"
 end
@@ -491,6 +513,32 @@ local function ByWeapon(a, b)
 	return ByLevel(a, b)
 end
 
+local function WatchSpell(id)
+	if watchedSpells[id] == nil then watchedSpells[id] = KnowsSpell(id) end
+end
+
+-- Learnable spells and the prerequisites that can change their groups.
+-- Weapon skills can change when the skill lines change, too.
+local function WatchEntry(entry, category)
+	if entry.requiredTalentId then
+		WatchSpell(entry.requiredTalentId)
+		WatchSpell(entry.id)
+	end
+	if category == "available" or category == "missing" or category == "ignored"
+		or (entry.kind == "weapon" and category == "known") then
+		if entry.kind == "tome" then return end
+		watchedSpells[entry.id] = category == "known"
+		for _, id in ipairs(entry.requiredIds or {}) do WatchSpell(id) end
+	end
+end
+
+local function SpellbookChanged()
+	for id, known in pairs(watchedSpells) do
+		if KnowsSpell(id) ~= known then return true end
+	end
+	return false
+end
+
 -- Groups for one tab: { def, entries = { entry, ... } } with names filled.
 local function Group(list, defs, level, soon, weapons)
 	local groups, index = {}, {}
@@ -505,6 +553,7 @@ local function Group(list, defs, level, soon, weapons)
 			entry.name, entry.rank, entry.icon = name, rank, icon
 			entry.search = (name .. " " .. (rank or "")):lower()
 			entry.category = Classify(entry, level, soon)
+			WatchEntry(entry, entry.category)
 			local group = index[entry.category]
 			if group then group.entries[#group.entries + 1] = entry end
 		end
@@ -516,21 +565,15 @@ local function Group(list, defs, level, soon, weapons)
 	return groups
 end
 
-function M:Rebuild(level)
-	if not self.active then return end
-	catalog = Catalog()
-	playerLevel = level or UnitLevel("player") or 1
-	if IsSecret(playerLevel) then playerLevel = 1 end
-	local soon = self.db.soonLevels or 2
-	view.spells = Group(catalog.spells, CATEGORIES.spells, playerLevel, soon, false)
-	view.weapons = Group(catalog.weapons, CATEGORIES.weapons, playerLevel, soon, true)
-	view.pets = self:BuildPets()
-	self.petView = view.pets -- tests and diagnostics
+local function UpdateTotals()
 	-- Totals for the info bar and the footer: class spells you can learn now.
 	local count, cost = 0, 0
+	-- Riding is a riding trainer's, not the class trainer's.
 	for _, entry in ipairs(view.spells[1].entries) do
-		count = count + 1
-		cost = cost + Price(entry)
+		if entry.kind ~= "riding" then
+			count = count + 1
+			cost = cost + Price(entry)
+		end
 	end
 	local weaponCount, weaponCost = 0, 0
 	for _, entry in ipairs(view.weapons[1].entries) do
@@ -544,6 +587,20 @@ function M:Rebuild(level)
 	end
 	view.totals = { count = count, cost = cost, weaponCount = weaponCount, weaponCost = weaponCost,
 		soon = soonCount }
+end
+
+function M:Rebuild(level)
+	if not self.active then return end
+	catalog = Catalog()
+	playerLevel = level or UnitLevel("player") or 1
+	if IsSecret(playerLevel) then playerLevel = 1 end
+	local soon = self.db.soonLevels or 2
+	wipe(watchedSpells)
+	view.spells = Group(catalog.spells, CATEGORIES.spells, playerLevel, soon, false)
+	view.weapons = Group(catalog.weapons, CATEGORIES.weapons, playerLevel, soon, true)
+	view.pets = self:BuildPets()
+	self.petView = view.pets -- tests and diagnostics
+	UpdateTotals()
 	self:Render()
 	self:RefreshDataText()
 end
@@ -579,25 +636,36 @@ function M:BuildPets()
 	return built
 end
 
--- Many events come in bursts (SPELLS_CHANGED, the load results): one
--- rebuild a moment later covers them all.
-function M:QueueRebuild(level)
-	if not self.active then return end
-	if level then self.pendingLevel = level end
-	if self.rebuildQueued then return end
-	self.rebuildQueued = true
-	C_Timer.After(0.3, function()
-		self.rebuildQueued = false
-		-- Forms and stances fire SPELLS_CHANGED in combat; nothing here is
-		-- needed then, so the list catches up when combat ends.
-		if InCombatLockdown() then
-			self.rebuildAfterCombat = true
+-- Wait for bursts of events to settle. A rebuild also prices and paints the
+-- current groups, so it covers any narrower updates queued alongside it.
+local updates, updateTimer = {}, nil
+local function ScheduleUpdate()
+	if updateTimer or InCombatLockdown() then return end
+	updateTimer = C_Timer.NewTimer(0.3, function()
+		updateTimer = nil
+		if InCombatLockdown() then return end
+		local due = updates
+		updates = {}
+		if due.rebuild or (due.spellbook and SpellbookChanged()) then
+			M:Rebuild(type(due.rebuild) == "number" and due.rebuild or nil)
 			return
 		end
-		local pending = self.pendingLevel
-		self.pendingLevel = nil
-		self:Rebuild(pending)
+		if due.prices then
+			UpdateTotals()
+			M:RefreshDataText()
+		end
+		if (due.prices or due.money) and frame and frame:IsVisible() then M:Render() end
 	end)
+end
+
+local function QueueUpdate(kind, value)
+	if not M.active then return end
+	updates[kind] = value or updates[kind] or true
+	ScheduleUpdate()
+end
+
+function M:QueueRebuild(level)
+	QueueUpdate("rebuild", level)
 end
 
 -- The lines above the Pet abilities list: the pet that is out, its
@@ -823,10 +891,14 @@ function M:SpellsAt(level)
 	if not (self.active and type(level) == "number") then return out end
 	catalog = Catalog()
 	for _, entry in ipairs(catalog.spells) do
-		if entry.level == level and entry.kind == "spell" and not entry.quest and not IsKnown(entry) and not IsIgnored(entry) then
+		if entry.level == level and (entry.kind == "spell" or entry.kind == "riding") and not entry.quest and not IsKnown(entry) and not IsIgnored(entry) then
 			local name, rank, icon = Describe(entry)
 			if name then
-				out[#out + 1] = { entry = entry, name = name, rank = rank, icon = icon, cost = Price(entry), talent = entry.requiredTalentId }
+				local talent = entry.requiredTalentId
+				-- talentKnown: the trainer teaches this rank now (no talent
+				-- needed, or the player has that talent).
+				out[#out + 1] = { entry = entry, name = name, rank = rank, icon = icon, cost = Price(entry), talent = talent,
+					talentKnown = not talent or SpellKnown(talent) or KnownByLaterRank(talent) or false }
 			end
 		end
 	end
@@ -834,6 +906,50 @@ function M:SpellsAt(level)
 		if a.name ~= b.name then return a.name < b.name end
 		return tostring(a.entry.key) < tostring(b.entry.key)
 	end)
+	return out
+end
+
+-- What your class trainer has for you at `level` (default yours): { count,
+-- cost, next }, next being the lowest higher level where a spell or rank
+-- opens. Ignored spells and class quest rewards do not count; a rank that
+-- needs a talent or an earlier rank you lack waits. Read only.
+function M:TrainerSummary(level)
+	local out = { count = 0, cost = 0 }
+	if not tonumber(level) then
+		level = UnitLevel("player")
+		if IsSecret(level) then level = nil end
+	end
+	if not (self.active and type(level) == "number") then return out end
+	for _, entry in ipairs(Catalog().spells) do
+		if entry.kind == "spell" and not entry.quest and not IsKnown(entry) and not IsIgnored(entry) then
+			if entry.level > level then
+				if not out.next or entry.level < out.next then out.next = entry.level end
+			elseif Classify(entry, level, 0) == "available" then
+				out.count = out.count + 1
+				out.cost = out.cost + (Price(entry) or 0)
+			end
+		end
+	end
+	return out
+end
+
+-- The weapon skills weapon master `npc` teaches that you can learn now and
+-- do not know yet: { name, ... } in the game's names, sorted.
+function M:WeaponsFrom(npc)
+	local out = {}
+	local level = UnitLevel("player")
+	if IsSecret(level) then level = nil end
+	if not (self.active and type(npc) == "number" and type(level) == "number") then return out end
+	for _, entry in ipairs(Catalog().weapons) do
+		for _, trainer in ipairs(entry.trainers or {}) do
+			if trainer.npc == npc then
+				local name = entry.level <= level and not IsKnown(entry) and not IsIgnored(entry) and Describe(entry)
+				if name then out[#out + 1] = name end
+				break
+			end
+		end
+	end
+	table.sort(out)
 	return out
 end
 
@@ -858,6 +974,45 @@ local function TeachesYou(title, portal)
 	local word = CLASS_WORDS[token or ""]
 	if not word or title:find(PORTAL_WORD, 1, true) then return false end
 	return title:find(word, 1, true) ~= nil or (type(className) == "string" and not IsSecret(className) and title:find(className, 1, true) ~= nil)
+end
+M.TeachesYou = TeachesYou
+
+-- The riding ranks as the last rebuild sorted them (read only):
+-- { { entry with id, level, cost, category }, ... }.
+function M:RidingRanks()
+	local out = {}
+	for _, entry in ipairs(Catalog().spells) do
+		if entry.kind == "riding" then out[#out + 1] = entry end
+	end
+	table.sort(out, function(x, y) return x.level < y.level end)
+	return out
+end
+
+-- A riding trainer's list: the cost it asks for each riding rank is kept
+-- and replaces the fallback.
+function M.ReadRidingCosts()
+	local count = Try(GetNumTrainerServices)
+	if type(count) ~= "number" or count <= 0 then return false end
+	local names = {}
+	for _, riding in ipairs(RIDING) do
+		local spell = SpellData(riding.id)
+		if spell and spell.name then names[spell.name] = riding.id end
+	end
+	local store, found = Store(), false
+	store.ridingCost = type(store.ridingCost) == "table" and store.ridingCost or {}
+	for index = 1, count do
+		local name = Try(GetTrainerServiceInfo, index)
+		local id = type(name) == "string" and not IsSecret(name) and names[name]
+		if id then
+			local cost = Try(GetTrainerServiceCost, index)
+			if type(cost) == "number" and not IsSecret(cost) and cost > 0 then
+				if store.ridingCost[id] ~= cost then found = true end
+				store.ridingCost[id] = cost
+			end
+		end
+	end
+	if found then catalog = nil end
+	return found
 end
 
 -- Opening a class trainer outside an instance keeps where it stands.
@@ -938,14 +1093,96 @@ end
 ---------------------------------------------------------------------------
 local function KnownRankText(entry)
 	if entry.kind ~= "spell" or entry.category == "known" or not entry.name then return nil end
-	local bestRank, bestNumber
+	local bestRank, bestNumber, compareID, compareNumber
+	local rankNumber = tonumber((entry.rank or ""):match("%d+"))
 	for _, other in ipairs(catalog.spells) do
-		if other ~= entry and other.name == entry.name and other.category == "known" then
-			local number = tonumber((other.rank or ""):match("%d+")) or other.level
+		if other ~= entry and other.kind == "spell" and other.name == entry.name and other.category == "known" then
+			local otherRank = tonumber((other.rank or ""):match("%d+"))
+			local number = otherRank or other.level
 			if not bestNumber or number > bestNumber then bestRank, bestNumber = other.rank, number end
+			if rankNumber and otherRank and otherRank < rankNumber and (not compareNumber or otherRank > compareNumber)
+				and SpellKnown(other.id) then
+				compareID, compareNumber = other.id, otherRank
+			end
 		end
 	end
-	return bestRank
+	return bestRank, compareID
+end
+
+local compareTip, compareOwner, compareEntry, compareID
+local compareHooks = setmetatable({}, { __mode = "k" })
+
+local function StopComparing()
+	if not compareOwner then return end
+	compareOwner, compareEntry, compareID = nil, nil, nil
+	M:UnregisterEvent("MODIFIER_STATE_CHANGED")
+	if compareTip then compareTip:Hide() end
+end
+
+local function PositionCompareTip(tooltip, main)
+	local ratio = UIParent:GetEffectiveScale() / main:GetEffectiveScale()
+	local width = tooltip:GetWidth()
+	local right, left = E.PlainCall(main.GetRight, main), E.PlainCall(main.GetLeft, main)
+	local gap = 8
+	tooltip:ClearAllPoints()
+	if right and left then
+		local screenRight = (UIParent:GetRight() or UIParent:GetWidth()) * ratio
+		local screenLeft = (UIParent:GetLeft() or 0) * ratio
+		-- The tooltip remains outside the main tooltip even when both are wide.
+		if right + gap + width > screenRight and left - screenLeft > screenRight - right then
+			tooltip:SetPoint("TOPRIGHT", main, "TOPLEFT", -gap, 0)
+			return
+		end
+	end
+	tooltip:SetPoint("TOPLEFT", main, "TOPRIGHT", gap, 0)
+end
+
+function M:OwnsRowTooltip(tooltip)
+	return compareOwner ~= nil and tooltip == GameTooltip and tooltip:IsOwned(compareOwner)
+end
+
+local function UpdateCompareTooltip()
+	if not compareOwner then return end
+	local main = GameTooltip
+	if not main or E.FrameCheck(main, "IsForbidden") or not main:IsShown() or not M:OwnsRowTooltip(main) or not SpellKnown(compareID) then
+		StopComparing()
+		return
+	end
+	if E.PlainCall(IsModifiedClick, "COMPAREITEMS") ~= true then
+		if compareTip then compareTip:Hide() end
+		return
+	end
+	if not compareTip then
+		compareTip = CreateFrame("GameTooltip", "EldoUI_TrainingCompareTooltip", UIParent, "GameTooltipTemplate")
+		compareTip:EnableMouse(false)
+		compareTip:SetClampedToScreen(false)
+		local panel = CreateFrame("Frame", nil, compareTip)
+		panel:SetAllPoints(compareTip)
+		panel:SetFrameLevel(max(compareTip:GetFrameLevel() - 1, 0))
+		E:SetPanelTemplate(panel)
+		compareTip:Hide()
+	end
+	if compareTip:IsShown() then return end
+	compareTip:SetScale(main:GetEffectiveScale() / UIParent:GetEffectiveScale())
+	compareTip:SetOwner(compareOwner, "ANCHOR_NONE")
+	compareTip:ClearAllPoints()
+	compareTip:SetPoint("TOPLEFT", main, "TOPRIGHT", 8, 0)
+	-- Keep the spell's rank subtitle and request its exact ID.
+	if E.PlainCall(compareTip.SetSpellByID, compareTip, compareID, false, true, true) ~= true then
+		compareTip:Hide()
+		return
+	end
+	if compareTip.NineSlice then compareTip.NineSlice:SetAlpha(0) end
+	E.UIKit.TipText(compareTip, L["Currently known"])
+	compareTip:Show()
+	PositionCompareTip(compareTip, main)
+end
+
+local function CompareKey()
+	if type(IsModifiedClick) ~= "function" then return end
+	local key = E.PlainCall(GetModifiedClick, "COMPAREITEMS")
+	if type(key) ~= "string" or key == "" or key == "NONE" then return end
+	return E.PlainCall(GetBindingText, key, "KEY_") or key
 end
 
 local function AddPriceLines(tooltip, entry)
@@ -1044,6 +1281,7 @@ end
 
 function M:ShowTooltip(owner, row)
 	if not GameTooltip or E.FrameCheck(GameTooltip, "IsForbidden") or not row then return end
+	StopComparing()
 	if row.info then
 		if not (row.toggle or row.load) then return end
 		GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
@@ -1072,7 +1310,7 @@ function M:ShowTooltip(owner, row)
 	if entry.kind == "tome" then
 		Try(GameTooltip.SetItemByID, GameTooltip, entry.itemId)
 	else
-		Try(GameTooltip.SetSpellByID, GameTooltip, entry.id)
+		Try(GameTooltip.SetSpellByID, GameTooltip, entry.id, false, true, true)
 	end
 	GameTooltip:AddLine(" ")
 	local def = row.def
@@ -1101,12 +1339,14 @@ function M:ShowTooltip(owner, row)
 		for index = 2, #areas do where = L["%s or %s"]:format(where, areas[index]) end
 		GameTooltip:AddLine(QUEST_MARK .. " " .. L["From a class quest in %s"]:format(where), E:TokenColor("gold"))
 	end
-	local knownRank = KnownRankText(entry)
+	local knownRank, knownID = KnownRankText(entry)
 	if knownRank then E.UIKit.TipPair(GameTooltip, L["You know"], knownRank) end
 	if entry.kind == "tome" then
 		E.UIKit.TipText(GameTooltip, L["For your %s. Sold by the demon trainer's vendor."]:format(FamilyName(entry.family)))
 	elseif entry.kind == "pet" then
 		E.UIKit.TipText(GameTooltip, L["Your pet learns it from the pet trainer. EldoUI notes what you know when you open Beast Training."])
+	elseif entry.kind == "riding" then
+		E.UIKit.TipText(GameTooltip, L["A riding trainer teaches it, next to the mount vendor of each race. The cost is the one a trainer asked, once you have opened one."])
 	elseif entry.kind == "weapon" then
 		for _, trainer in ipairs(entry.trainers) do
 			GameTooltip:AddDoubleLine(MasterName(trainer), AreaName(trainer.zone), 1, 1, 1, 0.8, 0.8, 0.85)
@@ -1121,11 +1361,26 @@ function M:ShowTooltip(owner, row)
 		E:TooltipHint(GameTooltip, { L["Right-click"], IsIgnored(entry) and L["stop ignoring"] or L["ignore"] },
 			{ L["Ctrl-right-click"], IsIgnored(entry) and L["stop ignoring every rank"] or L["ignore every rank"] })
 	end
+	local key = knownID and CompareKey()
+	if key then E.UIKit.TipText(GameTooltip, L["Hold %s to compare with the rank you know"]:format(key)) end
 	GameTooltip:Show()
+	if key and GameTooltip:IsShown() and GameTooltip:IsOwned(owner) then
+		if not compareHooks[GameTooltip] then
+			compareHooks[GameTooltip] = true
+			GameTooltip:HookScript("OnHide", StopComparing)
+			GameTooltip:HookScript("OnTooltipCleared", StopComparing)
+		end
+		compareOwner, compareEntry, compareID = owner, entry, knownID
+		self:RegisterEvent("MODIFIER_STATE_CHANGED", UpdateCompareTooltip)
+		UpdateCompareTooltip()
+	end
 end
 
-local function HideTooltip()
-	if GameTooltip and not E.FrameCheck(GameTooltip, "IsForbidden") then GameTooltip:Hide() end
+local function HideTooltip(owner)
+	if not owner or compareOwner == owner then StopComparing() end
+	if GameTooltip and not E.FrameCheck(GameTooltip, "IsForbidden") and (not owner or GameTooltip:IsOwned(owner)) then
+		GameTooltip:Hide()
+	end
 end
 
 local function Link(entry)
@@ -1180,7 +1435,6 @@ end
 ---------------------------------------------------------------------------
 -- The window
 ---------------------------------------------------------------------------
-local frame
 
 local function Text(parent, size, justify)
 	return E:CreateText(parent, size, justify)
@@ -1348,10 +1602,11 @@ local function FillRow(row, data, db, index, money)
 			-- The level you still need, in red.
 			hex = Hex(G("RED_FONT_COLOR"), E:TextHex("bad"))
 		else
-			local color = GetQuestDifficultyColor and GetQuestDifficultyColor(entry.level)
+			local color = GetQuestDifficultyColor and E:DifficultyColor(GetQuestDifficultyColor(entry.level))
 			hex = type(color) == "table" and color.r and ("|cff%02x%02x%02x"):format(color.r * 255, color.g * 255, color.b * 255) or "|cffffffff"
 		end
-		row.level:SetText(hex .. (G("LEVEL_ABBR") or L["Lvl"]) .. " " .. entry.level .. "|r")
+		local mark = E:LevelMark(entry.level)
+		row.level:SetText(hex .. (G("LEVEL_ABBR") or L["Lvl"]) .. " " .. entry.level .. "|r" .. (mark ~= "" and (" " .. mark) or ""))
 	else
 		row.level:SetText("")
 	end
@@ -1395,6 +1650,9 @@ function M:Render()
 	local money = GetMoney()
 	for index, row in ipairs(frame.rows) do
 		local data = index <= visible and rows[index + frame.offset]
+		if row == compareOwner and (not data or data.entry ~= compareEntry or data.entry.category == "known" or not SpellKnown(compareID)) then
+			HideTooltip(row)
+		end
 		if data then
 			FillRow(row, data, db, index + frame.offset, money)
 			row:Show()
@@ -2209,7 +2467,7 @@ end
 -- taught spell. Succubus and Incubus share grimoires, so those need to
 -- know which of the two you summoned.
 local function CheckDemon()
-	if classToken ~= "WARLOCK" or not catalog or not UnitExists("pet") then return end
+	if not M.active or classToken ~= "WARLOCK" or not catalog or not UnitExists("pet") then return end
 	local bank = Bank("Pet")
 	if not (bank and C_SpellBook and C_SpellBook.IsSpellInSpellBook) then return end
 	local store, changed = Store(), false
@@ -2265,7 +2523,7 @@ end
 local EVENTS = {
 	"PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "LEARNED_SPELL_IN_SKILL_LINE", "SPELLS_CHANGED",
 	"SKILL_LINES_CHANGED", "UPDATE_FACTION", "PLAYER_MONEY", "SPELL_DATA_LOAD_RESULT", "ITEM_DATA_LOAD_RESULT",
-	"TRAINER_SHOW", "TRAINER_UPDATE", "CHAT_MSG_SYSTEM", "PLAYER_REGEN_ENABLED",
+	"TRAINER_SHOW", "TRAINER_UPDATE", "CHAT_MSG_SYSTEM", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE",
 }
 
 local function OnEvent(_, event, ...)
@@ -2274,15 +2532,14 @@ local function OnEvent(_, event, ...)
 		local level = ...
 		M:QueueRebuild(type(level) == "number" and not IsSecret(level) and level or nil)
 	elseif event == "PLAYER_MONEY" then
-		M:Render()
+		if frame and frame:IsVisible() then QueueUpdate("money") end
 	elseif event == "PLAYER_REGEN_ENABLED" then
-		if M.rebuildAfterCombat then
-			M.rebuildAfterCombat = false
-			M:QueueRebuild()
-		end
+		if next(updates) then ScheduleUpdate() end
+	elseif event == "SPELLS_CHANGED" or event == "SKILL_LINES_CHANGED" or event == "PLAYER_TALENT_UPDATE" then
+		QueueUpdate("spellbook")
 	elseif event == "UPDATE_FACTION" then
 		wipe(reputations)
-		M:QueueRebuild()
+		QueueUpdate("prices")
 	elseif event == "SPELL_DATA_LOAD_RESULT" then
 		local id = ...
 		if pendingSpells[id] then
@@ -2298,11 +2555,13 @@ local function OnEvent(_, event, ...)
 	elseif event == "TRAINER_SHOW" or event == "TRAINER_UPDATE" then
 		ScanPetTrainer()
 		if event == "TRAINER_SHOW" then RememberTrainer() end
+		if M.ReadRidingCosts() then M:QueueRebuild() end
 	elseif event == "CHAT_MSG_SYSTEM" then
 		LearnedFromChat(...)
 	elseif event == "PLAYER_ENTERING_WORLD" then
-		C_Timer.After(1, CheckDemon)
-		M:QueueRebuild()
+		local initialLogin, reloading = ...
+		if classToken == "WARLOCK" then C_Timer.After(1, CheckDemon) end
+		if initialLogin or reloading then M:QueueRebuild() end
 	else
 		M:QueueRebuild()
 	end
@@ -2322,6 +2581,10 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	if updateTimer then updateTimer:Cancel() end
+	updateTimer = nil
+	wipe(updates)
+	StopComparing()
 	for _, event in ipairs(EVENTS) do self:UnregisterEvent(event) end
 	UnitEvents(false)
 	self:RestoreSpellbook()
@@ -2351,7 +2614,7 @@ end
 local function Look(extra)
 	local list = {
 		{ type = "range", key = "fontSize", label = "Text size", min = 9, max = 16, step = 1, desc = "Size of the spell names; levels and costs are one size smaller." },
-		{ type = "range", key = "rowHeight", label = "Row height", min = 14, max = 28, step = 1, desc = "Height of each line in the list." },
+		{ type = "range", unit = "px", key = "rowHeight", label = "Row height", min = 14, max = 28, step = 1, desc = "Height of each line in the list." },
 		{ type = "toggle", key = "showIcons", label = "Spell icons", desc = "Shows each spell's icon in front of its name." },
 		{ type = "toggle", key = "stripes", label = "Striped rows", desc = "Tints every other row a little, to follow a line across." },
 		{ type = "toggle", key = "semanticHeaders", label = "Colored group titles", desc = "Group titles in the game's colors: green for available now, blue for upcoming, gray for known. Off uses your accent color." },
@@ -2386,8 +2649,8 @@ M.options = {
 	{ type = "toggle", key = "slashWT", label = "/wt command", desc = "Also opens the window with /wt, unless another addon uses /wt.", reload = true },
 	{ type = "toggle", key = "compartment", label = "Addon menu entry", desc = "An entry in the addon compartment menu by the minimap that opens the window.", reload = true },
 	{ type = "header", label = "Look" },
-	{ type = "range", key = "width", label = "Width", min = 300, max = 640, step = 10, desc = "Width of the window when it stands alone." },
-	{ type = "range", key = "height", label = "Height", min = 300, max = 900, step = 10, desc = "Height of the window when it stands alone." },
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 300, max = 640, step = 10, desc = "Width of the window when it stands alone." },
+	{ type = "range", unit = "px", key = "height", label = "Height", min = 300, max = 900, step = 10, desc = "Height of the window when it stands alone." },
 	{ type = "cog", label = "More look settings", desc = "Text size, row height, icons, stripes, group title colors and see-through. Drag the window's corner grip to change its size; Ctrl+mouse wheel on the title bar zooms it.", options = Look({}) },
 }
 

@@ -260,6 +260,7 @@ end
 -- Ticket boxes that already restack the toast, kept per box, so a ticket
 -- box the game makes again gets its own hooks.
 local hookedTickets = setmetatable({}, { __mode = "k" })
+local hookedShard = setmetatable({}, { __mode = "k" })
 
 local function ApplyAlerts(state)
 	Hook()
@@ -305,12 +306,34 @@ local function ApplyAlerts(state)
 				ticket:HookScript("OnHide", Restack)
 			end
 		end
+		-- The game's "moving you to another layer" box (its countdown,
+		-- minimize button and click stay the game's) joins the same spot,
+		-- above an open toast or ticket box, instead of floating where the
+		-- default chat used to be.
+		local shard = E:SkinUsable(_G.ShardTransferImminentFrame) and _G.ShardTransferImminentFrame or nil
+		if shard then
+			U.Pin(shard, social, "BOTTOMLEFT", "BOTTOMLEFT", 0, 0, BannersMoved, function()
+				if toast and toast:IsShown() and U.IsPinned(toast) then return "BOTTOMLEFT", toast, "TOPLEFT", 0, 8 end
+				if ticket and ticket:IsShown() and U.IsPinned(ticket) then return "BOTTOMLEFT", ticket, "TOPLEFT", 0, 8 end
+			end)
+			for _, below in ipairs({ toast, ticket }) do
+				if below and not hookedShard[below] then
+					hookedShard[below] = true
+					local function Restack()
+						if U.IsPinned(_G.ShardTransferImminentFrame) then E.BlizzardKeep.ApplyPin(_G.ShardTransferImminentFrame) end
+					end
+					below:HookScript("OnShow", Restack)
+					below:HookScript("OnHide", Restack)
+				end
+			end
+		end
 	else
 		U.Unpin(AlertFrame)
 		U.Unpin(EventToastManagerFrame)
 		U.Unpin(BossBanner)
 		U.Unpin(_G.BNToastFrame)
 		U.Unpin(_G.TicketStatusFrame)
+		U.Unpin(_G.ShardTransferImminentFrame)
 		U.RestoreScale(_G.TicketStatusFrame)
 		U.RestoreScale(EventToastManagerFrame)
 		U.RestoreScale(BossBanner)
@@ -340,6 +363,7 @@ local function RestoreAlerts()
 	U.Unpin(BossBanner)
 	U.Unpin(_G.BNToastFrame)
 	U.Unpin(_G.TicketStatusFrame)
+	U.Unpin(_G.ShardTransferImminentFrame)
 	U.RestoreScale(_G.TicketStatusFrame)
 	U.RestoreScale(EventToastManagerFrame)
 	U.RestoreScale(BossBanner)
@@ -527,24 +551,43 @@ end
 
 -- A toast is one row (icon, title, text, sub line); a toast with `lines`
 -- (the level-up toast's new spells) grows a list below that row.
+-- The row is as tall as the icon or the three lines of text, whichever
+-- needs more: Icon size and Text size are separate settings, and the
+-- title, text and sub line never overlap.
+function M.ToastHead(lane)
+	local small = math.max(lane.fontSize - 2, 9)
+	return math.max(lane.iconSize + 12, 2 * small + lane.fontSize + 12)
+end
+
 local function ToastSize(toast)
 	local lane = M.db.alerts.lane
-	local head = lane.iconSize + 12
+	local head = M.ToastHead(lane)
+	local px = E.pixel
 	-- The width comes first: the list wraps to it before the height is known.
 	toast:SetSize(lane.width, head)
 	toast.icon:SetSize(lane.iconSize, lane.iconSize)
-	toast.iconBorder:SetSize(lane.iconSize + 2 * E.pixel, lane.iconSize + 2 * E.pixel)
+	toast.iconBorder:SetSize(lane.iconSize + 2 * px, lane.iconSize + 2 * px)
+	-- The icon in the middle of the row; the lines from the row's edges.
+	toast.iconBorder:ClearAllPoints()
+	toast.iconBorder:SetPoint("TOPLEFT", 6 - px, -(6 - px) - math.floor((head - 12 - lane.iconSize) / 2))
 	E:SetFont(toast.title, math.max(lane.fontSize - 2, 9))
 	E:SetFont(toast.text, lane.fontSize)
 	E:SetFont(toast.sub, math.max(lane.fontSize - 2, 9))
 	E:SetFont(toast.list, math.max(lane.fontSize - 2, 9))
+	local x = lane.iconSize + 14 + px
+	toast.title:ClearAllPoints()
+	toast.title:SetPoint("TOPLEFT", toast, "TOPLEFT", x, -(7 - px))
+	toast.title:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -8, -(7 - px))
+	toast.text:ClearAllPoints()
+	toast.text:SetPoint("LEFT", toast, "TOPLEFT", x, -head / 2)
+	toast.text:SetPoint("RIGHT", toast, "TOPRIGHT", -8, -head / 2)
 	toast.sub:ClearAllPoints()
-	toast.sub:SetPoint("BOTTOMLEFT", toast.iconBorder, "BOTTOMRIGHT", 8, 1)
-	toast.sub:SetPoint("BOTTOMRIGHT", toast, "TOPRIGHT", -8, -(head - 7 + E.pixel))
+	toast.sub:SetPoint("BOTTOMLEFT", toast, "TOPLEFT", x, -(head - 7 + px))
+	toast.sub:SetPoint("BOTTOMRIGHT", toast, "TOPRIGHT", -8, -(head - 7 + px))
 	local lines = toast.data and toast.data.lines
 	if type(lines) == "table" and #lines > 0 then
 		toast.list:ClearAllPoints()
-		toast.list:SetPoint("TOPLEFT", toast.iconBorder, "BOTTOMLEFT", 0, -6)
+		toast.list:SetPoint("TOPLEFT", toast, "TOPLEFT", 6, -(head + px))
 		toast.list:SetPoint("TOPRIGHT", toast, "TOPRIGHT", -8, -(head + E.pixel))
 		toast.list:SetText(table.concat(lines, "|n"))
 		toast.list:Show()
@@ -620,7 +663,15 @@ local function CreateToast()
 		local data = self.data
 		if not data then return end
 		E.UIKit.AnchorTooltip(self)
-		if data.link then GameTooltip:SetHyperlink(data.link) end
+		if data.link then
+			GameTooltip:SetHyperlink(data.link)
+		elseif self.title:IsTruncated() or self.text:IsTruncated() or self.sub:IsTruncated() then
+			-- A name too long for the toast: the whole of it here.
+			local r, g, b = unpack(E.media.accentColor)
+			if U.Safe(data.title) then GameTooltip:AddLine(data.title, r, g, b) end
+			if U.Safe(data.text) then E.UIKit.TipTitle(GameTooltip, data.text, true) end
+			if U.Safe(data.sub) then GameTooltip:AddLine(data.sub, nil, nil, nil, true) end
+		end
 		E:TooltipHint(GameTooltip, data.onClick and { L["Click"], data.clickHint or L["open it"] } or nil,
 			{ L["Right-click"], L["close it"] })
 		GameTooltip:Show()
@@ -651,12 +702,25 @@ local function FillToast(toast, data)
 	if border then toast.iconBorder:SetBackdropBorderColor(border[1], border[2], border[3]) else toast.iconBorder:SetBackdropBorderColor(unpack(E.media.borderColor)) end
 end
 
+-- A list wraps to the toast's width only once the toast has its place, so
+-- a toast with lines is measured again then, and once more on the next
+-- frame when the text has settled; the card always holds its whole list.
+local function Remeasure(toast, data)
+	if toast.data ~= data or toast.closing then return end
+	ToastSize(toast)
+	M:LayoutLane()
+end
+
 local function ShowToast(data)
 	local toast = table.remove(pool) or CreateToast()
 	toast.closing = nil
 	FillToast(toast, data)
 	table.insert(toasts, toast)
 	M:LayoutLane()
+	if type(data.lines) == "table" and #data.lines > 0 then
+		Remeasure(toast, data)
+		C_Timer.After(0, function() Remeasure(toast, data) end)
+	end
 	E:SlideIn(toast, M.db.alerts.growth == "DOWN" and "UP" or "DOWN")
 	M:PlayLaneSound()
 	return toast
@@ -766,8 +830,14 @@ function M:LevelSpells(level)
 	local T = E.Training
 	if not (self.db.alerts.lane.levelupSpells and T and T.active and type(T.SpellsAt) == "function") then return nil end
 	local ok, spells = pcall(T.SpellsAt, T, level)
-	if not ok or type(spells) ~= "table" or #spells == 0 then return nil end
-	return spells
+	if not ok or type(spells) ~= "table" then return nil end
+	-- Ranks of a talent the player doesn't have: the trainer won't teach them.
+	local teachable = {}
+	for _, spell in ipairs(spells) do
+		if not spell.talent or spell.talentKnown ~= false then teachable[#teachable + 1] = spell end
+	end
+	if #teachable == 0 then return nil end
+	return teachable
 end
 
 function M:AddLevelSpells(data, level)
@@ -785,6 +855,8 @@ function M:AddLevelSpells(data, level)
 	end
 	data.sub = M:LevelSpellsCount(spells)
 	data.lines = lines
+	-- A longer list stays up longer, so it can be read without hovering.
+	data.duration = (tonumber(self.db.alerts.lane.duration) or 5) + math.ceil(#lines * 0.75)
 	data.onClick = OpenSpellsToTrain
 	data.clickHint = L["open the spells to train"]
 	return data
@@ -887,8 +959,11 @@ M.tests.lane = function()
 		return
 	end
 	M:PushToast({ title = L["Achievement"], text = L["Test achievement"], sub = L["%d points"]:format(10), icon = E.media.icon })
-	-- The level-up sample shows your next level, with the spells it brings.
+	-- The level-up sample shows your next level, with the spells it brings;
+	-- at the level cap it shows the cap.
 	local level = (tonumber(U.Safe(UnitLevel("player"))) or 1) + 1
+	local cap = E.Characters and E.Characters.MaxLevel and E.Characters.MaxLevel() or 60
+	level = math.min(level, cap)
 	M:PushToast(M:AddLevelSpells({ title = L["Level up!"], text = L["Level %d"]:format(level), sub = UnitClass("player"), icon = E.media.icon }, level))
 	M:PushToast({ title = L["Quest complete"], text = L["A test quest"], sub = L["%s XP"]:format("1,250"), icon = E.media.icon })
 end

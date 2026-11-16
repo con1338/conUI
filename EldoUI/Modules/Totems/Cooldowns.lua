@@ -308,7 +308,10 @@ local function ShieldSlot(button, ids, size)
 	for _, id in ipairs(ids) do include[id] = true end
 	local settings = { size = size, duration = "SWIPE", durationSize = math.max(math.floor(size * 0.38), 9),
 		countSize = math.max(math.floor(size * 0.42), 10), tooltip = false }
-	return W.CreateSlots(button, { unit = "player", slots = { {
+	local sorted = { unpack(ids) }
+	table.sort(sorted)
+	return W.CreateSlots(button, { unit = "player", poolKey = ("shield:%s:%s:%s"):format(tostring(button:GetName() or button), size,
+		table.concat(sorted, ",")), slots = { {
 		key = "shield", filter = filter, candidateFilters = { includeSpellIDs = include },
 		initialize = W.SlotIcon(settings, function(aura)
 			aura:ClearAllPoints()

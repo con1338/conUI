@@ -19,6 +19,38 @@ local function WaypointsOff()
 	if not (waypoints and waypoints.active) then return E:ModuleOffNote("Waypoints") end
 end
 
+local function ChoiceRoot() return M:Choices() end
+
+local function GroupValues()
+	local out = {}
+	for quest in pairs(ChoiceRoot().groups) do
+		if type(quest) == "number" then out[quest] = M.QuestName(quest) or L["quest %d"]:format(quest) end
+	end
+	return out
+end
+
+local function GroupChoiceKey()
+	return "groups." .. tostring(ChoiceRoot().selectedGroup or 0)
+end
+
+local function GroupChoiceDisabled()
+	local quest = tonumber(ChoiceRoot().selectedGroup)
+	if not quest then return L["Choose a group quest first."] end
+	if not M:GroupChoiceCanChange(quest) then return L["The route has already passed this quest's choice."] end
+end
+
+local function DungeonOptions()
+	local rows, ids, names = {}, {}, M.Dungeons()
+	for id in pairs(names) do ids[#ids + 1] = id end
+	table.sort(ids, function(a, b) return names[a] < names[b] end)
+	for _, id in ipairs(ids) do
+		local title = names[id]
+		rows[#rows + 1] = { type = "toggle", key = "dungeons." .. id, root = ChoiceRoot,
+			label = function() return title end, desc = "Include this dungeon in this character's leveling guides." }
+	end
+	return rows
+end
+
 -- A change to the provider also reaches the guide spot while Eldostar is
 -- switched off (Automatic then hands the spot to the other guide).
 M.refreshWhenOff = function()
@@ -71,8 +103,22 @@ M.options = {
 	{ type = "header", label = "Steps" },
 	{ type = "toggle", key = "autoAdvance", label = "Move on by itself",
 		desc = "A step whose goals are all done moves on to the next one. Off: Next moves on." },
+	{ type = "toggle", key = "useDeathskips", label = "Use deathskips",
+		desc = "Follow deathskip goals in guides. Available for non-Hardcore characters.",
+		disabled = function() if M.Hardcore() == true then return L["Deathskips are disabled in Hardcore."] end end },
 	{ type = "toggle", key = "waypoint", label = "Waypoint to the goal", disabled = WaypointsOff,
 		desc = "The waypoint arrow points at the step's next goal: the place the guide gives, else the quest giver, the one you turn in to or the creature, from the Loot Guide's data." },
+	{ type = "header", label = "Group quest choices" },
+	{ type = "select", key = "policy", root = ChoiceRoot, label = "Group quests",
+		values = { ask = "Ask for each quest", ["do"] = "Do group quests", skip = "Skip group quests" },
+		order = { "ask", "do", "skip" }, desc = "Choose whether to ask before following group-quest steps." },
+	{ type = "select", key = "selectedGroup", root = ChoiceRoot, label = "Saved group quests", values = GroupValues,
+		desc = "Choose a saved group-quest answer to edit." },
+	{ type = "select", key = GroupChoiceKey, root = ChoiceRoot, label = "Group quest answer", disabled = GroupChoiceDisabled,
+		values = { ask = "Ask for each quest", ["do"] = "Do it with a group", skip = "Skip it" },
+		order = { "ask", "skip", "do" }, desc = "Choose this character's route for the selected group quest." },
+	{ type = "cog", label = "Dungeons in leveling guides", options = DungeonOptions(),
+		desc = "Choose which dungeons this character's guides include." },
 	{ type = "header", label = "Guide data" },
 	{ type = "description", label = function()
 		local lines = { M:DataStateText() }

@@ -583,23 +583,25 @@ end
 -- Tooltip on hover. `text` may be a function(tooltip) that fills it, and
 -- `hints` a list of click hints for Kit.TooltipHint:
 --   Kit.Tooltip(button, L["Icon"], L["What it is."], { { L["Click"], L["search an icon"] } })
+function Kit.ShowTooltip(frame)
+	if not frame.kitTipTitle and not frame.kitTipText and not frame.kitTipHints then return end
+	Kit.AnchorTooltip(frame)
+	Kit.TipTitle(GameTooltip, E:Translate(frame.kitTipTitle))
+	if type(frame.kitTipText) == "function" then
+		local ok, err = pcall(frame.kitTipText, GameTooltip)
+		if not ok then geterrorhandler()(err) end
+	else
+		Kit.TipText(GameTooltip, E:Translate(frame.kitTipText))
+	end
+	if type(frame.kitTipHints) == "table" then Kit.TooltipHint(GameTooltip, unpack(frame.kitTipHints)) end
+	GameTooltip:Show()
+end
+
 function Kit.Tooltip(frame, title, text, hints)
 	frame.kitTipTitle, frame.kitTipText, frame.kitTipHints = title, text, hints
 	if frame.kitTipHooked then return end
 	frame.kitTipHooked = true
-	frame:HookScript("OnEnter", function(self)
-		if not self.kitTipTitle and not self.kitTipText and not self.kitTipHints then return end
-		Kit.AnchorTooltip(self)
-		Kit.TipTitle(GameTooltip, E:Translate(self.kitTipTitle))
-		if type(self.kitTipText) == "function" then
-			local ok, err = pcall(self.kitTipText, GameTooltip)
-			if not ok then geterrorhandler()(err) end
-		else
-			Kit.TipText(GameTooltip, E:Translate(self.kitTipText))
-		end
-		if type(self.kitTipHints) == "table" then Kit.TooltipHint(GameTooltip, unpack(self.kitTipHints)) end
-		GameTooltip:Show()
-	end)
+	frame:HookScript("OnEnter", Kit.ShowTooltip)
 	frame:HookScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
@@ -632,12 +634,12 @@ Kit.MODIFIERS = {
 	alt = { down = function() return IsAltKeyDown() end, hint = function() return L["Alt-click"] end },
 }
 
-local function LinkTarget(frame)
+local function LinkTarget(frame, ...)
 	local link = optionLinks[frame]
 	if not link then return nil end
 	local target = link.target
 	if type(target) == "function" then
-		local ok, result = pcall(target, frame)
+		local ok, result = pcall(target, frame, ...)
 		if not ok then
 			geterrorhandler()(result)
 			return nil
@@ -653,26 +655,29 @@ local function IsSecureFrame(frame)
 	return E.FrameCheck(frame, "IsProtected")
 end
 
--- Does the frame take clicks? A click-through frame gets no hint.
+-- Does the frame take clicks? A click-through frame gets no hint, and so
+-- does one whose mouse state the game keeps secret.
 local function TakesClicks(frame)
-	if frame.IsMouseClickEnabled then return frame:IsMouseClickEnabled() and true or false end
-	return frame.IsMouseEnabled and frame:IsMouseEnabled() and true or false
+	local clicks = E.FrameMouse(frame, "IsMouseClickEnabled")
+	if clicks == nil then clicks = E.FrameMouse(frame, "IsMouseEnabled") end
+	return clicks == true
 end
 
 -- Mouse scripts turn the mouse on by themselves: hooking them must not
 -- make a click-through frame catch clicks, so its mouse state is put back.
+-- A state the game keeps secret is left as the game sets it.
 local function KeepMouse(frame)
 	if frame.IsMouseClickEnabled and frame.SetMouseClickEnabled then
-		local clicks = frame:IsMouseClickEnabled()
-		local motion = frame.IsMouseMotionEnabled and frame:IsMouseMotionEnabled()
+		local clicks = E.FrameMouse(frame, "IsMouseClickEnabled")
+		local motion = E.FrameMouse(frame, "IsMouseMotionEnabled")
 		return function()
-			frame:SetMouseClickEnabled(clicks and true or false)
-			if frame.SetMouseMotionEnabled then frame:SetMouseMotionEnabled(motion and true or false) end
+			if clicks ~= nil then frame:SetMouseClickEnabled(clicks) end
+			if motion ~= nil and frame.SetMouseMotionEnabled then frame:SetMouseMotionEnabled(motion) end
 		end
 	end
-	local enabled = frame.IsMouseEnabled and frame:IsMouseEnabled()
+	local enabled = E.FrameMouse(frame, "IsMouseEnabled")
 	return function()
-		if not enabled and frame.EnableMouse then frame:EnableMouse(false) end
+		if enabled == false and frame.EnableMouse then frame:EnableMouse(false) end
 	end
 end
 
@@ -732,8 +737,8 @@ end
 
 -- The link's click: the options window on its page and row (after combat
 -- when clicked in combat).
-function E:OpenOptionsLink(frame)
-	local target = LinkTarget(frame)
+function E:OpenOptionsLink(frame, ...)
+	local target = LinkTarget(frame, ...)
 	if not target or not self.OpenConfigFromLink then return false end
 	GameTooltip:Hide()
 	self:OpenConfigFromLink(target.page, target.key, target.tab)
@@ -951,6 +956,7 @@ function Kit.Button(parent, text, width, height, onClick, tipTitle, tipText)
 		Kit.RefitButton(self)
 	end)
 	Kit.RefitButton(button)
+	if onClick and not secure then Kit.CollectKeyControl(button, true) end
 	return button
 end
 
@@ -1154,6 +1160,7 @@ function Kit.IconButton(parent, size, art, onClick, tipTitle, tipText, glyph, op
 	E:SkinHoverPress(button, nil, opts.plain and button.slot or nil)
 	E:PadHitRect(button, 3)
 	E:RegisterThemed(button, function(self) IconTint(self, false) end)
+	if onClick then Kit.CollectKeyControl(button, true) end
 	return button
 end
 
@@ -1287,7 +1294,10 @@ function Kit.Check(parent, label, desc, onClick)
 		self.label:SetText(text or "")
 		self:SetHitRectInsets(0, -math.max(40, math.ceil(self.label:GetStringWidth()) + 8), 0, 0)
 	end
-	return check
+	return Kit.CollectKeyControl(check, function(self)
+		self:SetChecked(not self:GetChecked())
+		self:GetScript("OnClick")(self)
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -1410,7 +1420,7 @@ function Kit.Switch(parent, opts)
 	if opts.tipTitle or opts.tip then Kit.Tooltip(sw, opts.tipTitle or opts.label, opts.tip) end
 	sw:SetChecked(opts.checked)
 	E:RegisterThemed(sw, sw.Paint)
-	return sw
+	return Kit.CollectKeyControl(sw, true)
 end
 
 ---------------------------------------------------------------------------
@@ -1506,10 +1516,7 @@ function Kit.Slider(parent, opts)
 		if self.kitSetting then return end
 		Feed(value)
 	end)
-	slider:SetScript("OnMouseWheel", function(self, delta)
-		local low, high = self:GetMinMaxValues()
-		self:SetValue(math.max(low, math.min(high, (self:GetValue() or 0) + delta * (opts.step or 0.01))))
-	end)
+	slider:SetScript("OnMouseWheel", Kit.StepKeySlider)
 	function slider:SetQuiet(value)
 		self.kitSetting = true
 		self:SetValue(value)
@@ -1517,7 +1524,7 @@ function Kit.Slider(parent, opts)
 	end
 	if opts.tipTitle or opts.tip then Kit.Tooltip(slider, opts.tipTitle, opts.tip) end
 	if slider.parts then E:RegisterThemed(slider, function() slider.parts.Paint() end) end
-	return slider
+	return Kit.CollectKeyControl(slider, nil, Kit.StepKeySlider)
 end
 
 ---------------------------------------------------------------------------
@@ -1565,7 +1572,7 @@ function Kit.Input(parent, opts)
 	end
 	if opts.tipTitle or opts.tip then Kit.Tooltip(box, opts.tipTitle, opts.tip) end
 	UpdateHint(box)
-	return box
+	return Kit.CollectKeyControl(box, nil, nil, true)
 end
 
 ---------------------------------------------------------------------------
@@ -1699,7 +1706,7 @@ local function BuildLevel(level)
 	menus[level] = frame
 	if level > 1 then
 		frame:SetScript("OnHide", function(self)
-			self.owner = nil
+			self.owner, self.keyIndex = nil, nil
 			CloseFrom(level + 1)
 		end)
 		return frame
@@ -1715,14 +1722,16 @@ local function BuildLevel(level)
 	frame:SetScript("OnShow", function(self) self.catcher:Show() end)
 	frame:SetScript("OnHide", function(self)
 		self.catcher:Hide()
-		self.owner = nil
+		self.owner, self.keyIndex, self.keyLevel = nil, nil, nil
+		if self.keyRing then self.keyRing:Attach(nil) end
 		CloseFrom(2)
 	end)
 	-- Escape closes the list alone; the window it opened from stays. The
 	-- game's own Escape (UISpecialFrames) closes every EldoUI window at
 	-- once, so it is only the fallback for combat, when the keys are off.
 	table.insert(UISpecialFrames, "EldoUIKitMenu")
-	frame.keys = Kit.KeyHandler(frame, function(_, key)
+	frame.keys = Kit.KeyHandler(frame, function(name, key)
+		if frame.keyLevel then return Kit.HandleMenuKey(name) end
 		if key ~= "ESCAPE" then return false end
 		frame:Hide()
 		return true
@@ -1746,9 +1755,14 @@ local function AttachFrame(row, frameType, template)
 	return frame
 end
 
+local function Pickable(row)
+	local item = row and row.item
+	return item and not (item.isTitle or item.divider or item.spacer or ItemValue(item, "disabled"))
+end
+
 local function Pick(row, button)
+	if not Pickable(row) then return end
 	local item = row.item
-	if not item or item.isTitle or item.divider or item.spacer or ItemValue(item, "disabled") then return end
 	local frame = row.list
 	if item.menu then
 		OpenLevel(frame.level + 1, row, item.menu, { maxHeight = item.maxHeight })
@@ -1968,6 +1982,91 @@ OpenLevel = function(level, owner, items, opts)
 	return frame
 end
 
+local function FocusMenuRow(frame, index)
+	local row = index and frame.rows[index]
+	frame.keyIndex = index
+	menu.keyRing = menu.keyRing or Kit.FocusRing(menu)
+	menu.keyRing:Attach(row)
+	if not row then return end
+	local _, _, _, _, y = row:GetPoint(1)
+	local top = -(y or 0)
+	local scroll = frame.area.scroll
+	local offset, height = scroll:GetVerticalScroll(), scroll:GetHeight()
+	if top < offset then
+		frame.area:SetScroll(top)
+	elseif top + row:GetHeight() > offset + height then
+		frame.area:SetScroll(top + row:GetHeight() - height)
+	end
+end
+
+local function StepMenu(frame, delta, preferChecked)
+	local count = #frame.items
+	if preferChecked then
+		for index = 1, count do
+			local row = frame.rows[index]
+			if Pickable(row) and ItemValue(row.item, "checked") then
+				FocusMenuRow(frame, index)
+				return
+			end
+		end
+	end
+	local at = frame.keyIndex or (delta > 0 and 0 or 1)
+	for step = 1, count do
+		local index = (at + delta * step - 1) % count + 1
+		if Pickable(frame.rows[index]) then FocusMenuRow(frame, index); return end
+	end
+	FocusMenuRow(frame, nil)
+end
+
+function Kit.KeyboardMenuActive()
+	return menu and menu:IsShown() and menu.keyLevel ~= nil
+end
+
+function Kit.KeyboardMenuUnderMouse()
+	if not Kit.KeyboardMenuActive() then return false end
+	for _, frame in ipairs(menus) do
+		if frame:IsVisible() and frame:IsMouseOver() then return true end
+	end
+	return false
+end
+
+function Kit.HandleMenuKey(name)
+	if not Kit.KeyboardMenuActive() or InCombatLockdown() then return false end
+	local frame = menus[menu.keyLevel]
+	while frame.level > 1 and not frame:IsVisible() do frame = menus[frame.level - 1] end
+	menu.keyLevel = frame.level
+	if name == "ESCAPE" then
+		menu:Hide()
+	elseif name == "UP" or name == "DOWN" then
+		CloseFrom(frame.level + 1)
+		StepMenu(frame, name == "UP" and -1 or 1)
+	elseif name == "LEFT" and frame.level > 1 then
+		CloseFrom(frame.level)
+		local parent = menus[frame.level - 1]
+		menu.keyLevel = parent.level
+		FocusMenuRow(parent, parent.keyIndex)
+	elseif name == "RIGHT" or name == "ENTER" or name == "SPACE" then
+		local row = frame.rows[frame.keyIndex]
+		if Pickable(row) and (name ~= "RIGHT" or row.item.menu) then
+			local previous = Kit.TopWindow()
+			Pick(row, "LeftButton")
+			Kit.UseKeyboardDialog(previous)
+			if Kit.KeyboardMenuActive() then
+				local child = menus[frame.level + 1]
+				if child and child:IsVisible() and child.owner == row then
+					menu.keyLevel = child.level
+					StepMenu(child, 1, true)
+				elseif not Pickable(row) then
+					StepMenu(frame, 1)
+				end
+			end
+		end
+	else
+		return false
+	end
+	return true
+end
+
 function Kit.OpenMenu(owner, items, opts)
 	opts = opts or {}
 	menu = menu or BuildLevel(1)
@@ -1984,6 +2083,10 @@ function Kit.OpenMenu(owner, items, opts)
 		end)
 	end
 	OpenLevel(1, owner, items, opts)
+	if opts.keyboard or (owner and owner.kitKeyOpening) then
+		menu.keyLevel = 1
+		StepMenu(menu, 1, true)
+	end
 	return menu
 end
 
@@ -2104,6 +2207,7 @@ function Kit.ContextMenu(owner, generator, opts)
 	Kit.OpenMenu(owner, EntryItems(root), {
 		at = opts.at or "cursor", align = opts.align, width = opts.width,
 		maxHeight = root.scrollHeight or opts.maxHeight,
+		keyboard = opts.keyboard,
 	})
 	return root
 end
@@ -2146,6 +2250,13 @@ function Kit.Dropdown(parent, opts)
 		return true
 	end
 	if opts.icon then dd.icon = dd:CreateTexture(nil, "ARTWORK") end
+	local function Set(value)
+		if opts.set then
+			local ok, err = pcall(opts.set, value)
+			if not ok then geterrorhandler()(err) end
+		end
+		dd:Refresh()
+	end
 	local function Values()
 		local values = opts.values
 		if type(values) == "function" then
@@ -2179,13 +2290,7 @@ function Kit.Dropdown(parent, opts)
 		local items = {}
 		for _, entry in ipairs(Values()) do
 			local value = entry[1]
-			items[#items + 1] = { text = E:Translate(entry[2]), checked = value == current, func = function()
-				if opts.set then
-					local ok, err = pcall(opts.set, value)
-					if not ok then geterrorhandler()(err) end
-				end
-				self:Refresh()
-			end }
+			items[#items + 1] = { text = E:Translate(entry[2]), checked = value == current, func = function() Set(value) end }
 			if opts.icon then
 				items[#items].init = function(row)
 					local holder = row:AttachFrame("Frame")
@@ -2209,7 +2314,17 @@ function Kit.Dropdown(parent, opts)
 	if opts.tipTitle or opts.tip then Kit.Tooltip(dd, opts.tipTitle, opts.tip) end
 	dd:Refresh()
 	E:RegisterThemed(dd, function(self) self.chevron:SetVertexColor(unpack(Kit.SECONDARY)) end)
-	return dd
+	return Kit.CollectKeyControl(dd, true, function(_, direction)
+		local current = opts.get and opts.get()
+		if current == nil or not opts.set then return end
+		local values = Values()
+		for index, entry in ipairs(values) do
+			if entry[1] == current then
+				if #values > 1 then Set(values[(index + direction - 1) % #values + 1][1]) end
+				return
+			end
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -3190,6 +3305,7 @@ function Kit.KeyHandler(owner, handle)
 		if InCombatLockdown() then return end
 		local ok, used = pcall(self.handle, KeyName(key), key)
 		if not ok then geterrorhandler()(used) end
+		if InCombatLockdown() then return end
 		self:SetPropagateKeyboardInput(not (ok and used))
 		-- A used key leaves the frame swallowing keys; hand them back right
 		-- after, so a binding pressed as combat starts is never lost.
@@ -3244,6 +3360,7 @@ end
 function Kit.WindowKeys(window, spec)
 	spec = spec or {}
 	local keys = Kit.KeyHandler(window, function(name, key)
+		if window.kitKeyOrder and Kit.KeyboardMenuActive() then return false end
 		local current = window.keys and window.keys.spec or spec
 		if current.handle and current.handle(name, key) then return true end
 		local box = SearchBox(current)
@@ -3269,12 +3386,20 @@ end
 function Kit.FocusRing(parent)
 	local ring = CreateFrame("Frame", nil, parent)
 	ring:EnableMouse(false)
-	E:SetTemplate(ring, true)
+	E:AddBackdrop(ring)
+	local backdrop = { bgFile = E.media.flat, edgeFile = E.media.flat }
 	local function Paint(self)
+		local pixels = E:ArtStyle() == "Contrast" and 2 or 1
+		local size = E:PixelFor(self) * pixels
+		if backdrop.edgeSize ~= size then
+			backdrop.edgeSize = size
+			self:SetBackdrop(backdrop)
+		end
 		self:SetBackdropColor(0, 0, 0, 0)
 		self:SetBackdropBorderColor(Kit.Accent())
 	end
 	E:RegisterThemed(ring, Paint)
+	E:RegisterPixelCallback(function() if ring:IsShown() then Paint(ring) end end)
 	function ring:Attach(target)
 		if not target then
 			self:Hide()
@@ -3284,12 +3409,182 @@ function Kit.FocusRing(parent)
 		self:SetFrameLevel(target:GetFrameLevel() + 10)
 		self:ClearAllPoints()
 		self:SetAllPoints(target)
-		E:SnapBorders(self, true)
 		Paint(self)
 		self:Show()
 	end
 	ring:Hide()
 	return ring
+end
+
+-- A key invokes a plain owned control's callback, never a template click.
+-- activate = true uses the current OnClick callback. Editable boxes keep
+-- their own native typing, Enter and Escape scripts.
+function Kit.RegisterKeyControl(control, activate, step, edit)
+	control.kitKeyControl = { activate = activate, step = step, edit = edit }
+	return control
+end
+
+-- The setup opts into registration on its window. Shared constructors
+-- only add controls to that window when it owns the new control.
+function Kit.CollectKeyControl(control, activate, step, edit)
+	local owner = control:GetParent()
+	while owner do
+		local controls = owner.kitKeyControls
+		if controls then
+			Kit.RegisterKeyControl(control, activate, step, edit)
+			controls[control] = controls[control] or (#owner.kitKeyOrder + 1)
+			owner.kitKeyOrder[controls[control]] = control
+			if edit and owner.kitKeyEdit then owner.kitKeyEdit(control) end
+			return control
+		end
+		owner = owner:GetParent()
+	end
+	return control
+end
+
+function Kit.KeyControlUsable(control)
+	local keys = control and control.kitKeyControl
+	return keys and control:IsVisible() and (not control.IsEnabled or control:IsEnabled())
+		and (not keys.row or not keys.row.disabledReason) and (not keys.blocked or not keys.blocked())
+		and not E.FrameCheck(control, "IsProtected") and not E.FrameCheck(control, "IsForbidden")
+end
+
+function Kit.RunKeyAction(control, action, ...)
+	if InCombatLockdown() or type(action) ~= "function" or not Kit.KeyControlUsable(control) then return false end
+	local previous = Kit.TopWindow()
+	local opening = control.kitKeyOpening
+	control.kitKeyOpening = true
+	local ok, err = pcall(action, control, ...)
+	control.kitKeyOpening = opening
+	if ok then Kit.UseKeyboardDialog(previous) else geterrorhandler()(err) end
+	return true
+end
+
+function Kit.StepKeySlider(slider, direction, steps)
+	local low, high = slider:GetMinMaxValues()
+	local value = (slider:GetValue() or low) + direction * (slider:GetValueStep() or 1) * (steps or 1)
+	slider:SetValue(math.max(low, math.min(high, value)))
+end
+
+function Kit.RevealKeyControl(scroll, control)
+	if not scroll then return end
+	local top, bottom = E.PlainCall(control.GetTop, control), E.PlainCall(control.GetBottom, control)
+	local viewTop, viewBottom = E.PlainCall(scroll.GetTop, scroll), E.PlainCall(scroll.GetBottom, scroll)
+	if not (type(top) == "number" and type(bottom) == "number" and type(viewTop) == "number" and type(viewBottom) == "number") then return end
+	local offset = scroll:GetVerticalScroll() or 0
+	if top > viewTop then
+		scroll:SetVerticalScroll(math.max(0, offset - (top - viewTop)))
+	elseif bottom < viewBottom then
+		local range = scroll:GetVerticalScrollRange()
+		scroll:SetVerticalScroll(math.min(range, offset + viewBottom - bottom))
+	end
+end
+
+function Kit.FocusNavigation(owner, ring, targets, reveal)
+	local nav = { ring = ring, targets = targets }
+	function nav:Clear()
+		local control = self.control
+		self.control, self.item = nil, nil
+		if not control then return end
+		ring:Attach(nil)
+		if GameTooltip:GetOwner() == control then GameTooltip:Hide() end
+		if control.kitKeyControl.edit and not E.FrameCheck(control, "IsForbidden")
+			and not E.FrameCheck(control, "IsProtected") and control:HasFocus() then control:ClearFocus() end
+	end
+	function nav:Focus(control)
+		self:Clear()
+		self.control = control
+		if not control then return end
+		local row = control.kitKeyControl.itemRow
+		self.item = row and row.item
+		if reveal then reveal(control) end
+		ring:Attach(control)
+		if control.kitKeyTooltip then control:kitKeyTooltip() else Kit.ShowTooltip(control) end
+		if control.kitKeyControl.edit then
+			control:SetFocus()
+			control:HighlightText()
+		end
+	end
+	function nav:Refresh()
+		local control = self.control
+		if not control then return end
+		local row = control.kitKeyControl.itemRow
+		if (row and row.item ~= self.item) or not Kit.KeyControlUsable(control) or not tContains(targets(), control) then self:Clear() end
+	end
+	function nav:Step(delta)
+		local available = {}
+		for _, control in ipairs(targets()) do
+			if Kit.KeyControlUsable(control) then available[#available + 1] = control end
+		end
+		local count = #available
+		if count == 0 then self:Clear(); return false end
+		local at = delta > 0 and 0 or 1
+		for index, control in ipairs(available) do
+			if control == self.control then at = index; break end
+		end
+		self:Focus(available[(at + delta - 1) % count + 1])
+		return true
+	end
+	function nav:Handle(name)
+		if InCombatLockdown() then return false end
+		if name == "TAB" or name == "SHIFT-TAB" then return self:Step(name == "TAB" and 1 or -1) end
+		self:Refresh()
+		local control = self.control
+		if not control then return false end
+		local spec = control.kitKeyControl
+		local direction = (name == "LEFT" or name == "SHIFT-LEFT") and -1
+			or (name == "RIGHT" or name == "SHIFT-RIGHT") and 1
+		if direction and spec.step then
+			return Kit.RunKeyAction(control, spec.step, direction, IsShiftKeyDown() and 10 or 1)
+		elseif (name == "ENTER" or name == "SPACE") and spec.activate then
+			local action = spec.activate == true and control:GetScript("OnClick") or spec.activate
+			if type(action) == "function" then return Kit.RunKeyAction(control, action, "LeftButton", false) end
+		end
+		return false
+	end
+	function nav:BindEdit(control, canUse)
+		if control.kitKeyNav == self then return end
+		control.kitKeyNav = self
+		control:HookScript("OnTabPressed", function()
+			if (not canUse or canUse()) and not InCombatLockdown() then
+				if self.control ~= control then self:Clear(); self.control = control end
+				self:Step(IsShiftKeyDown() and -1 or 1)
+			end
+		end)
+	end
+	owner:HookScript("OnHide", function() nav:Clear() end)
+	return nav
+end
+
+-- Shared questions opened from a focused control use the same button
+-- callbacks as pointer input. Opening a question never answers it.
+function Kit.UseKeyboardDialog(previous)
+	local dialog = Kit.TopWindow()
+	if not (dialog and dialog ~= previous and dialog.kitOpts and dialog.keys and dialog.buttons) then return end
+	local nav = dialog.kitKeyNav
+	if not nav then
+		nav = Kit.FocusNavigation(dialog, Kit.FocusRing(dialog), function()
+			local targets = {}
+			if dialog.edit then targets[#targets + 1] = dialog.edit end
+			for _, button in ipairs(dialog.buttons) do targets[#targets + 1] = button end
+			return targets
+		end)
+		dialog.kitKeyNav = nav
+		local normal = dialog.keys.handle
+		dialog.keys.handle = function(name, key)
+			if nav.active and Kit.TopWindow() == dialog and nav:Handle(name) then return true end
+			return normal(name, key)
+		end
+		dialog:HookScript("OnHide", function() nav.active = false end)
+		dialog.keys:HookScript("OnEvent", function(_, event)
+			if event == "PLAYER_REGEN_DISABLED" then nav:Clear(); nav.active = false end
+		end)
+	end
+	if dialog.edit then
+		Kit.RegisterKeyControl(dialog.edit, nil, nil, true)
+		nav:BindEdit(dialog.edit, function() return nav.active and Kit.TopWindow() == dialog end)
+	end
+	nav.active = true
 end
 
 ---------------------------------------------------------------------------
@@ -3782,6 +4077,7 @@ function Kit.DressListRow2(row, opts)
 		button.box:SetFrameLevel(math.max(button:GetFrameLevel() - 1, 0))
 		E:SetTemplate(button.box)
 		button.kitKey = def.key or index
+		if button.kitKeyControl then button.kitKeyControl.itemRow = row end
 		row.actions[index] = button
 		row.actionByKey[button.kitKey] = button
 	end
@@ -3845,6 +4141,10 @@ function Kit.ListRow2Template(listOpts)
 	out.create = function(row)
 		Kit.DressListRow2(row, listOpts.row)
 		if listOpts.create then listOpts.create(row) end
+		if row:GetScript("OnClick") then
+			Kit.CollectKeyControl(row, true)
+			if row.kitKeyControl then row.kitKeyControl.itemRow = row end
+		end
 	end
 	return out
 end
@@ -4936,6 +5236,7 @@ function Kit.CreateDialog(name, opts)
 			local button = self.buttons[index]
 			if data and not button then
 				button = Kit.Button(self, "", { width = Kit.DIALOG_BUTTON, large = true })
+				Kit.RegisterKeyControl(button, true)
 				self.buttons[index] = button
 			end
 			if button then

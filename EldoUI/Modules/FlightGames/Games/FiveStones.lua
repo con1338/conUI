@@ -1,4 +1,4 @@
--- EldoUI Flight Games: Five Stones. You and the Horde take turns placing
+-- EldoUI Flight Games: Five Stones. You and the opponent take turns placing
 -- a stone on a board of 15 by 15. Five of yours in a row (across, down or
 -- slanting) wins; a full board is a draw.
 -- Written from scratch for EldoUI.
@@ -122,7 +122,7 @@ function Stones:Place(x, y, v)
 		self.moves = self.moves + 1
 		self.host.Score(self.moves)
 	end
-	local color = v == 1 and self.host.Palette()[7] or self.host.Palette()[6]
+	local color = self.host.FactionColor(v)
 	self.fx:Burst((x - 0.5) * CELL, TOP + (y - 0.5) * CELL, color, CELL * 1.4, 0.35)
 	self.host.Sound("turn")
 	local line = Wins(self.board, x, y, v)
@@ -150,7 +150,7 @@ function Stones:Place(x, y, v)
 	return true
 end
 
--- The Horde's stone: the empty square near the stones in play that does
+-- The opponent's stone: the empty square near the stones in play that does
 -- the most for its own lines and against yours.
 function Stones:Choose()
 	local board, mode = self.board, self.mode
@@ -223,7 +223,7 @@ function Stones:Draw()
 			local stone = self.stones[i]
 			stone:SetShown(v ~= 0)
 			if v ~= 0 then
-				local c = v == 1 and palette[7] or palette[6]
+				local c = self.host.FactionColor(v, palette)
 				stone:SetVertexColor(c[1], c[2], c[3], 1)
 			end
 		end
@@ -246,20 +246,20 @@ function Stones:Draw()
 	if self.result == "won" then
 		text = L["Five in a row: you win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde got five in a row."]
+		text = L["The %s got five in a row."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["The board is full: a draw."]
 	elseif self.turn == 1 then
 		text = L["Your move."]
 	else
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end
 
 M:RegisterGame({
 	key = "fivestones", order = 155, group = "board",
-	title = "Five Stones", desc = "Place stones in turn against the Horde; five in a row wins.",
+	title = "Five Stones", desc = "Place stones in turn against the other faction; five in a row wins.",
 	controls = Key("Click an empty square. P: pause."),
 	icon = "Interface\\Icons\\INV_Misc_Gem_Amethyst_02",
 	modes = MODES, lower = true, unit = "moves",

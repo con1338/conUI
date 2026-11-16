@@ -118,7 +118,8 @@ function M:RefreshWorldPins()
 	local map = WorldMap()
 	for _, pin in ipairs(worldPins) do pin:Hide() pin.node = nil end
 	self.worldPinCount = 0
-	if not (map and self.active and self.db.worldPins and E:MapPinGroupShown("gathering", "world")) then return end
+	-- Nothing to draw while the map is closed: opening it redraws.
+	if not (map and map:IsShown() and self.active and self.db.worldPins and E:MapPinGroupShown("gathering", "world")) then return end
 	local canvas = map:GetCanvas()
 	local shownMap = map.GetMapID and map:GetMapID()
 	if not (canvas and shownMap) then return end
@@ -139,9 +140,10 @@ function M:RefreshWorldPins()
 				worldPins[i] = pin
 			end
 			pin.node, pin.mapID, pin.hereMapID = node, shownMap, shownMap
-			pin:SetFrameStrata("HIGH")
+			E:PlaceMapPin(pin, "gathering", map, canvas)
 			pin:SetScale(1 / max(scale or 1, 0.01))
 			StylePin(pin, node)
+			pin.mapX, pin.mapY = node.x, node.y
 			pin:ClearAllPoints()
 			pin:SetPoint("CENTER", canvas, "TOPLEFT", node.x * width * (scale or 1), -node.y * height * (scale or 1))
 			pin:Show()
@@ -151,16 +153,16 @@ function M:RefreshWorldPins()
 end
 
 local function CreateProvider()
-	local base = _G.MapCanvasDataProviderMixin
-	local p = base and CreateFromMixins and CreateFromMixins(base) or {}
-	function p:OnAdded(owningMap) self.owningMap = owningMap end
-	function p:OnRemoved() self.owningMap = nil end
+	local p = {}
 	function p:RemoveAllData() for _, pin in ipairs(worldPins) do pin:Hide() end end
 	function p:RefreshAllData() M:RefreshWorldPins() end
 	function p:OnMapChanged() M:RefreshWorldPins() end
-	function p:OnCanvasScaleChanged() M:RefreshWorldPins() end
+	function p:OnCanvasScaleChanged()
+		if not E:RescaleMapPins(WorldMap(), worldPins, M.worldPinCount) then M:RefreshWorldPins() end
+	end
 	function p:OnCanvasSizeChanged() M:RefreshWorldPins() end
 	function p:OnShow() M:RefreshWorldPins() end
+	function p:OnHide() for _, pin in ipairs(worldPins) do pin:Hide() pin.node = nil end end
 	return p
 end
 
@@ -168,10 +170,8 @@ function M:HookWorldMap()
 	local map = WorldMap()
 	if not map or self.worldHooked then return end
 	self.worldHooked = true
-	if map.AddDataProvider then
-		provider = provider or CreateProvider()
-		map:AddDataProvider(provider)
-	end
+	provider = provider or CreateProvider()
+	E:FollowMap(map, provider)
 end
 
 ---------------------------------------------------------------------------
@@ -212,6 +212,7 @@ end
 -- that places them changed, and a pin is restyled only for another node
 -- or after a refresh from outside.
 local tickView = {}
+local minimapDirty
 local candidates = {}
 local picked = { reach = 0 }
 local styleEpoch = 0
@@ -236,12 +237,27 @@ local function PickCandidates(mapID, continent, north, west, reach)
 end
 
 -- fromTick: the shared ticker (the only caller that may skip work).
-function M:RefreshMinimapPins(fromTick)
+function M:RefreshMinimapPins(fromTick, sample)
 	local minimap = _G.Minimap
+	if not minimap or not minimap:IsVisible() then
+		minimapDirty = true
+		for _, pin in ipairs(miniPins) do pin:Hide() pin.node = nil end
+		self.miniPinCount = 0
+		return
+	end
+	if minimapDirty then fromTick, minimapDirty = nil, nil end
 	local mapID, _, _, continent, north, west
-	if fromTick then mapID, _, _, continent, north, west = WP.SharedPlayerPos() else mapID, _, _, continent, north, west = WP.PlayerPos() end
+	if sample then
+		mapID, continent, north, west = sample.mapID, sample.continent, sample.north, sample.west
+	elseif fromTick then
+		mapID, _, _, continent, north, west = WP.SharedPlayerPos()
+	else
+		mapID, _, _, continent, north, west = WP.PlayerPos()
+	end
 	local view = self.active and self.db.minimapPins and E:MapPinGroupShown("gathering", "minimap") and minimap and continent
-		and E:MinimapView(north, west, minimap, tickView)
+		and E:CurrentMinimapView(north, west, minimap, tickView, sample)
+	-- A tick that hid the pins forgets the view, so the next one shows them.
+	if not view then wipe(tickView) end
 	if fromTick and view and view.same and picked.mapID == mapID then
 		self.minimapSkips = (self.minimapSkips or 0) + 1
 		return
@@ -264,9 +280,9 @@ function M:RefreshMinimapPins(fromTick)
 					local pin = miniPins[i]
 					if not pin then
 						pin = CreatePin(minimap)
-						pin:SetFrameLevel(minimap:GetFrameLevel() + 4)
 						miniPins[i] = pin
 					end
+					E:PlaceMinimapPin(pin, "gathering", minimap)
 					if pin.node ~= entry.node or pin.epoch ~= styleEpoch or pin.colors ~= E.colorsVersion then
 						pin.node, pin.mapID, pin.colors = entry.node, entry.mapID, E.colorsVersion
 						StylePin(pin, entry.node)
@@ -293,23 +309,16 @@ function M:RefreshMinimapPins(fromTick)
 	self.miniPinCount = i
 end
 
--- The minimap pins follow the player five times a second on the shared
--- ticker, while minimap pins are on and nodes are known (every change to
--- the known nodes redraws the pins and checks this again).
+-- The shared minimap driver calls this layer while known nodes can show.
 local MINIMAP_TICK = "EldoUI.Gathering.minimap"
-local MINIMAP_STEP = 0.2
 
-local function MinimapTick()
-	M:RefreshMinimapPins(true)
+local function MinimapTick(sample)
+	M:RefreshMinimapPins(true, sample)
 end
 
 function M:WatchMinimap()
 	local want = self.active and self.db.minimapPins and _G.Minimap and next(self:Store().maps) ~= nil
-	if want then
-		if not E.Ticker:IsSubscribed(MINIMAP_TICK) then E.Ticker:Subscribe(MINIMAP_TICK, MINIMAP_STEP, MinimapTick, self) end
-	else
-		E.Ticker:Unsubscribe(MINIMAP_TICK)
-	end
+	E:SetMinimapUpdater(MINIMAP_TICK, want, MinimapTick)
 end
 
 ---------------------------------------------------------------------------
@@ -331,6 +340,7 @@ function M:EnableMap()
 end
 
 function M:DisableMap()
+	E:SetMinimapUpdater(MINIMAP_TICK, false)
 	E.Ticker:UnsubscribeOwner(self)
 	for _, pin in ipairs(worldPins) do pin:Hide() end
 	for _, pin in ipairs(miniPins) do pin:Hide() end

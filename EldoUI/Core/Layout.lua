@@ -38,7 +38,10 @@
 --
 -- The presets are measured in UI units on a canvas 1440 units tall (2560x1440
 -- at 16:9). The "auto" UI scale draws that canvas on every screen
--- (Core/Scale.lua), so a preset looks the same everywhere; only on a 1440p
+-- (Core/Scale.lua; a screen narrower than 16:9 gets the full width and a
+-- little more height), so a preset looks the same everywhere. A point keeps
+-- the anchor of the part of the screen its frame sits in: top, middle or
+-- bottom; only on a 1440p
 -- screen is one unit also one screen pixel. A position the player drags in
 -- move mode is saved in the profile and stays through a layout change,
 -- until the player asks for the layout's spots back.
@@ -564,7 +567,14 @@ E.layouts = {
 			EldoUI_ReadyCheck = { "CENTER", "UIParent", "CENTER", -9, 200 },
 			EldoUI_LossOfControl = { "CENTER", "UIParent", "CENTER", 0, 206 },
 			EldoUI_ZoneToast = { "TOP", "UIParent", "CENTER", 0, 138 },
-			EldoUI_ShoppingList = { "TOP", "UIParent", "TOP", 285, -476 },
+			-- A frame keeps the anchor of its part of the screen (top, middle
+			-- or bottom), so on a 16:10 screen, where the canvas is taller,
+			-- it moves with its neighbors.
+			EldoUI_ShoppingList = { "TOP", "UIParent", "CENTER", 285, 244 },
+			EldoUI_ActionBar7 = { "CENTER", "UIParent", "BOTTOM", 488, 112 },
+			EldoUI_Durability = { "CENTER", "UIParent", "TOPRIGHT", -798, -162 },
+			EldoUI_SCTStatic = { "CENTER", "UIParent", "BOTTOM", -544, 128 },
+			EldoUI_LootToasts = { "BOTTOMRIGHT", "UIParent", "RIGHT", -470, -188 },
 			-- The talking head sits between the loot rolls and the waypoint
 			-- arrow and coordinates, also when a larger minimap moves those in.
 			-- On 16:10 the head, the loot rolls and the rare card move
@@ -581,6 +591,7 @@ E.layouts = {
 			-- target beside a wide target frame and of the quest timer under a
 			-- large minimap.
 			EldoUI_ChatRight = { "BOTTOMRIGHT", "UIParent", "BOTTOMRIGHT", -30, 279 },
+			EldoUI_EnemySpotter = { "BOTTOMLEFT", "UIParent", "TOPLEFT", 325, -460 },
 		},
 		narrowPoints = {
 			EldoUI_TalkingHead = { below = 2400, point = { "TOP", "UIParent", "TOP", -88, -88 } },
@@ -591,6 +602,12 @@ E.layouts = {
 			EldoUI_Popups = { below = 2400, point = { "TOP", "UIParent", "TOP", -541, -88 } },
 			-- The boss frames start a little lower, clear of the raid warnings.
 			EldoUI_Boss = { below = 2400, point = { "CENTER", "UIParent", "CENTER", 296, 120 } },
+			EldoUI_LootToasts = { below = 2400, point = { "BOTTOMRIGHT", "UIParent", "RIGHT", -470, -179 } },
+			EldoUI_SCTStatic = { below = 2400, point = { "CENTER", "UIParent", "BOTTOM", -736, 349 } },
+			EldoUI_Durability = { below = 2400, point = { "CENTER", "UIParent", "TOPRIGHT", -798, -117 } },
+		},
+		widePoints = {
+			EldoUI_Durability = { width = 237, of = "EldoUI_Minimap", point = { "CENTER", "UIParent", "TOPRIGHT", -841, -162 } },
 		},
 	},
 }
@@ -607,7 +624,7 @@ do
 	for field, value in pairs(base) do
 		if field ~= "retiredIn" and layout[field] == nil then layout[field] = Copy(value) end
 	end
-	for _, field in ipairs({ "points", "narrowPoints" }) do
+	for _, field in ipairs({ "points", "narrowPoints", "widePoints" }) do
 		for name, point in pairs(base[field] or {}) do
 			if layout[field][name] == nil then layout[field][name] = Copy(point) end
 		end
@@ -709,10 +726,11 @@ E.defaults.general.layoutFit = true
 -- layout apply pick the right points by themselves.
 --
 -- Narrow points: the layouts are made for a screen 2560 layout units wide
--- (16:9). A screen of another shape keeps the height (1440 units at Auto)
--- and changes the width: 16:10 is 2304 units wide, so each side column has
--- 128 units less room. A frame that would then sit on a neighbor gets a
--- spot of its own in layout.narrowPoints:
+-- (16:9). At Auto every screen is at least that wide (Core/Scale.lua). With
+-- another UI scale a screen narrower than 16:9 keeps the height and loses
+-- width: 16:10 is then 2304 units wide, so each side column has 128 units
+-- less room. A frame that would then sit on a neighbor gets a spot of its
+-- own in layout.narrowPoints:
 --   narrowPoints = {
 --       EldoUI_Boss = { below = 2400, point = { "CENTER", "UIParent", "CENTER", 796, -384 } },
 --   }

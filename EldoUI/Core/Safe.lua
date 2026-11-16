@@ -23,6 +23,12 @@
 --   E.FrameCheck(frame, method)    frame:IsForbidden(), :IsProtected() or
 --                                  :IsAnchoringRestricted() as plain true or false; a secret
 --                                  or failed answer counts as true (the frame is left alone)
+--   E.FrameMouse(frame, method)    frame:IsMouseEnabled(), :IsMouseClickEnabled(),
+--                                  :IsMouseMotionEnabled() or :IsMouseWheelEnabled() as plain
+--                                  true or false; nil when the answer is secret or the read
+--                                  fails (leave the frame's mouse as it is)
+--   E.PlainAtlas(region)           region:GetAtlas() as a plain string, or nil when there is
+--                                  none, it is secret or the read fails
 --   E.FrameStrata(frame, fallback) the frame's strata, or fallback when it is secret
 --   E.FrameLevel(frame, fallback)  the frame's level, or fallback when it is secret
 --   E.IdentitySecret(unit)         true when the game hides the unit's identity (an error
@@ -116,6 +122,21 @@ function E.PlainCallEach(fn, ...)
 	return unpack(results, 1, count)
 end
 
+-- The master looter's unit token while the group uses master loot, else
+-- nil (also for a secret answer).
+function E.MasterLooterUnit()
+	local party = C_PartyInfo
+	if not (party and party.GetLootMethod) then return nil end
+	local method, partyIndex, raidIndex = E.PlainCallEach(party.GetLootMethod)
+	local master = Enum and Enum.LootMethod and Enum.LootMethod.Masterlooter or 2
+	if method ~= master then return nil end
+	if IsInRaid() then
+		return type(raidIndex) == "number" and raidIndex > 0 and ("raid" .. raidIndex) or nil
+	end
+	if partyIndex == 0 then return "player" end
+	return type(partyIndex) == "number" and partyIndex > 0 and ("party" .. partyIndex) or nil
+end
+
 -- Is this frame forbidden, protected or anchoring restricted? On a frame
 -- EldoUI did not make, the game can keep the answer secret, and testing a
 -- secret answer errors. A secret or failed answer counts as true, so such
@@ -127,6 +148,32 @@ function E.FrameCheck(frame, method)
 	local ok, answer = pcall(fn, frame)
 	if not ok or issecret(answer) then return true end
 	return answer and true or false
+end
+
+-- A frame's mouse state as a plain boolean. A secret, unavailable or
+-- unexpected answer stays unknown, so the caller leaves the frame alone.
+function E.FrameMouse(frame, method)
+	if type(frame) ~= "table" then return nil end
+	local value = E.PlainCall(frame[method or "IsMouseEnabled"], frame)
+	if type(value) == "boolean" then return value end
+end
+
+-- A missing atlas is a readable result. An unavailable read cannot tell
+-- the caller whether replacing the region would discard its original art.
+function E.FrameAtlas(region)
+	if type(region) ~= "table" then return nil, false end
+	local getAtlas = region.GetAtlas
+	if type(getAtlas) ~= "function" then return nil, true end
+	local ok, value = pcall(getAtlas, region)
+	if not ok or issecret(value) then return nil, false end
+	if type(value) ~= "nil" and type(value) ~= "string" then return nil, false end
+	return value, true
+end
+
+-- The single-value form keeps absent and unavailable atlas answers empty.
+function E.PlainAtlas(region)
+	local atlas = E.FrameAtlas(region)
+	if atlas ~= "" then return atlas end
 end
 
 -- A frame's strata or level as a plain value, or fallback when the game

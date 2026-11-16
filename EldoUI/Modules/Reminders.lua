@@ -45,6 +45,7 @@ local M = E:NewModule("Reminders", {
 		petPassive = true,       -- pet set to passive
 		demons = {},             -- [demonKey] = true/false: demons you allow (warlock)
 		healthstone = true,      -- in dungeons and raids, with a warlock in the group
+		xpFood = false,          -- while leveling: no XP bonus running
 		customSpells = {},       -- [spellID] = true: your own buffs to keep up (any rank)
 		customAdd = "",          -- option input: a spell ID to add
 		customRemove = "",       -- option select: a spell ID to remove
@@ -89,6 +90,11 @@ local M = E:NewModule("Reminders", {
 	},
 })
 
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "customSpells", "items" }
+M.keepOnResetNote = E.Key("Your own spells and chosen consumables are kept too.")
+
 local IsSecret = E.Secret
 
 ---------------------------------------------------------------------------
@@ -118,7 +124,7 @@ local ROGUE_POISONS = {
 }
 
 -- The poison lines a reminder can put on, with their items from rank 1
--- upward (item table of the game, build 1.60.1.70862).
+-- upward (item table of the game, build 1.60.1.70938).
 local POISON_LINES = {
 	{ key = "INSTANT", spells = ROGUE_POISONS[1], items = { 6947, 6949, 6950, 8926, 8927, 8928 } },
 	{ key = "DEADLY", spells = ROGUE_POISONS[2], items = { 2892, 2893, 8984, 8985 } },
@@ -591,6 +597,9 @@ local function SlotRank(slot, line)
 	local index, best = HighestKnown(line)
 	local db = M.db or {}
 	local pinned = Pickable(slot) and tonumber((db.buffRanks or {})[slot.key])
+	-- A kept rank belongs to a picked spell: with the Spell row back on
+	-- Automatic (and two spells known) the highest rank counts again.
+	if pinned and ((db.buffLines or {})[slot.key] or "") == "" and #KnownLines(slot) > 1 then pinned = nil end
 	local pinIndex = pinned and tIndexOf(line, pinned)
 	if pinIndex and pinIndex < index and Known(pinned) then return pinned, pinIndex end
 	return best, index
@@ -863,7 +872,7 @@ function M:PetEntries(entries)
 		return
 	end
 	if hasPet and db.petPassive and PetOnPassive() then
-		table.insert(entries, { key = "PET-PASSIVE", icon = E:ClientIcon("Interface\\Icons\\Ability_Seal"), label = _G.PET_MODE_PASSIVE or L["Passive"],
+		table.insert(entries, { key = "PET-PASSIVE", icon = E:ClientIcon("Interface\\Icons\\Ability_Seal"), label = E:GameText(_G.PET_MODE_PASSIVE, L["Passive"]),
 			reason = L["Your pet is set to passive"], color = YELLOW })
 	end
 end
@@ -921,6 +930,53 @@ function M:AskEntries(entries, byName)
 end
 
 ---------------------------------------------------------------------------
+-- XP bonuses: auras that raise the XP you gain (spell IDs from the client's
+-- spell table, build 1.60.1.70862). The bonus is the aura's own value; the
+-- percent here stands in only when the aura carries none.
+---------------------------------------------------------------------------
+local XP_BONUSES = {
+	{ spell = 1243969, percent = 5 },    -- Well Fed XP Boost (XP food)
+	{ spell = 335924, percent = 50 },    -- Winds of Wisdom (event)
+	{ spell = 436412, percent = 50 },    -- Discoverer's Delight
+	{ spell = 1328127, percent = 200 },  -- Elixir of Endless Experience
+}
+M.XP_BONUSES = XP_BONUSES
+
+-- The XP bonuses on you, { { spell, name, percent, left, icon } }, read
+-- out of combat only: in combat the answer is nil.
+function E.XPBonuses()
+	if InCombatLockdown() then return nil end
+	local get = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+	local list = {}
+	if not get then return list end
+	for _, bonus in ipairs(XP_BONUSES) do
+		local aura = E.PlainCall(get, bonus.spell)
+		if type(aura) == "table" then
+			local name, expires = E.Plain(aura.name), E.Plain(aura.expirationTime)
+			local points = type(aura.points) == "table" and E.Plain(aura.points[1]) or nil
+			list[#list + 1] = {
+				spell = bonus.spell,
+				name = type(name) == "string" and name ~= "" and name or SpellName(bonus.spell),
+				percent = type(points) == "number" and points > 0 and points or bonus.percent,
+				left = type(expires) == "number" and expires > 0 and math.max(0, expires - GetTime()) or nil,
+				icon = E.Plain(aura.icon),
+			}
+		end
+	end
+	return list
+end
+
+-- XP food: while leveling, out of combat, a note when no XP bonus runs.
+function M:XPFoodEntry(entries)
+	if E:AtMaxLevel() then return end
+	local bonuses = E.XPBonuses()
+	if not bonuses or #bonuses > 0 then return end
+	local name, icon = SpellName(XP_BONUSES[1].spell)
+	table.insert(entries, { key = "XPFOOD", icon = E:ClientIcon(icon, "Interface\\Icons\\INV_Misc_Food_15"), label = name or L["XP food"],
+		reason = L["No XP bonus running"], color = YELLOW })
+end
+
+---------------------------------------------------------------------------
 -- Healthstone: in dungeons and raids, with a warlock in the group (or you)
 -- who can make one, and none in your bags. You count once you know a
 -- Create Healthstone rank; another warlock once they reach the level the
@@ -971,7 +1027,7 @@ end
 -- uses it on (the group's healer role, else the first member of a healing
 -- class). Group auras are read out of combat only; nothing is used or
 -- cast without the player's click. Item IDs are from the game's item
--- table (build 1.60.1.70862); Create Healthstone has no item in it (the
+-- table (build 1.60.1.70938); Create Healthstone has no item in it (the
 -- server picks the stone), so its stones are the three of each size.
 ---------------------------------------------------------------------------
 local SOUL_SHARD = 6265
@@ -1132,7 +1188,7 @@ function M:DurabilityEntry(entries)
 	local lowest = LowestDurability()
 	local level = E:DurabilityLevel(lowest)
 	if not level or level == "ok" then return end
-	table.insert(entries, { key = "DURABILITY", icon = E:ClientIcon(DURABILITY_ICON), label = _G.DURABILITY or L["Durability"],
+	table.insert(entries, { key = "DURABILITY", icon = E:ClientIcon(DURABILITY_ICON), label = E:GameText(_G.DURABILITY, L["Durability"]),
 		text = ("%d%%"):format(lowest), reason = L["Your gear is at %d%% durability: time to repair"]:format(lowest),
 		color = level == "low" and RED or YELLOW })
 end
@@ -1478,16 +1534,21 @@ M.Announce = Announce
 -- game doesn't say (the shield in combat, a secret enchant answer).
 local alertState = {}
 M.alertState = alertState
-local function Changed(key, state, text, icon)
+-- `quiet`: the state is kept but nothing shows (dead, on a flight, or
+-- where reminders are set not to show), so nothing pops late either.
+local function Changed(key, state, text, icon, quiet)
 	local before = alertState[key]
 	alertState[key] = state
-	if not before or state == before or state == "on" or before == "off" then return end
+	if quiet or not before or state == before or state == "on" or before == "off" then return end
 	Announce(text, icon)
 end
 
 function M:ShamanAlerts()
 	if not (self.active and IsShaman()) then return end
 	local db = self.db.alerts
+	-- The same "when and where" as the reminder list.
+	local quiet = SafeBool(UnitIsDeadOrGhost, "player") ~= false or SafeBool(UnitOnTaxi, "player") ~= false
+		or not self:ContentAllowed()
 	for _, key in ipairs({ "SHAMAN_IMBUE", "SHAMAN_IMBUE_OFF" }) do
 		local slot = ShamanSlot(key)
 		local names, best = SlotInfo(slot)
@@ -1501,7 +1562,7 @@ function M:ShamanAlerts()
 			local state = not has and "off" or (left and left < self.db.threshold and "low") or "on"
 			local _, icon = SpellName(best)
 			local hand = slot.weapon == "off" and L["Off-hand"] or L["Main-hand"]
-			Changed(key, state, state == "off" and L["%s imbue is gone"]:format(hand) or L["%s imbue is running out"]:format(hand), icon)
+			Changed(key, state, state == "off" and L["%s imbue is gone"]:format(hand) or L["%s imbue is running out"]:format(hand), icon, quiet)
 		end
 	end
 	if not db.shield then
@@ -1517,7 +1578,7 @@ function M:ShamanAlerts()
 			local left = active and TimeLeft(active)
 			local state = not active and "off" or (left and left < self.db.threshold and "low") or "on"
 			local _, icon = SpellName(best)
-			Changed("SHAMAN_SHIELD", state, state == "off" and L["Your shield is gone"] or L["Your shield is running out"], icon)
+			Changed("SHAMAN_SHIELD", state, state == "off" and L["Your shield is gone"] or L["Your shield is running out"], icon, quiet)
 		end
 	end
 end
@@ -1695,6 +1756,7 @@ function M:CreateIcon()
 	icon.badge = E:CreateText(icon, E.tokens.size.small, "LEFT")
 	icon.badge:SetPoint("TOPLEFT", 2, -2)
 	icon.label = E:CreateText(icon, E.tokens.size.small)
+	E:UseNameFont(icon.label)
 	icon.label:SetPoint("TOP", icon, "BOTTOM", 0, -4)
 	icon.label:SetTextColor(unpack(E.media.text.secondary))
 
@@ -2006,6 +2068,10 @@ function M:Update()
 	if not self.frame then return end
 	local db = self.db
 	local buffs, items = {}, {}
+	-- The whole list was read this time (not hidden while dead, on a
+	-- flight, in combat or where reminders don't show): only then does it
+	-- replace what the sound compares with.
+	local whole = false
 	if self:ShouldShow() then
 		if self.preview then
 			for _, entry in ipairs(PREVIEW) do
@@ -2013,7 +2079,7 @@ function M:Update()
 				entry.label, entry.icon = name or L["Preview"], icon or PREVIEW_ICON
 				table.insert(buffs, entry)
 			end
-			table.insert(buffs, { key = "P5", icon = E:ClientIcon(DURABILITY_ICON), label = _G.DURABILITY or L["Durability"], text = "18%",
+			table.insert(buffs, { key = "P5", icon = E:ClientIcon(DURABILITY_ICON), label = E:GameText(_G.DURABILITY, L["Durability"]), text = "18%",
 				reason = L["Durability (preview)"], color = RED })
 			table.insert(items, { key = "P4", icon = PREVIEW_ITEM_ICON, label = L["Consumable"], reason = L["Missing (preview)"], color = RED, count = 5, isItem = true })
 		else
@@ -2022,6 +2088,7 @@ function M:Update()
 			-- fight started ("Also in combat") instead of an empty row.
 			if inCombat and self.lastKeys then return end
 			if self:ContentAllowed() then
+				whole = not inCombat
 				local byName, bySpell = ScanAuras("player")
 				self.playerAuras = byName
 				if byName then
@@ -2034,6 +2101,7 @@ function M:Update()
 				if not inCombat then
 					self:PetEntries(buffs)
 					if db.healthstone then self:HealthstoneEntry(items) end
+					if db.xpFood then self:XPFoodEntry(items) end
 					self:StoneEntries(items)
 					self:SoulstoneEntry(items)
 				end
@@ -2043,17 +2111,26 @@ function M:Update()
 		end
 	end
 
-	-- Sound when a reminder first appears.
+	-- Sound when a reminder first appears. A reminder that was there before
+	-- a fight, a death, a flight or a hide is no news when it comes back,
+	-- and the first list after login or a reload only sets what is known.
 	local seen = {}
 	local fresh = false
+	local known = self.lastKeys
 	for _, list in ipairs({ buffs, items }) do
 		for _, entry in ipairs(list) do
 			seen[entry.key] = true
 			if entry.time and not self.preview then self.showsTime = true end
-			if not (self.lastKeys and self.lastKeys[entry.key]) then fresh = true end
+			if known and not known[entry.key] then fresh = true end
 		end
 	end
-	self.lastKeys = seen
+	if not self.preview then
+		if whole then
+			self.lastKeys = seen
+		elseif known then
+			for key in pairs(seen) do known[key] = true end
+		end
+	end
 	if fresh and db.sound and db.sound ~= "none" and not self.preview then
 		local now = GetTime()
 		if not self.lastSound or now - self.lastSound > 3 then
@@ -2643,6 +2720,7 @@ M.options = {
 	{ type = "toggle", key = "askBuffs", label = "Buffs your group could give you", desc = "A yellow note when a priest, mage, druid or paladin is in your group and you lack their buff. Information only. Off by default." },
 	{ type = "toggle", key = "tracking", label = "Gathering tracking", desc = "Remind you to turn on Find Herbs or Find Minerals when you know one." },
 	{ type = "toggle", key = "consumables", label = "Consumables", desc = "The elixirs, flasks, food and weapon enchants you picked on the Consumables tab." },
+	{ type = "toggle", key = "xpFood", label = "XP food", desc = "While leveling, out of combat: a note when no XP bonus is running, such as the Well Fed XP Boost from XP food." },
 	{ type = "toggle", key = "healthstone", label = "Healthstone", desc = "In dungeons and raids with a warlock in the group who can make one (or when you can): a note when you carry no Healthstone." },
 	{ type = "toggle", key = "durability", label = "Low durability", desc = "An anvil when your most worn item reaches Worn gear on the General page (yellow), red once it is low, so you repair in time. Shown in rest areas too." },
 	{ type = "toggle", key = "readyCheckMana", label = "Low mana on a ready check", desc = "A pulsing note above the reminders during a ready check when your own mana is low. Out of combat only.",
@@ -2667,9 +2745,9 @@ M.options = {
 
 	{ type = "tab", label = "Look" },
 	{ type = "header", label = "Icons" },
-	{ type = "range", key = "iconSize", label = "Icon size", min = 24, max = 64, step = 2, desc = "Size of the buff icons in pixels." },
+	{ type = "range", unit = "px", key = "iconSize", label = "Icon size", min = 24, max = 64, step = 2, desc = "Size of the buff icons in pixels." },
 	{ type = "range", percent = true, key = "consumableScale", label = "Consumable scale", min = 0.5, max = 1, step = 0.05, desc = "Consumable icons relative to the buff icons." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 16, step = 1, desc = "Gap between icons." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 16, step = 1, desc = "Gap between icons." },
 	{ type = "range", percent = true, key = "alpha", label = "Opacity", min = 0.3, max = 1, step = 0.05, desc = "Opacity of the whole reminder block." },
 	{ type = "toggle", key = "showLabel", label = "Show names", desc = "The buff or item name under each icon." },
 	{ type = "select", key = "highlight", label = "Missing reminders", values = { pulse = "Pulse", glow = "Glow", none = "No highlight" },
@@ -2684,7 +2762,7 @@ M.options = {
 -- until ticked and never recommended.
 E:RegisterConvenience({ id = "reminderClicks", module = "Reminders", setting = "clickCast", order = 170,
 	label = "Click an icon to cast or use it",
-	desc = "Acts for you: a click on a reminder casts the missing buff or uses the consumable, one cast per click and never by itself. Change it later under Buff and Consumable Reminders." })
+	desc = "Acts for you: a click on a reminder casts the missing buff or uses the consumable, one cast per click and never by itself." })
 -- The Spell row of a slot: Automatic and each spell the player knows.
 local function LineValues(slot)
 	return function()

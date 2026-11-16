@@ -623,6 +623,8 @@ local function FormatToPattern(format)
 	return "^" .. table.concat(out) .. "$"
 end
 
+ItemScore.StatFormatPattern = FormatToPattern
+
 local function EquipPatterns()
 	if equipPatterns then return equipPatterns end
 	equipPatterns = {}
@@ -633,6 +635,20 @@ local function EquipPatterns()
 		if pattern then equipPatterns[#equipPatterns + 1] = { pattern = pattern, key = key } end
 	end
 	return equipPatterns
+end
+
+-- The same single-stat patterns also provide compact tooltip labels.
+function ItemScore:ShortEquipText(text)
+	text = Safe(text)
+	if type(text) ~= "string" then return end
+	local trigger = Safe(ITEM_SPELL_TRIGGER_ONEQUIP)
+	if type(trigger) ~= "string" or text:sub(1, #trigger) ~= trigger then return end
+	local effect = strtrim(text:sub(#trigger + 1))
+	for _, entry in ipairs(EquipPatterns()) do
+		local amount = effect:match(entry.pattern)
+		local label = amount and Safe(rawget(_G, entry.key))
+		if type(label) == "string" and label ~= "" then return "+" .. amount .. " " .. label end
+	end
 end
 
 local function ParseNumber(text)

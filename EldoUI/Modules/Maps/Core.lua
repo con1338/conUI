@@ -2,7 +2,7 @@
 --   * World map and quest log: skin, player and cursor
 --     coordinates, fade while moving. Moving and scaling the windowed map
 --     is the window mover's (Core/WindowMover.lua).
---   * Flight map and taxi window (G-36d): skin, learned flight time on
+--   * Flight map and taxi window: skin, learned flight time on
 --     each destination's tooltip (times from the QoL flight timer); moved
 --     and scaled by the window mover.
 --   * Battlefield (zone) map, Shift+M: skin, mover, size, opacity, hide.
@@ -1150,7 +1150,7 @@ for _, row in ipairs({
 	Needs(WIDGETS, "move", Key("Turn on Move and scale for UI widgets to use these.")),
 	{ type = "range", percent = true, key = "widgets.topScale", label = "Top-center scale", desc = "Size of the top-center widgets (on the \"Top-center Widgets\" mover).", min = 0.5, max = 1.5, step = 0.05, hidden = Off(WIDGETS, "move") },
 	{ type = "toggle", key = "widgets.belowFollow", label = "Below-minimap widgets follow the minimap", desc = "They hang under EldoUI's minimap wherever you move it.", hidden = Off(WIDGETS, "move") },
-	{ type = "range", key = "widgets.belowGap", label = "Gap under the minimap", desc = "Space between the minimap and the widgets below it.", min = 0, max = 40, step = 1, dependsOn = "widgets.belowFollow", hidden = Off(WIDGETS, "move") },
+	{ type = "range", unit = "px", key = "widgets.belowGap", label = "Gap under the minimap", desc = "Space between the minimap and the widgets below it.", min = 0, max = 40, step = 1, dependsOn = "widgets.belowFollow", hidden = Off(WIDGETS, "move") },
 	{ type = "range", percent = true, key = "widgets.belowScale", label = "Below-minimap scale", desc = "Size of the widgets below the minimap.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(WIDGETS, "move") },
 	{ type = "range", percent = true, key = "widgets.powerScale", label = "Encounter bar scale", desc = "Size of the encounter / alternate power bar (on the \"Encounter Bar\" mover).", min = 0.5, max = 1.5, step = 0.05, hidden = Off(WIDGETS, "move") },
 	{ type = "header", label = "Look (Skin)" },

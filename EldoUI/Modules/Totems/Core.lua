@@ -95,6 +95,11 @@ local M = E:NewModule("ShamanTotems", {
 		groupWindow = {},          -- the shaman group panel's place and size
 	},
 })
+
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "loadouts", "activeLoadout", "contentLoadouts" }
+M.keepOnResetNote = E.Key("Your totem loadouts are kept too.")
 E.Totems = M
 E:RegisterVisibilityFacet("EldoUI_ShamanTotems", "rules", { module = "ShamanTotems", setting = "visibility" })
 E:RegisterVisibilityFacet("EldoUI_ShamanCooldowns", "rules", { module = "ShamanTotems", setting = "visibility" })
@@ -447,17 +452,25 @@ end
 local events = CreateFrame("Frame")
 -- Cooldown and totem changes come from the one cooldown source (below).
 local EVENTS = {
-	"SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "PLAYER_LEVEL_UP",
+	"SPELLS_CHANGED", "LEARNED_SPELL_IN_SKILL_LINE", "PLAYER_LEVEL_UP",
 	"UNIT_AURA", "UNIT_INVENTORY_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED",
 	"PLAYER_ENTERING_WORLD", "UPDATE_MULTI_CAST_ACTIONBAR", "UPDATE_BINDINGS", "GROUP_ROSTER_UPDATE",
 	"LOSS_OF_CONTROL_ADDED", "LOSS_OF_CONTROL_UPDATE", "ZONE_CHANGED_NEW_AREA",
 }
-local SPELLBOOK = { SPELLS_CHANGED = true, LEARNED_SPELL_IN_TAB = true, PLAYER_LEVEL_UP = true }
+local SPELLBOOK = { SPELLS_CHANGED = true, LEARNED_SPELL_IN_SKILL_LINE = true, PLAYER_LEVEL_UP = true }
 events:SetScript("OnEvent", function(_, event, unit)
 	if not M.active then return end
-	if (event == "UNIT_AURA" or event == "UNIT_INVENTORY_CHANGED") and unit ~= "player" then
-		Each("OnGroupAura", unit)
-		return
+	if event == "UNIT_AURA" or event == "UNIT_INVENTORY_CHANGED" then
+		unit = Plain(unit)
+		if type(unit) ~= "string" then return end
+		if unit ~= "player" then
+			local party = tonumber(unit:match("^party([1-4])$"))
+			local raid = tonumber(unit:match("^raid(%d+)$"))
+			if party or (raid and raid >= 1 and raid <= 40 and unit == "raid" .. raid) then
+				Each("OnGroupAura", unit)
+			end
+			return
+		end
 	end
 	if SPELLBOOK[event] then
 		M:ForgetSpells()

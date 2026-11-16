@@ -8,7 +8,7 @@
 -- Copyright (c) 2019. The full license text is at the top of
 -- Data/Training/Shared.lua (credited in THIRD_PARTY_NOTICES.md).
 -- Every spell ID is checked against the WoW: Forever client tables of build
--- 1.60.1.70862.
+-- 1.60.1.70938.
 local _, E = ...
 local D = E.TrainingData
 

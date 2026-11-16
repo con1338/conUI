@@ -173,7 +173,7 @@ Tour:Register("keys:applied", {
 		return Tour:Spot("keys:applied", {
 			force = force, scope = scope,
 			title = L["Your keys are set"],
-			text = L["Each bar has its own keys now. The key preview on the Keybinds page in /eui shows every one, and Restore my old keys there puts your old keys back."],
+			text = L["Each bar has its own keys now. The key preview on the Keybinds page in /eui shows every one, and Undo last key set there puts your old keys back."],
 		})
 	end,
 	replay = function(def) def.offer(def, nil, true) end,

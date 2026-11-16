@@ -39,6 +39,7 @@ local M = E:NewModule("RaidLoot", {
 		maxNames = 5,
 		highlightMe = true,
 		allowPosting = false,
+		recordAttendance = false,
 		organizerCut = 10,
 		roundGold = true,
 		transparent = false,
@@ -644,6 +645,466 @@ end
 M.TooltipLines = TooltipLines
 
 ---------------------------------------------------------------------------
+-- Account attendance, recorded from the ordinary roster after combat
+---------------------------------------------------------------------------
+local attendanceOwner = {}
+local attendance
+local DEFAULT_NIGHTS, MAX_NIGHTS, MAX_ATTENDANCE_SNAPSHOTS = 20, 60, 240
+local checkedHistory
+local attendanceEvents = { "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED",
+	"ENCOUNTER_START", "ENCOUNTER_END", "ZONE_CHANGED_NEW_AREA" }
+local function AttendanceInt(value, low, high)
+	return type(value) == "number" and value >= low and value <= high and value < math.huge and value % 1 == 0
+end
+
+local function AttendanceName(value)
+	value = Clean(value)
+	if type(value) ~= "string" or #value > 160 then return end
+	value = strtrim((value:gsub("%s+", " ")))
+	if value ~= "" and not value:find("[%c|]") then return value end
+end
+
+local function AttendanceTable(value)
+	return type(Clean(value)) == "table" and (not canaccesstable or canaccesstable(value))
+end
+
+local function RestoreAttendanceSnapshot(snapshot)
+	if not AttendanceTable(snapshot) then return end
+	local at, kind = Clean(snapshot.at), Clean(snapshot.kind)
+	if not AttendanceInt(at, 1, 4102444800) or not AttendanceTable(snapshot.roster) then return end
+	if kind ~= "start" and kind ~= "manual" and kind ~= "end" and kind ~= "boss" then return end
+	local boss = AttendanceName(snapshot.boss)
+	if kind == "boss" and not boss then return end
+	local roster, bench, seen = {}, {}, {}
+	for _, row in ipairs(snapshot.roster) do
+		if not AttendanceTable(row) or #roster >= 40 then return end
+		local name = AttendanceName(row.name)
+		if not name or seen[name:lower()] then return end
+		seen[name:lower()] = true
+		local group, online, inside = Clean(row.group), Clean(row.online), Clean(row.inside)
+		local entry = { name = name, class = AttendanceName(row.class),
+			classToken = AttendanceName(row.classToken), zone = AttendanceName(row.zone),
+			group = AttendanceInt(group, 1, 8) and group or nil }
+		if type(online) == "boolean" then entry.online = online end
+		if online == true and type(inside) == "boolean" then entry.inside = inside end
+		roster[#roster + 1] = entry
+	end
+	if #roster == 0 then return end
+	if AttendanceTable(snapshot.bench) then
+		for _, raw in ipairs(snapshot.bench) do
+			local name = AttendanceName(raw)
+			if name and not seen[name:lower()] then
+				seen[name:lower()] = true
+				bench[#bench + 1] = name
+				if #bench == 40 then break end
+			end
+		end
+	end
+	return { at = at, kind = kind, boss = boss, instance = AttendanceName(snapshot.instance), roster = roster, bench = bench }
+end
+
+local function TrimAttendance(history, recording)
+	while #history.nights > history.keep do
+		table.remove(history.nights, history.nights[1] == recording and 2 or 1)
+	end
+end
+
+local function LimitSnapshots(night)
+	while #night.snapshots > MAX_ATTENDANCE_SNAPSHOTS do
+		table.remove(night.snapshots, 1)
+		night.omitted = (night.omitted or 0) + 1
+	end
+end
+
+local function RestoreAttendance(history)
+	local nights = {}
+	if AttendanceTable(history.nights) then
+		for index = math.max(1, #history.nights - history.keep + 1), #history.nights do
+			local raw = history.nights[index]
+			if AttendanceTable(raw) and AttendanceInt(Clean(raw.at), 1, 4102444800) and AttendanceTable(raw.snapshots) then
+				local night = { at = raw.at, character = AttendanceName(raw.character), instance = AttendanceName(raw.instance),
+					closed = Clean(raw.closed) == true or nil, snapshots = {}, bench = {} }
+				local omitted = Clean(raw.omitted)
+				local first = math.max(1, #raw.snapshots - MAX_ATTENDANCE_SNAPSHOTS + 1)
+				night.omitted = (AttendanceInt(omitted, 0, math.huge) and omitted or 0) + first - 1
+				for sampleIndex = first, #raw.snapshots do
+					local sample = RestoreAttendanceSnapshot(raw.snapshots[sampleIndex])
+					if sample then night.snapshots[#night.snapshots + 1] = sample end
+				end
+				if AttendanceTable(raw.bench) then
+					local count = 0
+					for _, value in pairs(raw.bench) do
+						local name = AttendanceName(value)
+						if name and not night.bench[name:lower()] then
+							night.bench[name:lower()] = name
+							count = count + 1
+							if count == 40 then break end
+						end
+					end
+				end
+				LimitSnapshots(night)
+				if #night.snapshots > 0 then nights[#nights + 1] = night end
+			end
+		end
+	end
+	history.nights = nights
+	TrimAttendance(history)
+end
+
+function M:AttendanceHistory()
+	local data = E:GetGlobal("RaidLoot")
+	if not data then return end
+	local history = data.attendance
+	if not AttendanceTable(history) then history = {}; data.attendance = history end
+	if not AttendanceInt(Clean(history.keep), 1, MAX_NIGHTS) then history.keep = DEFAULT_NIGHTS end
+	if history ~= checkedHistory then
+		RestoreAttendance(history)
+		checkedHistory = history
+	end
+	return history
+end
+
+local function SameAttendanceOwner(state)
+	return attendance == state and M.active and M.db == state.db and state.db.recordAttendance == true
+		and Clean(E.charKey) == state.character and E:GetGlobal("RaidLoot") == state.store
+end
+
+local function QuietAttendance(state)
+	return SameAttendanceOwner(state) and E.PlainCall(InCombatLockdown) == false
+		and E.PlainCall(UnitAffectingCombat, "player") == false
+		and E.PlainCall(C_InstanceEncounter and C_InstanceEncounter.IsEncounterInProgress) == false
+end
+
+local function AttendanceRaid()
+	return E.PlainCall(IsInRaid)
+end
+
+local function AttendancePlace()
+	local name, kind, difficulty, _, _, _, _, id = E.PlainCallEach(GetInstanceInfo)
+	if kind == "raid" and AttendanceInt(id, 1, math.huge) then
+		return { name = AttendanceName(name), id = id, difficulty = difficulty }
+	end
+end
+
+local function AttendanceMap(unit)
+	local _, _, _, id = E.PlainCallEach(UnitPosition, unit)
+	if AttendanceInt(id, 0, math.huge) then return id end
+end
+
+local function AttendanceRoster(place)
+	local size = E.PlainCall(GetNumGroupMembers)
+	if not AttendanceInt(size, 1, 40) then return end
+	local roster, seen = {}, {}
+	local here = place and AttendanceMap("player")
+	for index = 1, size do
+		local name, _, group, _, class, classToken, zone, online = E.PlainCallEach(GetRaidRosterInfo, index)
+		name = AttendanceName(name)
+		if not name then return end
+		local unit = "raid" .. index
+		name = AttendanceName(E.PlainCall(E.UnitWhisperName, E, unit)) or name
+		local key = name:lower()
+		if seen[key] then return end
+		seen[key] = true
+		local map = here and online == true and AttendanceMap(unit)
+		if type(online) ~= "boolean" then online = nil end
+		local inside
+		if type(map) == "number" then inside = here == map end
+		roster[#roster + 1] = { name = name, group = AttendanceInt(group, 1, 8) and group or nil,
+			class = AttendanceName(class), classToken = AttendanceName(classToken), zone = AttendanceName(zone),
+			online = online, inside = inside }
+	end
+	if E.PlainCall(GetNumGroupMembers) ~= size then return end
+	return roster
+end
+
+local function AttendanceChanged()
+	if M.RefreshAttendanceWindow then M:RefreshAttendanceWindow() end
+end
+
+function M:SetAttendanceKeep(keep)
+	local history = self:AttendanceHistory()
+	if not history or not AttendanceInt(keep, 1, MAX_NIGHTS) then return end
+	history.keep = keep
+	TrimAttendance(history, self:CurrentAttendanceNight())
+	AttendanceChanged()
+end
+
+function M:CurrentAttendanceNight()
+	return attendance and SameAttendanceOwner(attendance) and attendance.night or nil
+end
+
+local function AppendAttendance(state, kind, roster, place, boss)
+	local history = M:AttendanceHistory()
+	local night = state.night
+	local at = time()
+	if not night then
+		night = { at = at, character = state.character, snapshots = {}, bench = {} }
+		history.nights[#history.nights + 1] = night
+		state.night = night
+		TrimAttendance(history)
+	end
+	if place and place.name then night.instance = place.name end
+	local snapshot = { at = at, kind = kind, boss = boss, instance = place and place.name or night.instance,
+		roster = roster, bench = {} }
+	local rosterNames = {}
+	for _, row in ipairs(roster) do rosterNames[row.name:lower()] = true end
+	for key, name in pairs(night.bench) do
+		if not rosterNames[key] then snapshot.bench[#snapshot.bench + 1] = name end
+	end
+	table.sort(snapshot.bench)
+	night.snapshots[#night.snapshots + 1] = snapshot
+	LimitSnapshots(night)
+	if kind == "end" then night.closed = true end
+end
+
+local function FinishAttendance(state)
+	if state.night and state.lastRoster then
+		AppendAttendance(state, "end", state.lastRoster, state.lastPlace)
+	end
+	state.night, state.lastRoster, state.lastPlace, state.formed = nil, nil, nil, nil
+	state.encounter, state.encounterID = nil, nil
+	state.kills, state.seenKills, state.seenCount = {}, {}, 0
+end
+
+local function SampleAttendance(state, manual)
+	if not QuietAttendance(state) then return false end
+	local inRaid = AttendanceRaid()
+	if inRaid == false then
+		local changed = state.night ~= nil
+		FinishAttendance(state)
+		if changed then AttendanceChanged() end
+		return false
+	end
+	if inRaid ~= true or state.encounter then return false end
+	local place, change = AttendancePlace(), state.change
+	local roster = AttendanceRoster(place)
+	if not roster or not QuietAttendance(state) or AttendanceRaid() ~= true or change ~= state.change then return false end
+	local current = AttendancePlace()
+	if (place and place.id) ~= (current and current.id)
+		or (place and place.difficulty) ~= (current and current.difficulty) or state.encounter
+		or change ~= state.change or not QuietAttendance(state) then return false end
+	state.lastRoster, state.lastPlace = roster, place
+	if not state.formed then
+		AppendAttendance(state, "start", roster, place)
+		state.formed = true
+	end
+	local pending = state.kills
+	state.kills = {}
+	for _, kill in ipairs(pending) do
+		if place and kill.map == place.id and kill.difficulty == place.difficulty and kill.roster == state.rosterRevision then
+			AppendAttendance(state, "boss", roster, place, kill.name)
+		end
+	end
+	if manual then AppendAttendance(state, "manual", roster, place) end
+	AttendanceChanged()
+	return true
+end
+
+local function DeferAttendance(state)
+	if state.timer then return end
+	state.timer = C_Timer.NewTimer(0, function()
+		state.timer = nil
+		local sampled = SampleAttendance(state)
+		if not sampled and SameAttendanceOwner(state) then AttendanceChanged() end
+		if not sampled and SameAttendanceOwner(state) and #state.kills > 0 and not state.encounter then
+			-- ENCOUNTER_END can precede the native combat and encounter transitions.
+			-- Regen/world events also retry the same pending kill.
+			state.timer = C_Timer.NewTimer(0.2, function()
+				state.timer = nil
+				if not SampleAttendance(state) and SameAttendanceOwner(state) then AttendanceChanged() end
+			end)
+		end
+	end)
+end
+
+local function AttendanceEvent(_, event, id, name, difficulty, _, success)
+	local state = attendance
+	if not state or not SameAttendanceOwner(state) then return end
+	if event == "ENCOUNTER_START" then
+		id = Clean(id)
+		if state.encounter and state.encounterID == id then return end
+		state.encounter, state.encounterID, state.seenKills, state.seenCount = true, id, {}, 0
+		AttendanceChanged()
+		return
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		AttendanceChanged()
+		return
+	elseif event == "ENCOUNTER_END" then
+		id, name, difficulty, success = Clean(id), AttendanceName(name), Clean(difficulty), Clean(success)
+		if state.encounterID and id ~= state.encounterID then return end
+		state.encounter, state.encounterID = nil, nil
+		local place = success == 1 and AttendanceRaid() == true and AttendancePlace()
+		if place and name and AttendanceInt(id, 1, math.huge) and difficulty == place.difficulty then
+			local key = place.id .. ":" .. id
+			if #state.kills < MAX_ATTENDANCE_SNAPSHOTS and state.seenCount < MAX_ATTENDANCE_SNAPSHOTS and not state.seenKills[key] then
+				state.seenKills[key] = true
+				state.seenCount = state.seenCount + 1
+				state.kills[#state.kills + 1] = { name = name, map = place.id, difficulty = difficulty, roster = state.rosterRevision }
+			end
+		end
+	elseif event == "PLAYER_REGEN_ENABLED" and state.encounter and QuietAttendance(state) then
+		state.encounter, state.encounterID = nil, nil
+	elseif event == "PLAYER_ENTERING_WORLD" and Clean(name) == true and not state.night and AttendanceRaid() == true then
+		-- PLAYER_ENTERING_WORLD's second argument identifies an actual UI reload.
+		local nights = M:AttendanceHistory().nights
+		local last = nights[#nights]
+		if last and last.character == state.character and not last.closed then
+			state.night, state.formed = last, true
+			local snapshot = last.snapshots[#last.snapshots]
+			state.lastRoster = snapshot and snapshot.roster
+		end
+	end
+	if event == "GROUP_ROSTER_UPDATE" or event == "ZONE_CHANGED_NEW_AREA" then
+		state.rosterRevision = state.rosterRevision + 1
+		state.kills = {}
+	end
+	state.change = state.change + 1
+	DeferAttendance(state)
+end
+
+function M:SyncAttendance(waitForWorld)
+	local character = Clean(E.charKey)
+	local store = self.active and self.db.recordAttendance == true and E:GetGlobal("RaidLoot")
+	if attendance and SameAttendanceOwner(attendance) then return end
+	if attendance and store and attendance.store == store and attendance.character == character then
+		-- Only the view's profile changed. The same character and account
+		-- store still own the current raid and its pending encounter ends.
+		attendance.db = self.db
+		DeferAttendance(attendance)
+		return
+	end
+	if attendance then
+		if attendance.timer then attendance.timer:Cancel() end
+		for _, event in ipairs(attendanceEvents) do E:UnregisterEvent(event, attendanceOwner) end
+		attendance = nil
+	end
+	if not store or type(character) ~= "string" then return end
+	attendance = { db = self.db, character = character, store = store, change = 0, rosterRevision = 0, kills = {}, seenKills = {}, seenCount = 0 }
+	for _, event in ipairs(attendanceEvents) do E:RegisterEvent(event, AttendanceEvent, attendanceOwner) end
+	if not waitForWorld then DeferAttendance(attendance) end
+end
+
+function M:TakeAttendanceSnapshot()
+	return attendance and SampleAttendance(attendance, true) or false
+end
+
+function M:CanTakeAttendanceSnapshot()
+	return attendance and not attendance.encounter and QuietAttendance(attendance) and AttendanceRaid() == true or false
+end
+
+function M:SetAttendanceBench(night, name, add)
+	if not night or night ~= self:CurrentAttendanceNight() then return false end
+	name = AttendanceName(Clean(name))
+	if not name then return false end
+	local key = name:lower()
+	if add then
+		local count = 0
+		for _ in pairs(night.bench) do count = count + 1 end
+		if count >= 40 and not night.bench[key] then return false end
+		night.bench[key] = name
+	else
+		night.bench[key] = nil
+	end
+	AttendanceChanged()
+	return true
+end
+
+function M:DeleteAttendanceNight(night)
+	local history = self:AttendanceHistory()
+	for index, row in ipairs(history and history.nights or {}) do
+		if row == night then
+			table.remove(history.nights, index)
+			if attendance and attendance.night == night then attendance.night, attendance.kills = nil, {} end
+			AttendanceChanged()
+			return true
+		end
+	end
+	return false
+end
+
+function M:AttendanceSummary(night)
+	local players, index, bosses = {}, {}, 0
+	local snapshots = night and night.snapshots or {}
+	local function Player(name)
+		local key = name:lower()
+		local row = index[key]
+		if not row then
+			row = { name = name, present = 0, bench = 0 }
+			players[#players + 1] = row
+			index[key] = row
+		end
+		return row
+	end
+	for _, snapshot in ipairs(snapshots) do
+		if snapshot.kind == "boss" then bosses = bosses + 1 end
+		for _, entry in ipairs(snapshot.roster) do
+			local row = Player(entry.name)
+			row.class, row.classToken, row.latest = entry.class or row.class, entry.classToken or row.classToken, entry
+			if entry.online == true then row.present = row.present + 1 end
+		end
+		for _, name in ipairs(snapshot.bench) do local row = Player(name); row.bench = row.bench + 1 end
+	end
+	for _, row in ipairs(players) do
+		row.percent = math.floor((row.present * 100 / #snapshots) + 0.5)
+	end
+	table.sort(players, function(a, b) return a.name:lower() < b.name:lower() end)
+	return players, bosses, #snapshots
+end
+
+local attendanceLabels = { start = E.Key("Raid formed"), manual = E.Key("Manual snapshot"),
+	["end"] = E.Key("Raid ended (last roster)") }
+function M:AttendanceSampleName(snapshot)
+	local label = attendanceLabels[snapshot.kind]
+	return snapshot.boss or (label and L[label]) or L["Unknown"]
+end
+
+function M:AttendanceStatus(entry)
+	if entry.online == false then return E.Key("Offline") end
+	if entry.online ~= true then return E.Key("Unknown") end
+	if entry.inside == true then return E.Key("In the instance") end
+	if entry.inside == false then return E.Key("Outside the instance") end
+	return E.Key("Online")
+end
+
+local function AttendanceCSVCell(text)
+	if text:find("^%s*[=+%@-]") then text = "'" .. text end
+	return '"' .. text:gsub('"', '""') .. '"'
+end
+
+function M:ExportAttendance(night, csv)
+	local out = csv and { "date,instance,boss,player,status" } or {}
+	if not night then return table.concat(out, "\n") end
+	local players, _, count = self:AttendanceSummary(night)
+	local function Row(fields)
+		for index, text in ipairs(fields) do fields[index] = AttendanceCSVCell(text) end
+		out[#out + 1] = table.concat(fields, ",")
+	end
+	for _, snapshot in ipairs(night.snapshots) do
+		local when = date("%Y-%m-%d %H:%M", snapshot.at)
+		local instance = snapshot.instance or ""
+		local label = self:AttendanceSampleName(snapshot)
+		if not csv then out[#out + 1] = table.concat({ when, instance, label }, "  ·  ") end
+		local function PlayerLine(name, status)
+			if csv then Row({ when, instance, snapshot.boss or attendanceLabels[snapshot.kind], name, status })
+			else out[#out + 1] = name .. "  ·  " .. L[status] end
+		end
+		for _, entry in ipairs(snapshot.roster) do PlayerLine(entry.name, self:AttendanceStatus(entry)) end
+		for _, name in ipairs(snapshot.bench) do PlayerLine(name, "Bench") end
+		if not csv then out[#out + 1] = "" end
+	end
+	if not csv then
+		if night.omitted and night.omitted > 0 then
+			out[#out + 1] = L["Earlier snapshots omitted (%d)"]:format(night.omitted)
+		end
+		out[#out + 1] = L["Attendance"]
+		for _, player in ipairs(players) do
+			out[#out + 1] = ("%s  ·  %d/%d  ·  %d%%"):format(player.name, player.present, count, player.percent)
+		end
+	end
+	return table.concat(out, csv and "\r\n" or "\n")
+end
+
+---------------------------------------------------------------------------
 -- Changes
 ---------------------------------------------------------------------------
 function M:Changed()
@@ -663,10 +1124,12 @@ end
 
 function M:OnEnable()
 	if self.InstallHooks then self:InstallHooks() end
+	self:SyncAttendance(true)
 	self:Changed()
 end
 
 function M:OnDisable()
+	self:SyncAttendance()
 	if self.UnregisterEvents then self:UnregisterEvents() end
 	if self.RefreshRollLines then self:RefreshRollLines() end
 	if self.window and self.window:IsOpen() then self.window:Close() end
@@ -674,6 +1137,7 @@ function M:OnDisable()
 end
 
 function M:OnProfileChanged()
+	self:SyncAttendance()
 	if not self.active then return end
 	if self.window then
 		self.window:ApplyPosition()
@@ -694,6 +1158,8 @@ function M:Command(arg)
 		self:OpenWindow("reserves")
 	elseif word == "ledger" or word == "gdkp" then
 		self:OpenWindow("ledger")
+	elseif word == "attendance" then
+		self:OpenWindow("attendance")
 	elseif word == "sr" then
 		self:ShowImport("sr")
 	elseif word == "tmb" then
@@ -713,11 +1179,11 @@ function M:Command(arg)
 		end
 		self:PostItem(id, rest:find("|H") and rest or nil)
 	else
-		E:Print(L["/eui raidloot [ledger | sr | tmb | clear [sr | tmb] | post <item>]"])
+		E:Print(L["/eui raidloot [ledger | attendance | sr | tmb | clear [sr | tmb] | post <item>]"])
 	end
 end
 
-E:AddCommand("raidloot", "[ledger | sr | tmb | clear | post <item>]  soft reserves, TMB and the GDKP ledger", function(arg)
+E:AddCommand("raidloot", "[ledger | attendance | sr | tmb | clear | post <item>]  soft reserves, TMB, ledger and attendance", function(arg)
 	if not M.active then
 		E:Print(E:ModuleOffHint("RaidLoot"))
 		return
@@ -752,10 +1218,13 @@ M.options = {
 	{ type = "header", label = "GDKP ledger" },
 	{ type = "range", key = "organizerCut", label = "Organizer cut", unit = "%", min = 0, max = 50, step = 1, desc = "The organizer's share of the pot for new ledgers. Each ledger keeps its own cuts." },
 	{ type = "toggle", key = "roundGold", label = "Round payouts to gold", desc = "Shows payouts in whole gold, rounded down. The rest stays with the organizer." },
+	{ type = "header", label = "Attendance" },
+	{ type = "toggle", key = "recordAttendance", label = "Record raid attendance",
+		desc = "Keeps the raid roster after successful boss fights and when the raid forms or ends. Off by default." },
 	{ type = "tab", label = "Look" },
 	{ type = "range", key = "lineSize", label = "Roll line text size", min = 9, max = 14, step = 1, desc = "Text size of the SR and TMB line under each roll." },
 	{ type = "toggle", key = "rollBackdrop", label = "Roll line background", desc = "A see-through background in your art style behind the line under each roll." },
-	{ type = "range", key = "rowHeight", label = "Window row height", min = 16, max = 24, step = 1, desc = "Height of the rows in the reserve lists and the ledger." },
+	{ type = "range", unit = "px", key = "rowHeight", label = "Window row height", min = 16, max = 24, step = 1, desc = "Height of the rows in the reserve lists and the ledger." },
 	{ type = "toggle", key = "transparent", label = "See-through window", desc = "The Raid Loot window lets the game show through a little. How much: General > Panel opacity." },
 }
 

@@ -1,6 +1,6 @@
 -- Rare Alerts: the alert card. A secure button the player clicks to
 -- target the rare: "/cleartarget" + "/targetexact <name>" (and "/tm" when
--- "Mark when I click the card" is on). Right-click and the x close it
+-- "Mark when you click the card" is on). Right-click and the x close it
 -- through a secure snippet, so closing works in combat too.
 --
 --   +------------------------------------------------------------+
@@ -710,7 +710,7 @@ function M:BuildCards()
 		anchor:EnableMouse(false)
 		self.anchor = anchor
 		self:ApplyAnchor()
-		E:CreateMover(anchor, M.MOVER, "Rare Alerts", M.DEFAULT_POINT, { followShown = true, sample = { kind = "toast" } })
+		E:CreateMover(anchor, M.MOVER, L["Rare Alerts"], M.DEFAULT_POINT, { followShown = true, sample = { kind = "toast" } })
 	end
 	for i = 1, POOL do
 		cards[i] = cards[i] or CreateCard(i)

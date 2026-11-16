@@ -292,8 +292,8 @@ local function Build()
 		desc = L["Copies another area's look onto this one, with a preview of what changes first. Its name, on/off switch and position stay."] })) do Add(row) end
 	Add({ type = "toggle", key = AreaKey("enabled"), label = L["Show this area"], desc = L["Shows this scroll area. Its events show nowhere while it is off."] })
 	Add({ type = "input", key = AreaKey("title"), label = L["Name"], desc = L["Name of the area in lists and on its mover."] })
-	Add({ type = "range", key = AreaKey("width"), label = L["Width"], min = 60, max = 800, step = 2, desc = L["Width of the area box. Lines move inside it."] })
-	Add({ type = "range", key = AreaKey("height"), label = L["Height"], min = 30, max = 600, step = 2, desc = L["Height of the area box. Lines move inside it."] })
+	Add({ type = "range", unit = "px", key = AreaKey("width"), label = L["Width"], min = 60, max = 800, step = 2, desc = L["Width of the area box. Lines move inside it."] })
+	Add({ type = "range", unit = "px", key = AreaKey("height"), label = L["Height"], min = 30, max = 600, step = 2, desc = L["Height of the area box. Lines move inside it."] })
 	Add({ type = "select", key = AreaKey("animation"), label = L["Animation"], values = function() return M:AnimationValues("scroll") end,
 		desc = L["How normal lines move: straight, arc, angled, fountain, or stacked in place."] })
 	Add({ type = "select", key = AreaKey("direction"), label = L["Direction"], values = DIRECTIONS,
@@ -334,7 +334,7 @@ local function Build()
 		func = function()
 			E:ShowConfirm({ key = "ELDOUI_SCT_DELETE_AREA", title = L["Combat Text"],
 				text = L["Delete the scroll area %s? Its events go back to their usual area."]:format(M:AreaTitle(EditArea())),
-				accept = YES or L["Yes"], cancel = NO or L["No"], danger = true, onAccept = function()
+				accept = E:GameText(YES, L["Yes"]), cancel = E:GameText(NO, L["No"]), danger = true, onAccept = function()
 					M:DeleteCustomArea(EditArea())
 					E:RunOutOfCombat(function() M:OnProfileChanged() end)
 					E:RefreshConfig()
@@ -378,7 +378,7 @@ local function Build()
 		cog = {
 			{ type = "range", key = "plates.critScale", label = L["Critical size"], unit = "%", min = 100, max = 250, step = 5,
 				desc = L["Size of critical hits, in percent of normal."] },
-			{ type = "range", key = "plates.offsetY", label = L["Gap"], min = -20, max = 60, step = 1,
+			{ type = "range", unit = "px", key = "plates.offsetY", label = L["Gap"], min = -20, max = 60, step = 1,
 				desc = L["Gap between the plate and its numbers."] },
 			{ type = "range", key = "plates.maxPerPlate", label = L["Most lines per plate"], min = 1, max = 10, step = 1,
 				desc = L["Most numbers on one plate at once; the oldest goes first."] },

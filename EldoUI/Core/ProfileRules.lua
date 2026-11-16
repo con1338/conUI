@@ -4,9 +4,15 @@
 --
 -- Rules live per character in EldoUIDB.profileRules[charKey]:
 --   { enabled = false, spec = { [1] = "Profile", [2] = "Profile" },
---     content = { solo = "", party = "", raid = "", pvp = "" } }
--- An empty entry means "no rule". A content rule wins over a spec rule.
--- Switching happens out of combat only; a change in combat waits.
+--     content = { solo = "", party = "", raid = "", pvp = "" },
+--     otherwise = "", home = "Profile" }
+-- An empty entry means "no rule". A content rule wins over a spec rule;
+-- when neither fits, `otherwise` is used, or when it is empty `home`: the
+-- profile the player last picked by hand (or the one in use before a rule
+-- first switched), so leaving a group goes back to it.
+-- A profile picked by hand pauses the rules until the content or the
+-- talent group changes, so the pick is not undone at the next loading
+-- screen. Switching happens out of combat only; a change in combat waits.
 --
 -- Class defaults: EldoUIDB.classProfiles[classFile] = "Profile" is
 -- the profile a NEW character of that class starts with, on its first login
@@ -139,21 +145,60 @@ local function Content()
 	return "solo"
 end
 
+local function Usable(name)
+	return type(name) == "string" and name ~= "" and EldoUIDB.profiles[name] ~= nil
+end
+
 -- The profile the rules ask for right now, or nil.
 function E:WantedProfile()
 	local rules = Rules()
 	if not rules.enabled then return nil end
 	local wanted = rules.content[Content()]
-	if not wanted or wanted == "" then wanted = rules.spec[SpecGroup()] end
-	if not wanted or wanted == "" or not EldoUIDB.profiles[wanted] then return nil end
+	if not Usable(wanted) then wanted = rules.spec[SpecGroup()] end
+	if not Usable(wanted) then wanted = rules.otherwise end
+	if not Usable(wanted) then wanted = rules.home end
+	if not Usable(wanted) then return nil end
 	return wanted
+end
+
+-- A profile picked by hand holds until the content or the talent group
+-- changes (this session only).
+local paused
+local ruleSwitching, loggedIn = false, false
+
+local function State()
+	return Content() .. ":" .. tostring(SpecGroup())
+end
+
+function E:ProfileRulesOn()
+	return type(EldoUIDB) == "table" and Rules().enabled == true
+end
+
+function E:ProfileRulesPaused()
+	return paused ~= nil
+end
+
+-- Apply the rules now, over a profile picked by hand (the rules page
+-- after a change).
+function E:ResumeProfileRules()
+	paused = nil
+	self:CheckProfileRules()
 end
 
 function E:CheckProfileRules()
 	self:RunOutOfCombat(function()
+		if paused then
+			if paused == State() then return end
+			paused = nil
+		end
 		local wanted = self:WantedProfile()
 		if wanted and wanted ~= self.profileName then
-			self:SetProfile(wanted)
+			local rules = Rules()
+			if not Usable(rules.home) then rules.home = self.profileName end
+			ruleSwitching = true
+			local ok, err = pcall(self.SetProfile, self, wanted)
+			ruleSwitching = false
+			if not ok then geterrorhandler()(err) end
 			if self.RefreshConfig then self:RefreshConfig() end
 			-- The first switch a rule makes explains itself once.
 			if self.Tour then self.Tour:Offer("profile:rule", wanted) end
@@ -161,9 +206,36 @@ function E:CheckProfileRules()
 	end, "profileRules")
 end
 
+-- Every switch the rules did not make is the player's own pick: it
+-- becomes the profile to go back to, and with the rules on it holds until
+-- the content or the talent group changes.
+local SetProfile = E.SetProfile
+function E:SetProfile(name, ...)
+	local result = SetProfile(self, name, ...)
+	-- Only a character with rules keeps a pick: one that never set rules
+	-- gets no rules entry from a profile switch.
+	local all = loggedIn and not ruleSwitching and self.profileName == name and type(EldoUIDB) == "table"
+		and rawget(EldoUIDB, "profileRules")
+	if type(all) == "table" and type(all[self.charKey]) == "table" then
+		local rules = Rules()
+		-- With the rules off a pick only keeps an earlier return profile
+		-- current; otherwise the first switch a rule makes records it.
+		if rules.enabled or rules.home ~= nil then rules.home = name end
+		if rules.enabled then
+			local was = paused
+			paused = State()
+			if not was and self.ConfigNotice then
+				self:ConfigNotice(L["Profile rules wait until your content or talent group changes, so your pick stays."])
+			end
+		end
+	end
+	return result
+end
+
 local function Check() E:CheckProfileRules() end
 
 E:RegisterEvent("PLAYER_LOGIN", function()
+	loggedIn = true
 	if E.classProfileApplied then
 		E:Print(L["New character: using the %s class profile %s (/eui > Profile rules)."]:format(
 			tostring((UnitClass("player"))), E:Highlight(E.classProfileApplied)))
@@ -192,6 +264,13 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 		table.insert(options, { type = "select", key = "content." .. entry.key, label = L[entry.label],
 			desc = L[entry.desc], values = Profiles, dependsOn = "enabled" })
 	end
+	table.insert(options, { type = "select", key = "otherwise", label = L["Otherwise use"],
+		desc = L["Profile to use when no rule above fits, such as solo with only a Party rule."], dependsOn = "enabled",
+		values = function()
+			local values = { [""] = L["The profile you last picked"] }
+			for _, name in ipairs(E:GetProfileList()) do values[name] = name end
+			return E:RawValues(values)
+		end })
 	table.insert(options, { type = "header", label = L["New characters"] })
 	table.insert(options, { type = "description", label = L["The profile a new character of each class starts with on its first login with EldoUI. Characters that already have a profile keep it."] })
 	for _, class in ipairs(Classes()) do
@@ -208,6 +287,7 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 			proxy.content = proxy.content or {}
 			for group = 1, math.max(NumSpecGroups(), 2) do proxy.spec[group] = rules.spec[group] or "" end
 			for _, entry in ipairs(CONTENT) do proxy.content[entry.key] = rules.content[entry.key] or "" end
+			proxy.otherwise = rules.otherwise or ""
 			return proxy
 		end,
 		function()
@@ -215,8 +295,10 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 			rules.enabled = proxy.enabled and true or false
 			for group, name in pairs(proxy.spec) do rules.spec[group] = name end
 			for key, name in pairs(proxy.content) do rules.content[key] = name end
+			rules.otherwise = proxy.otherwise
 			for classFile, name in pairs(proxy.class or {}) do E:SetClassProfile(classFile, name) end
-			Check()
+			-- New rules apply now, even over a pick made by hand.
+			E:ResumeProfileRules()
 		end, 98.5)
 end, Rules, "modules")
 

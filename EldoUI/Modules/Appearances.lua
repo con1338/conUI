@@ -505,15 +505,12 @@ function M:Refresh()
 	end
 end
 
-local EVENTS = { "TRANSMOG_COLLECTION_UPDATED", "TRANSMOG_COLLECTION_SOURCE_ADDED", "TRANSMOG_COLLECTION_SOURCE_REMOVED",
-	"GET_ITEM_INFO_RECEIVED" }
+-- Answers that wait for item data come in on the next redraw, so item
+-- data arriving needs no event of its own.
+local EVENTS = { "TRANSMOG_COLLECTION_UPDATED", "TRANSMOG_COLLECTION_SOURCE_ADDED", "TRANSMOG_COLLECTION_SOURCE_REMOVED" }
 
-local function OnEvent(_, event)
+local function OnEvent()
 	if not M.active then return end
-	if event == "GET_ITEM_INFO_RECEIVED" then
-		-- Answers that waited for item data come in on the next redraw.
-		return
-	end
 	M:ClearCache()
 	if M.pending then return end
 	M.pending = true

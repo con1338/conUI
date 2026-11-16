@@ -520,10 +520,10 @@ E:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, isLogin, isReload)
 	end
 end, owner)
 
-E:AddCommand("spells", "  open the keys and spells preview; undo takes the last new spells EldoUI placed off your bars again", function(args)
+E:AddCommand("spells", "[undo]  open the keys and spells preview; undo takes the last new spells EldoUI placed off your bars again", function(args)
 	if type(args) == "string" and strtrim(args):lower() == "undo" then
 		E:RunOutOfCombat(function() E:UndoNewSpells() end, "KeybindNewSpells:undo")
 		return
 	end
 	if E.OpenKeysAndSpells then E:OpenKeysAndSpells() end
-end, "Tools")
+end, "Keys and spells")

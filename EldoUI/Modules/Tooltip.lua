@@ -19,6 +19,8 @@
 --       object = function(tooltip, name, add, data) end, -- world objects (herbs, ore)
 --       quest = function(tooltip, questID, add, data) end, -- quest links
 --       spell = function(tooltip, spellID, add, data) end, -- spell tooltips
+--       aura = function(tooltip, aura, add, data) end, -- buff and debuff tooltips;
+--                                   aura = { unit, auraInstanceID or index, filter }
 --       currency = function(tooltip, currencyID, add, data) end, -- currencies
 --       module = "PlayerNotes",     -- the module that provides it (optional)
 --       option = "tooltip",         -- a switch in that module's settings (optional)
@@ -89,7 +91,7 @@ local M = E:NewModule("Tooltip", {
 	frames = { "EldoUI_Tooltip" },
 	movers = { "EldoUI_Tooltip" },
 	blizzard = { "tooltips" },
-	savedKeys = { "profile.modules.Tooltip" },
+	savedKeys = { "profile.modules.Tooltip", "private.pvpDeaths", "private.pvpDeathRecaps" },
 	optionsPage = "module:Tooltip",
 	presets = { "EldoUI", "Minimal", "Cursor", "Smart", "Classic", "InfoRich" },
 	reload = false,
@@ -115,6 +117,7 @@ local M = E:NewModule("Tooltip", {
 		healthBarHeight = 3,
 		classColor = true,
 		guildRank = true,
+		relation = true,           -- Friend, Your guild or Ignored on players
 		target = true,
 		hidePvP = true,
 		hideFaction = false,
@@ -122,11 +125,11 @@ local M = E:NewModule("Tooltip", {
 		playerItemLevel = true,
 		itemLevel = true,
 		moveItemLevel = true,      -- Blizzard's item level line moves into the info area
-		itemID = "shift",          -- never, shift, always
-		spellID = "shift",
+		ids = "shift",             -- never, shift, always: item, spell, aura, NPC, quest, currency and object IDs
 		vendorPrice = true,
 		hideMadeBy = true,
 		hideClickHints = false,
+		shortStats = false,
 		divider = true,
 		sections = {},             -- section key -> always, shift, ctrl, alt, never
 	},
@@ -164,14 +167,19 @@ local function Money(copper)
 	return E:FormatMoney(copper)
 end
 
--- Shared money format for every info row, so prices look the same everywhere.
-function E:TooltipMoney(copper)
-	if type(copper) ~= "number" then return "" end
-	return Money(copper)
-end
-
 local function Hex(r, g, b)
 	return ("|cff%02x%02x%02x"):format(r * 255, g * 255, b * 255)
+end
+
+-- Shared money format and optional stack total for every info row.
+function E:TooltipMoney(copper, count)
+	if type(copper) ~= "number" then return "" end
+	local text = Money(copper)
+	if not E.Secret(count) and type(count) == "number" and count > 1 and count < math.huge and count % 1 == 0 then
+		local gray = Hex(GREY[1], GREY[2], GREY[3])
+		text = text .. " " .. gray .. "(" .. count .. ": |r" .. Money(copper * count) .. gray .. ")|r"
+	end
+	return text
 end
 
 local function LineText(tooltip, index, side)
@@ -219,6 +227,27 @@ local function ShouldHide(kind, owner)
 	return false
 end
 
+-- The combat rule hides the hover tooltip (GameTooltip) only: a link the
+-- player clicked and the comparison beside a shown tooltip always show.
+-- The hover tooltip is made see-through rather than closed (it is not
+-- protected), so the "show anyway" key brings it back at once; it is seen
+-- again when it closes, when the next tooltip is not hidden, or after combat.
+local combatHidden = false
+local function CombatHide(tooltip)
+	if tooltip ~= GameTooltip then return end
+	tooltip:SetAlpha(0)
+	combatHidden = true
+	for _, compare in ipairs({ _G.ShoppingTooltip1, _G.ShoppingTooltip2 }) do
+		if compare and compare:IsShown() and not E.FrameCheck(compare, "IsForbidden") then compare:Hide() end
+	end
+end
+local function CombatShow(tooltip)
+	if not combatHidden or tooltip ~= GameTooltip then return end
+	combatHidden = false
+	tooltip:SetAlpha(1)
+end
+M.CombatHidden = function() return combatHidden end -- exposed for inspection
+
 -- Hides GameTooltip when the combat rule says so. kind as ShouldHide; nil
 -- reads it from the tooltip ("unit" when it shows a unit, else "all").
 local function HideInCombat(tooltip, kind)
@@ -230,8 +259,11 @@ local function HideInCombat(tooltip, kind)
 			if ok and Safe(token) then kind = "unit" end
 		end
 	end
-	if not ShouldHide(kind, tooltip:GetOwner()) then return false end
-	tooltip:Hide()
+	if not ShouldHide(kind, tooltip:GetOwner()) then
+		CombatShow(tooltip)
+		return false
+	end
+	CombatHide(tooltip)
 	return true
 end
 
@@ -272,7 +304,7 @@ end
 local MODULE_ONLY = { details = true }
 
 -- The kinds of tooltip a section can add rows to, in the order E:TooltipSections lists them.
-local KINDS = { "item", "unit", "object", "quest", "spell", "currency" }
+local KINDS = { "item", "unit", "object", "quest", "spell", "aura", "currency" }
 
 -- The label of a module's own option row, for the reason text.
 local function OptionLabel(module, key)
@@ -358,6 +390,7 @@ function E:RegisterTooltipSection(key, def)
 		object = def.object,
 		quest = def.quest,
 		spell = def.spell,
+		aura = def.aura,
 		currency = def.currency,
 		module = type(def.module) == "string" and def.module or nil,
 		option = type(def.option) == "string" and def.module and def.option or nil,
@@ -764,26 +797,29 @@ local function GetTooltipUnit(tooltip, data)
 end
 
 local CLASSIFICATION = {
-	worldboss = { BOSS or L["Boss"], 1, 0.2, 0.2 },
-	rareelite = { (ITEM_QUALITY3_DESC or L["Rare"]) .. " " .. (ELITE or L["Elite"]), 1, 0.5, 1 },
-	elite = { ELITE or L["Elite"], 1, 0.82, 0 },
-	rare = { ITEM_QUALITY3_DESC or L["Rare"], 0.7, 0.7, 1 },
+	worldboss = { E:GameText(BOSS, L["Boss"]), 1, 0.2, 0.2 },
+	rareelite = { (E:GameText(ITEM_QUALITY3_DESC, L["Rare"])) .. " " .. (E:GameText(ELITE, L["Elite"])), 1, 0.5, 1 },
+	elite = { E:GameText(ELITE, L["Elite"]), 1, 0.82, 0 },
+	rare = { E:GameText(ITEM_QUALITY3_DESC, L["Rare"]), 0.7, 0.7, 1 },
 }
 
 -- "Level 60 Humanoid" stays one line: the level in its difficulty color,
 -- the classification added to the same line.
-local function StyleLevelLine(tooltip, unit)
+local function StyleLevelLine(tooltip, unit, after)
 	local level = Safe(UnitLevel(unit))
 	if not level then return end
-	local color = (level > 0 and GetCreatureDifficultyColor) and GetCreatureDifficultyColor(level)
+	local color = (level > 0 and GetCreatureDifficultyColor) and E:DifficultyColor(GetCreatureDifficultyColor(level))
 		or { r = 1, g = 0.2, b = 0.2 }
+	local mark = level > 0 and E:LevelMark(level) or ""
 	local classification = Safe(UnitClassification(unit))
 	local tag = classification and CLASSIFICATION[classification]
-	for index = 2, tooltip:NumLines() do
+	-- The level line comes after the guild line (`after`), so a guild named
+	-- with the level word ("<Level 60 Heroes>") is never taken for it.
+	for index = math.max(2, (after or 0) + 1), tooltip:NumLines() do
 		local line, text = LineText(tooltip, index)
 		if text and LEVEL and text:find(LEVEL, 1, true) then
 			local hex = Hex(color.r, color.g, color.b)
-			text = text:gsub("(%d+)", hex .. "%1|r", 1):gsub("%?%?", hex .. "??|r", 1)
+			text = text:gsub("(%d+)", hex .. "%1|r" .. (mark ~= "" and (" (" .. mark .. ")") or ""), 1):gsub("%?%?", hex .. "??|r", 1)
 			if tag and not text:find(tag[1], 1, true) then
 				text = text .. " " .. Hex(tag[2], tag[3], tag[4]) .. tag[1] .. "|r"
 			end
@@ -793,7 +829,8 @@ local function StyleLevelLine(tooltip, unit)
 	end
 end
 
--- <Guild> in the accent color (read now, so a theme change applies), rank gray.
+-- <Guild> in the accent color (read now, so a theme change applies), rank
+-- gray. Returns the guild line's index.
 local function StyleGuildLine(tooltip, unit)
 	local guild, rank = GetGuildInfo(unit)
 	guild, rank = Safe(guild), Safe(rank)
@@ -805,10 +842,37 @@ local function StyleGuildLine(tooltip, unit)
 			local value = Hex(r, g, b) .. "<" .. guild .. ">|r"
 			if M.db.guildRank and rank then value = value .. " " .. Hex(GREY[1], GREY[2], GREY[3]) .. rank .. "|r" end
 			line:SetText(value)
-			return
+			return index
 		end
 	end
 end
+
+-- One mark on a player: Ignored, then Friend, then Your guild. It goes on
+-- the guild line, or the name line when there is none. Read from the
+-- friends and ignore lists the game keeps; skipped in combat and on a
+-- secret value.
+local function RelationTag(unit)
+	if InCombatLockdown() or Safe(UnitIsUnit(unit, "player")) then return end
+	local guid = Safe(UnitGUID(unit))
+	local lists = C_FriendList
+	if guid and lists then
+		if lists.IsIgnoredByGuid and Safe(lists.IsIgnoredByGuid(guid)) then return E:TextHex("bad") .. L["Ignored"] .. "|r" end
+		if lists.IsFriend and Safe(lists.IsFriend(guid)) then return E:TextHex("good") .. L["Friend"] .. "|r" end
+	end
+	if UnitIsInMyGuild and Safe(UnitIsInMyGuild(unit)) then
+		local r, g, b = unpack(E.media.accentColor)
+		return Hex(r, g, b) .. L["Your guild"] .. "|r"
+	end
+end
+
+local function AddRelationTag(tooltip, unit, guildLine)
+	local tag = RelationTag(unit)
+	if not tag then return end
+	local line, text = LineText(tooltip, guildLine or 1)
+	if not (line and text) or text:find(tag, 1, true) then return end
+	line:SetText(text .. "  " .. tag)
+end
+M.RelationTag = RelationTag -- for plugins
 
 -- The name line, the target and "targeted by" lines follow the name
 -- format.
@@ -839,14 +903,14 @@ local function AddTargetLine(tooltip, unit)
 	if not Safe(UnitExists(target)) then return end
 	local text
 	if Safe(UnitIsUnit(target, "player")) then
-		text = E:TextHex("bad") .. ">> " .. (YOU or L["You"]) .. " <<|r"
+		text = E:TextHex("bad") .. ">> " .. (E:GameText(YOU, L["You"])) .. " <<|r"
 	else
 		local name = Safe(E:DisplayName(target, "Tooltip"))
 		if not name then return end
 		local r, g, b = UnitColor(target)
 		text = r and (Hex(r, g, b) .. name .. "|r") or name
 	end
-	tooltip:AddDoubleLine(TARGET or L["Target"], text, GREY[1], GREY[2], GREY[3], 1, 1, 1)
+	tooltip:AddDoubleLine(E:GameText(TARGET, L["Target"]), text, GREY[1], GREY[2], GREY[3], 1, 1, 1)
 	return true
 end
 
@@ -867,10 +931,7 @@ end
 
 local function OnUnit(tooltip, data)
 	if not M.active or tooltip ~= GameTooltip or E.FrameCheck(tooltip, "IsForbidden") then return end
-	if ShouldHide("unit", tooltip:GetOwner()) then
-		tooltip:Hide()
-		return
-	end
+	if HideInCombat(tooltip, "unit") then return end
 	local unit = GetTooltipUnit(tooltip, data)
 	if not unit then return end
 	local db = M.db
@@ -890,11 +951,13 @@ local function OnUnit(tooltip, data)
 		end
 	end
 	if not improve then return end
+	local guildLine
 	if Safe(UnitIsPlayer(unit)) then
 		StyleNameLine(tooltip, unit)
-		StyleGuildLine(tooltip, unit)
+		guildLine = StyleGuildLine(tooltip, unit)
+		if db.relation then AddRelationTag(tooltip, unit, guildLine) end
 	end
-	if db.levelColor then StyleLevelLine(tooltip, unit) end
+	if db.levelColor then StyleLevelLine(tooltip, unit, guildLine) end
 	if db.target and AddTargetLine(tooltip, unit) then added = true end
 	if WriteRows(tooltip, CollectRows(tooltip, "unit", unit, data)) then added = true end
 	if added then tooltip:Show() end
@@ -915,9 +978,73 @@ local function StackCount(tooltip)
 	return type(owner.count) == "number" and owner.count > 0 and owner.count or 1
 end
 
+
+-- The client supplies both the verbose format and the compact stat name.
+-- Preserve the captured amount so decimal punctuation follows its locale.
+local SHORT_STAT_TYPES = {
+	{ "SPELL_POWER", "ITEM_MOD_SPELL_POWER_SHORT" },
+	{ "SPELL_DAMAGE", "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
+	{ "SPELL_HEALING", "ITEM_MOD_SPELL_HEALING_DONE_SHORT" },
+	{ "ATTACK_POWER", "ITEM_MOD_ATTACK_POWER_SHORT" },
+	{ "BLOCK_VALUE", "ITEM_MOD_BLOCK_VALUE_SHORT" },
+	{ "DEFENSE", "COMBAT_RATING_NAME2" },
+	{ "CRIT_PERCENT", "COMBAT_RATING_NAME9", true },
+	{ "HIT_PERCENT", "COMBAT_RATING_NAME6", true },
+	{ "DODGE_PCT", "COMBAT_RATING_NAME3", true },
+	{ "PARRY_PCT", "COMBAT_RATING_NAME4", true },
+	{ "EXPERTISE_PCT", "COMBAT_RATING_NAME24", true },
+	{ "HASTE_PCT", "ITEM_MOD_HASTE_RATING_SHORT", true },
+	{ "MANA_REGEN", "ITEM_MOD_MANA_REGENERATION_SHORT" },
+	{ "HEALTH_REGEN", "ITEM_MOD_HEALTH_REGEN_SHORT" },
+}
+local SHORT_STAT_DIRECTIONS = { "INCREASE", "DECREASE" }
+local shortStatPatterns = {}
+local function StatPattern(format)
+	local pattern = shortStatPatterns[format]
+	if pattern == nil then
+		pattern = E.ItemScore.StatFormatPattern(format) or false
+		shortStatPatterns[format] = pattern
+	end
+	return pattern or nil
+end
+
+local function ShortStatLine(text)
+	if type(text) ~= "string" then return end
+	local color, plain = text:match("^(|c%x%x%x%x%x%x%x%x)(.-)|r$")
+	plain = plain or text
+	for _, stat in ipairs(SHORT_STAT_TYPES) do
+		local label = Safe(rawget(_G, stat[2]))
+		if type(label) == "string" and label ~= "" then
+			for _, direction in ipairs(SHORT_STAT_DIRECTIONS) do
+				local format = Safe(rawget(_G, "TOOLTIP_ITEM_STAT_" .. stat[1] .. "_" .. direction))
+				local pattern = type(format) == "string" and StatPattern(format)
+				local amount = pattern and plain:match(pattern)
+				if amount then
+					local short = (direction == "INCREASE" and "+" or "-") .. amount .. (stat[3] and "% " or " ") .. label
+					return color and (color .. short .. "|r") or short
+				end
+			end
+		end
+	end
+	local short = E.ItemScore:ShortEquipText(plain)
+	if short then return color and (color .. short .. "|r") or short end
+end
+
+local function ShortenItemStats(tooltip)
+	if not M.db.shortStats then return end
+	for index = 2, tooltip:NumLines() do
+		local line, text = LineText(tooltip, index)
+		local short = text and ShortStatLine(text)
+		if short then line:SetText(short) end
+	end
+end
+
 local function OnItem(tooltip, data)
 	if not M.active or not skinned[tooltip] or E.FrameCheck(tooltip, "IsForbidden") then return end
-	if ShouldHide("item", tooltip:GetOwner()) then
+	if tooltip == GameTooltip then
+		if HideInCombat(tooltip, "item") then return end
+	elseif combatHidden and tooltip:GetOwner() == GameTooltip then
+		-- A comparison follows the tooltip it sits beside.
 		tooltip:Hide()
 		return
 	end
@@ -940,6 +1067,7 @@ local function OnItem(tooltip, data)
 	end
 
 	if not Can("improve") then return end
+	ShortenItemStats(tooltip)
 	if not INFO_TOOLTIPS[tooltip:GetName() or ""] then return end
 	local info = { count = StackCount(tooltip), shift = IsShiftKeyDown() }
 	local rows = CollectRows(tooltip, "item", link, id, info)
@@ -947,23 +1075,111 @@ local function OnItem(tooltip, data)
 	if dividerLine[tooltip] then PlaceDivider(tooltip) end
 end
 
+-- Which aura a buff or debuff tooltip shows, from the call the game made
+-- to fill it: { unit, auraInstanceID or index, filter }, or nil.
+local AURA_GETTERS = {
+	GetUnitAura = true, GetUnitBuff = "HELPFUL", GetUnitDebuff = "HARMFUL",
+	GetUnitBuffByAuraInstanceID = "HELPFUL", GetUnitDebuffByAuraInstanceID = "HARMFUL",
+}
+local function TooltipAura(tooltip)
+	local info
+	for _, method in ipairs({ "GetProcessingTooltipInfo", "GetPrimaryTooltipInfo" }) do
+		local fn = not info and tooltip[method]
+		if type(fn) == "function" then
+			local ok, value = pcall(fn, tooltip)
+			if ok and not E.Secret(value) and type(value) == "table" then info = value end
+		end
+	end
+	if not info and not E.Secret(tooltip.processingInfo) and type(tooltip.processingInfo) == "table" then info = tooltip.processingInfo end
+	if not info then return end
+	local getter, args = Safe(info.getterName), info.getterArgs
+	local filter = type(getter) == "string" and AURA_GETTERS[getter]
+	if not filter or E.Secret(args) or type(args) ~= "table" then return end
+	local unit, second, given = Safe(args[1]), Safe(args[2]), Safe(args[3])
+	if type(unit) ~= "string" or type(second) ~= "number" then return end
+	if filter == true then
+		filter = type(given) == "string" and given or "HELPFUL"
+	elseif type(given) == "string" and not given:find(filter, 1, true) then
+		filter = filter .. "|" .. given
+	end
+	local aura = { unit = unit, filter = filter }
+	if getter:find("AuraInstanceID", 1, true) then aura.auraInstanceID = second else aura.index = second end
+	return aura
+end
+M.TooltipAura = TooltipAura -- for plugins
+
 -- Spells: the Spell ID row, then sections with a `spell` function. Aura
--- tooltips (buffs and debuffs) get only the Spell ID row.
-local function SpellRows(tooltip, data, withSections)
+-- tooltips (buffs and debuffs): the Spell ID row, then sections with an
+-- `aura` function.
+local function SpellRows(tooltip, data, kind)
 	if not M.active or not skinned[tooltip] or E.FrameCheck(tooltip, "IsForbidden") then return end
 	if HideInCombat(tooltip, "all") or not Can("improve") then return end
 	local id = data and Safe(data.id)
 	if type(id) ~= "number" then return end
-	local rows = withSections and CollectRows(tooltip, "spell", id, data) or {}
-	if ModeShows(M.db.spellID) then table.insert(rows, 1, { left = L["Spell ID"], right = tostring(id) }) end
+	local rows
+	if kind == "aura" then
+		local aura = TooltipAura(tooltip)
+		rows = aura and CollectRows(tooltip, "aura", aura, data) or {}
+	else
+		rows = CollectRows(tooltip, "spell", id, data)
+	end
+	if ModeShows(M.db.ids) then table.insert(rows, 1, { left = L["Spell ID"], right = tostring(id) }) end
 	if WriteRows(tooltip, rows) then
 		tooltip:Show()
 		if dividerLine[tooltip] then PlaceDivider(tooltip) end
 	end
 end
 
-local function OnSpell(tooltip, data) SpellRows(tooltip, data, true) end
-local function OnAura(tooltip, data) SpellRows(tooltip, data, false) end
+local function OnSpell(tooltip, data) SpellRows(tooltip, data, "spell") end
+local function OnAura(tooltip, data) SpellRows(tooltip, data, "aura") end
+
+-- Cast by: the player or pet who cast a buff or debuff, from the aura data
+-- the game gives addons. No row when the caster is secret.
+local function AuraData(aura)
+	local api = C_UnitAuras
+	if not api then return end
+	local ok, data
+	if aura.auraInstanceID and api.GetAuraDataByAuraInstanceID then
+		ok, data = pcall(api.GetAuraDataByAuraInstanceID, aura.unit, aura.auraInstanceID)
+	elseif aura.index and api.GetAuraDataByIndex then
+		ok, data = pcall(api.GetAuraDataByIndex, aura.unit, aura.index, aura.filter)
+	end
+	if ok and not E.Secret(data) and type(data) == "table" then return data end
+end
+
+local function PetOwner(unit)
+	if unit == "pet" then return "player" end
+	local kind, index = unit:match("^(%a-)pet(%d+)$")
+	if kind == "party" or kind == "raid" then return kind .. index end
+end
+
+local function CasterName(unit)
+	local name = Safe(E:DisplayName(unit, "Tooltip"))
+	if type(name) ~= "string" or name == "" then return end
+	local r, g, b = UnitColor(unit)
+	return r and (Hex(r, g, b) .. name .. "|r") or name
+end
+
+local function CastByAura(_, aura, add)
+	local data = AuraData(aura)
+	local source = data and Safe(data.sourceUnit)
+	if type(source) ~= "string" or source == "" then return end
+	local text
+	if Safe(UnitIsUnit(source, "player")) then
+		text = E:GameText(YOU, L["You"])
+	else
+		local owner = PetOwner(source)
+		if owner == "player" then
+			text = L["Your pet"]
+		elseif owner then
+			local name = CasterName(owner)
+			text = name and L["%s's pet"]:format(name)
+		else
+			text = CasterName(source)
+		end
+	end
+	if text then add(L["Cast by"], text) end
+end
 
 -- World objects (herbs, ore veins, chests): sections with an `object`
 -- function get the object's name (the tooltip's first line) and the data.
@@ -975,12 +1191,18 @@ local function ObjectName(tooltip, data)
 	if type(name) == "string" and name ~= "" then return name end
 end
 
+-- The ID row at the end of the info area, under the one Show IDs choice.
+local function IdRow(rows, label, id)
+	if type(id) == "number" and ModeShows(M.db.ids) then rows[#rows + 1] = { left = label, right = tostring(id) } end
+	return rows
+end
+
 local function OnObject(tooltip, data)
 	if not M.active or tooltip ~= GameTooltip or E.FrameCheck(tooltip, "IsForbidden") then return end
 	if HideInCombat(tooltip, "all") or not Can("improve") then return end
 	local name = ObjectName(tooltip, data)
 	if not name then return end
-	if WriteRows(tooltip, CollectRows(tooltip, "object", name, data)) then
+	if WriteRows(tooltip, IdRow(CollectRows(tooltip, "object", name, data), L["Object ID"], data and Safe(data.id))) then
 		tooltip:Show()
 		if dividerLine[tooltip] then PlaceDivider(tooltip) end
 	end
@@ -992,7 +1214,7 @@ local function OnQuest(tooltip, data)
 	if not INFO_TOOLTIPS[tooltip:GetName() or ""] then return end
 	local id = data and Safe(data.id)
 	if type(id) ~= "number" then return end
-	if WriteRows(tooltip, CollectRows(tooltip, "quest", id, data)) then
+	if WriteRows(tooltip, IdRow(CollectRows(tooltip, "quest", id, data), L["Quest ID"], id)) then
 		tooltip:Show()
 		if dividerLine[tooltip] then PlaceDivider(tooltip) end
 	end
@@ -1004,14 +1226,224 @@ local function OnCurrency(tooltip, data)
 	if not INFO_TOOLTIPS[tooltip:GetName() or ""] or HideInCombat(tooltip, "all") then return end
 	local id = data and Safe(data.id)
 	if type(id) ~= "number" then return end
-	if WriteRows(tooltip, CollectRows(tooltip, "currency", id, data)) then
+	if WriteRows(tooltip, IdRow(CollectRows(tooltip, "currency", id, data), L["Currency ID"], id)) then
 		tooltip:Show()
 		if dividerLine[tooltip] then PlaceDivider(tooltip) end
 	end
 end
 
+-- Opposing players who dealt the killing blow to this character.
+do
+	local Read = E.PlainCall
+	local SECTION = "pvpDeaths"
+	local RECAPS = "pvpDeathRecaps"
+	local life, observed
+	E:RegisterPrivate(SECTION, {})
+	E:RegisterPrivate(RECAPS, {})
+
+	local function ReadableTable(value)
+		return not E.Secret(value) and type(value) == "table"
+			and (not canaccesstable or canaccesstable(value))
+	end
+
+	local function PlayerGUID(guid)
+		return type(guid) == "string" and guid:match("^Player%-%d+%-%x+$") and guid or nil
+	end
+
+	local function Faction(tag)
+		return (tag == "Alliance" or tag == "Horde") and tag or nil
+	end
+
+	local function WholeNumber(value)
+		return type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0
+	end
+
+	local function SavedCount(value)
+		local count = Safe(value)
+		return WholeNumber(count) and count > 0 and count or nil
+	end
+
+	local function RecapID(value)
+		return WholeNumber(value) and value > 0 and value or nil
+	end
+
+	local function RecapStamp(value)
+		return type(value) == "number" and value > 0 and value < math.huge and value or nil
+	end
+
+	-- The two Skyborne entries can share a race token. A token that does
+	-- not identify one faction can only be resolved through a unit.
+	local function RaceFaction(guid)
+		local _, _, _, race = E.PlainCallEach(GetPlayerInfoByGUID, guid)
+		local info = C_CreatureInfo
+		if type(race) ~= "string" or not info then return end
+		local faction
+		for _, id in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 95, 96 }) do
+			local entry = Read(info.GetRaceInfo, id)
+			if ReadableTable(entry) and Safe(entry.clientFileString) == race then
+				local group = Read(info.GetFactionInfo, id)
+				local tag = ReadableTable(group) and Faction(Safe(group.groupTag))
+				if not tag or (faction and faction ~= tag) then return end
+				faction = tag
+			end
+		end
+		return faction
+	end
+
+	local function KillerFaction(guid)
+		if type(UnitTokenFromGUID) == "function" then
+			local ok, unit = pcall(UnitTokenFromGUID, guid)
+			if not ok or E.Secret(unit) then return end
+			if unit ~= nil then
+				if type(unit) ~= "string" or Read(UnitGUID, unit) ~= guid then return end
+				return Faction(Read(UnitFactionGroup, unit))
+			end
+		end
+		return RaceFaction(guid)
+	end
+
+	-- Blizzard marks the first row of this recap as the killing blow.
+	-- A readable empty table establishes that there was no earlier recap.
+	local function Recap()
+		local api = C_DeathRecap
+		if not api then return end
+		local link = Read(api.GetRecapLink)
+		local id = type(link) == "string" and RecapID(tonumber(link:match("|Hdeath:(%d+)|h"))) or nil
+		local events = Read(api.GetRecapEvents, id)
+		if not ReadableTable(events) then return id and { id = id } end
+		local hit = events[1]
+		if not ReadableTable(hit) then
+			if id or (not E.Secret(hit) and hit == nil) then return { id = id } end
+			return
+		end
+		local stamp = RecapStamp(Safe(hit.timestamp))
+		if not (id or stamp) then return end
+		return { id = id, stamp = stamp, hit = hit }
+	end
+
+	local function NewerRecap(after, id, stamp)
+		if not (id or stamp) then return true end
+		if id and id == after.id then return false end
+		if stamp and after.stamp then return after.stamp > stamp end
+		return id and after.id
+	end
+
+	local function SameSavedRecap(recap, previous)
+		if not ReadableTable(previous) then return false end
+		local id = RecapID(Safe(previous.id))
+		local stamp = RecapStamp(Safe(previous.stamp))
+		if stamp and recap.stamp then
+			return stamp == recap.stamp and (not id or not recap.id or id == recap.id)
+		end
+		return id and id == recap.id
+	end
+
+	local function ObserveRecap(owner, recap, baseline)
+		local sameSession = observed and observed.owner == owner and observed.private == E.private
+		if sameSession and not NewerRecap(recap, observed.id, observed.stamp) then return false end
+		local recaps = E:GetPrivate(RECAPS)
+		if not recaps then return false end
+		-- Only deduplicate the saved identity. Timestamp ordering is
+		-- confined to the recaps this session has observed.
+		local alreadySaved = SameSavedRecap(recap, recaps[owner])
+		if alreadySaved and not baseline then return false end
+		if not alreadySaved then recaps[owner] = { id = recap.id, stamp = recap.stamp } end
+		observed = {
+			owner = owner, private = E.private, id = recap.id,
+			stamp = recap.stamp or (sameSession and observed.stamp) or nil,
+		}
+		return true
+	end
+
+	local function Arm()
+		life = nil
+		if Read(UnitIsDeadOrGhost, "player") ~= false then return end
+		local owner = PlayerGUID(Read(UnitGUID, "player"))
+		local before = owner and Recap()
+		if not before then return end
+		if before.id or before.stamp then ObserveRecap(owner, before, true) end
+		life = { owner = owner, private = E.private, id = before.id, stamp = before.stamp }
+	end
+
+	local function EnterWorld(_, _, initial, reload)
+		if initial or reload then observed = nil end
+		Arm()
+	end
+
+	local function Record(current)
+		local after = Recap()
+		if not (after and after.hit and NewerRecap(after, current.id, current.stamp)
+			and ObserveRecap(current.owner, after)) then return false end
+
+		local hit = after.hit
+		local guid = PlayerGUID(Safe(hit.sourceGUID))
+		local flags = Safe(hit.sourceFlags)
+		local hidden = hit.hideCaster
+		local object = Enum and Enum.CombatLogObject
+		if not guid or guid == current.owner or not WholeNumber(flags) or flags > 0xFFFFFFFF or not object
+			or bit.band(flags, object.TypePlayer) == 0 or bit.band(flags, object.ReactionHostile) == 0
+			or E.Secret(hidden) or (hidden ~= nil and hidden ~= false) then return true end
+
+		local mine = Faction(Read(UnitFactionGroup, "player"))
+		local theirs = mine and KillerFaction(guid)
+		if not theirs or mine == theirs then return true end
+
+		local store = E:GetPrivate(SECTION)
+		if not store then return true end
+		local counts = store[current.owner]
+		if type(counts) ~= "table" then
+			counts = {}
+			store[current.owner] = counts
+		end
+		counts[guid] = (SavedCount(counts[guid]) or 0) + 1
+		local nemesis = E.modules.Nemesis
+		if nemesis and nemesis.OnPvPDeathCountChanged then
+			local ok = pcall(nemesis.OnPvPDeathCountChanged, nemesis, current.owner, guid)
+			if not ok then E:Debug("The Nemesis history could not refresh.") end
+		end
+		return true
+	end
+
+	local function OnDeath()
+		local current = life
+		if not current or current.dead or Read(UnitIsDeadOrGhost, "player") ~= true then return end
+		current.dead = true
+		local function Try()
+			if life ~= current or E.private ~= current.private or Read(UnitGUID, "player") ~= current.owner
+				or Read(UnitIsDeadOrGhost, "player") ~= true then return true end
+			return Record(current)
+		end
+		-- The recap can arrive just after the death event. Read it once
+		-- more while the same death still owns the attempt.
+		if not Try() then C_Timer.After(0.3, Try) end
+	end
+
+	E:RegisterEvent("PLAYER_ENTERING_WORLD", EnterWorld, M)
+	E:RegisterEvent("PLAYER_ALIVE", Arm, M)
+	E:RegisterEvent("PLAYER_UNGHOST", Arm, M)
+	E:RegisterEvent("PLAYER_DEAD", OnDeath, M)
+
+	E:RegisterTooltipSection(SECTION, {
+		order = 58, title = "PvP death count", default = "always",
+		desc = "Shows how many times a player from the other faction has killed this character, when the game identified the killer.",
+		unit = function(_, unit, add, data)
+			if not ReadableTable(data) then return end
+			local guid = PlayerGUID(Safe(data.guid))
+			local owner = guid and PlayerGUID(Read(UnitGUID, "player"))
+			local store = owner and E:GetPrivate(SECTION)
+			local counts = store and store[owner]
+			local count = type(counts) == "table" and SavedCount(counts[guid])
+			if not count then return end
+			if Read(UnitGUID, unit) ~= guid or Read(UnitIsPlayer, unit) ~= true then return end
+			local mine = Faction(Read(UnitFactionGroup, "player"))
+			local theirs = Faction(Read(UnitFactionGroup, unit))
+			if mine and theirs and mine ~= theirs then add(L["Killed you"], tostring(count)) end
+		end,
+	})
+end
+
 -- Built-in rows ------------------------------------------------------------
-local ITEM_LEVEL_LABEL = STAT_AVERAGE_ITEM_LEVEL or L["Item Level"]
+local ITEM_LEVEL_LABEL = E:GameText(STAT_AVERAGE_ITEM_LEVEL, L["Item Level"])
 
 local function DetailsItem(_, link, id, add)
 	local db = M.db
@@ -1019,44 +1451,68 @@ local function DetailsItem(_, link, id, add)
 		local level = C_Item.GetDetailedItemLevelInfo(link)
 		if type(level) == "number" and level > 1 then add(ITEM_LEVEL_LABEL, tostring(level)) end
 	end
-	if id and ModeShows(db.itemID) then add(L["Item ID"], tostring(id)) end
+	-- How many fit in one stack: the game never says. With Shift.
+	if id and IsShiftKeyDown() and C_Item.GetItemMaxStackSizeByID then
+		local stack = Safe(C_Item.GetItemMaxStackSizeByID(id))
+		if type(stack) == "number" and stack > 1 then add(L["Stack size"], tostring(stack)) end
+	end
+	if id and ModeShows(db.ids) then add(L["Item ID"], tostring(id)) end
 end
+
+-- The NPC ID of a creature from its GUID ("Creature-0-...-<id>-..."), or
+-- nil for players, pets and a secret GUID.
+local function NpcID(unit)
+	local guid = Safe(UnitGUID(unit))
+	if type(guid) ~= "string" then return nil end
+	local kind, _, _, _, _, id = strsplit("-", guid)
+	if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
+	return tonumber(id)
+end
+M.NpcID = NpcID -- for plugins
 
 local function DetailsUnit(_, unit, add)
 	if M.db.playerItemLevel and Safe(UnitIsPlayer(unit)) then
 		local level = PlayerItemLevel(unit)
 		if level then add(ITEM_LEVEL_LABEL, ("%d"):format(level)) end
 	end
+	local npc = ModeShows(M.db.ids) and NpcID(unit)
+	if npc then add(L["NPC ID"], tostring(npc)) end
 end
 
 local function ValueItem(tooltip, link, id, add, info)
 	local pieces = {}
+	local vendorOnly = true
 	local count = info and info.count or 1
 	-- Plain rows (module off): Blizzard's own money line has the vendor price.
 	if M.db.vendorPrice and not (info and info.plain) then
 		local sellPrice = select(11, C_Item.GetItemInfo(link or id))
 		if type(sellPrice) == "number" and sellPrice > 0 then
-			local text = Money(sellPrice)
-			if count > 1 then
-				text = text .. " " .. Hex(GREY[1], GREY[2], GREY[3]) .. "(" .. count .. ": |r" .. Money(sellPrice * count)
-					.. Hex(GREY[1], GREY[2], GREY[3]) .. ")|r"
-			end
-			pieces[#pieces + 1] = text
+			pieces[#pieces + 1] = E:TooltipMoney(sellPrice, count)
 		end
 	end
 	for _, provider in ipairs(values) do
 		local ok, text = pcall(provider.item, tooltip, link, id, count)
-		if ok and type(text) == "string" and text ~= "" then pieces[#pieces + 1] = text end
+		if ok and type(text) == "string" and text ~= "" then
+			pieces[#pieces + 1] = text
+			vendorOnly = false
+		end
 	end
 	if #pieces > 0 then
-		add(SELL_PRICE and SELL_PRICE:gsub(":%s*$", "") or L["Value"], table.concat(pieces, Hex(GREY[1], GREY[2], GREY[3]) .. " · |r"))
+		-- The game's "Sell Price" only for the vendor price alone; with an
+		-- auction or other price in the row it is the section's "Value".
+		local label = vendorOnly and SELL_PRICE and SELL_PRICE:gsub(":%s*$", "") or L["Value"]
+		add(label, table.concat(pieces, Hex(GREY[1], GREY[2], GREY[3]) .. " · |r"))
 	end
 end
 
--- Section order: 10 upgrade, 20 item level and IDs, 30 value, 40 alts, 50 quest and mob info, 55 spell and currency rows.
+-- Section order: 10 upgrade, 20 item level and IDs, 30 value, 40 alts, 50 quest and mob info, 55 spell and currency rows, 56 cast by.
 E:RegisterTooltipSection("details", { order = 20, title = "Item level and IDs",
 	desc = "Item level on gear (moved out of Blizzard's lines), a player's item level, and the item ID as set below.",
 	item = DetailsItem, unit = DetailsUnit })
+M.DetailsRows = { item = DetailsItem, unit = DetailsUnit } -- for plugins that build their own tooltip
+E:RegisterTooltipSection("caster", { order = 56, title = "Cast by",
+	desc = "On buff and debuff tooltips: the player or pet who cast it. Not shown when the game keeps the caster hidden.",
+	aura = CastByAura })
 E:RegisterTooltipSection("value", { order = 30, title = "Value",
 	desc = "One line: vendor price (each and stack) plus auction price and its age when an auction module provides them.",
 	item = ValueItem })
@@ -1131,6 +1587,13 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum.Too
 			if type(id) == "number" then FallbackRows(tooltip, "quest", id, data) end
 		end)
 	end
+	if Enum.TooltipDataType.UnitAura then
+		TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.UnitAura, function(tooltip)
+			if M.active then return end
+			local aura = TooltipAura(tooltip)
+			if aura then FallbackRows(tooltip, "aura", aura) end
+		end)
+	end
 	for kind, dataType in pairs({ spell = Enum.TooltipDataType.Spell, currency = Enum.TooltipDataType.Currency }) do
 		TooltipDataProcessor.AddTooltipPostCall(dataType, function(tooltip, data)
 			if M.active then return end
@@ -1140,7 +1603,7 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum.Too
 	end
 end
 M.PlainRows = FallbackRows -- the rows while the module is off
-M.SectionHooks = { spell = OnSpell, currency = OnCurrency, quest = OnQuest } -- and the module-on path
+M.SectionHooks = { spell = OnSpell, aura = OnAura, currency = OnCurrency, quest = OnQuest, object = OnObject } -- and the module-on path
 
 ---------------------------------------------------------------------------
 -- Hooks
@@ -1203,9 +1666,17 @@ end
 -- refresh is used, and never on a tooltip about a secret unit or with
 -- secret lines.
 local function OnModifier()
-	if not M.active or InCombatLockdown() then return end
+	if not M.active then return end
+	if InCombatLockdown() then
+		-- The "show anyway" key, pressed while pointing at something.
+		if combatHidden and GameTooltip:IsShown() and ModifierDown(M.db.combatModifier) then CombatShow(GameTooltip) end
+		return
+	end
 	local tooltip = GameTooltip
 	if not tooltip:IsShown() or E.FrameCheck(tooltip, "IsForbidden") or not tooltip.RefreshData then return end
+	-- Training adds price, rank and click hints after the game's spell data.
+	local training = E.modules.Training
+	if training and training:OwnsRowTooltip(tooltip) then return end
 	if SecretUnitTooltip(tooltip) or SecretLinesTooltip(tooltip) then return end
 	pcall(tooltip.RefreshData, tooltip)
 end
@@ -1274,10 +1745,11 @@ end
 
 local function OnDefaultAnchor(tooltip, parent)
 	if not M.active or Forbidden(tooltip) or Forbidden(parent) then return end
-	if ShouldHide("all", parent) then
-		tooltip:Hide()
+	if tooltip == GameTooltip and ShouldHide("all", parent) then
+		CombatHide(tooltip)
 		return
 	end
+	CombatShow(tooltip)
 	smartOwner = nil
 	local mode = M.db.anchor
 	if mode == "blizzard" or not Can("move") then return end
@@ -1364,14 +1836,24 @@ function M:RestoreBlizzard()
 	self:Apply()
 end
 
+-- Older settings had an Item ID and a Spell ID choice (once on/off).
+-- They become the one Show IDs choice; when they differ, the stricter one
+-- is kept.
+function M.KeepIdChoice(db)
+	local item, spell = rawget(db, "itemID"), rawget(db, "spellID")
+	if item == nil and spell == nil then return end
+	local rank = { never = 1, [false] = 1, shift = 2, always = 3, [true] = 3 }
+	local names = { "never", "shift", "always" }
+	db.ids = names[math.min(rank[item] or 3, rank[spell] or 3)]
+	db.itemID, db.spellID = nil, nil
+end
+
 local function FillSectionDefaults()
 	M.db.sections = M.db.sections or {}
 	for _, section in ipairs(sections) do
 		if M.db.sections[section.key] == nil then M.db.sections[section.key] = section.default end
 	end
-	-- Older settings stored the IDs as on/off.
-	if M.db.itemID == true then M.db.itemID = "always" elseif M.db.itemID == false then M.db.itemID = "never" end
-	if M.db.spellID == true then M.db.spellID = "always" elseif M.db.spellID == false then M.db.spellID = "never" end
+	M.KeepIdChoice(M.db)
 end
 
 function M:OnInitialize()
@@ -1400,8 +1882,10 @@ function M:OnEnable()
 		GameTooltip:HookScript("OnShow", function(tooltip)
 			if M.active and not Forbidden(tooltip) then HideInCombat(tooltip) end
 		end)
+		GameTooltip:HookScript("OnHide", function(tooltip) CombatShow(tooltip) end)
 	end
 	self:RegisterEvent("MODIFIER_STATE_CHANGED", OnModifier)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", function() CombatShow(GameTooltip) end)
 	self:Apply()
 end
 
@@ -1409,6 +1893,8 @@ function M:OnDisable()
 	barColor = nil
 	self:UpdateMover()
 	self:UnregisterEvent("MODIFIER_STATE_CHANGED")
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	CombatShow(GameTooltip)
 	for tooltip in pairs(skinned) do
 		ResetBorder(tooltip)
 		HideDivider(tooltip)
@@ -1473,32 +1959,32 @@ M.options = {
 		desc = "A sample tooltip of your character in your text sizes, opacity and colors." },
 	{ type = "description", label = "What EldoUI may do with Blizzard's tooltips is set on the Blizzard UI page. These settings shape what each switch does." },
 	{ type = "header", label = "Look" },
-	{ type = "toggle", key = "skin", label = "Skin tooltips", desc = "A panel in the EldoUI art style. Off keeps Blizzard's border." },
-	{ type = "range", percent = true, key = "alpha", label = "Background opacity", min = 0.3, max = 1, step = 0.05, desc = "How dark the panel is. 0.9 matches the game's own tooltips." },
-	{ type = "toggle", key = "shadow", label = "Soft shadow", desc = "A faint shadow around the panel so it lifts off bright zones." },
-	{ type = "toggle", key = "ownShadow", dependsOn = "shadow", label = "Own shadow look",
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "toggle", key = "skin", label = "Skin tooltips", desc = "A panel in the EldoUI art style. Off keeps Blizzard's border." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), dependsOn = "skin", type = "range", percent = true, key = "alpha", label = "Background opacity", min = 0.3, max = 1, step = 0.05, desc = "How dark the panel is. 0.9 matches the game's own tooltips." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), dependsOn = "skin", type = "toggle", key = "shadow", label = "Soft shadow", desc = "A faint shadow around the panel so it lifts off bright zones." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "toggle", key = "ownShadow", dependsOn = "shadow", label = "Own shadow look",
 		desc = "Give the tooltip shadow its own strength and size. Off follows Frame shadows on Global settings > Textures." },
-	{ type = "range", percent = true, key = "shadowAlpha", dependsOn = "ownShadow", label = "Shadow strength",
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "range", percent = true, key = "shadowAlpha", dependsOn = "ownShadow", label = "Shadow strength",
 		min = E.tokens.shadow.minAlpha, max = 1, step = 0.05, hidden = function() return not M.db.shadow end,
 		desc = "How dark the tooltip shadow is." },
-	{ type = "range", key = "shadowSize", dependsOn = "ownShadow", label = "Shadow size", unit = "px",
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "range", key = "shadowSize", dependsOn = "ownShadow", label = "Shadow size", unit = "px",
 		min = E.tokens.shadow.minSize, max = E.tokens.shadow.maxSize, step = 1, hidden = function() return not M.db.shadow end,
 		desc = "How far the tooltip shadow reaches beyond its edge." },
-	{ type = "toggle", key = "borderColor", label = "Colored border", desc = "Item quality for items, class or reaction for units." },
-	{ type = "toggle", key = "font", label = "Use the EldoUI font", desc = "The theme font for tooltip text. Off keeps the game font." },
-	{ type = "range", key = "headerSize", label = "Title text size", min = 10, max = 24, step = 1, desc = "The first line: item or unit name." },
-	{ type = "range", key = "bodySize", label = "Body text size", min = 8, max = 20, step = 1, desc = "All other lines." },
-	{ type = "range", key = "smallSize", label = "Small text size", min = 8, max = 18, step = 1, desc = "Small lines such as comparison headers." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "toggle", key = "borderColor", label = "Colored border", desc = "Item quality for items, class or reaction for units." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "toggle", key = "font", label = "Use the EldoUI font", desc = "The theme font for tooltip text. Off keeps the game font." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "range", key = "headerSize", label = "Title text size", min = 10, max = 24, step = 1, desc = "The first line: item or unit name." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "range", key = "bodySize", label = "Body text size", min = 8, max = 20, step = 1, desc = "All other lines." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "range", key = "smallSize", label = "Small text size", min = 8, max = 18, step = 1, desc = "Small lines such as comparison headers." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "skin"), type = "range", percent = true, key = "scale", label = "Scale", min = 0.6, max = 1.6, step = 0.05, desc = "Size of the whole tooltip." },
 
 	{ type = "header", label = "Position" },
-	{ type = "select", key = "anchor", label = "Attach to",
+	{ disabled = E:BlizzardNeeds(ELEMENT, "move"), type = "select", key = "anchor", label = "Attach to",
 		desc = "Fixed: the Tooltip mover. Cursor: above or beside the cursor. Smart: the mover, above open bags, stepping aside from what you point at. Blizzard: the game's spot. Needs Move.",
 		values = { fixed = "Fixed (mover)", cursor = "Cursor", cursorLeft = "Cursor left", cursorRight = "Cursor right", smart = "Smart", blizzard = "Blizzard (Edit Mode)" } },
 	{ type = "execute", label = "Preview", desc = "Shows a sample tooltip for 5 seconds. It updates as you change settings.",
 		func = function() M:Preview() end },
-	{ type = "range", key = "cursorX", label = "Cursor offset X", min = -100, max = 100, step = 1, desc = "Horizontal distance from the cursor.", hidden = function() return not CURSOR_ANCHORS[M.db.anchor] end },
-	{ type = "range", key = "cursorY", label = "Cursor offset Y", min = -100, max = 100, step = 1, desc = "Vertical distance from the cursor.", hidden = function() return not CURSOR_ANCHORS[M.db.anchor] end },
-	{ type = "range", percent = true, key = "scale", label = "Scale", min = 0.6, max = 1.6, step = 0.05, desc = "Size of the whole tooltip." },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "move"), type = "range", unit = "px", key = "cursorX", label = "Cursor offset X", min = -100, max = 100, step = 1, desc = "Horizontal distance from the cursor.", hidden = function() return not CURSOR_ANCHORS[M.db.anchor] end },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "move"), type = "range", unit = "px", key = "cursorY", label = "Cursor offset Y", min = -100, max = 100, step = 1, desc = "Vertical distance from the cursor.", hidden = function() return not CURSOR_ANCHORS[M.db.anchor] end },
 	{ type = "select", key = "hideInCombat", label = "Hide in combat",
 		desc = "Which tooltips stay hidden while you are in combat.",
 		values = { never = "Never", world = "Over the world", frames = "Over UI frames", units = "Unit tooltips", all = "All tooltips" },
@@ -1509,9 +1995,10 @@ M.options = {
 
 	{ type = "header", label = "Units" },
 	{ type = "toggle", key = "healthBar", label = "Health bar", desc = "Blizzard's own health values in a thin bar under the tooltip." },
-	{ type = "range", key = "healthBarHeight", dependsOn = "healthBar", label = "Health bar height", min = 1, max = 12, step = 1, desc = "Thickness of the health bar." },
+	{ type = "range", unit = "px", key = "healthBarHeight", dependsOn = "healthBar", label = "Health bar height", min = 1, max = 12, step = 1, desc = "Thickness of the health bar." },
 	{ type = "toggle", key = "classColor", label = "Class-colored names", desc = "Players in their class color, NPCs in their reaction color." },
 	{ type = "toggle", key = "guildRank", label = "Show guild rank", desc = "The rank after the guild name, in gray." },
+	{ type = "toggle", key = "relation", label = "Mark friends, guild and ignored", desc = "Marks players on your friends or ignore list, and members of your own guild. Not shown in combat." },
 	{ type = "toggle", key = "levelColor", label = "Color the level by difficulty", desc = "The level in the game's difficulty color, with elite or rare added." },
 	{ type = "toggle", key = "target", label = "Show the unit's target", desc = "Hidden when the game keeps the target secret." },
 	{ type = "toggle", key = "playerItemLevel", label = "Player item level", desc = "Your own, or a player you inspected yourself. EldoUI never inspects for you." },
@@ -1522,8 +2009,9 @@ M.options = {
 	{ type = "toggle", key = "itemLevel", label = "Item level", desc = "Item level of gear in the info area." },
 	{ type = "toggle", key = "moveItemLevel", label = "Move the game's item level line", desc = "Hides Blizzard's own item level line while the info area shows it, so it appears once." },
 	{ type = "toggle", key = "vendorPrice", label = "Vendor price on one line", desc = "Each and stack price in the Value row instead of Blizzard's money line." },
-	{ type = "select", key = "itemID", label = "Item ID", values = ID_MODES, desc = "When the item ID shows in the info area." },
-	{ type = "select", key = "spellID", label = "Spell ID", values = ID_MODES, desc = "When the spell ID shows on spell and aura tooltips." },
+	{ type = "select", key = "ids", label = "Show IDs", values = ID_MODES,
+		desc = "IDs the game uses for this item, spell, creature, quest or currency. Useful for bug reports, map notes and searches." },
+	{ type = "toggle", key = "shortStats", label = "Short stat lines", desc = "Use compact stat names and amounts for recognized item effects, including comparison tooltips." },
 	{ type = "toggle", key = "hideMadeBy", label = "Hide \"Made by\"", desc = "Hides the crafter and gift-wrap lines (matched by the game's own text)." },
 	{ type = "toggle", key = "hideClickHints", label = "Hide click hints", desc = "Hides <Right Click to Open>, <Right Click to Read> and <Shift Right Click to Socket>." },
 
@@ -1562,13 +2050,13 @@ E:RegisterStyles("Tooltip", {
 	{ key = "EldoUI", title = "EldoUI", desc = "Dark panel in the bag zone (Smart), quality and class borders, a thin health bar and the info area.",
 		settings = { skin = true, alpha = 0.9, shadow = true, borderColor = true, anchor = "smart", scale = 1, font = true,
 			headerSize = 16, bodySize = 14, smallSize = 12, healthBar = true, healthBarHeight = 3, classColor = true, target = true,
-			hidePvP = true, hideFaction = false, itemLevel = true, moveItemLevel = true, vendorPrice = true, itemID = "shift",
-			spellID = "shift", hideMadeBy = true, divider = true } },
+			hidePvP = true, hideFaction = false, itemLevel = true, moveItemLevel = true, vendorPrice = true, ids = "shift",
+			hideMadeBy = true, divider = true } },
 	{ key = "Minimal", title = "Minimal", desc = "Small text, no health bar, IDs only with Shift.",
 		settings = { skin = true, alpha = 0.85, shadow = false, borderColor = true, anchor = "fixed", scale = 0.95, font = true,
 			headerSize = 14, bodySize = 12, smallSize = 11, healthBar = false, classColor = true, guildRank = false, target = false,
-			playerItemLevel = false, hidePvP = true, hideFaction = true, itemLevel = true, vendorPrice = true, itemID = "shift",
-			spellID = "never", hideMadeBy = true, hideClickHints = true, divider = true } },
+			playerItemLevel = false, hidePvP = true, hideFaction = true, itemLevel = true, vendorPrice = true, ids = "shift",
+			hideMadeBy = true, hideClickHints = true, divider = true } },
 	{ key = "Cursor", title = "At the cursor", desc = "The EldoUI look, following the mouse.",
 		settings = { skin = true, alpha = 0.9, shadow = true, borderColor = true, anchor = "cursorRight", cursorX = 16, cursorY = -16,
 			font = true, healthBar = true, healthBarHeight = 3, classColor = true, target = true, hidePvP = true } },
@@ -1582,5 +2070,5 @@ E:RegisterStyles("Tooltip", {
 		settings = { skin = true, alpha = 0.95, shadow = true, borderColor = true, anchor = "fixed", font = true, headerSize = 16,
 			bodySize = 14, healthBar = true, healthBarHeight = 5, classColor = true, guildRank = true, target = true,
 			playerItemLevel = true, levelColor = true, hidePvP = true, hideFaction = false, itemLevel = true, vendorPrice = true,
-			itemID = "always", spellID = "always", hideMadeBy = false, divider = true } },
+			ids = "always", hideMadeBy = false, divider = true } },
 })

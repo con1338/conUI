@@ -52,7 +52,7 @@ local M = E:NewModule("StatusBars", {
 		fillTagSide = "RIGHT",  -- RIGHT or LEFT of the stack
 		visibility = E:VisibilityDefaults(), -- the shared visibility rules
 		clickOpens = true,      -- left-click opens the matching panel
-		xp = { enabled = true, rested = true, hideAtMax = true, quests = true, session = true,
+		xp = { enabled = true, rested = true, hideAtMax = true, quests = true, session = true, toCap = true, bonusMark = false,
 			color = { 0.58, 0.0, 0.55 }, restedColor = { 0.0, 0.39, 0.88 }, questColor = { 1.0, 0.82, 0.0 } },
 		rep = { enabled = true, reactionColor = true, color = { 0.0, 0.6, 0.1 }, onlyWhenMax = false, autoTrack = false },
 		honor = { enabled = true, show = "pvp", color = { 1.0, 0.71, 0.0 } },   -- show: always, pvp
@@ -94,25 +94,8 @@ end
 -- Reading the game's data. Each reader returns a table or nil (bar hidden):
 --   { min, max, value, extra (rested end), label, color = {r,g,b}, extraText }
 ---------------------------------------------------------------------------
--- XP waiting in finished quests that are not handed in yet.
-local function CompletedQuestXP()
-	if not (C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo and C_QuestLog.IsComplete) then return 0 end
-	if not GetQuestLogRewardXP then return 0 end
-	local total, count = 0, 0
-	for index = 1, C_QuestLog.GetNumQuestLogEntries() or 0 do
-		local info = C_QuestLog.GetInfo(index)
-		local questID = info and not info.isHeader and info.questID
-		if questID and C_QuestLog.IsComplete(questID) then
-			local ok, xp = pcall(GetQuestLogRewardXP, questID)
-			xp = ok and Number(xp)
-			if xp and xp > 0 then
-				total = total + xp
-				count = count + 1
-			end
-		end
-	end
-	return total, count
-end
+-- XP waiting in finished quests that are not handed in yet (count, quests).
+local function CompletedQuestXP() return E.LevelXP.FinishedQuestXP() end
 
 -- Session statistics: the core's session count (E.PlayRates,
 -- Core/PlayRates.lua), the same one the Info Bar and My Adventure read.
@@ -132,6 +115,16 @@ function M:Pace()
 	end
 	out.questXP, out.questCount = CompletedQuestXP()
 	return out
+end
+
+-- XP still needed to reach the level cap from the game's level list, and
+-- the cap; nil at the cap, with the option off or past the list.
+function M.XPToCap(data, left)
+	if not (M.db.xp.toCap and E.LevelXP and data and data.level) then return nil end
+	local maxLevel = Number(GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion()) or 60
+	local level = Number(data.level)
+	if not level or level >= maxLevel then return nil end
+	return E.LevelXP.ToLevel(maxLevel, level, left), maxLevel
 end
 
 local function FormatHours(seconds)
@@ -240,7 +233,7 @@ function readers.pet()
 	local rawCurrent, rawMax = GetPetExperience()
 	local current, maximum = Number(rawCurrent), Number(rawMax)
 	if not current or not maximum or maximum <= 0 then return nil end
-	return { min = 0, max = maximum, value = current, label = PET or L["Pet"], level = UnitLevel("pet"), color = M.db.pet.color }
+	return { min = 0, max = maximum, value = current, label = E:GameText(PET, L["Pet"]), level = UnitLevel("pet"), color = M.db.pet.color }
 end
 
 -- Your threat on the target, from the game (E:GetThreat): shown only while
@@ -282,7 +275,15 @@ local function ScanReputation(track)
 	if not gained or not C_Reputation.SetWatchedFactionByID then return end
 	local watched = C_Reputation.GetWatchedFactionData and C_Reputation.GetWatchedFactionData()
 	if watched and watched.factionID == gained then return end
+	-- The watch change sends its own UPDATE_FACTION: no second scan for it.
+	M.repOwnWatch = true
 	C_Reputation.SetWatchedFactionByID(gained)
+	C_Timer.After(0, function() M.repOwnWatch = nil end)
+end
+
+-- Reputation gains come in bursts (every mob of a pull): one scan after.
+local function TrackScan()
+	if M.active and M.db.rep.enabled and M.db.rep.autoTrack then ScanReputation(true) end
 end
 
 ---------------------------------------------------------------------------
@@ -292,10 +293,15 @@ end
 -- tint of the player's own rested color.
 local SECONDARY = E:TextHex("secondary") .. "%s|r"
 
-local function Hex(color, lighten)
+-- A color lightened toward white (0 = as it is, 1 = white).
+local function Lighten(color, lighten)
 	local r, g, b = color[1] or 1, color[2] or 1, color[3] or 1
 	lighten = lighten or 0
-	r, g, b = r + (1 - r) * lighten, g + (1 - g) * lighten, b + (1 - b) * lighten
+	return r + (1 - r) * lighten, g + (1 - g) * lighten, b + (1 - b) * lighten
+end
+
+local function Hex(color, lighten)
+	local r, g, b = Lighten(color, lighten)
 	return ("|cff%02x%02x%02x"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
 end
 
@@ -394,7 +400,7 @@ local function TooltipLines(key, data)
 	if key == "rep" then
 		tooltip:AddDoubleLine(data.label, data.standing or "", 1, 1, 1, 1, 1, 1)
 	elseif data.level then
-		E.UIKit.TipPair(tooltip, LEVEL or L["Level"], tostring(data.level))
+		E.UIKit.TipPair(tooltip, E:GameText(LEVEL, L["Level"]), tostring(data.level))
 	end
 	E.UIKit.TipPair(tooltip, L["Progress"], ("%s / %s"):format(Long(into), Long(span)))
 	if span > 0 then
@@ -403,13 +409,21 @@ local function TooltipLines(key, data)
 	end
 	if key == "xp" then
 		if data.rested then
+			-- The colors the player picked for the bar, lightened like the bar text.
+			local cr, cg, cb = Lighten(M.db.xp.restedColor or {}, 0.55)
 			tooltip:AddDoubleLine(L["Rested"], ("%s (%.0f%%)"):format(Long(data.rested), span > 0 and data.rested / span * 100 or 0),
-				0.65, 0.65, 0.65, 0.56, 0.72, 1)
+				0.65, 0.65, 0.65, cr, cg, cb)
 		end
 		if data.questXP then
-			E.UIKit.TipPair(tooltip, L["Finished quests (%d)"]:format(data.questCount or 0), Long(data.questXP), 1, 0.82, 0)
+			local cr, cg, cb = Lighten(M.db.xp.questColor or {}, 0.25)
+			E.UIKit.TipPair(tooltip, L["Finished quests (%d)"]:format(data.questCount or 0), Long(data.questXP), cr, cg, cb)
+		end
+		for _, bonus in ipairs(E.XPBonuses and E.XPBonuses() or {}) do
+			E.UIKit.TipPair(tooltip, L["XP bonus"], M.XPBonusText(bonus), E:TokenColor("good"))
 		end
 		if IsResting and IsResting() then tooltip:AddLine(L["Resting: rested XP builds up."], E:TokenColor("secondary")) end
+		local toCap, maxLevel = M.XPToCap(data, span - into)
+		if toCap then E.UIKit.TipPair(tooltip, L["To level %d"]:format(maxLevel), Long(toCap)) end
 		local rates = E.PlayRates
 		if M.db.xp.session and rates.session then
 			tooltip:AddLine(" ")
@@ -418,6 +432,10 @@ local function TooltipLines(key, data)
 			if perHour and perHour > 0 then
 				E.UIKit.TipPair(tooltip, L["XP per hour"], Long(math.floor(perHour + 0.5)))
 				E.UIKit.TipPair(tooltip, L["Time to level"], FormatHours(math.max(0, span - into) / perHour * 3600))
+				if toCap then
+					local ahead = (data.rested or 0) + (data.questXP or 0)
+					E.UIKit.TipPair(tooltip, L["Time to level %d"]:format(maxLevel), FormatHours(math.max(0, toCap - ahead) / perHour * 3600))
+				end
 				E.UIKit.TipPair(tooltip, L["Counted over"], rates:BasisText())
 			end
 		end
@@ -430,10 +448,25 @@ end
 ---------------------------------------------------------------------------
 -- EldoUI's bars
 ---------------------------------------------------------------------------
+-- The tooltip opens toward the free side: below a bar in the top half of
+-- the screen, above one in the bottom half, and beside an upright bar,
+-- toward the wider side.
+function M.TooltipAnchor(bar)
+	local x, y = bar:GetCenter()
+	local width, height = UIParent:GetWidth(), UIParent:GetHeight()
+	if not (x and y and width and height) then return "ANCHOR_TOP", 0, 4 end
+	if M.db.vertical then
+		if x > width / 2 then return "ANCHOR_LEFT", -4, 0 end
+		return "ANCHOR_RIGHT", 4, 0
+	end
+	if y > height / 2 then return "ANCHOR_BOTTOM", 0, -4 end
+	return "ANCHOR_TOP", 0, 4
+end
+
 local function ShowTooltip(bar)
 	M:Hover(true)
 	if not M.db.tooltip or not bar.data then return end
-	GameTooltip:SetOwner(bar, "ANCHOR_TOP", 0, 4)
+	GameTooltip:SetOwner(bar, M.TooltipAnchor(bar))
 	GameTooltip:ClearLines()
 	TooltipLines(bar.key, bar.data)
 	GameTooltip:Show()
@@ -567,6 +600,10 @@ function M:CreateBar(key)
 	bar.text:SetPoint("CENTER", 0, 0)
 	bar.overlay = overlay
 	bar.ticks = {}
+	-- A thin accent line along the top edge while an XP bonus runs.
+	bar.bonusMark = overlay:CreateTexture(nil, "OVERLAY")
+	bar.bonusMark:SetTexture(E.media.flat)
+	bar.bonusMark:Hide()
 	bar.tag = CreateTag(self.holder)
 	bar.tag:SetFrameLevel(overlay:GetFrameLevel() + 1)
 	bar:SetScript("OnEnter", ShowTooltip)
@@ -585,6 +622,40 @@ function M:CreateBar(key)
 	E:RegisterHideable(bar, "EldoUI_XPBar")
 	E:BindOptionsLink(bar, function(own) return { page = "module:StatusBars", key = own.key .. ".enabled" } end)
 	return bar
+end
+
+-- "+5% (Well Fed XP Boost), 23 min left"
+function M.XPBonusText(bonus)
+	local text = ("+%d%%"):format(math.floor(bonus.percent + 0.5))
+	if bonus.name then text = text .. " (" .. bonus.name .. ")" end
+	if bonus.left then text = text .. ", " .. L["%s left"]:format(E:FormatDuration(bonus.left, "long")) end
+	return text
+end
+
+-- The XP bar's bonus line: read out of combat; in combat it keeps what
+-- it showed before the fight.
+function M.UpdateBonusMark(bar)
+	local mark = bar.bonusMark
+	if not mark then return end
+	local db = M.db
+	if bar.key ~= "xp" or not db.xp.bonusMark then
+		mark:Hide()
+		return
+	end
+	local bonuses = E.XPBonuses and E.XPBonuses()
+	if bonuses then M.xpBonusOn = #bonuses > 0 end
+	mark:ClearAllPoints()
+	if db.vertical then
+		mark:SetPoint("TOPRIGHT")
+		mark:SetPoint("BOTTOMRIGHT")
+		mark:SetWidth(math.max(1, E.pixel * 2))
+	else
+		mark:SetPoint("TOPLEFT")
+		mark:SetPoint("TOPRIGHT")
+		mark:SetHeight(math.max(1, E.pixel * 2))
+	end
+	mark:SetVertexColor(unpack(E.media.accentColor))
+	mark:SetShown(M.xpBonusOn and true or false)
 end
 
 -- Text shows on horizontal bars only (upright bars keep it in the tooltip).
@@ -628,6 +699,7 @@ function M:UpdateBar(bar)
 	end
 	bar.text:SetText(BarText(key, data, db))
 	bar.text:SetShown(TextWanted(db, self.hovered))
+	M.UpdateBonusMark(bar)
 	bar:Show()
 	if GameTooltip:IsOwned(bar) then ShowTooltip(bar) end
 	return true
@@ -688,11 +760,11 @@ function M:UpdateTicks(bar, length)
 			tick:ClearAllPoints()
 			local at = length * index / (count + 1)
 			if db.vertical then
-				tick:SetHeight(E.pixel)
+				tick:SetHeight(E:PixelFor(bar))
 				tick:SetPoint("LEFT", bar, "BOTTOMLEFT", 0, at)
 				tick:SetPoint("RIGHT", bar, "BOTTOMRIGHT", 0, at)
 			else
-				tick:SetWidth(E.pixel)
+				tick:SetWidth(E:PixelFor(bar))
 				tick:SetPoint("TOP", bar, "TOPLEFT", at, 0)
 				tick:SetPoint("BOTTOM", bar, "BOTTOMLEFT", at, 0)
 			end
@@ -701,6 +773,14 @@ function M:UpdateTicks(bar, length)
 			tick:Hide()
 		end
 	end
+end
+
+-- A new UI scale or screen size: the ticks are sized again in whole
+-- screen pixels.
+if E.RegisterPixelCallback then
+	E:RegisterPixelCallback(function()
+		if M.active and M.holder and M.ownBars then M:Layout() end
+	end)
 end
 
 function M:Refresh()
@@ -739,6 +819,8 @@ local EVENTS = {
 	"UPDATE_FACTION", "CURRENCY_DISPLAY_UPDATE",
 	"DISABLE_XP_GAIN", "ENABLE_XP_GAIN", "PLAYER_MAX_LEVEL_UPDATE", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA",
 	"QUEST_LOG_UPDATE", "QUEST_TURNED_IN",
+	-- A full-width bar follows a new resolution or UI scale.
+	"DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED",
 }
 -- The pet's own events, for the player and the pet only: the game filters
 -- them, so another raid member's pet never reaches the handler.
@@ -746,7 +828,9 @@ local PET_EVENTS = { "UNIT_PET_EXPERIENCE", "UNIT_PET" }
 local PET_UNITS = { "player", "pet" }
 
 local function OnEvent(_, event)
-	if event == "UPDATE_FACTION" and M.db.rep.enabled and M.db.rep.autoTrack then ScanReputation(true) end
+	if event == "UPDATE_FACTION" and M.db.rep.enabled and M.db.rep.autoTrack and not M.repOwnWatch then
+		E:Debounce("StatusBars:rep", 0.5, TrackScan)
+	end
 	-- Several events arrive together (level up); draw once per frame.
 	if M.refreshQueued then return end
 	M.refreshQueued = true
@@ -777,7 +861,7 @@ function Details.Rows(key, data)
 	if key == "rep" then
 		Add(L["Standing"], data.standing ~= "" and data.standing or "-")
 	elseif data.level then
-		Add(LEVEL or L["Level"], tostring(data.level))
+		Add(E:GameText(LEVEL, L["Level"]), tostring(data.level))
 	end
 	Add(L["Progress"], ("%s / %s"):format(Long(into), Long(span)))
 	if span > 0 then
@@ -1177,6 +1261,12 @@ function M:OnEnable()
 		self.holder:SetScript("OnLeave", function() M:Hover(false) end)
 	end
 	for _, event in ipairs(EVENTS) do self:RegisterEvent(event, OnEvent) end
+	-- An XP bonus starting or ending (out of combat, only with the line on).
+	local function BonusChanged()
+		if self.db.xp.bonusMark and not InCombatLockdown() and self.bars and self.bars.xp then M.UpdateBonusMark(self.bars.xp) end
+	end
+	self:RegisterUnitEvent("UNIT_AURA", "player", BonusChanged)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", BonusChanged)
 	for _, event in ipairs(PET_EVENTS) do self:RegisterUnitEvent(event, PET_UNITS, OnEvent) end
 	ScanReputation(false)
 	self:Apply()
@@ -1186,6 +1276,8 @@ function M:OnDisable()
 	if self.Details and self.Details.window then self.Details.window:Hide() end
 	for _, event in ipairs(EVENTS) do self:UnregisterEvent(event) end
 	for _, event in ipairs(PET_EVENTS) do self:UnregisterUnitEvent(event, PET_UNITS) end
+	self:UnregisterUnitEvent("UNIT_AURA", "player")
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
 	threatFrame:UnregisterAllEvents()
 	if self.holder then
 		E:DetachVisibility(self.holder)
@@ -1274,8 +1366,8 @@ M.options = {
 		end },
 	{ type = "header", label = "Size" },
 	{ type = "range", key = "width", label = "Length", desc = "Length of every bar in pixels. Full spans the whole screen.", zeroText = "Full", min = 0, max = 1200, step = 2 },
-	{ type = "range", key = "height", label = "Thickness", desc = "Thickness of each bar in pixels.", min = 4, max = 30, step = 1 },
-	{ type = "range", key = "spacing", label = "Gap between bars", desc = "Space between two stacked bars.", min = 0, max = 12, step = 1 },
+	{ type = "range", unit = "px", key = "height", label = "Thickness", desc = "Thickness of each bar in pixels.", min = 4, max = 30, step = 1 },
+	{ type = "range", unit = "px", key = "spacing", label = "Gap between bars", desc = "Space between two stacked bars.", min = 0, max = 12, step = 1 },
 	{ type = "select", key = "grow", label = "Stack direction", desc = "Where the second bar goes when more than one shows. With upright bars: Upwards adds them to the right, Downwards to the left.",
 		values = { UP = "Upwards", DOWN = "Downwards" } },
 	{ type = "range", key = "ticks", label = "Divider ticks", min = 0, max = 20, step = 1, zeroText = "None",
@@ -1307,7 +1399,9 @@ M.options = {
 	{ type = "toggle", key = "xp.enabled", label = "Experience bar", desc = "Your XP towards the next level." },
 	{ type = "toggle", key = "xp.rested", dependsOn = "xp.enabled", label = "Show rested XP", desc = "A lighter fill shows how far your rested bonus reaches." },
 	{ type = "toggle", key = "xp.quests", dependsOn = "xp.enabled", label = "Show finished quest XP", desc = "A gold fill shows the XP waiting in finished quests you have not handed in yet." },
+	{ type = "toggle", key = "xp.bonusMark", dependsOn = "xp.enabled", label = "XP bonus line", desc = "A thin line along the XP bar while an XP bonus runs, such as XP food or an event. The tooltip names each bonus and its time left either way." },
 	{ type = "toggle", key = "xp.session", dependsOn = "xp.enabled", label = "Session statistics", desc = "The XP tooltip shows XP gained this session, XP per hour and the time to the next level." },
+	{ type = "toggle", key = "xp.toCap", dependsOn = "xp.enabled", label = "XP to the level cap", desc = "The XP tooltip shows the XP still needed to reach the level cap and, with session statistics on, the time at this session's pace (rested XP and finished quests count as a head start)." },
 	{ type = "toggle", key = "xp.hideAtMax", dependsOn = "xp.enabled", label = "Hide at max level", desc = "The XP bar disappears at the level cap; the reputation bar takes its place." },
 	{ type = "color", key = "xp.color", dependsOn = "xp.enabled", label = "XP color", desc = "Fill color of the experience bar." },
 	{ type = "color", key = "xp.restedColor", dependsOn = "xp.enabled", label = "Rested color", desc = "Color of the rested part." },
@@ -1330,7 +1424,7 @@ M.options = {
 
 	{ type = "tab", label = "Threat" },
 	{ type = "toggle", key = "threat.enabled", label = "Threat bar",
-		desc = "Your threat on your target as the game reports it (the same percent as Blizzard's target frame). Hidden when there is none, or when the game hides it." },
+		desc = "Your threat on your target, the same percent the game's target frame shows. Hidden when there is none, or when the game hides it." },
 	{ type = "toggle", key = "threat.onlyGroup", label = "Only in a group", dependsOn = "threat.enabled",
 		desc = "Show the threat bar only while you are in a party or raid." },
 	{ type = "toggle", key = "threat.statusColor", label = "Threat status color", dependsOn = "threat.enabled",

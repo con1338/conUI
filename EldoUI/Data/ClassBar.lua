@@ -5,8 +5,10 @@
 --           the bar keeps the same spell and rank pick as the reminder, so
 --           one pick serves both. Rogue poisons are the poison slots.
 --   spells  key cooldowns: { id = rank 1 spell ID, key, name (English, the
---           option's label until the game names it) }. An icon shows once
---           you know the spell; a click casts the highest rank.
+--           option's label until the game names it), optional race ID }.
+--           An icon shows once you know the spell; a click casts the chosen
+--           rank, or the highest by default. Race spells and their options
+--           belong to that race only.
 --   counts  reagents the class spends: { key, name (a translated key
 --           when it names several items), items (any of them counts,
 --           summed), spells (shown once you know one of them; none: while
@@ -16,7 +18,7 @@
 -- the talent spells of the keybind categories (Data/KeybindCategories.lua).
 -- Written from scratch for EldoUI.
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 
 E.ClassBarData = {
@@ -31,6 +33,7 @@ E.ClassBarData = {
 			{ id = 20230, key = "retaliation", name = "Retaliation" },
 			{ id = 1719, key = "recklessness", name = "Recklessness" },
 			{ id = 12328, key = "deathwish", name = "Death Wish" }, -- talent
+			{ id = 1310222, key = "spearingstrike", name = "Spearing Strike" }, -- talent
 		},
 		counts = {},
 	},
@@ -46,6 +49,7 @@ E.ClassBarData = {
 			{ id = 20473, key = "holyshock", name = "Holy Shock" }, -- talent
 			{ id = 26573, key = "consecration", name = "Consecration" },
 			{ id = 633, key = "layonhands", name = "Lay on Hands" },
+			{ id = 407632, key = "hammeroftherighteous", name = "Hammer of the Righteous" },
 		},
 		counts = {
 			{ key = "kings", items = { 21177 }, spells = { 25782, 25894, 25898 }, name = "Symbol of Kings" }, -- for greater blessings
@@ -64,6 +68,10 @@ E.ClassBarData = {
 			{ id = 19263, key = "deterrence", name = "Deterrence" }, -- talent
 			{ id = 5384, key = "feigndeath", name = "Feign Death" },
 			{ id = 136, key = "mendpet", name = "Mend Pet" },
+			{ id = 1293241, key = "summonhawk", name = "Summon Hawk" }, -- talent
+			{ id = 1310687, key = "snipershot", name = "Sniper Shot" }, -- talent
+			{ id = 1317257, key = "striderkick", name = "Strider Kick" }, -- talent
+			{ id = 1221404, key = "enchantedflare", name = "Enchanted Flare" },
 		},
 		counts = {
 			{ key = "ammo", ammo = true },
@@ -81,6 +89,7 @@ E.ClassBarData = {
 			{ id = 13750, key = "adrenaline", name = "Adrenaline Rush" }, -- talent
 			{ id = 13877, key = "bladeflurry", name = "Blade Flurry" }, -- talent
 			{ id = 14185, key = "preparation", name = "Preparation" }, -- talent
+			{ id = 1316709, key = "deathmark", name = "Death Mark" }, -- talent
 		},
 		counts = {
 			{ key = "flash", items = { 5140 }, spells = { 1856 }, name = "Flash Powder" }, -- for Vanish
@@ -95,10 +104,21 @@ E.ClassBarData = {
 			{ id = 15487, key = "silence", name = "Silence" }, -- talent
 			{ id = 14751, key = "innerfocus", name = "Inner Focus" }, -- talent
 			{ id = 10060, key = "powerinfusion", name = "Power Infusion" }, -- talent
-			{ id = 13908, key = "desperate", name = "Desperate Prayer" },
+			{ id = 402174, key = "penance", name = "Penance" }, -- talent
+			{ id = 1309595, key = "shadowworddeath", name = "Shadow Word: Death" },
+			{ id = 13908, key = "desperate", name = "Desperate Prayer", race = 3 },
+			{ id = 1277370, key = "divinegrace", name = "Divine Grace", race = 1 },
+			{ id = 13896, key = "feedback", name = "Feedback", race = 1 },
+			{ id = 1277331, key = "chastise", name = "Chastise", race = 3 },
+			{ id = 10797, key = "starshards", name = "Starshards", race = 4 },
+			{ id = 2651, key = "elunesgrace", name = "Elune's Grace", race = 4 },
+			{ id = 1277455, key = "confoundingflash", name = "Confounding Flash", race = 7 },
+			{ id = 1277462, key = "contingencyplan", name = "Contingency Plan", race = 7 },
+			{ id = 1277324, key = "darksacrifice", name = "Dark Sacrifice", race = 5 },
 		},
 		counts = {
 			{ key = "candles", items = { 17028, 17029 }, spells = { 21562, 27683, 27681 }, name = E.Key("Holy and Sacred Candles") }, -- for prayers
+			{ key = "feathers", items = { 17056 }, spells = { 1706 }, name = "Light Feather" }, -- for Levitate
 		},
 	},
 	MAGE = {
@@ -115,9 +135,13 @@ E.ClassBarData = {
 			{ id = 12042, key = "arcanepower", name = "Arcane Power" }, -- talent
 			{ id = 11129, key = "combustion", name = "Combustion" }, -- talent
 			{ id = 12051, key = "evocation", name = "Evocation" },
+			{ id = 1312002, key = "icelance", name = "Ice Lance" }, -- talent
 		},
 		counts = {
 			{ key = "powder", items = { 17020 }, spells = { 23028 }, name = "Arcane Powder" }, -- for Arcane Brilliance
+			{ key = "teleport", items = { 17031 }, spells = { 3561, 3562, 3563, 3565, 3566, 3567, 1297659 }, name = "Rune of Teleportation" },
+			{ key = "portals", items = { 17032 }, spells = { 10059, 11416, 11417, 11418, 11419, 11420 }, name = "Rune of Portals" },
+			{ key = "feathers", items = { 17056 }, spells = { 130, 1302508 }, name = "Light Feather" }, -- for Slow Fall and Study
 		},
 	},
 	WARLOCK = {
@@ -145,6 +169,9 @@ E.ClassBarData = {
 			{ id = 29166, key = "innervate", name = "Innervate" },
 			{ id = 740, key = "tranquility", name = "Tranquility" },
 			{ id = 20484, key = "rebirth", name = "Rebirth" },
+			{ id = 1238122, key = "feralcharge", name = "Feral Charge" }, -- talent
+			{ id = 407995, key = "primalbite", name = "Primal Bite" }, -- talent
+			{ id = 1322605, key = "shiftingpower", name = "Shifting Power" }, -- talent
 		},
 		counts = {
 			{ key = "thornroot", items = { 17026 }, spells = { 21849 }, name = "Wild Thornroot" }, -- for Gift of the Wild

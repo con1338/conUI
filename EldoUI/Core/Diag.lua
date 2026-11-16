@@ -349,4 +349,4 @@ E:AddCommand("diag", "[copy | force]  version, modules, restrictions and secret 
 	else
 		E:PrintDiagnostics()
 	end
-end, "Tools")
+end, "Troubleshooting")

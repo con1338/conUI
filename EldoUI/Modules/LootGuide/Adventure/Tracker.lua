@@ -530,7 +530,7 @@ A.TrackerOptions = {
 	{ type = "toggle", key = "trackerReminders", label = "Reminders in the tracker", desc = "Reminders that are waiting for their place or time." },
 	{ type = "range", key = "trackerRemindersMax", label = "Reminders shown", desc = "How many waiting reminders the tracker lists.", min = 1, max = 10, step = 1 },
 	{ type = "toggle", key = "trackerNext", label = "Next step in the tracker", desc = "One line with the next thing that matters: a ready hand-in, trip prep or the next attunement step." },
-	{ type = "range", key = "trackerHeight", label = "Tracker height", desc = "Lines past this height fold into +n more.", min = 80, max = 300, step = 10 },
+	{ type = "range", unit = "px", key = "trackerHeight", label = "Tracker height", desc = "Lines past this height fold into +n more.", min = 80, max = 300, step = 10 },
 	{ type = "toggle", key = "trackerDock", label = "Keep it in the quest column", desc = "The quest tracker leaves room at its bottom for the journal tracker. With Questie, the journal tracker sits right under Questie's list." },
 	{ type = "description", label = "Turn on Blizzard UI > Objective / quest tracker > Move and scale to keep the quest list clear of the journal tracker.",
 		hidden = function()

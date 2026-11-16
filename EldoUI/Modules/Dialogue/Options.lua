@@ -21,7 +21,7 @@ D.options = {
 	{ type = "select", key = "look", label = L["Look"], values = D.LOOK_TITLE,
 		order = { "cinematic", "book", "compact", "large", "bronze", "minimal" },
 		desc = L["The panel's look: the standard panel, a see-through page with the heading font, tighter spacing, the standard panel for large text, a bronze frame, or text with no panel."] },
-	{ type = "range", key = "width", label = L["Panel width"], min = 480, max = 800, step = 10,
+	{ type = "range", unit = "px", key = "width", label = L["Panel width"], min = 480, max = 800, step = 10,
 		desc = L["Width of the panel. It stays centered on its place (move mode: NPC Dialog)."] },
 	{ type = "range", key = "dim", label = L["Screen dim"], min = 0, max = 0.7, step = 0.05, percent = true, zeroText = "Off",
 		desc = L["Darkens the world behind the panel while an NPC talks."] },

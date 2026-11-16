@@ -1401,7 +1401,7 @@ end
 ---------------------------------------------------------------------------
 -- Forget
 ---------------------------------------------------------------------------
-local SETTINGS_TABLES = { "private", "profileKeys", "installed", "installerRun", "profileRules", "keybindBackup" }
+local SETTINGS_TABLES = { "private", "profileKeys", "installed", "installerRun", "installerLogin", "profileRules", "keybindBackup" }
 
 -- Removes the character from every table EldoUI keeps per character.
 -- settings = true also drops its EldoUI settings (profile choice,
@@ -1462,6 +1462,9 @@ function C:Forget(key, settings)
 			if type(EldoUIDB[name]) == "table" then EldoUIDB[name][key] = nil end
 		end
 	end
+	-- What the modules keep deeper in the file (the setup backup, the quest
+	-- tracker fold and more), each through its owner.
+	E:RunCharacterForgets(key)
 	if self.callbacks then self.callbacks:Fire("Forgotten", key) end
 	return true
 end

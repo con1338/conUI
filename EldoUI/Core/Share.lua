@@ -130,14 +130,29 @@ local function MaterializeDependencies(payload, data, target)
 	return data
 end
 
+-- The EldoUI version a string names, for a message (only digits and dots).
+local function StringVersion(payload)
+	local version = rawget(payload, "version")
+	if type(version) == "string" and not E.Secret(version) and version:match("^[%d%.]+$") and #version <= 16 then return version end
+	return "?"
+end
+
+-- true, or false and (when it is not simply damaged) why the player can't
+-- import the string.
 local function PayloadAdmit(payload)
 	if not Plain(payload) or not Plain(payload.data) then return false end
 	local kind = payload.kind
 	if not ProfileKind(kind) then return true end
 	if kind ~= "all" and kind ~= "general" and type(rawget(payload, "layoutDependencies")) ~= "nil" then return false end
 	local schema = payload.schema
-	if not Plain(schema) or E.Secret(schema.unit) or schema.unit ~= "profile"
-		or not SourceAdmit({ profileBaseline = payload.profileBaseline, schema = schema.version }) then return false end
+	if not Plain(schema) or E.Secret(schema.unit) or schema.unit ~= "profile" then return false end
+	if not SourceAdmit({ profileBaseline = payload.profileBaseline, schema = schema.version }) then
+		local version = schema.version
+		if type(version) == "number" and not E.Secret(version) and version > E.PROFILE_SCHEMA then
+			return false, L["it was made with a newer EldoUI (%s). Update EldoUI to import it."]:format(StringVersion(payload))
+		end
+		return false, L["it was made with an EldoUI version this one can't read (%s)."]:format(StringVersion(payload))
+	end
 	if kind == "all" and (not SourceAdmit(payload.data)
 		or payload.data.profileBaseline ~= payload.profileBaseline or payload.data.schema ~= schema.version) then return false end
 	local general
@@ -150,7 +165,10 @@ local function PayloadAdmit(payload)
 			local envelope = rawget(payload, "layoutDependencies")
 			if type(envelope) ~= "nil" then
 				if not DependencyPlan(key, envelope) then return false end
-			elseif not CurrentLayout(key) then return false end
+			elseif not CurrentLayout(key) then
+				local name = type(key) == "string" and not E.Secret(key) and #key <= 64 and key:gsub("|", "||") or "?"
+				return false, L["it uses the layout %s, which you don't have."]:format(name)
+			end
 		end
 	end
 	if type(rawget(payload, "layoutDependencies")) ~= "nil" and (not general or type(rawget(general, "layout")) == "nil") then return false end
@@ -735,6 +753,8 @@ local function BuildPayload(key)
 		payload.data = E:CopyWithoutDefaults(E.db.general, E.defaults.general)
 	elseif key == "positions" then
 		payload.data = CopyTable(E.db.movers or {})
+		-- The dragged game windows travel beside the frames.
+		payload.windows = E.WindowPlaces and E:WindowPlaces(E.db.windowMover and E.db.windowMover.windows) or nil
 	elseif key == "global" then
 		payload.data = {}
 		for _, entry in ipairs(E:SharedGlobals()) do
@@ -756,7 +776,7 @@ local function BuildPayload(key)
 		local general = key == "all" and payload.data.general or payload.data
 		if Plain(general) and type(rawget(general, "layout")) ~= "nil" then
 			local envelope, supported = CaptureDependencies(general.layout)
-			if not supported then return nil end
+			if not supported then return nil, "layout" end
 			payload.layoutDependencies = envelope
 		end
 	end
@@ -777,17 +797,21 @@ function E:ExportString(key, format)
 	-- "share:<kind>[:<arg>]": a registered share kind (always the compact string).
 	local shareKind, arg = (type(key) == "string" and key or ""):match("^share:([%w_]+):?(.*)$")
 	if shareKind then return self:ExportShareKind(shareKind, arg ~= "" and arg or nil) end
-	local payload = BuildPayload(key or "all")
-	if not payload then return nil end
+	local payload, why = BuildPayload(key or "all")
+	if not payload then return nil, why end
 	if format == "lua" then return LuaText(payload) end
 	return Encode(Serialize(payload))
 end
 
 function E:ShowExport(key, format)
 	key = key or "all"
-	local text = self:ExportString(key, format)
+	local text, why = self:ExportString(key, format)
 	if not text then
-		self:Print(L["Nothing to export for %s."]:format(tostring(key)))
+		if why == "layout" then
+			self:Print(L["%s uses a layout that can't be put in a string, so it can't be exported."]:format(CategoryTitle(key)))
+		else
+			self:Print(L["Nothing to export for %s."]:format(CategoryTitle(key)))
+		end
 		return
 	end
 	if format == "lua" then
@@ -818,16 +842,18 @@ local function ParseString(text)
 		-- Mover positions travel as a table of tables; anything else stops
 		-- here, before a setting changes.
 		local movers = payload.kind == "positions" and payload.data or payload.movers
-		if movers ~= nil then
-			if type(movers) ~= "table" then error("the string is damaged") end
-			for name, position in pairs(movers) do
+		for _, set in ipairs({ movers, payload.kind == "positions" and payload.windows or nil }) do
+			if type(set) ~= "table" then error("the string is damaged") end
+			for name, position in pairs(set) do
 				if type(name) ~= "string" or type(position) ~= "table" then error("the string is damaged") end
 			end
 		end
-		if not PayloadAdmit(payload) then error("the string is damaged") end
+		local admitted, why = PayloadAdmit(payload)
+		if not admitted then error(why and { reason = why } or "the string is damaged") end
 		return payload
 	end)
 	if ok then return result end
+	if type(result) == "table" and type(result.reason) == "string" then return nil, result.reason end
 	local message = tostring(result):gsub("^.-:%d+: ", "")
 	if not (message:find("EldoUI string", 1, true) or message:find("too long", 1, true) or message:find("client", 1, true)) then
 		message = L["the string is damaged or cut short. Copy it again in full."]
@@ -932,6 +958,11 @@ local function ApplyPayload(payload, profileName, target)
 	elseif kind == "general" then
 		local working = MaterializeDependencies(payload, CopyTable(payload.data), target)
 		if not working or not TargetAdmit(target) then return false end
+		-- The look only: the layout stays (a whole profile brings its own).
+		for _, key in ipairs(E.LAYOUT_KEYS) do
+			local value = E.db.general[key]
+			working[key] = type(value) == "table" and CopyTable(value) or value
+		end
 		E.db.general = working
 		E.ApplyDefaults(E.db.general, E.defaults.general)
 		E:RefreshTheme()
@@ -939,6 +970,8 @@ local function ApplyPayload(payload, profileName, target)
 	elseif kind == "positions" then
 		E.db.movers = payload.data
 		E:RefreshMovers()
+		-- Strings made before the game windows traveled carry none: theirs stay.
+		if type(payload.windows) == "table" and E.SetWindowPlaces then E:SetWindowPlaces(payload.windows) end
 	elseif kind == "global" then
 		local count = 0
 		for namespace, data in pairs(payload.data) do
@@ -1121,7 +1154,8 @@ end
 -- The parts of a profile as checklist items.
 local function PartItems(source, onlyChanged)
 	local items = {
-		{ key = "general", label = L["General (theme, fonts, scale)"], desc = L["Accent color, art style, fonts, bar texture, colors and the other General settings."] },
+		{ key = "general", label = L["General (theme, fonts, scale)"], desc = L["Accent color, art style, fonts, bar texture, colors and the other General settings. Your layout stays; check Layout to take that too."] },
+		{ key = "layout", label = L["Layout"], desc = L["The layout that places your frames: applied as when you pick it on the Layouts page, with its frame sizes."] },
 		{ key = "blizzard", label = L["Blizzard UI switches"], desc = L["Which parts of Blizzard's UI EldoUI may change (Blizzard UI page)."] },
 	}
 	local modules = type(source.modules) == "table" and source.modules or {}
@@ -1139,7 +1173,7 @@ local function PartItems(source, onlyChanged)
 end
 
 local function PartsFrom(picked, extras)
-	local parts = { modules = {}, general = picked.general, blizzard = picked.blizzard, positions = extras.positions }
+	local parts = { modules = {}, general = picked.general, layout = picked.layout, blizzard = picked.blizzard, positions = extras.positions }
 	for key in pairs(picked) do
 		local name = key:match("^module:(.+)$")
 		if name then parts.modules[name] = true end
@@ -1177,7 +1211,11 @@ function E:ShowCopyParts(from)
 			if not TargetAdmit(target) or not ProfileAdmit(source, from) then return false end
 			self:RunOutOfCombat(function()
 				if not TargetAdmit(target) or not ProfileAdmit(source, from) then return end
-				local ok, copied = self:CopyProfileParts(from, PartsFrom(picked, extras))
+				local ok, copied
+				self:ChangeProfileWithUndo(self.profileName, "parts", function()
+					ok, copied = self:CopyProfileParts(from, PartsFrom(picked, extras))
+					return ok
+				end)
 				ReportCopied(ok, copied, from)
 			end)
 		end,
@@ -1205,10 +1243,14 @@ local function ShowImportParts(payload, target, callback)
 					or E.Secret(E.ApplyProfileParts) or E.ApplyProfileParts ~= apply then Completion(callback, false, "rejected"); return end
 				local parts = PartsFrom(picked, extras)
 				local working = CopyTable(source)
-				if parts.general then working = MaterializeDependencies(payload, working, target) end
+				if parts.general or parts.layout then working = MaterializeDependencies(payload, working, target) end
 				if not working or not TargetAdmit(target) or E.Secret(E.ApplyProfileParts)
 					or E.ApplyProfileParts ~= apply then Completion(callback, false, "rejected"); return end
-				local ok, copied = apply(E, working, parts)
+				local ok, copied
+				E:ChangeProfileWithUndo(E.profileName, "import", function()
+					ok, copied = apply(E, working, parts)
+					return ok
+				end)
 				local from = type(payload.author) == "string" and payload.author or L["the string"]
 				if not TargetAdmit(target) or E.Secret(E.ApplyProfileParts)
 					or E.ApplyProfileParts ~= apply then Completion(callback, false, "rejected"); return end
@@ -1233,13 +1275,28 @@ local function AcceptImport(payload, text, target, callback)
 		E:RunOutOfCombat(function()
 			ran = true
 			if not TargetAdmit(target) or not PayloadAdmit(payload) or not TargetAdmit(target) then Completion(callback, false, "rejected"); return end
-			result, status = ApplyPayload(payload, text, target)
+			if payload.kind == "general" then
+				E:ChangeProfileWithUndo(E.profileName, "import", function()
+					result, status = ApplyPayload(payload, text, target)
+					return result
+				end)
+			else
+				result, status = ApplyPayload(payload, text, target)
+			end
 			Completion(callback, result == true, status or "rejected")
 		end, "Share:import")
 		if not ran then return false, "queued" end
 		return result, status
 	end
-	local result, status = ApplyPayload(payload, text, target)
+	local result, status
+	if ProfileKind(payload.kind) then
+		E:ChangeProfileWithUndo(E.profileName, "import", function()
+			result, status = ApplyPayload(payload, text, target)
+			return result
+		end)
+	else
+		result, status = ApplyPayload(payload, text, target)
+	end
 	Completion(callback, result == true, status or "rejected")
 	return result, status
 end
@@ -1439,7 +1496,7 @@ function E:SendShare(key, target)
 	if channel == "GUILD" and not IsInGuild() then self:Print(L["You are not in a guild."]); return false end
 	local text = self:ExportString(key)
 	if not text then
-		self:Print(L["Nothing to export for %s."]:format(tostring(key)))
+		self:Print(L["Nothing to export for %s."]:format(CategoryTitle(key)))
 		return false
 	end
 	local chunks = math.ceil(#text / CHUNK)
@@ -1623,6 +1680,30 @@ local function DoSend()
 	E:SendShare(send.what, target)
 end
 
+-- The lines a profile question adds: which other characters use
+-- the profile, and what happens to them. why: "reset", "copy" or "delete".
+function E:ProfileConfirmText(text, name, why)
+	local others = {}
+	for _, key in ipairs(self:ProfileUsers(name)) do
+		if key ~= self.charKey then others[#others + 1] = key end
+	end
+	local lines = { text }
+	if why == "delete" then
+		if #others > 0 then
+			if EldoUIDB.profiles.Default and name ~= "Default" then
+				lines[#lines + 1] = L["Also used by %s. They go back to the profile Default."]:format(table.concat(others, ", "))
+			else
+				lines[#lines + 1] = L["Also used by %s. They get a new, empty profile Default, and the setup opens at their next login."]:format(table.concat(others, ", "))
+			end
+		end
+	elseif #others > 0 then
+		lines[#lines + 1] = L["Also used by %s. The change is theirs too."]:format(table.concat(others, ", "))
+	end
+	if why == "reset" and name == self.profileName then lines[#lines + 1] = L["The setup opens again after the reset."] end
+	lines[#lines + 1] = L["A copy is kept first: Undo in the alert or the Saved data page puts it back."]
+	return table.concat(lines, "\n\n")
+end
+
 local function PrintUsers()
 	local users = E:ProfileUsers(E.profileName)
 	for index, key in ipairs(users) do users[index] = key == E.charKey and (key .. L[" (this character)"]) or key end
@@ -1631,6 +1712,8 @@ end
 
 local profileOptions = {
 	{ type = "header", label = L["This character"] },
+	{ type = "description", tone = "body", hidden = function() return not (E.ProfileRulesOn and E:ProfileRulesOn()) end,
+		label = L["Profile rules are on: the profile follows your content or talent group. A pick here holds until one of them changes."] },
 	{ type = "select", key = "current", label = L["Profile for this character"], values = ProfileValues(),
 		desc = L["The profile this character uses. Every character can use any profile."] },
 	{ type = "input", key = "new", label = L["New profile"], noUndo = true,
@@ -1651,14 +1734,19 @@ local profileOptions = {
 		desc = L["Replace this whole profile with a copy of another one (asks first)."] },
 	{ type = "execute", label = L["Reset this profile"], desc = L["Every setting of this profile back to its default (asks first)."],
 		func = function()
-			Confirm(L["Reset the profile %s to defaults? Every setting in it is lost."]:format(E:Highlight(E.profileName)), function()
-				E:RunOutOfCombat(function() E:ResetProfile(); E:RefreshConfig() end)
+			local name = E.profileName
+			Confirm(E:ProfileConfirmText(L["Reset the profile %s to defaults?"]:format(E:Highlight(name)), name, "reset"), function()
+				E:RunOutOfCombat(function()
+					if E.profileName ~= name then return end
+					E:ChangeProfileWithUndo(name, "reset", function() return E:ResetProfile() end)
+					E:RefreshConfig()
+				end)
 			end, true)
 		end },
 	{ type = "execute", label = L["Who uses it?"], desc = L["Lists the characters that use this profile in chat."], func = PrintUsers, testSafe = true },
 	{ type = "header", label = L["Other profiles"] },
 	{ type = "select", key = "delete", label = L["Delete a profile"], noUndo = true, values = ProfileValues(true),
-		desc = L["Delete a profile you don't use any more (asks first). Characters that used it go back to Default."] },
+		desc = L["Delete a profile you don't use any more (asks first). Characters that used it go back to Default. A copy stays on the Saved data page."] },
 	{ type = "header", label = L["Send to a player"] },
 	{ type = "description", label = L["Send settings to a group member, guild member or friend. They see what changes before anything is applied."] },
 	{ type = "select", key = "send.what", label = L["What"], values = SendWhatValues,
@@ -1702,17 +1790,27 @@ local function ProfileRefresh()
 	elseif p.copyFrom then
 		local from = p.copyFrom
 		p.copyFrom = nil
-		Confirm(L["Replace every setting of %s with a copy of %s?"]:format(E:Highlight(E.profileName), E:Highlight(from)), function()
+		local name = E.profileName
+		Confirm(E:ProfileConfirmText(L["Replace every setting of %s with a copy of %s?"]:format(E:Highlight(name), E:Highlight(from)), name, "copy"), function()
 			E:RunOutOfCombat(function()
-				if E:CopyProfile(from) then E:Print(L["Copied %s into %s."]:format(from, E.profileName)) end
+				if E.profileName ~= name then return end
+				E:ChangeProfileWithUndo(name, "copy", function()
+					local ok = E:CopyProfile(from)
+					if ok then E:Print(L["Copied %s into %s."]:format(from, name)) end
+					return ok
+				end)
 				E:RefreshConfig()
 			end)
 		end)
 	elseif p.delete then
 		local name = p.delete
 		p.delete = nil
-		Confirm(L["Delete the profile %s? This can't be undone."]:format(E:Highlight(name)), function()
-			if E:DeleteProfile(name) then E:Print(L["Deleted profile %s."]:format(name)) end
+		Confirm(E:ProfileConfirmText(L["Delete the profile %s?"]:format(E:Highlight(name)), name, "delete"), function()
+			E:ChangeProfileWithUndo(name, "delete", function()
+				local ok = E:DeleteProfile(name)
+				if ok then E:Print(L["Deleted profile %s."]:format(name)) end
+				return ok
+			end)
 			E:RefreshConfig()
 		end, true)
 	elseif p.current and p.current ~= E.profileName then
@@ -1749,21 +1847,26 @@ local function ExportKeyFrom(arg)
 	return nil
 end
 
-local USAGE_KEYS = "all | general | positions | global | <module> | <list>"
+-- The refusal names every word the export takes, the shared lists too.
+local function UnknownCategory()
+	local lists = {}
+	for _, entry in ipairs(E:SharedGlobals()) do lists[#lists + 1] = entry.key:lower() end
+	E:Print(L["Unknown category. Try all, general, positions, global, a module name from /eui modules, or one of these lists: %s."]:format(table.concat(lists, ", ")))
+end
 
-E:AddCommand("export", "[" .. USAGE_KEYS .. "]  export settings as a share string", function(arg)
+E:AddCommand("export", "[all | general | positions | global | <module> | <list>]  export settings as a share string", function(arg)
 	local key = ExportKeyFrom(arg)
-	if key then E:ShowExport(key) else E:Print(L["Unknown category. Try all, general, positions or a module name from /eui modules."]) end
+	if key then E:ShowExport(key) else UnknownCategory() end
 end, "Profiles & sharing")
 
-E:AddCommand("exportlua", "[" .. USAGE_KEYS .. "]  export settings as a readable Lua table", function(arg)
+E:AddCommand("exportlua", "[all | general | positions | global | <module> | <list>]  export settings as a readable Lua table", function(arg)
 	local key = ExportKeyFrom(arg)
-	if key then E:ShowExport(key, "lua") else E:Print(L["Unknown category. Try all, general, positions or a module name from /eui modules."]) end
+	if key then E:ShowExport(key, "lua") else UnknownCategory() end
 end, "Profiles & sharing")
 
 E:AddCommand("import", "open the import window: EldoUI, EllesmereUI, ElvUI and Edit Mode strings", function() E:ShowImport() end, "Profiles & sharing")
 
-E:AddCommand("send", "<party | raid | guild | player> [" .. USAGE_KEYS .. "]  offer settings to a group, guild or player", function(arg)
+E:AddCommand("send", "<party | raid | guild | player> [all | general | positions | global | <module> | <list>]  offer settings to a group, guild or player", function(arg)
 	local target, what = (arg or ""):match("^(%S*)%s*(.-)$")
 	if target == "" then
 		E:Print(L["Usage: /eui send <party | raid | guild | player> [what]"])
@@ -1771,7 +1874,7 @@ E:AddCommand("send", "<party | raid | guild | player> [" .. USAGE_KEYS .. "]  of
 	end
 	local key = ExportKeyFrom(what)
 	if not key then
-		E:Print(L["Unknown category. Try all, general, positions or a module name from /eui modules."])
+		UnknownCategory()
 		return
 	end
 	E:SendShare(key, target)

@@ -1,4 +1,4 @@
--- EldoUI Flight Games: Snake. Steer a growing line to the food; the walls
+-- EldoUI Flight Games: Snake. Steer a growing snake to the food; the walls
 -- and your own tail end the run. Each meal is worth 10 points and makes
 -- the next step a little quicker.
 -- Written from scratch for EldoUI.
@@ -10,6 +10,13 @@ local B = M.Board
 local COLS, ROWS, CELL = 22, 16, 18
 local START_STEP, MIN_STEP, FASTER = 0.14, 0.06, 0.003
 local FOOD = "Interface\\Icons\\INV_Misc_Food_15"
+local SNAKE = "Interface\\Icons\\Ability_Hunter_SnakeTrap"
+local BODY_WIDTH = CELL * 0.6
+local FACING = {
+	[0] = { [-1] = math.pi, [1] = 0 },
+	[-1] = { [0] = -math.pi / 2 },
+	[1] = { [0] = math.pi / 2 },
+}
 local DIRS = {
 	UP = { 0, -1 }, W = { 0, -1 }, DOWN = { 0, 1 }, S = { 0, 1 },
 	LEFT = { -1, 0 }, A = { -1, 0 }, RIGHT = { 1, 0 }, D = { 1, 0 },
@@ -24,6 +31,8 @@ local function New(host)
 	local game = setmetatable({ host = host }, Snake)
 	game.grid = B.Grid(host.area, COLS, ROWS, CELL)
 	game.grid.frame:SetPoint("TOPLEFT")
+	game.serpent = B.Actor(game.grid.frame, CELL, B.DISPLAY.snake, SNAKE, { scale = 2, animation = B.ANIM.run })
+	game.bodyViews = {}
 	return game
 end
 
@@ -61,12 +70,30 @@ end
 function Snake:Draw()
 	local grid, palette = self.grid, self.host.Palette()
 	grid:ClearAll()
-	for index, part in ipairs(self.body) do
-		if index == 1 then
-			grid:Paint(part[1], part[2], self.host.Color("accent"))
-		else
-			grid:Paint(part[1], part[2], palette[3], index % 2 == 0 and 1 or 0.85)
+	-- Joined sections follow the body's cell centers, including every turn.
+	-- A section is reused after a restart; only the leading actor is a model.
+	local count = math.min(#self.body, COLS * ROWS)
+	for index = 2, count do
+		local previous, part = self.body[index - 1], self.body[index]
+		local texture = self.bodyViews[index - 1]
+		if not texture then
+			texture = B.Sprite(grid.frame, CELL, CELL, "ARTWORK")
+			self.bodyViews[index - 1] = texture
 		end
+		local thickness = index == count and BODY_WIDTH * 0.55 or BODY_WIDTH
+		texture:SetSize(math.abs(previous[1] - part[1]) * CELL + thickness,
+			math.abs(previous[2] - part[2]) * CELL + thickness)
+		B.Place(texture, (math.min(previous[1], part[1]) - 0.5) * CELL - thickness / 2,
+			(math.min(previous[2], part[2]) - 0.5) * CELL - thickness / 2, grid.frame)
+		B.Art(texture, "Tile", palette[3], index % 2 == 0 and 1 or 0.85)
+		texture:Show()
+	end
+	for index = math.max(1, count), #self.bodyViews do self.bodyViews[index]:Hide() end
+	local head = self.body[1]
+	self.serpent:SetShown(head ~= nil)
+	if head then
+		self.serpent:Place((head[1] - 1) * CELL, (head[2] - 1) * CELL)
+		self.serpent:Face(FACING[self.dir[1]][self.dir[2]])
 	end
 	if self.food then grid:Icon(self.food[1], self.food[2], FOOD) end
 end

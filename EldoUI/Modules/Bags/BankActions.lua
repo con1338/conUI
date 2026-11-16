@@ -238,7 +238,7 @@ function M:AddBankTabSettings(root, entry)
 	local Tab = self.BankTab
 	root:CreateButton(L["Rename"], function() M:RenameBankTab(entry) end)
 	root:CreateDivider()
-	root:CreateTitle(BAG_FILTER_ASSIGN_TO or L["Assign to"])
+	root:CreateTitle(E:GameText(BAG_FILTER_ASSIGN_TO, L["Assign to"]))
 	for _, pair in ipairs(Tab.SORT_FLAGS) do
 		local flag = flags[pair[1]]
 		if flag then

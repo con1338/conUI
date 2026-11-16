@@ -485,8 +485,8 @@ local function DisabledReason(option, page)
 		return option.emptyText and L[option.emptyText] or L["Nothing to choose yet."]
 	end
 	local parentKey = ParentKey(option)
-	if parentKey and page and not GetPath(page.target(), parentKey) then
-		local parent = page.optionsByKey and page.optionsByKey[parentKey]
+	local parent = parentKey and page and page.optionsByKey and page.optionsByKey[parentKey]
+	if parentKey and page and not GetPath(parent and Tree.RootOf(page, parent) or page.target(), parentKey) then
 		return L["Turn on \"%s\" first."]:format(parent and StripCodes(parent.label) or parentKey)
 	end
 end
@@ -554,10 +554,12 @@ function Recent.LogCopy(page, path, label, old, keep)
 	local root = page.target()
 	local now = GetPath(root, path)
 	if type(old) ~= "table" or type(now) ~= "table" or E.DeepEqual(old, now) then return end
-	table.insert(Recent.log, 1, { page = page, option = { type = "copy", label = label }, key = path, root = root,
-		old = old, new = CopyTable(now), keep = keep })
+	local entry = { page = page, option = { type = "copy", label = label }, key = path, root = root,
+		old = old, new = CopyTable(now), keep = keep }
+	table.insert(Recent.log, 1, entry)
 	Recent.log[Recent.MAX + 1] = nil
 	if Recent.UpdateButton then Recent.UpdateButton() end
+	return entry
 end
 
 -- For plugins: the session's changes, newest first.
@@ -595,10 +597,10 @@ function E:ConfigRangeText(option, value)
 	value = self:ConfigRangeValue(option, value)
 	if value == 0 and type(option.zeroText) == "string" then return L[option.zeroText] end
 	if option.percent then
-		return ("%." .. Recent.StepDecimals((option.step or 0.01) * 100) .. "f %%"):format(value * 100)
+		return self:LocalDecimals(("%." .. Recent.StepDecimals((option.step or 0.01) * 100) .. "f %%"):format(value * 100))
 	end
 	local decimals = Recent.StepDecimals(option.step)
-	local text = decimals == 0 and tostring(value) or ("%." .. decimals .. "f"):format(value)
+	local text = self:LocalDecimals(decimals == 0 and tostring(value) or ("%." .. decimals .. "f"):format(value))
 	if type(option.unit) == "string" and option.unit ~= "" then text = text .. " " .. L[option.unit] end
 	return text
 end
@@ -648,7 +650,12 @@ function E:ConfigDefaultText(option, default, desc)
 		return nil
 	end
 	desc = type(desc) == "string" and desc:lower() or ""
-	if desc:find("default", 1, true) or (option.type == "select" and desc:find(name:lower(), 1, true)) then return nil end
+	-- The word "default" is looked for in the English text, so a translated
+	-- desc that names the default doesn't get a second line; the choice
+	-- name is looked for in the text shown.
+	local english = option.englishDesc or option.desc
+	english = type(english) == "string" and english:lower() or desc
+	if english:find("default", 1, true) or (option.type == "select" and desc:find(name:lower(), 1, true)) then return nil end
 	return L["Default: %s."]:format(name)
 end
 
@@ -656,27 +663,53 @@ end
 -- in the label, the keywords, a choice, the description, and last every
 -- word spread over all of them and `context` (the page title, so "sort
 -- bags" finds the sort rows of the Bags page).
+-- Each row's joined search text is kept on the side (weak keys), built
+-- once and again only when its label, description or page title changes.
+-- A select whose choices come from a function (profiles, lists) joins
+-- them each time, as the choices can change.
+local searchText = setmetatable({}, { __mode = "k" })
 local function Score(option, filter, context)
 	local label = option.label
 	if label and Tree.MatchesPhrase(label, filter) then return 3 end
 	if label and Matches(label, filter) then return 2.5 end
-	local keywords = option.keywords
-	if type(keywords) == "table" then keywords = table.concat(keywords, " ") end
-	if type(keywords) == "string" and Matches(keywords, filter) then return 2 end
-	local choices
+	local desc = option.desc
+	local cached = searchText[option]
+	if not (cached and cached.label == label and cached.desc == desc and cached.context == context) then
+		local keywords = option.keywords
+		if type(keywords) == "table" then keywords = table.concat(keywords, " ") end
+		cached = { label = label, desc = desc, context = context, keywords = type(keywords) == "string" and keywords or nil }
+		cached.base = Tree.Folded(label) .. " " .. (cached.keywords and Tree.Folded(cached.keywords) or "") .. " "
+			.. (type(desc) == "string" and Tree.Folded(desc) or "") .. " " .. Tree.Folded(context)
+		searchText[option] = cached
+	end
+	if cached.keywords and Matches(cached.keywords, filter) then return 2 end
+	local choices = cached.choices
 	if option.type == "select" and not option.sound then
-		local ok, values = pcall(SelectValues, option)
-		for _, name in pairs(ok and values or {}) do
-			if type(name) == "string" then
-				if Matches(name, filter) then return 1, StripCodes(name) end
-				choices = (choices and (choices .. " ") or "") .. Tree.Folded(name)
+		local fixed = type(option.values) ~= "function"
+		if not (fixed and choices) then
+			local ok, values = pcall(SelectValues, option)
+			local names = {}
+			for _, name in pairs(ok and values or {}) do
+				if type(name) == "string" then names[#names + 1] = name end
 			end
+			choices = names
+			if fixed then cached.choices = names end
+		end
+		for _, name in ipairs(choices) do
+			if Matches(name, filter) then return 1, StripCodes(name) end
 		end
 	end
-	local desc = option.desc
 	if type(desc) == "string" and Matches(desc, filter) then return 1 end
-	local all = Tree.Folded(label) .. " " .. (type(keywords) == "string" and Tree.Folded(keywords) or "") .. " "
-		.. (type(desc) == "string" and Tree.Folded(desc) or "") .. " " .. (choices or "") .. " " .. Tree.Folded(context)
+	local all = cached.base
+	if choices and #choices > 0 then
+		all = choices == cached.choices and cached.all
+		if not all then
+			local folded = {}
+			for i, name in ipairs(choices) do folded[i] = Tree.Folded(name) end
+			all = cached.base .. " " .. table.concat(folded, " ")
+			if choices == cached.choices then cached.all = all end
+		end
+	end
 	-- The page title alone never matches every row of its page.
 	local page = Tree.Folded(context)
 	for _, variant in ipairs(Tree.SearchPlan(filter)) do
@@ -721,10 +754,10 @@ local BOTTOM_PAGES = { whatsnew = 1, thanks = 2 }
 Tree.HUBS = {
 	{ key = "global", title = "Global settings", pages = { "general", "fonts", "textures", "colors", "glows",
 		"accessibility", "windows", "safearea", "visibility" } },
-	{ key = "layout", title = "Layout and style", pages = { "overview", "layouts", "positions", "appearance", "uiamount", "styles", "role" } },
+	{ key = "layout", title = "Layout and style", pages = { "overview", "layouts", "positions", "appearance", "uiamount", "styles", "role", "keybinds" } },
 	{ key = "modules", title = "Modules", pages = { "modules", "plugins", "addons", "blizzard", "hidden" } },
 	{ key = "profiles", title = "Profiles", pages = { "profiles", "profilerules", "share" } },
-	{ key = "lists", title = "Lists and tags", pages = { "tags", "aurafilters", "keybinds" } },
+	{ key = "lists", title = "Lists and tags", pages = { "tags", "aurafilters" } },
 }
 Tree.OTHER_HUB = 3
 Tree.pageHub, Tree.pageRank = {}, {}
@@ -1101,12 +1134,16 @@ end
 ---------------------------------------------------------------------------
 -- Put a module's settings back to its defaults. The on/off state and the
 -- frame positions are kept, and so are the keys a module lists in
--- `keepOnReset` (player data such as click-cast bindings).
+-- `keepOnReset` (player data such as click-cast bindings, lists the player
+-- built, window places the module keeps itself). module:AfterReset() runs
+-- once the defaults are back. A module that resets part of a kept table
+-- can use AfterResetUndo(before, reset) to restore that part on Undo.
 function E:ResetModuleSettings(name)
 	local module = self.modules[name]
 	if not module or not module.db then return end
 	local enabled = module.db.enabled
 	local db = self.db.modules[name] or {}
+	local before = CopyTable(db)
 	local kept = {}
 	for _, key in ipairs(module.keepOnReset or {}) do kept[key] = db[key] end
 	wipe(db)
@@ -1114,6 +1151,15 @@ function E:ResetModuleSettings(name)
 	for key, value in pairs(kept) do db[key] = value end
 	self.db.modules[name] = db
 	module.db = self:GetModuleDB(module)
+	-- A module that keeps a mixed list (its own entries beside built-ins)
+	-- puts the built-in part back here.
+	if module.AfterReset then
+		local ok, err = pcall(module.AfterReset, module)
+		if not ok then geterrorhandler()(err) end
+	end
+	-- One step in Recent changes (Undo puts the old settings back), and the
+	-- rows that need a reload join the Reload UI count.
+	if Recent.AfterModuleReset then Recent.AfterModuleReset(module, before) end
 	self:RefreshModule(module, true)
 	self:RefreshConfig()
 	self:ConfigNotice(L["%s reset to its defaults."]:format(L[module.title]))
@@ -1130,7 +1176,7 @@ function E:ConfirmModuleReset(name)
 		title = L["Reset %s"]:format(L[module.title]),
 		text = L["Every %s setting goes back to its default. The on/off state and frame positions are kept.%s"]:format(
 			L[module.title], note),
-		accept = RESET or L["Reset"],
+		accept = E:GameText(RESET, L["Reset"]),
 		danger = true,
 		onAccept = function() E:ResetModuleSettings(name) end,
 	})
@@ -1150,7 +1196,7 @@ function E:ConfigConfirm(text, work, opts)
 	return self:ShowConfirm({
 		title = opts.title,
 		text = text,
-		accept = opts.accept or (YES or L["Yes"]),
+		accept = opts.accept or (E:GameText(YES, L["Yes"])),
 		danger = opts.danger,
 		onAccept = function() E:RunConfigRow(work) end,
 	})
@@ -1219,7 +1265,7 @@ end
 ---------------------------------------------------------------------------
 -- Tooltip from `desc`; also shown when the label is cut off.
 local function AddTooltip(widget, title, desc, label)
-	widget:HookScript("OnEnter", function(self)
+	local function Show(self)
 		local text = desc
 		if type(text) == "function" then text = text() end
 		if type(text) ~= "string" or text == "" then text = nil end
@@ -1231,7 +1277,9 @@ local function AddTooltip(widget, title, desc, label)
 		E.UIKit.TipTitle(GameTooltip, StripCodes(heading))
 		E.UIKit.TipText(GameTooltip, text)
 		GameTooltip:Show()
-	end)
+	end
+	widget.kitKeyTooltip = Show
+	widget:HookScript("OnEnter", Show)
 	if label and type(title) == "string" then
 		label.fullTextTooltip = { title = title, owner = widget, handler = widget:GetScript("OnEnter") }
 	end
@@ -1277,7 +1325,7 @@ local function Button(parent, text, width, height, onClick, primary)
 	end)
 	buttons[button] = true
 	PaintButton(button)
-	return button
+	return E.UIKit.RegisterKeyControl(button, true)
 end
 
 local function RepaintButtons()
@@ -1315,13 +1363,16 @@ function Sounds.MakeSpeaker(button, getId, getChannel, rowHeight)
 	waves:SetAllPoints()
 	waves:Hide()
 	button.speakerIcon, button.speakerWaves = icon, waves
-	button:SetScript("OnEnter", function(self)
-		self.speakerIcon:SetVertexColor(1, 1, 1)
-		self.speakerWaves:Show()
+	button.kitKeyTooltip = function(self)
 		E.UIKit.AnchorTooltip(self, GameTooltip)
 		E.UIKit.TipTitle(GameTooltip, L["Play"])
 		E.UIKit.TipText(GameTooltip, L["Plays this sound once so you can hear it."])
 		GameTooltip:Show()
+	end
+	button:SetScript("OnEnter", function(self)
+		self.speakerIcon:SetVertexColor(1, 1, 1)
+		self.speakerWaves:Show()
+		self:kitKeyTooltip()
 	end)
 	button:SetScript("OnLeave", function(self)
 		self.speakerIcon:SetVertexColor(unpack(SECONDARY))
@@ -1333,7 +1384,8 @@ function Sounds.MakeSpeaker(button, getId, getChannel, rowHeight)
 end
 
 local function Speaker(parent, getId, getChannel)
-	return Sounds.MakeSpeaker(CreateFrame("Button", nil, parent), getId, getChannel)
+	local button = Sounds.MakeSpeaker(CreateFrame("Button", nil, parent), getId, getChannel)
+	return E.UIKit.RegisterKeyControl(button, true)
 end
 
 -- Adds a speaker to the right of a menu entry (the game's menu system).
@@ -1383,20 +1435,23 @@ function Reloads.ReloadId(page, option)
 end
 
 -- Called when a reload row is shown: the value it had before any change.
-function Reloads.RememberReloadValue(page, option)
+Reloads.Unset = {}
+function Reloads.RememberReloadValue(page, option, source)
 	local id = Reloads.ReloadId(page, option)
 	if reloadSeen[id] == nil then
-		local value = GetPath(page.target(), KeyOf(option))
+		local value = GetPath(source or Tree.RootOf(page, option), KeyOf(option))
 		if type(value) == "table" then value = CopyTable(value) end
-		reloadSeen[id] = value == nil and false or value
+		reloadSeen[id] = value == nil and Reloads.Unset or value
 	end
 end
 
 local function TrackReload(page, option)
 	local id = Reloads.ReloadId(page, option)
 	local before = reloadSeen[id]
-	local now = GetPath(page.target(), KeyOf(option))
-	if before ~= nil and E.DeepEqual(now == nil and false or now, before) then
+	local seen = before ~= nil
+	if before == Reloads.Unset then before = nil end
+	local now = GetPath(Tree.RootOf(page, option), KeyOf(option))
+	if seen and E.DeepEqual(now, before) then
 		pendingReload[id] = nil
 	elseif option.reload == "off" and (now or not before) then
 		-- Only turning a shown "on" off waits for a reload.
@@ -1405,6 +1460,55 @@ local function TrackReload(page, option)
 		pendingReload[id] = StripCodes(option.label or L["A setting"])
 	end
 	UpdateReloadButton()
+end
+
+-- A module reset and its Undo compare only the rows the operation changed.
+-- A previously unseen row starts from its value before the first change.
+function Reloads.TrackModuleRows(page, before)
+	local root = page.target()
+	for key, option in pairs(page.optionsByKey or {}) do
+		if NeedsReload(option) and not option.root and not E.DeepEqual(GetPath(before, key), GetPath(root, key)) then
+			Reloads.RememberReloadValue(page, option, before)
+			TrackReload(page, option)
+		end
+	end
+end
+
+-- After a whole-module reset (E:ResetModuleSettings): one undo step for
+-- the module's table, keeping what the reset kept, and every reload row
+-- whose value changed waits for a reload.
+function Recent.AfterModuleReset(module, before)
+	local id = "module:" .. module.name
+	local function Find()
+		for _, entry in ipairs(pages) do
+			if entry.id == id then return entry end
+		end
+	end
+	-- The module pages are made when the window first opens.
+	local page = Find()
+	if not page then
+		ModulePages()
+		page = Find()
+	end
+	if not page then return end
+	local keep = { "enabled" }
+	for _, key in ipairs(module.keepOnReset or {}) do keep[#keep + 1] = key end
+	local entry = Recent.LogCopy(page, "", L["Reset to defaults"], before, keep)
+	if entry then entry.moduleReset = true end
+	Structure(page)
+	Reloads.TrackModuleRows(page, before)
+end
+
+-- The value a reload row had when it was first shown this session (a
+-- change back to it waits for nothing), exposed for inspection.
+function E.ConfigReloadSeen(pageId, key)
+	for _, page in ipairs(pages) do
+		local option = page.id == pageId and page.optionsByKey and page.optionsByKey[key]
+		if option then
+			local seen = reloadSeen[Reloads.ReloadId(page, option)]
+			if seen ~= Reloads.Unset then return seen end
+		end
+	end
 end
 
 -- A change made by a page button (not a row) that needs a reload: it
@@ -1459,6 +1563,7 @@ local function RefreshTab(tab)
 	for _, widget in pairs(tab.widgets) do
 		if widget and widget:IsShown() and widget.refresh then widget.refresh() end
 	end
+	if window and window.pageKeys then window.pageKeys:Refresh() end
 end
 
 -- A row value changed: re-apply, keep the sidebar in sync, re-lay the tab
@@ -1660,7 +1765,7 @@ function Bulk.ConfirmRowApplyAll(page, tab, option)
 	for _, target in ipairs(targets) do table.insert(names, target.label) end
 	Confirm(L["Set %s the same on %s?"]:format(E:Highlight(StripCodes(option.label)), table.concat(names, ", ")),
 		function()
-			local value = GetPath(page.target(), KeyOf(option))
+			local value = GetPath(Tree.RootOf(page, option), KeyOf(option))
 			-- Each sibling is set like a row of its own: in Recent changes,
 			-- and marked when it needs a reload.
 			for _, target in ipairs(targets) do
@@ -1727,6 +1832,16 @@ function E:ConfigTwoColumnWidth()
 	return Tree.TwoColumnWidth()
 end
 
+function Tree.LabelText(option)
+	local label = option.label
+	if type(label) == "function" then
+		local ok, value = pcall(label)
+		label = ok and value or nil
+	end
+	if E.Secret(label) or type(label) ~= "string" then return "" end
+	return E:Translate(label)
+end
+
 local function Cell(parent, option, page)
 	local cell = CreateFrame("Frame", nil, parent)
 	cell:SetHeight(ROW)
@@ -1736,7 +1851,7 @@ local function Cell(parent, option, page)
 	cell.controls = {}
 	cell.tip = function() return RowTooltip(cell) end
 	cell.label = Text(cell, E.tokens.size.body, "LEFT", TEXT)
-	cell.label:SetText(option.label)
+	cell.label:SetText(Tree.LabelText(option))
 	cell.label:SetWordWrap(false)
 	cell.label:SetMaxLines(1)
 	cell.label:SetPoint("LEFT", 16, 0)
@@ -1805,7 +1920,7 @@ local function TextLink(parent, label, onClick)
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		onClick(self)
 	end)
-	return link
+	return E.UIKit.RegisterKeyControl(link, true)
 end
 
 -- Section label (DESIGN.md 0a rule 4): small uppercase text in the
@@ -1885,6 +2000,8 @@ function Tree.FoldHeader(parent, option, page, tab)
 		reset:SetPoint("BOTTOMRIGHT", -4, 3)
 		AddTooltip(reset, L["Reset section"], L["Put the changed settings of this section back to their defaults."])
 	end
+	E.UIKit.RegisterKeyControl(divider, true)
+	holder.keyControls = { divider, reset }
 	-- The line stops before the Reset link.
 	divider:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", reset and -(reset:GetWidth() + 12) or 0, 1)
 	holder.refresh = function()
@@ -1927,6 +2044,7 @@ function builders.header(parent, option, page, tab)
 		reset:SetPoint("BOTTOMRIGHT", -4, 3)
 		AddTooltip(reset, L["Reset section"], L["Put the changed settings of this section back to their defaults."])
 	end
+	holder.keyControls = { reset }
 	-- A long label or hint never runs under the Reset link.
 	hint:SetPoint("RIGHT", holder, "RIGHT", reset and -(reset:GetWidth() + 12) or -4, 0)
 	holder.refresh = function()
@@ -1955,12 +2073,7 @@ function Tree.DescriptionText(option)
 		end
 		return table.concat(lines, "\n")
 	end
-	local label = option.label
-	if type(label) == "function" then
-		local ok, value = pcall(label)
-		label = ok and value or nil
-	end
-	return type(label) == "string" and label or ""
+	return Tree.LabelText(option)
 end
 
 function Tree.ToneColor(option)
@@ -2004,6 +2117,7 @@ function builders.toggle(parent, option, page, tab)
 		end,
 	})
 	cell.switch = switch
+	E.UIKit.RegisterKeyControl(switch, true)
 	Attach(cell, switch, option, -12)
 	cell.refresh = function() switch:SetChecked(GetPath(Tree.RootOf(page, option), KeyOf(option)) and true or false) end
 	cell:HookScript("OnEnter", function()
@@ -2084,7 +2198,7 @@ function builders.range(parent, option, page, tab)
 		updating = true
 		slider:SetWidth(SliderWidth())
 		look.Paint()
-		local value = GetPath(page.target(), KeyOf(option)) or option.min
+		local value = GetPath(Tree.RootOf(page, option), KeyOf(option)) or option.min
 		slider:SetValue(math.min(value, top))
 		if not box:HasFocus() then box:SetText(Display(value)) end
 		updating = false
@@ -2129,8 +2243,10 @@ function builders.range(parent, option, page, tab)
 	end)
 	box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 	box:HookScript("OnEditFocusLost", function(self)
-		self:SetText(Display(GetPath(page.target(), KeyOf(option)) or option.min))
+		self:SetText(Display(GetPath(Tree.RootOf(page, option), KeyOf(option)) or option.min))
 	end)
+	E.UIKit.RegisterKeyControl(slider, nil, E.UIKit.StepKeySlider)
+	E.UIKit.RegisterKeyControl(box, nil, nil, true)
 	return cell
 end
 
@@ -2183,13 +2299,14 @@ function builders.select(parent, option, page, tab)
 		return key and GetPath(page.target(), key)
 	end
 	if option.sound then
-		local speaker = Speaker(cell, function() return GetPath(page.target(), KeyOf(option)) end, Channel)
+		local speaker = Speaker(cell, function() return GetPath(Tree.RootOf(page, option), KeyOf(option)) end, Channel)
 		Attach(cell, speaker, option)
 		button:SetPoint("RIGHT", speaker, "LEFT", -6, 0)
 		cell.label:SetPoint("RIGHT", button, "LEFT", -8, 0)
 		AddTooltip(button, option.label, cell.tip)
 		RowHover(cell, button)
 		table.insert(cell.controls, button)
+		cell.keyControls = { button, speaker }
 	else
 		Attach(cell, button, option)
 	end
@@ -2197,7 +2314,7 @@ function builders.select(parent, option, page, tab)
 
 	cell.refresh = function()
 		SizeBox()
-		local current = GetPath(page.target(), KeyOf(option))
+		local current = GetPath(Tree.RootOf(page, option), KeyOf(option))
 		local name = SelectValues(option)[current]
 		if name == nil and Tree.NoChoices(option) then name = L["None"] end
 		-- An action select (copy from, delete, set every module) keeps no
@@ -2211,7 +2328,7 @@ function builders.select(parent, option, page, tab)
 			button.text:SetPoint("LEFT", shown and (8 + size + 5) or 8, 0)
 		end
 	end
-	button:SetScript("OnClick", function(self)
+	local function OrderedChoices()
 		local list = {}
 		for value, name in pairs(SelectValues(option)) do
 			table.insert(list, { value = value, name = name })
@@ -2232,6 +2349,35 @@ function builders.select(parent, option, page, tab)
 			end
 			return tostring(a.name) < tostring(b.name)
 		end)
+		return list
+	end
+	local function Set(value)
+		SetOption(page, option, value)
+		cell.refresh()
+		Changed(page, tab, option)
+	end
+	local function Blocked(value)
+		return type(option.valueDisabled) == "function" and option.valueDisabled(value) or nil
+	end
+	E.UIKit.RegisterKeyControl(button, true, function(_, direction)
+		-- Action selects use an explicit choice from the menu.
+		local key = KeyOf(option)
+		if type(key) ~= "string" or option.noUndo then return end
+		local current = GetPath(Tree.RootOf(page, option), key)
+		if current == nil then return end
+		local list = OrderedChoices()
+		for index, entry in ipairs(list) do
+			if entry.value == current then
+				for offset = 1, #list - 1 do
+					local nextChoice = list[(index - 1 + direction * offset) % #list + 1]
+					if not Blocked(nextChoice.value) then Set(nextChoice.value); return end
+				end
+				return
+			end
+		end
+	end)
+	button:SetScript("OnClick", function(self)
+		local list = OrderedChoices()
 		local descs = option.valueDescs
 		if type(descs) == "function" then descs = descs() end
 		if type(descs) ~= "table" then descs = nil end
@@ -2240,12 +2386,8 @@ function builders.select(parent, option, page, tab)
 			root:SetScrollMode(360)
 			for _, entry in ipairs(list) do
 				local radio = root:CreateRadio(entry.name,
-					function() return GetPath(page.target(), KeyOf(option)) == entry.value end,
-					function()
-						SetOption(page, option, entry.value)
-						cell.refresh()
-						Changed(page, tab, option)
-					end)
+					function() return GetPath(Tree.RootOf(page, option), KeyOf(option)) == entry.value end,
+					function() Set(entry.value) end)
 				if option.sound then Sounds.AddMenuSpeaker(radio, entry.value, Channel) end
 				if option.valueIcons then
 					radio:AddInitializer(function(row)
@@ -2269,7 +2411,7 @@ function builders.select(parent, option, page, tab)
 				if type(tip) ~= "string" or tip == "" then tip = nil end
 				-- A choice that can't be taken right now stays in the list, grayed,
 				-- with the reason in its tooltip.
-				local blocked = type(option.valueDisabled) == "function" and option.valueDisabled(entry.value) or nil
+				local blocked = Blocked(entry.value)
 				if blocked then radio:SetEnabled(false) end
 				if tip or type(blocked) == "string" then
 					radio:SetTooltip(function(tooltip)
@@ -2337,7 +2479,7 @@ function builders.media(parent, option, page, tab)
 	arrow:SetVertexColor(unpack(SECONDARY))
 	BoxHover(button)
 
-	local function Current() return GetPath(page.target(), KeyOf(option)) end
+	local function Current() return GetPath(Tree.RootOf(page, option), KeyOf(option)) end
 	local function Set(value)
 		SetOption(page, option, value)
 		cell.refresh()
@@ -2357,6 +2499,7 @@ function builders.media(parent, option, page, tab)
 		RowHover(cell, button)
 		RowHover(cell, play)
 		table.insert(cell.controls, button)
+		cell.keyControls = { button, play }
 	else
 		Attach(cell, button, option)
 	end
@@ -2377,6 +2520,7 @@ function builders.media(parent, option, page, tab)
 		SizeBox()
 	end
 
+	E.UIKit.RegisterKeyControl(button, true)
 	button:SetScript("OnClick", function(self)
 		local groups, sources = {}, {}
 		for _, entry in ipairs(E:MediaList(kind, option.filter)) do
@@ -2400,7 +2544,7 @@ function builders.media(parent, option, page, tab)
 				return radio
 			end
 			if option.default then Radio(root, option.defaultLabel and L[option.defaultLabel] or L["General setting"], option.default) end
-			if option.none then Radio(root, NONE or L["None"], "none") end
+			if option.none then Radio(root, E:GameText(NONE, L["None"]), "none") end
 			for _, source in ipairs(sources) do
 				-- A single source shows its items directly; several get submenus.
 				local menu = #sources > 1 and root:CreateButton(source) or root
@@ -2428,21 +2572,38 @@ function builders.color(parent, option, page, tab)
 	swatch:HookScript("OnEnter", function(self) self:SetBackdropBorderColor(Accent()) end)
 	swatch:HookScript("OnLeave", function(self) self:SetBackdropBorderColor(unpack(E.media.borderColor)) end)
 	cell.refresh = function()
-		local color = GetPath(page.target(), KeyOf(option)) or { 1, 1, 1 }
+		local color = GetPath(Tree.RootOf(page, option), KeyOf(option)) or { 1, 1, 1 }
 		swatch:SetBackdropColor(color[1], color[2], color[3], 1)
 	end
+	local function Apply(r, g, b)
+		SetOption(page, option, { r, g, b })
+		cell.refresh()
+		Changed(page, tab, option)
+	end
 	swatch:SetScript("OnClick", function()
-		local color = GetPath(page.target(), KeyOf(option)) or { 1, 1, 1 }
+		local color = GetPath(Tree.RootOf(page, option), KeyOf(option)) or { 1, 1, 1 }
 		local previous = { color[1], color[2], color[3] }
-		local function Apply(r, g, b)
-			SetOption(page, option, { r, g, b })
-			cell.refresh()
-			Changed(page, tab, option)
-		end
 		ColorPickerFrame:SetupColorPickerAndShow({
 			r = color[1], g = color[2], b = color[3],
 			swatchFunc = function() Apply(ColorPickerFrame:GetColorRGB()) end,
 			cancelFunc = function() Apply(previous[1], previous[2], previous[3]) end,
+		})
+	end)
+	E.UIKit.RegisterKeyControl(swatch, function()
+		local root, key = Tree.RootOf(page, option), KeyOf(option)
+		local color = GetPath(root, key) or { 1, 1, 1 }
+		local function Byte(value) return math.floor(math.max(0, math.min(value, 1)) * 255 + 0.5) end
+		E:ShowConfirm({
+			title = Tree.LabelText(option),
+			text = L["Enter six hexadecimal digits for this color."],
+			edit = { text = ("%02X%02X%02X"):format(Byte(color[1]), Byte(color[2]), Byte(color[3])), maxLetters = 7 },
+			accept = L["Apply"],
+			onAccept = function(_, typed)
+				if not cell:IsVisible() or DisabledReason(option, page) or root ~= Tree.RootOf(page, option) or key ~= KeyOf(option) then return end
+				local hex = strtrim(typed or ""):match("^#?(%x%x%x%x%x%x)$")
+				if not hex then E:ConfigNotice(L["Enter a six-digit color, such as 3FA9F5."], true); return end
+				Apply(tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255)
+			end,
 		})
 	end)
 	return cell
@@ -2454,7 +2615,9 @@ function builders.input(parent, option, page, tab)
 	Attach(cell, box, option)
 	cell.refresh = function()
 		box:SetWidth(Tree.ControlWidth())
-		if not box:HasFocus() then box:SetText(tostring(GetPath(page.target(), KeyOf(option)) or "")) end
+		local _, size = box:GetFont()
+		box:SetHeight(math.max(E.tokens.height.row, math.ceil((size or E.tokens.size.body) + 2)))
+		if not box:HasFocus() then box:SetText(tostring(GetPath(Tree.RootOf(page, option), KeyOf(option)) or "")) end
 	end
 	box:SetScript("OnEnterPressed", function(self)
 		SetOption(page, option, self:GetText())
@@ -2463,6 +2626,7 @@ function builders.input(parent, option, page, tab)
 	end)
 	box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 	box:HookScript("OnEditFocusLost", function() cell.refresh() end)
+	E.UIKit.RegisterKeyControl(box, nil, nil, true)
 	return cell
 end
 
@@ -2541,12 +2705,16 @@ function builders.preview(parent, option, page)
 		self:SetHeight(height or 96)
 	end
 	holder.canvas = CreateFrame("Frame", nil, holder)
+	holder.canvas.kitKeyOrder, holder.canvas.kitKeyControls = {}, {}
+	holder.canvas.kitKeyEdit = function(control)
+		if window and window.pageKeys then window.pageKeys:BindEdit(control, Tree.IsKeyWindow) end
+	end
 	holder.canvas:SetPoint("TOPLEFT", 8, -8)
 	holder.canvas:SetPoint("BOTTOMRIGHT", -8, 8)
 	if option.label and not option.noCaption then
 		local caption = Text(holder, E.tokens.size.small, "RIGHT", DIM)
 		caption:SetPoint("TOPRIGHT", -8, -6)
-		caption:SetText(option.label)
+		caption:SetText(Tree.LabelText(option))
 	end
 	if type(option.create) == "function" then
 		local ok, err = pcall(option.create, holder.canvas, page)
@@ -2579,6 +2747,7 @@ function builders.copyFrom(parent, option, page)
 	arrow:SetVertexColor(unpack(SECONDARY))
 	Attach(cell, button, option)
 	BoxHover(button)
+	E.UIKit.RegisterKeyControl(button, true)
 	button:SetScript("OnClick", function(self)
 		local own = CopyPath(option)
 		if not own then return end
@@ -2619,7 +2788,7 @@ end
 local function GearBlocked(cell)
 	if cell.disabledReason then return cell.disabledReason end
 	local option = cell.option
-	if option.type == "toggle" and not GetPath(cell.page.target(), KeyOf(option)) then
+	if option.type == "toggle" and not GetPath(Tree.RootOf(cell.page, option), KeyOf(option)) then
 		return L["Turn on \"%s\" first."]:format(StripCodes(option.label))
 	end
 end
@@ -2655,9 +2824,7 @@ local function SetupGear(cell, tab)
 		E:PadHitRect(gear, 3, ROW)
 		cell.gear = gear
 	end
-	gear:SetScript("OnEnter", function(self)
-		self.hover = true
-		PaintGear(cell)
+	gear.kitKeyTooltip = function(self)
 		E.UIKit.AnchorTooltip(self, GameTooltip)
 		E.UIKit.TipTitle(GameTooltip, StripCodes(option.label))
 		local names = {}
@@ -2668,6 +2835,11 @@ local function SetupGear(cell, tab)
 		local blocked = GearBlocked(cell)
 		if type(blocked) == "string" then GameTooltip:AddLine(blocked, WARN_RGB[1], WARN_RGB[2], WARN_RGB[3], true) end
 		GameTooltip:Show()
+	end
+	gear:SetScript("OnEnter", function(self)
+		self.hover = true
+		PaintGear(cell)
+		self:kitKeyTooltip()
 	end)
 	gear:SetScript("OnLeave", function(self)
 		self.hover = false
@@ -2679,6 +2851,8 @@ local function SetupGear(cell, tab)
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		OpenCog(cell, option, page, tab)
 	end)
+	E.UIKit.RegisterKeyControl(gear, true)
+	gear.kitKeyControl.blocked = function() return GearBlocked(cell) end
 	-- After the scripts above, which replace any earlier hook.
 	RowHover(cell, gear)
 end
@@ -2820,9 +2994,33 @@ function Tree.StartsPair(option, nextOption)
 end
 E.ConfigPartnerKey = Tree.PartnerKey -- exposed for inspection
 
+-- The layout owns reading order. Only controls declared by the builders
+-- enter it, so previews, art, and retired rows never receive keys.
+function Tree.CollectPageKeys(keys, widget)
+	if widget.isPreview then
+		keys[#keys + 1] = widget.canvas
+		return
+	end
+	local gear = widget.gear
+	if gear and gear.kitKeyControl then keys[#keys + 1] = gear end
+	for _, control in ipairs(widget.keyControls or widget.controls or { widget }) do
+		local spec = control.kitKeyControl
+		if control ~= gear and spec then
+			if widget.kind == "cell" or widget.kind == "flow" then
+				spec.row = widget
+			end
+			keys[#keys + 1] = control
+			if spec.edit and window and window.pageKeys then window.pageKeys:BindEdit(control, Tree.IsKeyWindow) end
+		end
+	end
+end
+
 -- Place every visible row of a tab; returns the content height.
 local function LayoutTab(tab, filter)
 	local frame = tab.frame
+	local keys = frame.kitPageKeys or {}
+	wipe(keys)
+	frame.kitPageKeys = keys
 	local width = frame:GetWidth()
 	-- A cog popup, and a page too narrow for two label and control
 	-- columns, put one row per line.
@@ -2851,6 +3049,7 @@ local function LayoutTab(tab, filter)
 		widget.layoutX, widget.layoutY = x, y
 		widget:Show()
 		if widget.refresh then widget.refresh() end
+		Tree.CollectPageKeys(keys, widget)
 	end
 
 	for _, section in ipairs(tab.sections) do
@@ -2939,6 +3138,7 @@ local function LayoutTab(tab, filter)
 			link:ClearAllPoints()
 			link:SetPoint("TOPLEFT", 8, -(y + 2))
 			link:Show()
+			keys[#keys + 1] = link
 			y = y + 22
 		end
 		if card then
@@ -2970,6 +3170,7 @@ local function SetScrollChild(frame)
 	if old and old ~= frame then old:Hide() end
 	scroll:SetScrollChild(frame)
 	frame:Show()
+	if window.pageKeys then window.pageKeys:Refresh() end
 end
 
 -- Show one tab of the current page. keepScroll keeps the scroll position
@@ -2989,6 +3190,15 @@ local function CogPopup()
 	frame.tabs = {}   -- row option -> pseudo tab of its cog
 	Snap(frame)
 	cogPopup = frame
+	frame:HookScript("OnHide", function(self)
+		local back = self.keyReturn
+		self.keyReturn = nil
+		local nav = window.pageKeys
+		if nav then
+			nav:Refresh()
+			if nav.active and E.UIKit.KeyControlUsable(back) and not InCombatLockdown() then nav:Focus(back) end
+		end
+	end)
 	return frame
 end
 
@@ -2999,6 +3209,7 @@ local function LayoutCog()
 	tab.frame:SetWidth(COG_WIDTH - 2 * pad)
 	local height = LayoutTab(tab, nil)
 	frame:SetHeight(height + E.UIKit.TOOL_HEADER + 2 * pad)
+	if window.pageKeys then window.pageKeys:Refresh() end
 end
 
 -- Opens the cog of `option` next to its row; focusChild flashes one row.
@@ -3022,6 +3233,7 @@ OpenCog = function(cell, option, page, parentTab, focusChild)
 	tab.copyFrom = parentTab and parentTab.copyFrom
 	for _, other in pairs(frame.tabs) do other.frame:SetShown(other == tab) end
 	frame.tab, frame.option, frame.cell = tab, option, cell
+	frame.keyReturn = cell.gear and cell.gear.kitKeyOpening and cell.gear or nil
 	frame:SetTitle(StripCodes(option.label))
 	E:SetPanelTemplate(frame)
 	Snap(frame)
@@ -3103,6 +3315,7 @@ local function OffPanel()
 	panel.anyway:SetPoint("LEFT", panel.enable, "RIGHT", 8, 0)
 	AddTooltip(panel.anyway, L["Edit settings anyway"], L["Change this module's settings while it is off. They apply when you turn it on."])
 	Snap(panel)
+	panel.kitPageKeys = { panel.enable, panel.keep, panel.anyway }
 	window.offPanel = panel
 	return panel
 end
@@ -4074,7 +4287,7 @@ Category.DEFAULT_CATEGORY = {
 	Integrations = "Interface", DBM = "Interface", Fanfare = "Interface", Skins = "Interface", NPCWindows = "Interface",
 	-- Combat
 	UnitFrames = "Combat", ActionBars = "Combat", Nameplates = "Combat", Alerts = "Combat",
-	EnemySpotter = "Combat", CombatHUD = "Combat", CooldownManager = "Combat", Auras = "Combat",
+	EnemySpotter = "Combat", Nemesis = "Combat", CombatHUD = "Combat", CooldownManager = "Combat", Auras = "Combat",
 	ClassPower = "Combat", PetCare = "Combat", AuraGroups = "Combat", Quickdraw = "Combat",
 	CombatText = "Combat", CastFX = "Combat", Battlegrounds = "Combat", CooldownPulse = "Combat", TrackingBars = "Combat",
 	ConsumableBar = "Combat", EncounterTimeline = "Combat", ShamanTotems = "Combat", ClassBar = "Combat",
@@ -4262,6 +4475,7 @@ end
 -- foot (Tree.Foot).
 BuildNav = function()
 	local nav = window.nav
+	Tree.navBuilds = (Tree.navBuilds or 0) + 1
 	for _, button in ipairs(nav.buttons) do button:Hide() end
 	for _, header in ipairs(nav.headers) do header:Hide() end
 
@@ -4287,6 +4501,7 @@ BuildNav = function()
 		button.text:SetWidth(NAV_WIDTH - left - right)
 		local hits = Tree.hits and (page and Tree.hits[page] or hub and Tree.HubHits(hub.key))
 		if button.module and E:ModuleFailed(button.module) then text = E:StatusText("warn", text) end
+		button.navText = text
 		button.text:SetText(hits and ("%s (%d)"):format(text, hits.total) or text)
 		local height = math.max(Tree.ROW, math.ceil(tonumber(button.text:GetStringHeight()) or 0) + 8)
 		button:SetHeight(height)
@@ -4383,6 +4598,7 @@ SetNavHits = function(groups)
 		end
 		return
 	end
+	local old, same = Tree.hits, Tree.hits ~= nil
 	Tree.hits = {}
 	for _, group in ipairs(groups) do
 		local hits = { total = #group.results, tabs = {} }
@@ -4390,8 +4606,33 @@ SetNavHits = function(groups)
 			if entry.tab then hits.tabs[entry.tab] = (hits.tabs[entry.tab] or 0) + 1 end
 		end
 		Tree.hits[group.page] = hits
+		if same and not old[group.page] then same = false end
 	end
-	BuildNav()
+	if same then
+		for page in pairs(old) do
+			if not Tree.hits[page] then same = false break end
+		end
+	end
+	-- The same pages hit: the sidebar keeps its rows and only the counts
+	-- change. A new set of pages opens and closes sections, so it is built again.
+	if not (same and Tree.RepaintHits()) then BuildNav() end
+end
+
+-- Puts the new hit counts on the sidebar rows in place. False when a row
+-- would change height (the count wraps its name), so the caller rebuilds.
+function Tree.RepaintHits()
+	if not window then return false end
+	for _, button in ipairs(window.nav.buttons) do
+		if button:IsShown() and button.navText then
+			local page, hub = button.page, button.hub
+			local hits = page and Tree.hits[page] or hub and Tree.HubHits(hub.key)
+			local height = button:GetHeight()
+			button.text:SetText(hits and ("%s (%d)"):format(button.navText, hits.total) or button.navText)
+			if math.max(Tree.ROW, math.ceil(tonumber(button.text:GetStringHeight()) or 0) + 8) ~= height then return false end
+		end
+	end
+	for _, row in ipairs(window.quick or {}) do Tree.PaintQuick(row) end
+	return true
 end
 
 ---------------------------------------------------------------------------
@@ -4501,6 +4742,17 @@ function Tree.PlaceShare()
 end
 
 -- Version, memory and (when profiling is on) CPU in the sidebar foot.
+-- How long an addon takes per frame in milliseconds, from the game's
+-- addon profiler (always on in the client); nil while it isn't running.
+-- The Info Bar's CPU list reads the same metric.
+function E:AddOnFrameTime(name)
+	local profiler = C_AddOnProfiler
+	local metric = Enum and Enum.AddOnProfilerMetric and Enum.AddOnProfilerMetric.RecentAverageTime
+	if not (metric and profiler and profiler.IsEnabled and profiler.GetAddOnMetric and profiler.IsEnabled()) then return nil end
+	local ok, value = pcall(profiler.GetAddOnMetric, name, metric)
+	return ok and tonumber(value) or nil
+end
+
 function Tree.UpdateStats()
 	local text = "v" .. E.version
 	local updateMemory = UpdateAddOnMemoryUsage or (C_AddOns and C_AddOns.UpdateAddOnMemoryUsage)
@@ -4514,8 +4766,13 @@ function Tree.UpdateStats()
 			text = text .. "   " .. L["Memory %.0f KB"]:format(kb)
 		end
 	end
+	-- CPU from the addon profiler; the older counter only runs while the
+	-- player has script profiling on.
 	local getCPU = GetAddOnCPUUsage or (C_AddOns and C_AddOns.GetAddOnCPUUsage)
-	if getCPU then
+	local frameTime = E:AddOnFrameTime("EldoUI")
+	if frameTime then
+		text = text .. "   " .. L["CPU %.2f ms per frame"]:format(frameTime)
+	elseif getCPU then
 		local updateCPU = UpdateAddOnCPUUsage or (C_AddOns and C_AddOns.UpdateAddOnCPUUsage)
 		if updateCPU then updateCPU() end
 		local ms = getCPU("EldoUI")
@@ -4676,6 +4933,8 @@ local function WarmSearchIndex()
 	end, 4)
 end
 E.ConfigSearchIndex = function() return indexJob end -- exposed for inspection
+-- Searches run and sidebar builds so far, exposed for inspection.
+E.ConfigSearchStats = function() return Tree.searchRuns or 0, Tree.navBuilds or 0 end
 E.ConfigPageList = function() return pages end -- exposed for inspection
 E.ConfigCurrentPage = function() return currentPage end -- exposed for inspection
 E.ConfigHubs = function() return select(3, Tree.Sections()) end -- exposed for inspection
@@ -4818,7 +5077,7 @@ local function PaintResults()
 			if button.resultIndex == frame.selected then
 				button.bg:SetColorTexture(Accent(0.25))
 			else
-				button.bg:SetColorTexture(1, 1, 1, button.stripe and 0.03 or 0)
+				button.bg:SetColorTexture(1, 1, 1, button.stripe and select(3, E.UIKit.CardLook()) or 0)
 			end
 		end
 	end
@@ -4852,6 +5111,7 @@ end
 E.ConfigOpenResult = function(entry) OpenResult(entry) end -- exposed for inspection
 
 ShowResults = function(text)
+	Tree.searchRuns = (Tree.searchRuns or 0) + 1
 	HideShareMenu()
 	HideCog()
 	searching = true
@@ -4949,6 +5209,20 @@ local function OnGlobalSearch(text)
 	end
 end
 
+-- Typing runs the search once the keys pause (Tree.SEARCH_DELAY), with the
+-- text the box holds then; an emptied box goes back to the page at once.
+Tree.SEARCH_DELAY = 0.12
+Tree.searchQueue = 0
+function Tree.QueueSearch(text)
+	Tree.searchQueue = Tree.searchQueue + 1
+	if #strtrim(text or "") < 2 or not C_Timer then return OnGlobalSearch(text) end
+	local queued = Tree.searchQueue
+	C_Timer.After(Tree.SEARCH_DELAY, function()
+		if queued ~= Tree.searchQueue or not (window and window:IsShown()) then return end
+		OnGlobalSearch(window.search:GetText())
+	end)
+end
+
 ---------------------------------------------------------------------------
 -- Reload UI in the footer is the one place that shows changes waiting for
 -- a reload: "Reload UI (2)" with the accent edge, the changes named in its
@@ -5023,14 +5297,23 @@ end
 -- then belongs to another profile and stays as it is).
 function Recent.UndoChange(entry)
 	local page = entry.page
-	if page.target() ~= entry.root then return false end
+	if Tree.RootOf(page, entry.option) ~= entry.root then return false end
 	local current = GetPath(entry.root, entry.key)
 	if entry.option.type == "copy" and type(current) == "table" then
 		local kept = {}
 		for _, key in ipairs(entry.keep or {}) do kept[key] = current[key] end
+		local before
+		if entry.moduleReset then
+			-- The copy below replaces fields without changing their old tables.
+			before = {}
+			for key, value in pairs(current) do before[key] = value end
+		end
 		wipe(current)
 		for key, value in pairs(CopyTable(entry.old)) do current[key] = value end
 		for key, value in pairs(kept) do current[key] = value end
+		local module = entry.moduleReset and page.module
+		if module and module.AfterResetUndo then module:AfterResetUndo(entry.old, entry.new) end
+		if before then Reloads.TrackModuleRows(page, before) end
 	else
 		SetPath(entry.root, entry.key, Recent.Copy(entry.old))
 	end
@@ -5111,7 +5394,7 @@ end
 function Recent.UpdateChangeRow(row, entry, index)
 	row.label:SetText(("%s  %s%s|r"):format(StripCodes(entry.option.label or entry.key), GREY, Recent.ChangePath(entry)))
 	row.values:SetText(L["%s to %s"]:format(Recent.ChangeValueText(entry, entry.old), Recent.ChangeValueText(entry, entry.new)))
-	row.stripe:SetColorTexture(1, 1, 1, index % 2 == 1 and 0.03 or 0)
+	row.stripe:SetColorTexture(1, 1, 1, index % 2 == 1 and select(3, E.UIKit.CardLook()) or 0)
 end
 
 function Recent.ChangesPopup()
@@ -5368,19 +5651,45 @@ function Tree.SetKeysOn(on)
 	Tree.keysOn = on
 	if not on then
 		Tree.keyFocus = nil
-		if window and window.focusRing then window.focusRing:Attach(nil) end
+		if window and window.focusRing and not (window.pageKeys and window.pageKeys.control) then
+			window.focusRing:Attach(nil)
+		end
 	end
 end
 
--- A mouse click: inside the tree or on the search box gives them focus,
--- anywhere else takes it away.
+function Tree.PageKeyTargets()
+	local frame = window.scroll and window.scroll:GetScrollChild()
+	if cogPopup and cogPopup:IsVisible() then frame = cogPopup.tab and cogPopup.tab.frame end
+	local targets = {}
+	for _, control in ipairs(frame and frame.kitPageKeys or {}) do
+		if control.kitKeyOrder then
+			for _, child in ipairs(control.kitKeyOrder) do targets[#targets + 1] = child end
+		else
+			targets[#targets + 1] = control
+		end
+	end
+	return targets
+end
+
+function Tree.IsKeyWindow()
+	if not (window and window:IsVisible()) then return false end
+	local front = E.UIKit.TopWindow()
+	return not front or front == window or (front == cogPopup and cogPopup:IsVisible())
+end
+
+-- A click gives focus to the part of the window it landed in.
 function Tree.OnMouseDown()
 	if not window then return end
+	if E.UIKit.KeyboardMenuUnderMouse() then return end
 	local nav, search, bar = window.nav and window.nav.scroll, window.search, window.tabBar
 	local quick = false
 	for _, row in ipairs(window.quick or {}) do quick = quick or row:IsMouseOver() end
-	Tree.SetKeysOn((nav and nav:IsMouseOver()) or quick or (bar and bar:IsMouseOver())
-		or (search and (search:IsMouseOver() or search:HasFocus())))
+	local tree = (nav and nav:IsMouseOver()) or quick or (bar and bar:IsMouseOver()) or (search and search:IsMouseOver())
+	window.pageKeys.active = Tree.IsKeyWindow() and (tree or window:IsMouseOver()
+		or (cogPopup and cogPopup:IsVisible() and cogPopup:IsMouseOver()))
+	local control = window.pageKeys.control
+	if not (window.pageKeys.active and control and control:IsMouseOver()) then window.pageKeys:Clear() end
+	Tree.SetKeysOn(tree and Tree.IsKeyWindow())
 end
 
 function Tree.HasKeyFocus()
@@ -5444,7 +5753,9 @@ function Tree.OpenKeyFocus()
 end
 
 function Tree.HandleKey(name)
+	if InCombatLockdown() or not Tree.IsKeyWindow() or E.UIKit.KeyboardMenuActive() then return false end
 	if name == "CTRL-F" or name == "/" then
+		window.pageKeys:Clear()
 		window.search:SetFocus()
 		window.search:HighlightText()
 		return true
@@ -5464,6 +5775,9 @@ function Tree.HandleKey(name)
 			return true
 		end
 		return false
+	elseif window.pageKeys.active and (window.pageKeys.control or name == "TAB" or name == "SHIFT-TAB") then
+		if name == "TAB" or name == "SHIFT-TAB" then Tree.keyFocus = nil end
+		return window.pageKeys:Handle(name)
 	elseif (name == "UP" or name == "DOWN" or name == "ENTER" or name == "LEFT" or name == "RIGHT")
 		and not Tree.HasKeyFocus() then
 		return false
@@ -5555,7 +5869,7 @@ local function CreateWindow()
 	end
 	local searchTop = Tree.QUICK_TOP + #Tree.QUICK * (Tree.ROW + Tree.GAP) + 6
 
-	window.search = SearchBox(sidebar, 196, L["Search features"], OnGlobalSearch)
+	window.search = SearchBox(sidebar, 196, L["Search features"], Tree.QueueSearch)
 	window.search:SetPoint("TOPLEFT", 16, -searchTop)
 	-- Up / Down pick a result, Enter opens it.
 	window.search:HookScript("OnArrowPressed", function(_, key)
@@ -5707,14 +6021,32 @@ local function CreateWindow()
 	-- Keys: out of combat, unused keys go on to the game.
 	window.keys = E.UIKit.KeyHandler(window, Tree.HandleKey)
 	window.focusRing = E.UIKit.FocusRing(window)
-	-- Focus for Up, Down and Enter: the tree or the search box.
+	window.pageKeys = E.UIKit.FocusNavigation(window, window.focusRing, Tree.PageKeyTargets, function(control)
+		if not (cogPopup and cogPopup:IsVisible()) then E.UIKit.RevealKeyControl(window.scroll, control) end
+	end)
 	window.keyClicks = CreateFrame("Frame", nil, window)
 	window.keyClicks:RegisterEvent("GLOBAL_MOUSE_DOWN")
-	window.keyClicks:SetScript("OnEvent", function()
-		if window:IsShown() then Tree.OnMouseDown() end
+	window.keyClicks:RegisterEvent("PLAYER_REGEN_DISABLED")
+	window.keyClicks:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_DISABLED" then
+			window.pageKeys.active = false
+			window.pageKeys:Clear()
+			Tree.SetKeysOn(false)
+		elseif window:IsVisible() then
+			Tree.OnMouseDown()
+		end
 	end)
+	for _, search in ipairs({ window.search, window.pageSearch }) do
+		E.UIKit.RegisterKeyControl(search, nil, nil, true)
+		window.pageKeys:BindEdit(search, Tree.IsKeyWindow)
+		search:HookScript("OnEditFocusGained", function() window.pageKeys.active = true end)
+	end
 	window.search:HookScript("OnEditFocusGained", function() Tree.SetKeysOn(true) end)
-	window:HookScript("OnHide", function() Tree.SetKeysOn(false) end)
+	window:HookScript("OnShow", function() window.pageKeys.active = true end)
+	window:HookScript("OnHide", function()
+		window.pageKeys.active = false
+		Tree.SetKeysOn(false)
+	end)
 
 	-- Content ----------------------------------------------------------------
 	local scroll = ScrollFrame(window)
@@ -5907,7 +6239,7 @@ function E:ToggleConfig(pageId, stayOpen, optionKey, tabLabel)
 			if not stayOpen then window:Hide() end
 			return
 		end
-		self:Print(open and L["That page opens after combat."] or L["The config window opens after combat."])
+		self:Print(open and L["That page opens after combat."] or L["The options open after combat."])
 		self:RunOutOfCombat(function() self:RunFromSlash(self.ToggleConfig, self, pageId, true, optionKey, tabLabel) end, "config:open")
 		return
 	end
@@ -5990,12 +6322,13 @@ function E:SearchConfig(text)
 	text = strtrim(text or "")
 	if InCombatLockdown() then
 		if not self:ConfigOpenAllowed() then return end
-		self:Print(L["The config window opens after combat."])
+		self:Print(L["The options open after combat."])
 		self:RunOutOfCombat(function() self:RunFromSlash(self.SearchConfig, self, text) end, "config:open")
 		return
 	end
 	self:ToggleConfig(nil, true)
 	if not (window and window:IsShown()) or #text < 2 then return end
+	Tree.searchQueue = Tree.searchQueue + 1
 	suppressSearch = true
 	window.search:SetText(text)
 	suppressSearch = false
@@ -6119,7 +6452,7 @@ do
 		{ type = "header", label = "Scale" },
 		{ type = "select", key = "uiScale", label = "UI scale",
 			-- Every choice in the list says how it suits the layouts (E:ScaleAdvice).
-			desc = "Auto makes every screen 1440 UI units tall, so layouts look as designed on any screen. Pixel perfect makes one UI unit one pixel; frames keep their 1440p size and can overlap on a smaller screen.",
+			desc = "Auto draws every screen as the 2560x1440 canvas the layouts are made on, so they look as designed. Pixel perfect makes one UI unit one pixel; frames keep their 1440p size and can overlap.",
 			values = function()
 				local marks = { recommended = L["%s (recommended)"], supported = L["%s (supported)"], small = L["%s (not recommended)"], large = L["%s (not recommended)"] }
 				local function Label(value, title)
@@ -6133,6 +6466,10 @@ do
 				-- Already in the player's language.
 				return E:RawValues(values)
 			end },
+		{ type = "description", label = function()
+				local hint = E:SmallTextHint()
+				return hint and (hint .. " " .. L["Large text is on the Accessibility page."]) or ""
+			end, hidden = function() return E:SmallTextHint() == nil end },
 		{ type = "toggle", key = "layoutFit", label = "Fit layouts to the screen height",
 			desc = "Layouts are made for a 1440 px tall screen. On scales their positions to your screen height; off uses them as they are. Frames you dragged are never scaled.",
 			-- Auto is the 1440-unit canvas: nothing to fit (E:GetLayoutRatio).
@@ -6155,7 +6492,7 @@ do
 		{ type = "toggle", key = "welcome", label = "Show the welcome message at login",
 			desc = "One line in chat at login with the EldoUI version and how to open these settings." },
 		{ type = "header", label = "Setup" },
-		{ type = "execute", label = "Run the installer", desc = "Walk through layout, style and addon setup again.",
+		{ type = "execute", label = "Run the setup again", desc = "The setup again: scale, layout, look, role and chat. It asks before it changes anything.",
 			func = function()
 				if window then
 					window.quietHide = true
@@ -6220,7 +6557,7 @@ do
 		table.insert(options, { type = "toggle", key = "gamepadUI.always", label = "Use Gamepad Mode UI",
 			keywords = "gamepad controller layout",
 			desc = "Places your frames for controller play while the game's gamepad interface is on. Your layout and dragged frames return when it is off. EldoUI never switches the game's interface." })
-		table.insert(options, { type = "toggle", key = "gamepadUI.ask", label = "Ask when I start using a controller",
+		table.insert(options, { type = "toggle", key = "gamepadUI.ask", label = "Ask when you start using a controller",
 			keywords = "gamepad controller question",
 			desc = "When the game notices a controller, EldoUI asks once whether to place its frames for controller play. Nothing changes until you choose.",
 			hidden = function() return E.db.gamepadUI and E.db.gamepadUI.always end })
@@ -6334,6 +6671,7 @@ do
 				if E.RefreshMoveModeLook then E:RefreshMoveModeLook() end
 				if E.MotionChanged then E:MotionChanged() end
 				if E.errors and E.errors.ApplyPopup then E.errors:ApplyPopup() end
+				E:CheckSoundMute()
 				Tree.LayoutQuick()
 			end, 1)
 		general.defaults = function() return E.defaults.general end

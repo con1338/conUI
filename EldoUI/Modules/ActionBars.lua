@@ -50,7 +50,7 @@ local function BarText()
 	return {
 		showHotkey = true, hotkeySize = 13, hotkeyPosition = "TOPRIGHT",
 		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT",
-		showMacro = false, macroSize = 11,
+		showMacro = false, macroSize = 11, macroPosition = "BOTTOM",
 	}
 end
 
@@ -119,6 +119,7 @@ local M = E:NewModule("ActionBars", {
 		countColor = { 1, 1, 1 },
 		showMacro = false,
 		macroSize = 11,
+		macroPosition = "BOTTOM",
 		macroColor = { 1, 1, 1 },
 		textOutline = "theme",   -- theme | NONE | OUTLINE | THICKOUTLINE
 		textOffsetX = 0,         -- nudges every corner text inward (+) or outward (-)
@@ -146,11 +147,13 @@ local M = E:NewModule("ActionBars", {
 		unusableColor = { 0.4, 0.4, 0.4 },
 		equippedBorder = true,   -- colored border on items you wear
 		equippedColor = { 0.3, 0.85, 0.3 },
+		rightClickTarget = "normal", -- normal | player
 		lockBars = "game",       -- game | locked | unlocked (lockActionBars)
 		pickupKey = "game",      -- game | SHIFT | CTRL | ALT (the PICKUPACTION modifier)
 		procGlow = "blizzard",   -- blizzard | eldoui | none
 		highlightStyle = "fill", -- fill | accent | none
 		pushedStyle = "fill",
+		checkedStyle = "accent", -- an active stance, an auto-repeat or a toggled spell
 		tooltips = "enabled",    -- enabled | nocombat | disabled
 		castVFX = false,
 		masque = true,
@@ -186,6 +189,7 @@ local M = E:NewModule("ActionBars", {
 		},
 		-- Bar 1 extras
 		pageVehicle = true,      -- bar 1 shows vehicle, override and possess actions
+		prowlPage = false,       -- separate cat stealth page for Druids
 		pageForms = true,        -- bar 1 follows stance, form and stealth pages
 		-- Special bars (Special.lua)
 		pet = { mode = "eldoui", buttons = 10, perRow = 10, size = 30, spacing = 4, scale = 100, alpha = 100, growth = "TOPLEFT", fillOrder = "rows",
@@ -1292,6 +1296,8 @@ function M:PagingDriver(index)
 		end
 		for page = 2, 6 do parts[#parts + 1] = ("[bar:%d] %d"):format(page, page) end
 		if self.db.pageForms then
+			local _, class = E.PlainCallAll(UnitClass, "player")
+			if class == "DRUID" and self.db.prowlPage then parts[#parts + 1] = "[bonusbar:1,stealth] 8" end
 			for bonus = 1, 5 do parts[#parts + 1] = ("[bonusbar:%d] %d"):format(bonus, 6 + bonus) end
 		end
 	end
@@ -1311,10 +1317,10 @@ local function StandIn(index)
 		local text, grid = M:BarText(bar), M.BarGrid and M:BarGrid(index)
 		local count = math.max(1, math.min(tonumber(grid and grid.count or bar.buttons) or 12, 12))
 		local perRow = tonumber(grid and grid.perRow or bar.perRow) or count
-		return "icons", {
-			count = count, columns = math.max(1, math.min(perRow, count)), size = bar.size, spacing = bar.spacing,
-			keys = text.showHotkey, fontSize = text.hotkeySize, zoom = db.buttonZoom,
-		}
+		local spec = M:SampleShape(bar, grid)
+		spec.count, spec.columns = count, math.max(1, math.min(perRow, count))
+		spec.keys, spec.fontSize, spec.zoom = text.showHotkey, text.hotkeySize, db.buttonZoom
+		return "icons", spec
 	end
 end
 
@@ -1567,13 +1573,17 @@ local function LayoutBar(header, index)
 	header.eldoFlyout = flyout
 	local locked = M:BarsLocked()
 	local fallback = M.HiddenAlphaFallback and M:HiddenAlphaFallback()
-	local mouse = not barDB.clickThrough and (not M.HiddenMouseAllowed or M:HiddenMouseAllowed(index))
+	-- At 0 % opacity the bar counts as hidden: no clicks, no tooltips.
+	local mouse = not barDB.clickThrough and (tonumber(barDB.alpha) or 100) > 0
+		and (not M.HiddenMouseAllowed or M:HiddenMouseAllowed(index))
 	for slot, button in ipairs(header.buttons) do
 		button:UpdateConfig(M:ButtonConfig(BARS[index].binding .. slot, barDB, flyout))
 		M:StyleButton(button, buttonWidth, buttonHeight, barDB)
 		-- Locked bars: dragging needs the pick-up key (LibActionButton
 		-- checks this attribute together with the PICKUPACTION modifier).
 		button:SetAttribute("buttonlock", locked or nil)
+		-- The native right-button unit leaves left clicks and key bindings alone.
+		button:SetAttribute("*unit2", db.rightClickTarget == "player" and "player" or nil)
 		if slot <= count then
 			button:EnableMouse(mouse)
 			button:SetAttribute("statehidden", nil)
@@ -1640,6 +1650,20 @@ function M:BarGrid(index)
 		count = count, perRow = perRow, width = width, height = height,
 		spacing = Clamp(barDB.spacing, -1, 20, 4), growth = barDB.growth, columns = barDB.fillOrder == "columns",
 		scale = Clamp(barDB.scale, 50, 200, 100) / 100,
+	}
+end
+
+-- The shape fields of a bar's sample (the options preview and the move-mode
+-- stand-in): button width and height, spacing, growth and fill order, so
+-- the sample matches the bar.
+function M:SampleShape(barDB, grid)
+	local width, height = self:ButtonSize(barDB)
+	local grow = GROWTH[(grid and grid.growth) or barDB.growth] or GROWTH.TOPLEFT
+	return {
+		size = grid and grid.width or width, height = grid and grid.height or height,
+		spacing = grid and grid.spacing or Clamp(barDB.spacing, -1, 20, 4),
+		flipX = grow[2] < 0, flipY = grow[3] > 0,
+		columnsFirst = (grid and grid.columns) or (not grid and barDB.fillOrder == "columns") or false,
 	}
 end
 
@@ -1912,12 +1936,12 @@ end
 local RESTYLE_KEYS = {
 	textPreset = true, showHotkey = true, hotkeyAbbrev = true, fontSize = true, hotkeyPosition = true, hotkeyColor = true,
 	showCount = true, countSize = true, countPosition = true, countColor = true, showMacro = true, macroSize = true,
-	macroColor = true, textOutline = true, textOffsetX = true, textOffsetY = true,
+	macroPosition = true, macroColor = true, textOutline = true, textOffsetX = true, textOffsetY = true,
 	cooldownText = true, cooldownSize = true, cooldownExpiring = true, cooldownTenths = true, cooldownColor = true,
 	cooldownSecondsColor = true, cooldownExpiringColor = true, cooldownOwnLook = true, swipeAlpha = true, drawBling = true,
 	cooldownMinDuration = true, cooldownEdge = true, chargeCooldown = true, desaturateCooldown = true,
 	buttonZoom = true, rangeColoring = true, rangeColor = true, manaColor = true, unusableColor = true,
-	equippedBorder = true, equippedColor = true, highlightStyle = true, pushedStyle = true, tooltips = true, castVFX = true,
+	equippedBorder = true, equippedColor = true, highlightStyle = true, pushedStyle = true, checkedStyle = true, tooltips = true, castVFX = true,
 }
 local SPECIAL_KEYS = { pet = true, stance = true, possess = true, extra = true, vehicle = true, totem = true, proc = true, gamepad = true }
 -- Read by the options page only, or applied on their own (linkMouseover
@@ -2029,7 +2053,8 @@ function M:ApplyChanges()
 		end
 		if self.UpdateBlizzardButtonSkins then self:UpdateBlizzardButtonSkins() end
 	end
-	if special and self.ApplySpecial then self:ApplySpecial() end
+	-- The Text tab also styles the pet, stance and possess buttons.
+	if (special or restyle) and self.ApplySpecial then self:ApplySpecial() end
 	if #changed > 0 or special then self:UpdateAllFades(true) end
 	if #changed > 0 or restyle then self:RelayoutButtonSkins() end
 	if #changed > 0 or restyle then dockPublish(true) end

@@ -10,7 +10,7 @@
 ## Dependencies: EldoUI
 ## LoadOnDemand: 1
 ## X-License: GPL-3.0-only
-## X-Data-Source: https://github.com/fitzforge/polestar @ v0.2.6 (39f0b8b2be9b9330b2a3617ab54b7c034169aedd)
+## X-Data-Source: https://github.com/fitzforge/polestar @ v0.3.7.2 (19bd636e7d6f33231770f6029c76d2d4dfc63798)
 ## X-Generator: tools/guidedata/gen_guidedata.py 1.0.0
 
 Guides.lua

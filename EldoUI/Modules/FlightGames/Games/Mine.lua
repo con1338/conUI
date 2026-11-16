@@ -37,6 +37,7 @@ local FRIGHT = 6
 local DIRS = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } }  -- up, right, down, left
 local KEYS = { UP = 1, W = 1, RIGHT = 2, D = 2, DOWN = 3, S = 3, LEFT = 4, A = 4 }
 local FACING = { 0, -math.pi / 2, math.pi, math.pi / 2 }
+local MINER_FACING = { math.pi, math.pi / 2, 0, -math.pi / 2 }
 local MINER = "Interface\\Icons\\Trade_Mining"
 local BAT = "Interface\\Icons\\Ability_Hunter_Pet_Bat"
 
@@ -332,7 +333,7 @@ function Mine:Draw()
 	local you = self.you
 	local x, y = Pos(you)
 	self.miner:Place((x - 1) * CELL, (y - 1) * CELL)
-	self.miner:Face(FACING[you.dir])
+	self.miner:Face(MINER_FACING[you.dir])
 	self.miner:SetAlpha(self.hurt and 0.5 or 1)
 	for i, view in ipairs(self.batActors) do
 		local bat = self.bats[i]

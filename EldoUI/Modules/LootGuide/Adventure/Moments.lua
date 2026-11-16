@@ -150,14 +150,6 @@ function M:LevelCovered()
 	return text
 end
 
--- Whether a level-up shows a level moment here (the alert lane's own level
--- toast stands back then, so a level-up has one card).
-function M:ShowsLevel()
-	local db = Settings()
-	if not (A.started and db.moments) or Kinds().level == false then return false end
-	return not self:LevelCovered()
-end
-
 -- "New place" stays off while Zone Info's zone toast is on.
 function M:PlaceCovered()
 	local zoneInfo = E.GetModule and E:GetModule("ZoneInfo")
@@ -176,6 +168,17 @@ local state = {
 	quietUntil = 0,
 }
 M.state = state
+
+-- Whether a level-up shows a level moment here (the alert lane's own level
+-- toast stands back then, so a level-up has one card). In a dungeon whose
+-- moments wait for the summary, the level moment is held, so the lane's
+-- card shows the level and its new spells at once.
+function M:ShowsLevel()
+	local db = Settings()
+	if not (A.started and db.moments) or Kinds().level == false then return false end
+	if state.dungeon and db.momentsInDungeons ~= "now" then return false end
+	return not self:LevelCovered()
+end
 
 function M:Shown()
 	return state.shown
@@ -284,7 +287,9 @@ local function CreateCard()
 	card:Hide()
 end
 
-ShowOwn = function(data)
+-- refresh: the card already shows this moment; its text, height and
+-- buttons change and its timer starts again, without a second slide-in.
+ShowOwn = function(data, refresh)
 	CreateAnchor()
 	if not card then CreateCard() end
 	card.data = data
@@ -333,7 +338,7 @@ ShowOwn = function(data)
 	end
 	card:SetHeight(8 + top + (shown > 0 and 32 or 8))
 	anchor:Show()
-	E:SlideIn(card, "UP")
+	if not refresh then E:SlideIn(card, "UP") end
 	ArmTimer(tonumber(data.duration) or 8)
 	return card
 end
@@ -341,7 +346,7 @@ end
 -- Off the lane: one card at a time, the rest wait (same key: replaced).
 local function QueueOwn(data)
 	if card and card:IsShown() and card.data and data.key ~= nil and card.data.key == data.key then
-		ShowOwn(data)
+		ShowOwn(data, true)
 		return "card"
 	end
 	if data.key ~= nil then

@@ -42,7 +42,7 @@ local function PreviewUpdate(bar, elapsed)
 		end
 		if bar.clock >= CAST_TIME then
 			if deco then Engine.Finish(deco, bar.fail and "fail" or "success") end
-			bar.text:SetText(bar.fail and (_G.INTERRUPTED or L["Interrupted"]) or L["Done"])
+			bar.text:SetText(bar.fail and (E:GameText(_G.INTERRUPTED, L["Interrupted"])) or L["Done"])
 			bar.phase, bar.clock = "rest", 0
 		end
 	elseif bar.clock >= REST_TIME then

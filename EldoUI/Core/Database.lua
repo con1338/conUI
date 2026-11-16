@@ -2462,6 +2462,11 @@ local function OldCharacterKeys(newKey)
 	return olds
 end
 
+-- The older keys of this character's name (other than its own key).
+function E:OlderCharacterKeys()
+	return OldCharacterKeys(self.charKey or CharacterKey())
+end
+
 local function MyGuid()
 	local guid = UnitGUID and UnitGUID("player")
 	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) or guid == "" then return nil end
@@ -2510,6 +2515,21 @@ function E.EachProfileModule(db, name)
 		if type(settings) == "table" then list[#list + 1] = settings end
 	end
 	return list
+end
+
+-- The same for Forget: fn(db, key) runs when a character is forgotten and
+-- removes what the module keeps for it beyond the tables Forget clears.
+local forgets = {}
+
+function E:RegisterCharacterForget(fn)
+	if type(fn) == "function" then forgets[#forgets + 1] = fn end
+end
+
+function E:RunCharacterForgets(key)
+	for _, fn in ipairs(forgets) do
+		local ok, err = pcall(fn, EldoUIDB, key)
+		if not ok then geterrorhandler()(("EldoUI forgetting a character: %s"):format(tostring(err))) end
+	end
 end
 
 local function RunKeyMoves(oldKey, newKey)
@@ -2863,10 +2883,27 @@ local function ForEachProfileReference(fn)
 					for key, value in pairs(list) do fn(list, key, value) end
 				end
 			end
+			-- "Otherwise use" and the profile picked by hand.
+			for _, key in ipairs({ "otherwise", "home" }) do
+				if type(rules[key]) == "string" then fn(rules, key, rules[key]) end
+			end
 		end
 	end
 	if type(EldoUIDB.classProfiles) == "table" then
 		for key, value in pairs(EldoUIDB.classProfiles) do fn(EldoUIDB.classProfiles, key, value) end
+	end
+	-- Each character's setup backup: the profile the setup wrote and the
+	-- one the character used before, so Undo setup follows a rename.
+	local backups = rawget(EldoUIDB, "installerBackup")
+	if not E.Secret(backups) and type(backups) == "table" then
+		for _, backup in pairs(backups) do
+			if not E.Secret(backup) and type(backup) == "table" then
+				for _, field in ipairs({ "profile", "previous" }) do
+					local value = rawget(backup, field)
+					if type(value) == "string" then fn(backup, field, value) end
+				end
+			end
+		end
 	end
 end
 
@@ -2881,8 +2918,146 @@ function E:DeleteProfile(name)
 	ForEachProfileReference(function(list, key, value)
 		if value == name then list[key] = nil end
 	end)
+	-- A setup backup of the deleted profile has nothing left to undo.
+	local backups = rawget(EldoUIDB, "installerBackup")
+	if not E.Secret(backups) and type(backups) == "table" then
+		for char, backup in pairs(backups) do
+			if not E.Secret(backup) and type(backup) == "table" and rawget(backup, "profile") == nil then backups[char] = nil end
+		end
+	end
 	if self.DropSetupHistory then self:DropSetupHistory(name) end
 	return true
+end
+
+---------------------------------------------------------------------------
+-- A copy before a reset, a copy over, a delete or an import: the
+-- profile as it was, kept beside what a restore replaced
+-- (backups.restored["profile:<name>"], one per profile), so the alert can
+-- undo it now and the Saved data page can put it back later. `why` names
+-- the change: "reset", "copy", "parts", "import" or "delete". The
+-- characters, profile rules and class defaults that pointed at it are kept
+-- with it, for a deleted profile.
+---------------------------------------------------------------------------
+E.PROFILE_CHANGES = { reset = true, copy = true, parts = true, import = true, delete = true }
+
+function E:SnapshotBeforeChange(name, why)
+	if not CurrentAccount() or E.Secret(name) or type(name) ~= "string" or not E.PROFILE_CHANGES[why] then return nil end
+	if not CurrentProfile(rawget(EldoUIDB.profiles, name), name) or type(EldoUIDB.profiles[name]) ~= "table" then return nil end
+	local backups = Backups()
+	if not backups then return nil end
+	local ok, data = pcall(self.CopyProfileTable, self, name)
+	if not ok or type(data) ~= "table" then return nil end
+	self:CompactProfile(data)
+	local refs = { users = {}, classes = {}, rules = {} }
+	for char, profile in pairs(EldoUIDB.profileKeys or {}) do
+		if profile == name then refs.users[#refs.users + 1] = char end
+	end
+	if type(EldoUIDB.classProfiles) == "table" then
+		for key, value in pairs(EldoUIDB.classProfiles) do
+			if value == name then refs.classes[#refs.classes + 1] = key end
+		end
+	end
+	for char, rules in pairs(EldoUIDB.profileRules or {}) do
+		if type(rules) == "table" then
+			for _, field in ipairs({ "spec", "content" }) do
+				if type(rules[field]) == "table" then
+					for key, value in pairs(rules[field]) do
+						if value == name then refs.rules[#refs.rules + 1] = { char, field, key } end
+					end
+				end
+			end
+			for _, field in ipairs({ "otherwise", "home" }) do
+				if rules[field] == name then refs.rules[#refs.rules + 1] = { char, field } end
+			end
+		end
+	end
+	local id = UnitId("profile", name)
+	backups.restored[id] = { at = Now(), eldoui = self.version, data = data, why = why, refs = refs,
+		profileBaseline = self.PROFILE_BASELINE }
+	return id
+end
+
+-- The copy SnapshotBeforeChange kept for this profile, or nil.
+function E:ProfileChangeCopy(name)
+	local backups = type(EldoUIDB) == "table" and EldoUIDB.backups
+	local kept = type(name) == "string" and type(backups) == "table" and type(backups.restored) == "table"
+		and backups.restored[UnitId("profile", name)]
+	if type(kept) == "table" and kept.why and type(kept.data) == "table" then return kept end
+end
+
+-- Puts the profile back as the copy has it. A deleted profile comes back
+-- with the characters, rules and class defaults that used it, where
+-- nothing else took their place. Returns true, or false and the reason.
+function E:UndoProfileChange(name)
+	local kept = self:ProfileChangeCopy(name)
+	if not kept then return false, self.L["there is no copy of that any more."] end
+	local refs = type(kept.refs) == "table" and kept.refs or {}
+	local ok, err = self:UndoRestore(UnitId("profile", name))
+	if not ok then return false, err end
+	if kept.why == "delete" and EldoUIDB.profiles[name] then
+		for _, char in ipairs(refs.users or {}) do
+			if EldoUIDB.profileKeys[char] == nil then EldoUIDB.profileKeys[char] = name end
+		end
+		if #(refs.classes or {}) > 0 and type(EldoUIDB.classProfiles) ~= "table" then EldoUIDB.classProfiles = {} end
+		for _, key in ipairs(refs.classes or {}) do
+			if EldoUIDB.classProfiles[key] == nil then EldoUIDB.classProfiles[key] = name end
+		end
+		for _, rule in ipairs(refs.rules or {}) do
+			local char, field, key = rule[1], rule[2], rule[3]
+			local rules = type(EldoUIDB.profileRules) == "table" and EldoUIDB.profileRules[char]
+			if type(rules) == "table" then
+				if key == nil then
+					if (field == "otherwise" or field == "home") and rules[field] == nil then rules[field] = name end
+				else
+					if type(rules[field]) ~= "table" then rules[field] = {} end
+					if rules[field][key] == nil then rules[field][key] = name end
+				end
+			end
+		end
+	end
+	return true
+end
+
+-- Runs fn (a reset, copy, delete or import of the profile `name`) with a
+-- copy kept first, then offers Undo / Keep in an alert. fn returns true
+-- when it changed the profile.
+local PROFILE_CHANGE_TEXT = {
+	reset = E.Key("Your profile %s was reset to its defaults."),
+	copy = E.Key("Your profile %s now holds a copy of another profile."),
+	parts = E.Key("Parts of another profile were copied into your profile %s."),
+	import = E.Key("Settings from a string were imported into your profile %s."),
+	delete = E.Key("The profile %s was deleted."),
+}
+function E:ChangeProfileWithUndo(name, why, fn)
+	local id = self:SnapshotBeforeChange(name, why)
+	local changed = fn()
+	if changed ~= true then
+		-- Nothing changed: the copy is not offered.
+		local backups = id and EldoUIDB.backups
+		if backups and backups.restored[id] and backups.restored[id].why == why then backups.restored[id] = nil end
+		return changed
+	end
+	if id and self.PushAlert then
+		local L = self.L
+		self:PushAlert({ key = "profile-undo", title = L["Profiles"], options = { page = "profiles" },
+			text = L[PROFILE_CHANGE_TEXT[why]]:format(self:Highlight(name)) .. " " .. L["A copy from before is on the Saved data page."],
+			actions = {
+				{ label = L["Undo"], tip = L["Put the profile %s back the way it was."]:format(name),
+					func = function()
+						self:RunOutOfCombat(function()
+							local ok, err = self:UndoProfileChange(name)
+							if ok then
+								self:Print(L["Profile %s is back the way it was."]:format(name))
+								if self.RefreshConfig then self:RefreshConfig() end
+							elseif err then
+								self:Print(err)
+							end
+						end, "Profiles:undo")
+					end },
+				{ label = L["Keep"] },
+			} })
+	end
+	return changed
 end
 
 -- Rename a profile everywhere: characters using it, profile rules and
@@ -2973,9 +3148,29 @@ function E:ApplyProfileParts(source, parts)
 	local copied = {}
 	local movers = self.db.movers
 	-- A part missing from the source means "all defaults" (compact strings).
+	-- General keeps this profile's layout (where frames sit and what the
+	-- layout hides); the Layout part brings the other one through the
+	-- normal layout apply, so places and module sizes match again.
+	local sourceGeneral = type(source.general) == "table" and source.general or {}
 	if parts.general then
-		self.db.general = ApplyDefaults(CopyTable(type(source.general) == "table" and source.general or {}), self.defaults.general)
+		local general = CopyTable(sourceGeneral)
+		for _, key in ipairs(self.LAYOUT_KEYS) do
+			local value = self.db.general[key]
+			general[key] = type(value) == "table" and CopyTable(value) or value
+		end
+		self.db.general = ApplyDefaults(general, self.defaults.general)
 		copied[#copied + 1] = self.L["General"]
+	end
+	if parts.layout then
+		local key = sourceGeneral.layout or self.defaults.general.layout
+		if self.layouts and self.layouts[key] then
+			if key ~= self.db.general.layout then
+				self:RunOutOfCombat(function()
+					if Current() then self:ApplyLayout(key, true) end
+				end)
+			end
+			copied[#copied + 1] = self.L["Layout"]
+		end
 	end
 	if parts.blizzard then
 		self.db.blizzard = ApplyDefaults(CopyTable(type(source.blizzard) == "table" and source.blizzard or {}), self.defaults.blizzard or {})
@@ -2984,6 +3179,10 @@ function E:ApplyProfileParts(source, parts)
 	if parts.allPositions then
 		self.db.movers = CopyTable(type(source.movers) == "table" and source.movers or {})
 		movers = self.db.movers
+		if self.SetWindowPlaces then
+			local mover = type(source.windowMover) == "table" and source.windowMover
+			self:SetWindowPlaces(self:WindowPlaces(mover and mover.windows))
+		end
 		copied[#copied + 1] = self.L["All frame positions"]
 	end
 	for name in pairs(parts.modules or {}) do
@@ -3014,6 +3213,9 @@ function E:ApplyProfileParts(source, parts)
 	if self.RefreshMovers and self.movers and next(self.movers) then self:RefreshMovers() end
 	return true, copied
 end
+
+-- The General settings that belong to the layout, not to the look.
+E.LAYOUT_KEYS = { "layout", "layoutHidden", "layoutPending", "layoutFit" }
 
 function E:CopyProfileParts(from, parts)
 	if not CurrentProfile(self.db, self.profileName) or E.Secret(from) or type(from) ~= "string"

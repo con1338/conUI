@@ -933,7 +933,7 @@ function M:CreateDBMPanel()
 			return button
 		end
 		Button(L["Set up DBM for EldoUI"], function() M:Setup() end)
-		Button(L["Switch back to my profile"], function() M:Undo() end)
+		Button(L["Switch back to your profile"], function() M:Undo() end)
 		M.dbmRoleButton = Button(L["Role: %s"]:format(L[ROLE_NAMES[M.db.role]]), function()
 			local index = 1
 			for i, role in ipairs(ROLE_ORDER) do
@@ -1101,7 +1101,7 @@ M.options = {
 	{ type = "execute", label = "Re-apply EldoUI settings", width = 220,
 		desc = "Writes the settings below into the EldoUI DBM profile again, for example after you changed something in DBM's own options.",
 		disabled = NotSetUp, func = function() M:Reapply() end },
-	{ type = "execute", label = "Switch back to my profile", width = 220,
+	{ type = "execute", label = "Switch back to your profile", width = 220,
 		desc = "DBM uses the profile you had before the setup again. The EldoUI profiles stay in DBM's list, so setting up again is one click.",
 		disabled = NotSetUp, func = function() M:Undo() end },
 	{ type = "execute", label = "Test timers", width = 220,

@@ -166,6 +166,24 @@ function PQ:MyQuests()
 	return list
 end
 
+-- Cards and outbound state share one read of the player's log.
+local ownQuests
+local ownRevision, builtRevision = 0, nil
+
+local function InvalidateOwnQuests()
+	ownRevision = ownRevision + 1
+end
+
+local function OwnQuests()
+	local revision = ownRevision
+	if builtRevision ~= revision then
+		local quests = PQ:MyQuests()
+		if ownRevision ~= revision then return nil, revision end
+		ownQuests, builtRevision = quests, revision
+	end
+	return ownQuests, revision
+end
+
 ---------------------------------------------------------------------------
 -- Sync: the state message
 --   "S" then one entry per quest, ";" between: "<id>,<have>/<need>.<have>/<need>,<1 when complete>"
@@ -210,7 +228,7 @@ end
 local synced = {}      -- member key -> { quests = { [id] = quest }, at }
 PQ.synced = synced
 local lastSent
-local sendPending = false
+local sendPending
 
 function PQ:CanSend()
 	return self.active and self.db.sync and self:InScope() and not InPvP()
@@ -218,19 +236,23 @@ end
 
 function PQ:SendState(force)
 	if not self:CanSend() then return false end
-	local payload = PQ.EncodeState(self:MyQuests())
+	local quests, revision = OwnQuests()
+	if not quests or not self:CanSend() or revision ~= ownRevision then return false end
+	local payload = PQ.EncodeState(quests)
 	if payload == lastSent and not force then return false end
 	local ok = E:SendComm(PREFIX, payload, "GROUP")
-	if ok then lastSent = payload end
+	if ok and ownRevision == revision then lastSent = payload end
 	return ok and true or false
 end
 
 -- A quest log or group change: send once the burst is over.
 function PQ:QueueSend()
 	if sendPending or not self:CanSend() then return end
-	sendPending = true
+	local pending = {}
+	sendPending = pending
 	C_Timer.After(SEND_DELAY, function()
-		sendPending = false
+		if sendPending ~= pending then return end
+		sendPending = nil
 		PQ:SendState()
 	end)
 end
@@ -276,10 +298,14 @@ function PQ:OnState(payload, sender)
 	local before = synced[key]
 	synced[key] = { quests = quests, at = self:Now() }
 	if self.db.popups and before then
-		local mine = self:MyQuests()
 		for _, done in ipairs(Finished(before.quests, quests)) do
-			local quest = mine[done.id]
-			if quest then self:Popup(member.name, quest, done) end
+			local log = C_QuestLog
+			local index = log and Read(log.GetLogIndexForQuestID, done.id)
+			local info = index and Read(log.GetInfo, index)
+			if type(info) == "table" and not Secret(info.questID) and info.questID == done.id
+				and not info.isHeader and not info.isHidden then
+				self:Popup(member.name, { id = done.id, title = info.title }, done)
+			end
 		end
 	end
 	self:Changed()
@@ -385,18 +411,22 @@ local function ByTitle(a, b)
 	return (a.title or "") < (b.title or "")
 end
 
-function PQ:Cards()
+local function MemberQuest(member, questID)
+	local data = synced[member.key] and synced[member.key].quests[questID]
+	return data, data ~= nil or (C_QuestLog and Read(C_QuestLog.IsUnitOnQuest, member.unit, questID) == true)
+end
+
+function PQ:Cards(mine)
 	local out = { shared = {}, mine = {}, theirs = {} }
 	if not self.active then return out end
-	local mine = self:MyQuests()
+	mine = mine or self:MyQuests()
 	local members = self:Members()
 	local theirs = {}
 	for id, quest in pairs(mine) do
 		local card = { id = id, title = quest.title or self.QuestTitle(id), level = quest.level, members = {},
 			mine = { done = quest.done, total = quest.total, complete = quest.complete } }
 		for _, member in ipairs(members) do
-			local data = synced[member.key] and synced[member.key].quests[id]
-			local on = data ~= nil or (C_QuestLog and Read(C_QuestLog.IsUnitOnQuest, member.unit, id) == true)
+			local data, on = MemberQuest(member, id)
 			if on then
 				card.members[#card.members + 1] = { name = member.name, key = member.key, unit = member.unit, synced = data ~= nil,
 					done = data and data.done, total = data and data.total, complete = data and data.complete }
@@ -444,9 +474,22 @@ function PQ:Session()
 end
 
 function PQ:OnTurnedIn(questID)
-	if not (session and self.cache) then return end
-	for _, card in ipairs(self.cache.shared or {}) do
-		if card.id == questID then session.together[questID] = card.title end
+	if not (session and self:InScope()) or Secret(questID) or type(questID) ~= "number" then return end
+	for _, card in ipairs(self.cache and self.cache.shared or {}) do
+		if card.id == questID then
+			session.together[questID] = card.title
+			return
+		end
+	end
+	-- Without projected cards, a turn-in can still be shared. The game
+	-- may already have removed the quest from our own log at this point.
+	for _, member in ipairs(self:Members()) do
+		local _, on = MemberQuest(member, questID)
+		if on then
+			local quest = ownQuests and ownQuests[questID]
+			session.together[questID] = quest and quest.title or self.QuestTitle(questID)
+			return
+		end
 	end
 end
 
@@ -477,6 +520,15 @@ function PQ:EndSession()
 		key = "partyquests:summary", duration = 15, closable = true })
 end
 
+local changePending
+local wasInScope = false
+
+local function ResetWork()
+	changePending, sendPending = nil, nil
+	ownQuests = nil
+	InvalidateOwnQuests()
+end
+
 function PQ:OnRoster()
 	if Read(IsInGroup) then
 		self:StartSession()
@@ -487,33 +539,49 @@ function PQ:OnRoster()
 			if not here[key] then synced[key] = nil end
 		end
 		lastSent = nil
-		self:QueueSend()
 	elseif session then
 		self:EndSession()
 	end
-	self:Changed()
+	if self:InScope() and wasInScope then
+		self:Changed()
+	else
+		self:Refresh()
+	end
+	self:QueueSend()
 end
 
 ---------------------------------------------------------------------------
 -- Changes
 ---------------------------------------------------------------------------
-local changePending = false
-
 function PQ:Changed()
-	if changePending or not self.active then return end
-	changePending = true
+	if changePending or not (self.active and self:InScope() and self.db.panel) then return end
+	local pending = {}
+	changePending = pending
 	C_Timer.After(0.2, function()
-		changePending = false
+		if changePending ~= pending then return end
+		changePending = nil
 		if PQ.active then PQ:Refresh() end
 	end)
 end
 
 function PQ:Refresh()
-	self.cache = self:Cards()
+	local inScope = self.active and self:InScope()
+	if not inScope or not wasInScope then ResetWork() end
+	wasInScope = inScope and true or false
+	if inScope and self.db.panel then
+		local quests, revision = OwnQuests()
+		if not quests or not (self.active and self.db.panel and self:InScope()) or revision ~= ownRevision then return end
+		local cards = self:Cards(quests)
+		if not (self.active and self.db.panel and self:InScope()) or revision ~= ownRevision then return end
+		self.cache = cards
+	else
+		self.cache = nil
+	end
 	if self.UpdatePanel then self:UpdatePanel() end
 end
 
-function PQ:OnQuestLog()
+function PQ:OnQuestProgress()
+	InvalidateOwnQuests()
 	self:QueueSend()
 	self:Changed()
 end
@@ -522,9 +590,16 @@ function PQ:OnEnable()
 	if not self.commOn then
 		self.commOn = E:RegisterComm(PREFIX, OnComm, { trusted = "group" }) and true or false
 	end
-	self:RegisterEvent("QUEST_LOG_UPDATE", function() PQ:OnQuestLog() end)
-	self:RegisterEvent("UNIT_QUEST_LOG_CHANGED", function() PQ:Changed() end)
-	self:RegisterEvent("QUEST_TURNED_IN", function(_, _, questID) PQ:OnTurnedIn(questID) end)
+	self:RegisterEvent("QUEST_LOG_UPDATE", function()
+		if not PQ:InScope() or not (PQ.db.panel or PQ:CanSend()) then InvalidateOwnQuests() end
+	end)
+	self:RegisterUnitEvent("UNIT_QUEST_LOG_CHANGED", "player", function() PQ:OnQuestProgress() end)
+	self:RegisterEvent("QUEST_ACCEPTED", function() PQ:OnQuestProgress() end)
+	self:RegisterEvent("QUEST_REMOVED", function() PQ:OnQuestProgress() end)
+	self:RegisterEvent("QUEST_TURNED_IN", function(_, _, questID)
+		PQ:OnTurnedIn(questID)
+		PQ:OnQuestProgress()
+	end)
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", function() PQ:OnRoster() end)
 	self:RegisterEvent("GROUP_LEFT", function() PQ:OnRoster() end)
 	if self.CreatePanel then self:CreatePanel() end
@@ -537,7 +612,8 @@ end
 function PQ:OnDisable()
 	if self.frame then E:DetachVisibility(self.frame) end
 	self.visibilityBlock = nil
-	for _, event in ipairs({ "QUEST_LOG_UPDATE", "UNIT_QUEST_LOG_CHANGED", "QUEST_TURNED_IN", "GROUP_ROSTER_UPDATE", "GROUP_LEFT" }) do
+	self:UnregisterUnitEvent("UNIT_QUEST_LOG_CHANGED", "player")
+	for _, event in ipairs({ "QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "GROUP_ROSTER_UPDATE", "GROUP_LEFT" }) do
 		self:UnregisterEvent(event)
 	end
 	if self.commOn then
@@ -545,13 +621,18 @@ function PQ:OnDisable()
 		self.commOn = false
 	end
 	session = nil
+	wasInScope, self.cache = false, nil
+	ResetWork()
 	self:ForgetSync()
 	if self.UpdatePanel then self:UpdatePanel() end
 end
 
 -- A profile or an option changed (Config calls this after every change).
 function PQ:OnProfileChanged()
-	if not self.db.sync then self:ForgetSync() end
+	if not self.db.sync then
+		sendPending = nil
+		self:ForgetSync()
+	end
 	if self.ApplyLook then self:ApplyLook() end
 	if self.active then
 		if self.ApplyVisibility then self:ApplyVisibility() end

@@ -479,6 +479,17 @@ function E:AuraSpellSlotSpec(spellID, kind, mine)
 	return filter, { includeSpellIDs = { [spellID] = true } }
 end
 
+-- The Never show list as a candidate filter for the client's own checks
+-- (a highlight or glow that must not light for those debuffs). nil when the
+-- list is empty, the block does not use it, or the client has no candidate
+-- filters; the client applies it only to auras it allows filtering on.
+function E:NeverShowFilter(block)
+	if not self:AuraFiltersSupported() then return nil end
+	if type(block) == "table" and block.useNeverShow == false then return nil end
+	local set = SpellSet(NEVER_SHOW)
+	return set and { excludeSpellIDs = set } or nil
+end
+
 -- A highlight is a slot whose frame shows only while a matching aura is on
 -- the unit; the client decides. which = "dispel" | "boss" | "stealable".
 local HIGHLIGHTS = {

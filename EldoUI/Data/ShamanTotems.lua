@@ -5,7 +5,7 @@
 --
 -- Every spell is the rank 1 ID of a WoW: Forever trainer or talent spell,
 -- checked against the game's own spell data of client 1.60.1 (build
--- 1.60.1.70862) and the shaman
+-- 1.60.1.70938) and the shaman
 -- trainer table in Data/Training/Shaman.lua.
 -- Higher ranks are found at run time from the spell's name, so nothing
 -- here needs a rank list. A spell the character doesn't know never shows,

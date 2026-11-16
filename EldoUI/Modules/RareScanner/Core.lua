@@ -109,6 +109,11 @@ local M = E:NewModule("RareScanner", {
 		historyVisibility = E:VisibilityDefaults({ show = "nocombat" }),
 	},
 })
+
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "ignore", "quietZones" }
+M.keepOnResetNote = E.Key("Your ignore list and quiet zones are kept too.")
 E.RareScanner = M
 M.SESSION_CAP = 50
 
@@ -617,13 +622,14 @@ local function MarkerKey(kind, name, uiMapID, x, y)
 end
 M.MarkerKey = MarkerKey
 
--- The marker's position on the player's map, or nil.
+-- The marker's readable position on one map, or nil.
 local function VignettePosition(api, guid, uiMapID)
-	if not (uiMapID and api.GetVignettePosition) then return nil end
+	if Secret(uiMapID) or type(uiMapID) ~= "number" or not api.GetVignettePosition then return nil end
 	local okPos, pos = pcall(api.GetVignettePosition, guid, uiMapID)
-	if okPos and type(pos) == "table" and not Secret(pos) then
+	if okPos and not Secret(pos) and type(pos) == "table" and (not canaccesstable or canaccesstable(pos)) then
 		local px, py = pos.x, pos.y
-		if type(px) == "number" and type(py) == "number" and not Secret(px) and not Secret(py) then return px, py end
+		if not Secret(px) and not Secret(py) and type(px) == "number" and type(py) == "number"
+			and px >= 0 and px <= 1 and py >= 0 and py <= 1 then return px, py end
 	end
 end
 
@@ -632,19 +638,34 @@ function M:CheckVignette(guid)
 	local api = C_VignetteInfo
 	if not (api and api.GetVignetteInfo) then return end
 	local ok, vinfo = pcall(api.GetVignetteInfo, guid)
-	if not ok or type(vinfo) ~= "table" then return end
-	if vinfo.onMinimap == false then return end
+	if not ok or Secret(vinfo) or type(vinfo) ~= "table" or (canaccesstable and not canaccesstable(vinfo)) then return end
+	if Secret(vinfo.onMinimap) or vinfo.onMinimap == false then return end
 	local class = KillAtlas(vinfo.atlasName)
 	local kind = class and "rare" or MarkerKind(vinfo)
 	if not kind then return end
 	if kind ~= "rare" and not self.db[M.KIND_SWITCH[kind]] then return end
+	local dead = kind == "rare" and not Secret(vinfo.isDead) and vinfo.isDead == true
+	local seen = vignettesSeen[guid]
+	if seen then
+		if dead then self:MarkDead(seen) end
+		return
+	end
 	local npc = kind == "rare" and NpcFromGUID(vinfo.objectGUID) or nil
 	local name = vinfo.name
 	if Secret(name) or type(name) ~= "string" or name == "" then name = nil end
-	local dead = kind == "rare" and vinfo.isDead or nil
-	if Secret(dead) then dead = nil end
 	local zone, uiMapID = PlayerZone()
 	local x, y = VignettePosition(api, guid, uiMapID)
+	if not x and not Secret(uiMapID) and type(uiMapID) == "number" and C_Map and C_Map.GetMapInfo then
+		local info = Read(C_Map.GetMapInfo, uiMapID)
+		local parent
+		if not Secret(info) and type(info) == "table" and (not canaccesstable or canaccesstable(info)) then
+			parent = info.parentMapID
+		end
+		if not Secret(parent) and type(parent) == "number" and parent > 0 and parent ~= uiMapID then
+			x, y = VignettePosition(api, guid, parent)
+			if x then uiMapID = parent end
+		end
+	end
 	local key
 	if kind == "rare" then
 		key = KeyFor(npc, name or (npc and self:NameOf(npc)))
@@ -652,10 +673,6 @@ function M:CheckVignette(guid)
 		key = name and MarkerKey(kind, name, uiMapID, x, y)
 	end
 	if not key then return end
-	if vignettesSeen[guid] == key then
-		if dead then self:MarkDead(key) end
-		return
-	end
 	vignettesSeen[guid] = key
 	if class == "worldboss" and npc then class = self:DataClassification(npc) or class end
 	self:Spotted({ npc = npc, name = name, kind = kind, classification = class, source = "vignette", dead = dead and true or nil,

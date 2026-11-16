@@ -221,11 +221,18 @@ function Party:Tick()
 	if self:Squares() then self:Draw() end
 end
 
+local auraTimer
+
 function Party:OnGroupAura()
-	if self:Squares() and not InCombatLockdown() then self:Update() end
+	if auraTimer or not self:Squares() or InCombatLockdown() then return end
+	auraTimer = C_Timer.NewTimer(0, function()
+		auraTimer = nil
+		if M.active and self:Squares() and not InCombatLockdown() then self:Update() end
+	end)
 end
 
 function Party:Disable()
+	if auraTimer then auraTimer:Cancel() auraTimer = nil end
 	for _, row in pairs(marks) do row:Hide() end
 end
 

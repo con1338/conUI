@@ -31,7 +31,7 @@ local M = E:NewModule("ClassBar", {
 	desc = "Every class but the shaman: one bar with the buffs you keep up (live, faded while missing), your key cooldowns and the reagents you spend. Click casts; right-click picks the spell and rank.",
 	frames = { "EldoUI_ClassBarHolder", "EldoUI_ClassBar" },
 	movers = { "EldoUI_ClassBar" },
-	savedKeys = { "profile.modules.ClassBar" },
+	savedKeys = { "profile.modules.ClassBar", "private.classBarRanks" },
 	optionsPage = "module:ClassBar",
 	presets = { "Standard", "Compact", "Large", "Vertical", "Quiet" },
 	reload = false,
@@ -40,6 +40,7 @@ local M = E:NewModule("ClassBar", {
 		size = 30,
 		spacing = 4,
 		vertical = false,
+		perRow = 10,         -- icons before the next row: a full bar keeps clear of the unit frames
 		upkeep = true,       -- the buffs you keep up
 		cooldowns = true,    -- key cooldowns
 		counts = true,       -- reagents and ammo
@@ -49,6 +50,7 @@ local M = E:NewModule("ClassBar", {
 	},
 })
 E.ClassBar = M
+E:RegisterPrivate("classBarRanks", {})
 E:RegisterVisibilityFacet("EldoUI_ClassBar", "rules", { module = "ClassBar", setting = "visibility" })
 
 local D = E.ClassBarData or {}
@@ -110,6 +112,12 @@ local function KnownId(id)
 	return false
 end
 
+local function SpellFits(spell)
+	if not spell.race then return true end
+	local _, _, race = Try(UnitRace, "player")
+	return Plain(race) == spell.race
+end
+
 local function SpellName(id)
 	local name = C_Spell and C_Spell.GetSpellName and Plain(Try(C_Spell.GetSpellName, id))
 	if type(name) == "string" and name ~= "" then return name end
@@ -136,6 +144,81 @@ local function KnownSpell(id)
 	return best, name
 end
 M.KnownSpell = KnownSpell
+
+local function RankPicks()
+	local picks = E:GetPrivate("classBarRanks")
+	return not Secret(picks) and type(picks) == "table" and picks or nil
+end
+
+local function CooldownSpell(key)
+	if Secret(key) or type(key) ~= "string" then return nil end
+	local class = PlayerClass()
+	for _, spell in ipairs(class and D[class] and D[class].spells or {}) do
+		if SpellKey(class, spell) == key and SpellFits(spell) then return spell end
+	end
+end
+
+-- A chosen rank stays exact while known; otherwise the usual highest rank wins.
+local function ChosenSpell(spell, key)
+	local best, name = KnownSpell(spell.id)
+	local picks = RankPicks()
+	local picked = picks and Plain(picks[key])
+	if best and name and KnownId(picked) and SpellName(picked) == name then return picked, name, true end
+	return best, name, false
+end
+
+local function RankNumber(id)
+	local bars = E.modules.ActionBars
+	local rank = bars and Plain(Try(bars.SpellRankNumber, id))
+	if type(rank) == "number" and rank > 0 and rank % 1 == 0 then return rank end
+end
+
+-- Reuse the action bars' spellbook scan; only known ranks of this spell appear.
+function M:CooldownRanks(key)
+	local spell = CooldownSpell(key)
+	local name = spell and SpellName(spell.id)
+	local bars = E.modules.ActionBars
+	local scan = name and bars and Plain(Try(bars.RankScan, bars))
+	local ids = type(scan) == "table" and Plain(scan.ids)
+	local list = type(ids) == "table" and Plain(ids[name])
+	local ranks, seen = {}, {}
+	local function Add(id)
+		id = Plain(id)
+		if not KnownId(id) or seen[id] or SpellName(id) ~= name then return end
+		local rank = RankNumber(id)
+		if not rank then return end
+		seen[id] = true
+		ranks[#ranks + 1] = { id = id, rank = rank }
+	end
+	for _, id in ipairs(type(list) == "table" and list or {}) do Add(id) end
+	if spell then Add((KnownSpell(spell.id))) end
+	table.sort(ranks, function(a, b)
+		if a.rank ~= b.rank then return a.rank < b.rank end
+		return a.id < b.id
+	end)
+	return ranks
+end
+
+-- nil chooses the highest rank again. Secure attributes follow the same
+-- out-of-combat refresh as a learned spell or another Class Bar setting.
+function M:SetCooldownRank(key, rank)
+	if Secret(key) or type(key) ~= "string" or Secret(rank)
+		or (rank ~= nil and type(rank) ~= "number") then return false end
+	local spell, picks = CooldownSpell(key), RankPicks()
+	local name = spell and SpellName(spell.id)
+	if not (spell and picks and name and KnownSpell(spell.id)) then return false end
+	if rank ~= nil and (not KnownId(rank) or SpellName(rank) ~= name) then return false end
+	local previous, character = rawget(picks, key), E.charKey
+	if Secret(previous) then return false end
+	E:RunOutOfCombat(function()
+		if E.charKey ~= character or RankPicks() ~= picks or Secret(rawget(picks, key))
+			or not rawequal(rawget(picks, key), previous) or CooldownSpell(key) ~= spell then return end
+		if not KnownSpell(spell.id) or (rank ~= nil and (not KnownId(rank) or SpellName(rank) ~= name)) then return end
+		picks[key] = rank
+		M:Refresh()
+	end, "ClassBar:rank:" .. key)
+	return true
+end
 
 local function AnyKnown(list)
 	for _, id in ipairs(list or {}) do
@@ -165,8 +248,9 @@ end
 local function HasOffHandWeapon()
 	local id = GetInventoryItemID and Plain(Try(GetInventoryItemID, "player", OFF))
 	if type(id) ~= "number" then return false end
-	local _, _, _, _, _, classID = Try(C_Item.GetItemInfoInstant, id)
-	return Plain(classID) == (Enum.ItemClass and Enum.ItemClass.Weapon or 2)
+	if not (C_Item and C_Item.GetItemInfoInstant) then return false end
+	local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, id)
+	return ok and Plain(classID) == (Enum.ItemClass and Enum.ItemClass.Weapon or 2)
 end
 
 ---------------------------------------------------------------------------
@@ -226,9 +310,12 @@ function M:Items()
 	if db.cooldowns then
 		for _, spell in ipairs(data.spells or {}) do
 			local key = SpellKey(class, spell)
-			local best, name = KnownSpell(spell.id)
-			if best and Shown(key) then
-				items[#items + 1] = { kind = "spell", key = key, spell = best, name = name, icon = SpellIcon(best) }
+			if SpellFits(spell) and Shown(key) then
+				local best, name, picked = ChosenSpell(spell, key)
+				if best then
+					items[#items + 1] = { kind = "spell", key = key, spell = best, name = name, icon = SpellIcon(best),
+						base = spell.id, picked = picked }
+				end
 			end
 		end
 	end
@@ -254,6 +341,7 @@ end
 -- Tooltips and picks
 ---------------------------------------------------------------------------
 local function HasPick(entry)
+	if entry and entry.kind == "spell" then return true end
 	local R = Reminders()
 	if not (entry and R) then return false end
 	if entry.kind == "poison" then return true end
@@ -269,6 +357,10 @@ local function ShowTip(button)
 		if entry.item and tip.SetItemByID then tip:SetItemByID(entry.item) end
 	elseif entry.spell and tip.SetSpellByID then
 		tip:SetSpellByID(entry.spell)
+	end
+	if entry.kind == "spell" then
+		local rank, highest = RankNumber(entry.spell), RankNumber((KnownSpell(entry.base)))
+		if rank and highest then E.UIKit.TipText(tip, L["Rank %d of %d"]:format(rank, highest)) end
 	end
 	if entry.kind == "count" then
 		E.UIKit.TipText(tip, L["%d in your bags"]:format(entry.ammo and ItemCount({ entry.item }) or ItemCount(entry.items)))
@@ -290,10 +382,32 @@ local function ShowTip(button)
 	tip:Show()
 end
 
--- Right-click: the reminder's own pick menu (out of combat).
+function M:OpenCooldownMenu(owner, key)
+	if InCombatLockdown() or not (owner and E.UIKit and E.UIKit.ContextMenu) then return end
+	local spell = CooldownSpell(key)
+	if not (spell and KnownSpell(spell.id)) then return end
+	local ranks = self:CooldownRanks(key)
+	E.UIKit.ContextMenu(owner, function(_, root)
+		root:CreateTitle(L["Spell and rank"])
+		root:CreateRadio(L["Highest rank (follows new ranks)"], function()
+			local _, _, picked = ChosenSpell(spell, key)
+			return not picked
+		end, function() M:SetCooldownRank(key, nil) end)
+		for index = #ranks, 1, -1 do
+			local rank = ranks[index]
+			root:CreateRadio(L["Rank %d"]:format(rank.rank), function()
+				local id, _, picked = ChosenSpell(spell, key)
+				return picked and id == rank.id
+			end, function() M:SetCooldownRank(key, rank.id) end)
+		end
+	end)
+end
+
+-- Right-click: cooldown ranks, or the reminder's spell and poison menus.
 local function PickClick(button, mouse, down)
 	if mouse ~= "RightButton" or down or InCombatLockdown() then return end
 	local entry = button.entry
+	if entry and entry.kind == "spell" then return M:OpenCooldownMenu(button, entry.key) end
 	local R = Reminders()
 	if not (entry and R and HasPick(entry)) then return end
 	if entry.kind == "poison" then
@@ -318,12 +432,7 @@ local function NewButton(parent, name)
 	if button.cooldown.SetDrawEdge then button.cooldown:SetDrawEdge(false) end
 	button.count = E:CreateText(button, E.tokens.size.small, "RIGHT")
 	button.count:SetPoint("BOTTOMRIGHT", -2, 2)
-	local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-	highlight:SetAllPoints(button.icon)
-	highlight:SetColorTexture(1, 1, 1, E.tokens.hover.hud)
-	button.pushed = button:CreateTexture(nil, "OVERLAY")
-	button.pushed:SetAllPoints(button.icon)
-	button:SetPushedTexture(button.pushed)
+	E:SkinHudButton(button, button.icon)
 	button:RegisterForClicks("AnyUp", "AnyDown")
 	button:HookScript("PostClick", PickClick)
 	button:HookScript("OnEnter", ShowTip)
@@ -360,7 +469,10 @@ local function UpkeepSlot(button, ids, size)
 	for _, id in ipairs(ids) do include[id] = true end
 	local settings = { size = size, duration = "SWIPE", durationSize = math.max(math.floor(size * 0.38), 9),
 		countSize = math.max(math.floor(size * 0.42), 10), tooltip = false }
-	return W.CreateSlots(button, { unit = "player", slots = { {
+	local sorted = { unpack(ids) }
+	table.sort(sorted)
+	return W.CreateSlots(button, { unit = "player", poolKey = ("classbar:%s:%s:%s"):format(tostring(button:GetName()), size,
+		table.concat(sorted, ",")), slots = { {
 		key = "upkeep", filter = "HELPFUL|PLAYER", candidateFilters = { includeSpellIDs = include },
 		initialize = W.SlotIcon(settings, function(aura)
 			aura:ClearAllPoints()
@@ -383,7 +495,7 @@ end
 -- The secure click of an icon.
 local function Action(entry)
 	if entry.kind == "upkeep" then return "spell", entry.spell end
-	if entry.kind == "spell" then return "spell", entry.name or entry.spell end
+	if entry.kind == "spell" then return "spell", entry.picked and entry.spell or entry.name or entry.spell end
 	if entry.kind == "poison" and entry.item then
 		return "macro", nil, ("/use item:%d\n/use %d"):format(entry.item, entry.hand == "off" and OFF or MAIN)
 	end
@@ -400,6 +512,7 @@ function M:Apply()
 	self:Build()
 	local db = self.db
 	local size, spacing = db.size, db.spacing
+	local perRow = math.max(1, math.floor(tonumber(db.perRow) or MAX_ICONS))
 	local items = self:Items()
 	self.items = items
 	local shown = math.min(#items, MAX_ICONS)
@@ -410,15 +523,16 @@ function M:Apply()
 		button.entry = entry
 		E:SetTemplate(button)
 		E:SetFont(button.count, E.tokens.size.small)
-		button.pushed:SetColorTexture(r, g, b, E.tokens.pressed)
 		if entry then
 			button:SetSize(size, size)
 			button:ClearAllPoints()
-			local offset = (index - 1) * (size + spacing)
+			-- Rows of perRow icons (columns when vertical).
+			local along = ((index - 1) % perRow) * (size + spacing)
+			local across = math.floor((index - 1) / perRow) * (size + spacing)
 			if db.vertical then
-				button:SetPoint("TOP", self.frame, "TOP", 0, -offset)
+				button:SetPoint("TOPLEFT", self.frame, "TOPLEFT", across, -along)
 			else
-				button:SetPoint("LEFT", self.frame, "LEFT", offset, 0)
+				button:SetPoint("TOPLEFT", self.frame, "TOPLEFT", along, -across)
 			end
 			button.icon:SetTexture(entry.icon)
 			button.icon:SetDesaturated(false)
@@ -444,8 +558,11 @@ function M:Apply()
 			button:Hide()
 		end
 	end
-	local length = shown > 0 and (shown * size + (shown - 1) * spacing) or size
-	if db.vertical then self.frame:SetSize(size, length) else self.frame:SetSize(length, size) end
+	local count = math.max(1, math.min(shown, perRow))
+	local lines = math.max(1, math.ceil(shown / perRow))
+	local length = count * size + (count - 1) * spacing
+	local depth = lines * size + (lines - 1) * spacing
+	if db.vertical then self.frame:SetSize(depth, length) else self.frame:SetSize(length, depth) end
 	self.frame:SetShown(shown > 0)
 	self:ApplyVisibility()
 	local mover = E.movers.EldoUI_ClassBar
@@ -595,12 +712,12 @@ end
 ---------------------------------------------------------------------------
 local events = CreateFrame("Frame")
 local EVENTS = {
-	"SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "PLAYER_LEVEL_UP", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
+	"SPELLS_CHANGED", "LEARNED_SPELL_IN_SKILL_LINE", "PLAYER_LEVEL_UP", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
 	"PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "UNIT_AURA", "UNIT_INVENTORY_CHANGED",
 }
 -- The list of icons may change: a spell learned, a weapon or ammo swapped,
 -- reagents bought or used up.
-local RELIST = { SPELLS_CHANGED = true, LEARNED_SPELL_IN_TAB = true, PLAYER_LEVEL_UP = true, PLAYER_ENTERING_WORLD = true,
+local RELIST = { SPELLS_CHANGED = true, LEARNED_SPELL_IN_SKILL_LINE = true, PLAYER_LEVEL_UP = true, PLAYER_ENTERING_WORLD = true,
 	PLAYER_REGEN_ENABLED = true, PLAYER_EQUIPMENT_CHANGED = true, BAG_UPDATE_DELAYED = true, UNIT_INVENTORY_CHANGED = true }
 events:SetScript("OnEvent", function(_, event)
 	if not M.active then return end
@@ -679,14 +796,16 @@ M.options = {
 	{ type = "description", label = "Shamans have the cooldown bar of Shaman Totems instead, so this bar stays hidden.", tone = "warning", hidden = NotDrawn },
 	{ type = "description", label = "One bar with the buffs you keep up, your key cooldowns and the reagents you spend. Each icon shows once you know its spell." },
 	{ type = "header", label = "Bar" },
-	{ type = "range", key = "size", label = "Icon size", min = 20, max = 48, step = 1, desc = "Size of each icon." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between icons." },
+	{ type = "range", unit = "px", key = "size", label = "Icon size", min = 20, max = 48, step = 1, desc = "Width and height of each buff, cooldown and reagent icon." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between icons." },
 	{ type = "toggle", key = "vertical", label = "Vertical", desc = "Stack the icons top to bottom." },
+	{ type = "range", key = "perRow", label = "Icons per row", min = 4, max = 24, step = 1,
+		desc = "More icons than this start a new row (a new column when vertical), so a full bar keeps clear of the player and target frames." },
 	{ type = "toggle", key = "missingGlow", label = "Glow while missing", desc = "A soft glow on a buff or poison icon while it is missing (out of combat; the game hides auras from addons in combat)." },
 	{ type = "execute", label = "Move", desc = "Unlock EldoUI frames to drag the class bar (mover \"Class Bar\").", func = function() E:MoveFrame("EldoUI_ClassBar") end },
 	{ type = "header", label = "What it shows" },
 	{ type = "toggle", key = "upkeep", label = "Buffs you keep up", desc = "Your class buffs, auras, armors, aspects or poisons: live with their time, faded while missing. Right-click one to pick the spell and rank; the reminders keep the same pick." },
-	{ type = "toggle", key = "cooldowns", label = "Key cooldowns", desc = "Your class's key cooldowns, with the game's cooldown swipe. A click casts the highest rank you know." },
+	{ type = "toggle", key = "cooldowns", label = "Key cooldowns", desc = "Your class's key cooldowns, with the game's cooldown swipe. A click casts the highest rank you know unless you pick a rank with right-click. Each character keeps its own picks." },
 	{ type = "toggle", key = "counts", label = "Reagents and ammo", desc = "How many of the reagents your class spends you carry, and a hunter's ammo." },
 }
 
@@ -708,7 +827,8 @@ local function ClassRows(class, data)
 		M.options[#M.options + 1] = {
 			type = "toggle", key = "show." .. SpellKey(class, spell), label = spell.name,
 			gameName = function() return SpellName(spell.id) end,
-			desc = E.Key("Show this cooldown on the bar once you know it."), dependsOn = "cooldowns", hidden = Other,
+			desc = E.Key("Show this cooldown on the bar once you know it."), dependsOn = "cooldowns",
+			hidden = function() return Other() or not SpellFits(spell) end,
 		}
 	end
 	for _, count in ipairs(data.counts or {}) do

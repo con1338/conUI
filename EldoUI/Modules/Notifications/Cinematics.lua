@@ -35,12 +35,31 @@ local function Seen()
 	return EldoUIDB.notifications
 end
 
--- Cutscenes have no ID; the place they start is the key.
+-- Cutscenes have no ID. The key is where it starts (map, zone, subzone and
+-- the spot, rounded to a twentieth of the map) and the quest you took or
+-- handed in just before, so another cutscene in the same town is new.
+local QUEST_WINDOW = 15 -- seconds a quest step counts for a cutscene
+local lastQuest, lastQuestAt
+local function QuestStep(_, questID)
+	questID = U.Safe(questID)
+	if type(questID) == "number" then lastQuest, lastQuestAt = questID, GetTime() end
+end
+U.On("QUEST_ACCEPTED", QuestStep)
+U.On("QUEST_TURNED_IN", QuestStep)
+
 local function CinematicKey()
 	local zone = U.Safe(GetRealZoneText and GetRealZoneText()) or ""
 	local sub = U.Safe(GetSubZoneText and GetSubZoneText()) or ""
 	local mapID = C_Map and C_Map.GetBestMapForUnit and U.Safe(C_Map.GetBestMapForUnit("player")) or 0
-	return ("%d|%s|%s"):format(mapID, zone, sub)
+	local spot = ""
+	local pos = mapID ~= 0 and C_Map.GetPlayerMapPosition and U.Safe(C_Map.GetPlayerMapPosition(mapID, "player"))
+	if type(pos) == "table" and pos.GetXY then
+		local x, y = pos:GetXY()
+		x, y = U.Safe(x), U.Safe(y)
+		if type(x) == "number" and type(y) == "number" then spot = ("%d,%d"):format(math.floor(x * 20), math.floor(y * 20)) end
+	end
+	local quest = lastQuestAt and GetTime() - lastQuestAt <= QUEST_WINDOW and lastQuest or 0
+	return ("%d|%s|%s|%s|%d"):format(mapID, zone, sub, spot, quest)
 end
 
 local function Improve(key)

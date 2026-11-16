@@ -1,4 +1,4 @@
--- EldoUI Flight Games (off by default): quick arcade games for the time on
+-- EldoUI Flight Games (on by default): quick arcade games for the time on
 -- a flight path.
 --
 --   Launcher   While you fly a flight path a small "Games" box shows
@@ -34,7 +34,7 @@ local RECENT_MAX = 6  -- the last games the box offers
 
 local M = E:NewModule("FlightGames", {
 	title = "Flight Games",
-	desc = "Quick arcade games while you fly a flight path: a small Games box shows during the flight, and a click opens the games. Keys and the mouse play; landing or combat closes them.",
+	desc = "Games for a flight path: arcade, puzzles, cards, dice and board games, and quizzes. A small Games box opens the games while you fly. Use the keyboard and mouse to play. Landing or combat closes them.",
 	category = "Quality of Life",
 	frames = { WINDOW, LAUNCHER },
 	savedKeys = { "profile.modules.FlightGames", "global.FlightGames" },
@@ -42,7 +42,7 @@ local M = E:NewModule("FlightGames", {
 	presets = { "Standard", "Compact", "Large", "Accent", "Calm" },
 	reload = false,
 	defaults = {
-		enabled = false,
+		enabled = true,
 		launcher = true,          -- the Games box on a flight path
 		launcherTime = true,      -- the time left of the flight on the box
 		autoOpen = false,         -- open the games at take-off
@@ -629,6 +629,26 @@ end
 -- The host a game draws in and reports to.
 local function NewHost(window)
 	local host = { area = window.area, module = M }
+	-- Saves keep player/computer sides as 1/-1. Their faction is presentation.
+	local playerFaction = "Alliance"
+	if type(UnitFactionGroup) == "function" then
+		local ok, faction = pcall(UnitFactionGroup, "player")
+		if ok and not E.Secret(faction) and faction == "Horde" then playerFaction = "Horde" end
+	end
+	local function Faction(side)
+		if side == 1 then return playerFaction end
+		return playerFaction == "Horde" and "Alliance" or "Horde"
+	end
+	function host.FactionName(side)
+		if Faction(side) == "Horde" then return E:GameText(FACTION_HORDE, L["Horde"]) end
+		return E:GameText(FACTION_ALLIANCE, L["Alliance"])
+	end
+	function host.FactionColor(side, palette)
+		return (palette or M:Palette())[Faction(side) == "Horde" and 6 or 7]
+	end
+	function host.FactionIcon(side)
+		return Faction(side) == "Horde" and "Interface\\Icons\\INV_BannerPVP_01" or "Interface\\Icons\\INV_BannerPVP_02"
+	end
 	host.Random = function(a, b) return M.Random(a, b) end
 	host.Palette = function() return M:Palette() end
 	host.Color = M.Color
@@ -1656,7 +1676,7 @@ end
 -- /eui games: the game menu anywhere, on a flight path or not. A second
 -- /eui games closes it again. Typed in combat, the menu opens as soon as
 -- the fight is over.
-E:AddCommand("games", "open or close the Flight Games, on a flight path or not", function()
+local function ToggleGames()
 	if not M.active then
 		E:Print(E:ModuleOffHint("FlightGames"))
 		return
@@ -1669,4 +1689,6 @@ E:AddCommand("games", "open or close the Flight Games, on a flight path or not",
 		return
 	end
 	M:Toggle()
-end, "Tools")
+end
+E:AddCommand("games", "open or close the Flight Games, on a flight path or not", ToggleGames, "Tools")
+E:AddCommand("fg", "open or close the Flight Games, on a flight path or not", ToggleGames, "Tools")

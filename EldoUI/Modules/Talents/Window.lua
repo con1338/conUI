@@ -820,7 +820,7 @@ local function CreateBuildsTab(content)
 				if item.skipped > 0 then return Kit.WARN[1], Kit.WARN[2], Kit.WARN[3] end
 				return Kit.TEXT[1], Kit.TEXT[2], Kit.TEXT[3]
 			end },
-		{ key = "checked", title = L["Checked on"], width = 130, desc = L["The game build EldoUI checked the path on."],
+		{ key = "checked", title = L["Checked on"], width = 130, desc = L["The game version EldoUI checked the path on."],
 			color = function() return Kit.SECONDARY[1], Kit.SECONDARY[2], Kit.SECONDARY[3] end },
 	}, {
 		sortKey = "role",

@@ -53,18 +53,23 @@ function M:BuildOptions()
 			} },
 		{ type = "toggle", key = "countRaids", label = L["Count raids"], desc = L["Raids count toward the hourly limit too. Off: raids are logged in orange and don't count."] },
 		{ type = "toggle", key = "detectSameRun", label = L["Detect the same run"], desc = L["Walking out and back into the same instance doesn't count twice: entries with the same instance ID, read from the mobs you target, are merged."] },
+		{ type = "select", key = "combatLogging", label = L["Log combat automatically"],
+			values = { off = L["Off"], raids = L["Raids"], all = L["Raids and dungeons"] }, order = { "off", "raids", "all" },
+			desc = L["Write the game's combat log in the chosen instances. Logging started here stops 30 seconds after you leave."] },
 		{ type = "header", label = L["Data"] },
 		{ type = "range", key = "keepRuns", label = L["Runs kept"], min = 50, max = 500, step = 10, desc = L["How many runs this log keeps (all characters). Older runs leave the log; My Adventure keeps every run in its journal, with who was in it."] },
 		{ type = "execute", label = L["Remove all runs"], desc = L["Empties the run log for every character, after a confirmation."], func = function()
 			E:ShowConfirm({ key = "ELDOUI_INSTANCES_WIPE", title = L["Instances"],
 				text = L["Remove every run from the log, for all characters? Trades and lockouts are kept."],
-				accept = YES or L["Yes"], cancel = NO or L["No"], danger = true, onAccept = WipeRuns })
+				accept = E:GameText(YES, L["Yes"]), cancel = E:GameText(NO, L["No"]), danger = true, onAccept = WipeRuns })
 		end },
 
 		{ type = "tab", label = L["Notices"] },
 		{ type = "description", label = L["Lines in your own chat window. Nothing here is sent to other players."] },
 		{ type = "header", label = L["Entering"] },
 		{ type = "toggle", key = "noticeEnter", label = L["Dungeon entered"], desc = L["A line with the hourly count when you enter a dungeon, with links to the log and to remove the entry."] },
+		{ type = "toggle", key = "noticeArgentDawn", label = L["Argent Dawn trinket reminder"], dependsOn = "noticeEnter",
+			desc = L["Adds a reminder in Scholomance and Stratholme when you carry an Argent Dawn trinket, have none equipped, and are below Exalted."] },
 		{ type = "toggle", key = "noticeRaid", label = L["Raid entered"], desc = L["The same line when you enter a raid."] },
 		{ type = "toggle", key = "noticePvP", label = L["Battleground entered"], desc = L["A line when you enter a battleground or arena, which never counts toward the limit."] },
 		{ type = "toggle", key = "noticeMerge", label = L["Same run merged"], desc = L["A line when an entry turns out to be the same run as the one before."] },

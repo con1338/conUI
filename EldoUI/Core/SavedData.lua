@@ -10,7 +10,8 @@
 --     Alts window forgot is backed up first and listed here with Restore.
 --   * Set aside: values the load checks could not read, with Put back;
 --     journals saved under a character's name that belong to another
---     character (kept); leftover saved tables nothing reads any more, with
+--     character (packed, the newest ten, with Remove, and Give to this
+--     character for a copy of its own); leftover saved tables nothing reads any more, with
 --     a Remove the player chooses.
 --   * Checks: what each saved part's check found at this login.
 -- Nothing on this page deletes data on its own. Restore, Put back and
@@ -111,7 +112,7 @@ function SD.Restored()
 	local list = {}
 	for id, entry in pairs(type(backups) == "table" and type(backups.restored) == "table" and backups.restored or {}) do
 		if type(entry) == "table" and type(entry.data) == "table" then
-			list[#list + 1] = { id = id, at = entry.at, eldoui = entry.eldoui }
+			list[#list + 1] = { id = id, at = entry.at, eldoui = entry.eldoui, why = entry.why }
 		end
 	end
 	table.sort(list, function(a, b)
@@ -141,11 +142,24 @@ function SD.ValueText(entry)
 		When(entry.at), L[tostring(entry.why or "Not the kind of value expected here.")])
 end
 
+-- Is a set-aside journal a copy of this character's own (it once shared a
+-- name key with another character)?
+function SD.OrphanIsMine(entry)
+	local S = E.Adventure and E.Adventure.Store
+	local mine = S and S.MyGUID and S.MyGUID()
+	if not (mine and type(entry) == "table") then return false end
+	local guid = entry.guid
+	if guid == nil and type(entry.journal) == "table" then guid = entry.journal.guid end
+	return guid == mine
+end
+
 function SD.OrphanText(entry)
-	local journal = type(entry.journal) == "table" and entry.journal or {}
-	local rows = type(journal.events) == "table" and #journal.events or 0
-	return (L["%s, kept %s"]):format(tostring(entry.key or "?"), When(entry.at)) .. " · "
+	local B = E.Adventure and E.Adventure.Backup
+	local rows = B and B.OrphanRows and B.OrphanRows(entry) or 0
+	local text = (L["%s, kept %s"]):format(tostring(entry.key or "?"), When(entry.at)) .. " · "
 		.. E:Plural(rows, "%s moment", "%s moments"):format(BreakUpLargeNumbers(rows))
+	if SD.OrphanIsMine(entry) then text = text .. " · " .. L["an older copy of this character's journal"] end
+	return text
 end
 
 function SD.LegacyText(entry)
@@ -157,7 +171,17 @@ function SD.HoldText(entry)
 	return (L["%s, held since %s"]):format(SD.PartOfId(entry.id), When(entry.at))
 end
 
+-- A copy kept before a reset, copy, delete or import of a profile says which.
+local CHANGE_TEXT = {
+	reset = E.Key("%s, as it was before you reset it %s"),
+	copy = E.Key("%s, as it was before you copied another profile over it %s"),
+	parts = E.Key("%s, as it was before you copied parts into it %s"),
+	import = E.Key("%s, as it was before you imported into it %s"),
+	delete = E.Key("%s, as it was before you deleted it %s"),
+}
+
 function SD.RestoredText(entry)
+	if CHANGE_TEXT[entry.why] then return L[CHANGE_TEXT[entry.why]]:format(SD.PartOfId(entry.id), When(entry.at)) end
 	return (L["%s, as it was just before you restored it %s"]):format(SD.PartOfId(entry.id), When(entry.at))
 end
 
@@ -265,6 +289,12 @@ end
 -- dropped). Out of combat, as a restore.
 function SD.UndoRestore(entry)
 	if not entry then return false end
+	local profile = entry.why and tostring(entry.id):match("^profile:(.+)$")
+	if profile then
+		local ok, err = E:UndoProfileChange(profile)
+		return Done(ok, err, (L["%s is back as it was before the change. What it held a moment ago is kept in its place. Type /reload so every part of EldoUI reads it again."])
+			:format(SD.PartOfId(tostring(entry.id))))
+	end
 	local ok, err = E:UndoRestore(entry.id)
 	return Done(ok, err, (L["%s is back as it was just before the restore. What it held a moment ago is kept in its place. Type /reload so every part of EldoUI reads it again."])
 		:format(SD.PartOfId(tostring(entry.id))))
@@ -281,6 +311,27 @@ function SD.PutBack(entry)
 	if not entry then return false end
 	local ok, err = E:PutBack(entry.id, entry.path)
 	return Done(ok, err, (L["Put back: %s. Type /reload so every part of EldoUI reads it again."]):format(tostring(entry.path)))
+end
+
+-- A set-aside copy of this character's own journal goes into its journal
+-- (merged, after a backup).
+function SD.GiveOrphan(entry)
+	if not entry then return false end
+	if InCombatLockdown() then return Done(false, L["Backups can be put back out of combat only."]) end
+	local B = E.Adventure and E.Adventure.Backup
+	if not (B and B.GiveOrphan) then return Done(false, L["That journal is gone."]) end
+	local ok, err = B:GiveOrphan(entry)
+	return Done(ok, err, L["The copy is merged into your journal. Your journal as it was a moment ago is kept as a backup in My Adventure."])
+end
+
+-- Remove a set-aside journal for good (the page asks first).
+function SD.RemoveOrphan(entry)
+	if not entry then return false end
+	local B = E.Adventure and E.Adventure.Backup
+	if not (B and B.RemoveOrphan) then return Done(false, L["That journal is gone."]) end
+	local ok, err = B:RemoveOrphan(entry)
+	return Done(ok, err, (L["The journal kept under %s is removed. It leaves your saved file at your next logout or /reload."])
+		:format(tostring(entry.key or "?")))
 end
 
 function SD.RemoveLegacy(entry)
@@ -308,7 +359,10 @@ local function Slots(rows, list, count, text, ...)
 			rows[#rows + 1] = { type = "execute", label = action.label, desc = action.desc, noUndo = true,
 				confirm = action.confirm and function() local entry = item() return entry and action.confirm(entry) or "" end,
 				confirmAccept = action.accept, confirmDanger = action.danger or false,
-				hidden = function() return item() == nil end,
+				hidden = function()
+					local entry = item()
+					return entry == nil or (action.shown ~= nil and not action.shown(entry))
+				end,
 				func = function() action.run(item()) end }
 		end
 	end
@@ -373,9 +427,21 @@ function SD.BuildRows()
 		run = SD.PutBack,
 	})
 	rows[#rows + 1] = { type = "header", label = "Journals of another character" }
-	rows[#rows + 1] = { type = "description", label = "Journals under your character names that belong to another character, such as one deleted and made again. Kept apart, never mixed in." }
+	rows[#rows + 1] = { type = "description", label = "Journals kept under your names for another character, such as one deleted and made again. Never mixed in; the newest ten stay." }
 	Empty(rows, SD.Orphans, E.Key("None."))
-	Slots(rows, SD.Orphans, SD.SHOWN.orphans, SD.OrphanText)
+	Slots(rows, SD.Orphans, SD.SHOWN.orphans, SD.OrphanText, {
+		label = "Give to this character", desc = "Merges this older copy into this character's journal. Your journal is backed up first, and nothing from either is lost. Works out of combat.",
+		accept = "Merge", shown = SD.OrphanIsMine, run = SD.GiveOrphan,
+		confirm = function(entry)
+			return (L["Merge the copy kept under %s into this character's journal? Your journal is backed up first."]):format(tostring(entry.key or "?"))
+		end,
+	}, {
+		label = "Remove", desc = "Removes this journal from your saved data for good. It can't be undone.",
+		accept = "Remove", danger = true, run = SD.RemoveOrphan,
+		confirm = function(entry)
+			return (L["Remove the journal kept under %s for good? It can't be put back afterwards."]):format(tostring(entry.key or "?"))
+		end,
+	})
 	rows[#rows + 1] = { type = "header", label = "Leftover data" }
 	rows[#rows + 1] = { type = "description", label = "Saved tables from older versions that nothing in EldoUI reads any more. They stay until you remove them." }
 	Empty(rows, SD.Legacy, E.Key("None. Nothing older is left in your saved files."))

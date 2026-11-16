@@ -390,7 +390,7 @@ E.knownTint = { 0.35, 0.9, 0.45 }
 
 local knownWatcher = CreateFrame("Frame")
 for _, event in ipairs({ "NEW_RECIPE_LEARNED", "NEW_MOUNT_ADDED", "NEW_PET_ADDED", "PET_JOURNAL_LIST_UPDATE",
-	"TOYS_UPDATED", "LEARNED_SPELL_IN_TAB", "SKILL_LINES_CHANGED" }) do
+	"TOYS_UPDATED", "LEARNED_SPELL_IN_SKILL_LINE", "SKILL_LINES_CHANGED" }) do
 	if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then
 		pcall(knownWatcher.RegisterEvent, knownWatcher, event)
 	end

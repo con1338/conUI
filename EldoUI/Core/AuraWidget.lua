@@ -479,11 +479,13 @@ local function Initializer(settings, group)
 		cooldown:SetReverse(true)
 		cooldown:SetDrawEdge(false)
 		cooldown:SetDrawSwipe(swipe)
-		-- A red time (Aura expiring) replaces the cooldown numbers, which take
-		-- no color curve, with the duration text below.
+		-- A red time (Aura expiring) or a blink replaces the cooldown
+		-- numbers, which take no color curve, with the duration text below:
+		-- one countdown per icon, and the blink shows.
 		local redTime = mode == "SWIPE" and settings.fx and settings.fx.red
-		cooldown:SetHideCountdownNumbers(mode ~= "SWIPE" or redTime and true or false)
-		if mode == "SWIPE" and not redTime then
+		local textTime = mode == "SWIPE" and (redTime or (tonumber(settings.blink) or 0) > 0) and true or false
+		cooldown:SetHideCountdownNumbers(mode ~= "SWIPE" or textTime)
+		if mode == "SWIPE" and not textTime then
 			-- One look for countdowns everywhere: the shared EldoUI
 			-- numbers, unless the caller opts out.
 			if settings.cooldownLook == false or not W.StyleCooldown(cooldown, settings.durationSize) then
@@ -538,22 +540,20 @@ local function Initializer(settings, group)
 		if mode == "TEXT" or mode == "BOTH" then
 			local text = button:CreateFontString(nil, "OVERLAY", nil, 7)
 			E:SetFont(text, settings.durationSize, "OUTLINE")
-			PlaceText(text, button, settings.durationPoint, settings.durationX, settings.durationY, "BELOW")
+			-- Under the icon the text goes below the time bar, not over it.
+			local barRoom = ((settings.timeBar or 0) > 0 and (settings.durationPoint or "BELOW") == "BELOW") and (settings.timeBar + E.pixel) or 0
+			PlaceText(text, button, settings.durationPoint, settings.durationX, (settings.durationY or 0) - barRoom, "BELOW")
 			if not Call(button, "SetDurationText", text, DurationTextOptions(settings)) then
 				Call(button, "SetDurationText", text, {})
 			end
-		elseif redTime then
+		elseif textTime then
+			-- In the numbers' place, in the shared countdown look unless the
+			-- caller opts out ("Color by time left" is not offered here).
 			local text = button:CreateFontString(nil, "OVERLAY", nil, 7)
 			E:SetFont(text, settings.durationSize, "OUTLINE")
 			PlaceText(text, button, settings.durationPoint, settings.durationX, settings.durationY, "CENTER")
-			Call(button, "SetDurationText", text, DurationTextOptions(settings))
-		elseif mode == "SWIPE" and (settings.blink or 0) > 0 then
-			-- The cooldown numbers take no curve: a second, blinking copy of
-			-- the time sits on top of them in the last seconds instead.
-			local warn = button:CreateFontString(nil, "OVERLAY", nil, 6)
-			E:SetFont(warn, settings.durationSize, "OUTLINE")
-			warn:SetPoint("CENTER", icon, "CENTER")
-			Call(button, "SetDurationText", warn, DurationTextOptions(settings))
+			local look = setmetatable({ timeColors = settings.cooldownLook ~= false }, { __index = settings })
+			Call(button, "SetDurationText", text, DurationTextOptions(look))
 		end
 
 		-- A thin bar under the icon that empties as the aura runs out.
@@ -797,7 +797,9 @@ end
 --   W.SlotsAvailable()                  containers with slots and spell lists
 --   W.CreateSlots(parent, settings)     settings.unit, settings.combat,
 --                                       settings.slots = { { key, filter,
---                                       candidateFilters, initialize }, ... }
+--                                       candidateFilters, initialize }, ... },
+--                                       settings.poolKey (released containers
+--                                       with the same key come back)
 --   W.SlotIcon(settings, place, extra)  initializer: the W.Create icon look
 --                                       (or bar look with settings.bar), then
 --                                       place(button), then extra(button)
@@ -812,9 +814,30 @@ function W.SlotsAvailable()
 	return true
 end
 
+-- The pool key of a slot container: the caller's settings.poolKey (it
+-- must cover the parent and everything the slots and their initializers
+-- are built from) and the theme the initializers bake in. nil when the
+-- caller gives none: the container is not kept.
+function W.SlotsPoolKey(settings)
+	if settings.poolKey == nil then return nil end
+	return "slots:" .. tostring(settings.poolKey) .. ":" .. tostring(settings.unit or "player") .. ":" .. W.ThemeKey()
+end
+
 function W.CreateSlots(parent, settings)
 	if not W.Available() then return nil end
 	if InCombatLockdown() and not settings.combat then return nil end
+	-- A released container with the same slots comes back: the client
+	-- never frees frames, so each rebuild would otherwise leave one behind.
+	local poolKey = W.SlotsPoolKey(settings)
+	local reused = poolKey and not InCombatLockdown() and W.FromPool(poolKey, parent)
+	if reused then
+		reused:ClearAllPoints()
+		reused:SetPoint("TOPLEFT", parent, "TOPLEFT")
+		reused:SetSize(1, 1)
+		reused:Show()
+		Call(reused, "SetUnit", settings.unit or "player")
+		return reused
+	end
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, TEMPLATE)
 	if not ok or not container or type(container.AddAuraSlot) ~= "function" then
 		if ok and container then container:Hide() end
@@ -840,6 +863,7 @@ function W.CreateSlots(parent, settings)
 	end
 	container:Show()
 	Call(container, "SetUnit", settings.unit or "player")
+	W.PoolAs(container, poolKey)
 	return container
 end
 

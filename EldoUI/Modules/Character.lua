@@ -60,6 +60,7 @@ local M = E:NewModule("Character", {
 		socketInfo = false,      -- gem and enchant marks, read from the item link
 		durability = "text",     -- off, text, tint
 		enchantHint = false,
+		weaponBuffTime = false,
 		headerColorMode = "accent", -- accent, gold, class, custom
 		headerColor = { 1, 0.82, 0 },
 		statsFontSize = 13,
@@ -427,7 +428,7 @@ function M:UpdateHeader()
 	if blizzLevel then line:SetPoint("CENTER", blizzLevel, "CENTER") else line:SetPoint("TOP", CharacterFrame, "TOP", 0, -30) end
 	local className, classFile = UnitClass("player")
 	local who = SpecName() and (SpecName() .. " " .. (className or "")) or (className or "")
-	line:SetFormattedText("%s %d %s", LEVEL or L["Level"], UnitLevel("player") or 0, who)
+	line:SetFormattedText("%s %d %s", E:GameText(LEVEL, L["Level"]), UnitLevel("player") or 0, who)
 	local r, g, b = E:GetClassColor(classFile)
 	if type(r) == "number" then
 		line:SetTextColor(r, g, b)
@@ -504,8 +505,9 @@ function M:SetModelOnly(on)
 			frame:SetAlpha(0)
 		end
 		for _, frame in ipairs(MouseFrames()) do
-			if frame.IsMouseEnabled and eye.mouse[frame] == nil then
-				eye.mouse[frame] = frame:IsMouseEnabled()
+			local mouse = eye.mouse[frame] == nil and E.FrameMouse(frame, "IsMouseEnabled")
+			if type(mouse) == "boolean" then
+				eye.mouse[frame] = mouse
 				pcall(frame.EnableMouse, frame, false)
 			end
 		end
@@ -673,6 +675,12 @@ local function MissingEnchant(info, link)
 	if not ENCHANTABLE[info.name] or not link then return false end
 	local _, _, _, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(link)
 	if info.name == "SecondaryHandSlot" and not OFFHAND_ENCHANTABLE[equipLoc] then return false end
+	if info.name == "RangedSlot" then
+		local weapon = Enum.ItemWeaponSubclass
+		if equipLoc == "INVTYPE_RELIC" or equipLoc == "INVTYPE_THROWN" or classID ~= Enum.ItemClass.Weapon
+			or not weapon or not subclassID
+			or (subclassID ~= weapon.Bows and subclassID ~= weapon.Guns and subclassID ~= weapon.Crossbow) then return false end
+	end
 	-- Wands take no enchant.
 	if classID == Enum.ItemClass.Weapon and Enum.ItemWeaponSubclass and subclassID == Enum.ItemWeaponSubclass.Wand then return false end
 	local enchant = link:match("item:%-?%d+:(%-?%d*)")
@@ -806,13 +814,57 @@ local function SlotOverlay(info)
 	return overlay
 end
 
+local function ReadItemLevel(link)
+	if type(link) ~= "string" or E.Secret(link) then return end
+	local level = E.PlainCall(C_Item.GetDetailedItemLevelInfo, link)
+	if type(level) == "number" and level > 1 and level < math.huge then return level end
+end
+
+local function StyleItemLevel(text, button, name, level, r, g, b, flyout)
+	local db = M.db
+	local position = db.ilvlPosition
+	local side = position == "SIDE" and SLOT_SIDE[name]
+	-- Flyout items sit close together, so keep the selected side inside the icon.
+	if side and not flyout and name == "SecondaryHandSlot" and _G.CharacterRangedSlot and _G.CharacterRangedSlot:IsShown() then side = "TOP" end
+	E:SetFont(text, db.ilvlSize)
+	text:ClearAllPoints()
+	text:SetJustifyH("CENTER")
+	if side == "RIGHT" then
+		if flyout then text:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
+		else text:SetPoint("TOPLEFT", button, "TOPRIGHT", 6, -2) end
+		text:SetJustifyH(flyout and "RIGHT" or "LEFT")
+	elseif side == "LEFT" then
+		if flyout then text:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+		else text:SetPoint("TOPRIGHT", button, "TOPLEFT", -6, -2) end
+		text:SetJustifyH(flyout and "LEFT" or "RIGHT")
+	elseif side == "TOP" then
+		text:SetPoint("BOTTOM", button, "TOP", 0, 2)
+	elseif position == "TOP" then
+		text:SetPoint("TOP", button, "TOP", 0, -2)
+	elseif position == "CENTER" then
+		text:SetPoint("CENTER", button, "CENTER")
+	else
+		text:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+	end
+	text:SetText(level or "")
+	if db.ilvlColor == "white" then
+		text:SetTextColor(1, 1, 1)
+	elseif db.ilvlColor == "accent" then
+		text:SetTextColor(E:TokenColor("accent"))
+	else
+		text:SetTextColor(r or 1, g or 1, b or 1)
+	end
+	return side
+end
+
 local function UpdateSlot(info)
 	local db = M.db
 	local id = info.id
-	local link = GetInventoryItemLink("player", id)
-	local quality = link and GetInventoryItemQuality("player", id)
+	local link = E.PlainCall(GetInventoryItemLink, "player", id)
+	local quality = link and E.PlainCall(GetInventoryItemQuality, "player", id)
 	local qr, qg, qb = 1, 1, 1
-	if quality then qr, qg, qb = C_Item.GetItemQualityColor(quality) end
+	if type(quality) == "number" then qr, qg, qb = E.PlainCallAll(C_Item.GetItemQualityColor, quality) end
+	qr, qg, qb = qr or 1, qg or 1, qb or 1
 
 	-- The flat slot's border (Skin switch).
 	if info.border then
@@ -835,41 +887,12 @@ local function UpdateSlot(info)
 	overlay:Show()
 
 	-- Item level.
-	local position = db.ilvlPosition
-	local level = ""
+	local level
 	if db.itemLevel and link and not NO_ITEM_LEVEL[info.name] then
-		local itemLevel = C_Item.GetDetailedItemLevelInfo(link)
-		if itemLevel and itemLevel > 1 then level = itemLevel else M.missingInfo = true end
+		level = ReadItemLevel(link)
+		if not level then M.missingInfo = true end
 	end
-	E:SetFont(overlay.ilvl, db.ilvlSize)
-	overlay.ilvl:ClearAllPoints()
-	local side = position == "SIDE" and SLOT_SIDE[info.name]
-	-- An off hand between the main hand and a ranged slot has no free side.
-	if side and info.name == "SecondaryHandSlot" and _G.CharacterRangedSlot and _G.CharacterRangedSlot:IsShown() then side = "TOP" end
-	if side == "RIGHT" then
-		overlay.ilvl:SetPoint("TOPLEFT", info.button, "TOPRIGHT", 6, -2)
-		overlay.ilvl:SetJustifyH("LEFT")
-	elseif side == "LEFT" then
-		overlay.ilvl:SetPoint("TOPRIGHT", info.button, "TOPLEFT", -6, -2)
-		overlay.ilvl:SetJustifyH("RIGHT")
-	elseif side == "TOP" then
-		overlay.ilvl:SetPoint("BOTTOM", info.button, "TOP", 0, 2)
-		overlay.ilvl:SetJustifyH("CENTER")
-	elseif position == "TOP" then
-		overlay.ilvl:SetPoint("TOP", 0, -2)
-	elseif position == "CENTER" then
-		overlay.ilvl:SetPoint("CENTER")
-	else
-		overlay.ilvl:SetPoint("BOTTOM", 0, 2)
-	end
-	overlay.ilvl:SetText(level)
-	if db.ilvlColor == "white" then
-		overlay.ilvl:SetTextColor(1, 1, 1)
-	elseif db.ilvlColor == "accent" then
-		overlay.ilvl:SetTextColor(E:TokenColor("accent"))
-	else
-		overlay.ilvl:SetTextColor(qr, qg, qb)
-	end
+	local side = StyleItemLevel(overlay.ilvl, info.button, info.name, level, qr, qg, qb)
 
 	-- Durability: percent text or a red tint below the threshold.
 	local percent
@@ -884,7 +907,8 @@ local function UpdateSlot(info)
 	if side then
 		overlay.durability:SetPoint("BOTTOM", 0, 2)
 	else
-		overlay.durability:SetPoint(position == "TOP" and "BOTTOM" or "TOP", 0, position == "TOP" and 2 or -2)
+		local top = db.ilvlPosition == "TOP"
+		overlay.durability:SetPoint(top and "BOTTOM" or "TOP", 0, top and 2 or -2)
 	end
 	-- Low durability carries the shape mark too, so the red never stands
 	-- alone: before the percent, or on its own over the tint.
@@ -942,6 +966,53 @@ local function UpdateSlot(info)
 	end
 end
 
+local WEAPON_BUFF_TICK = "character:weapon-buffs"
+
+local function WeaponBuffSeconds(slot)
+	if C_PaperDollInfo and type(C_PaperDollInfo.GetTemporaryEnchantmentInfo) == "function" then
+		local info = E.PlainCall(C_PaperDollInfo.GetTemporaryEnchantmentInfo, slot)
+		if E.Secret(info) or type(info) ~= "table" or (canaccesstable and not canaccesstable(info)) then return end
+		if E.Plain(info.hasExpirationTime) ~= true then return end
+		local remaining = E.Plain(info.remainingTimeMs)
+		if type(remaining) == "number" and remaining > 0 and remaining < math.huge then return remaining / 1000 end
+		return
+	end
+	if type(GetWeaponEnchantInfo) ~= "function" then return end
+	local main, mainTime, _, _, off, offTime = E.PlainCallEach(GetWeaponEnchantInfo)
+	local has, remaining = off, offTime
+	if slot == INVSLOT_MAINHAND then has, remaining = main, mainTime end
+	if has == true and type(remaining) == "number" and remaining > 0 and remaining < math.huge then return remaining / 1000 end
+end
+
+function M:UpdateWeaponBuffTimes()
+	local shown = self.active and self.db.weaponBuffTime and ImproveOn() and CharacterFrame and CharacterFrame:IsShown()
+		and (not PaperDollFrame or PaperDollFrame:IsShown())
+	for _, info in ipairs(slots) do
+		if info.id == INVSLOT_MAINHAND or info.id == INVSLOT_OFFHAND then
+			local left = shown and WeaponBuffSeconds(info.id)
+			if left then
+				local overlay = SlotOverlay(info)
+				if not overlay.weaponBuff then
+					overlay.weaponBuff = E:CreateText(overlay, E.tokens.size.tiny, "CENTER")
+					overlay.weaponBuff:SetPoint("TOP", info.button, "BOTTOM", 0, -2)
+				end
+				E:SetFont(overlay.weaponBuff, E.tokens.size.tiny)
+				overlay.weaponBuff:SetText(left >= 60 and L["%dm"]:format(math.ceil(left / 60)) or L["%ds"]:format(math.ceil(left)))
+				overlay.weaponBuff:Show()
+			elseif info.overlay and info.overlay.weaponBuff then
+				info.overlay.weaponBuff:Hide()
+			end
+		end
+	end
+	if shown then
+		if not E.Ticker:IsSubscribed(WEAPON_BUFF_TICK) then
+			E.Ticker:Subscribe(WEAPON_BUFF_TICK, 1, function() M:UpdateWeaponBuffTimes() end, M)
+		end
+	else
+		E.Ticker:Unsubscribe(WEAPON_BUFF_TICK)
+	end
+end
+
 function M:UpdateSlots()
 	CollectSlots()
 	self.missingInfo = false
@@ -953,6 +1024,7 @@ function M:UpdateSlots()
 		UpdateSlot(info)
 	end
 	self:UpdateAverage()
+	self:UpdateWeaponBuffTimes()
 end
 
 ---------------------------------------------------------------------------
@@ -1126,7 +1198,7 @@ function M:UpdateAverage()
 	local r, g, b = Accent()
 	local color = ("|cff%02x%02x%02x"):format(r * 255, g * 255, b * 255)
 	local average = AverageItemLevel()
-	text:SetFormattedText("%s%s|r %.1f%s", color, STAT_AVERAGE_ITEM_LEVEL or L["Item Level"], average, ScoreText())
+	text:SetFormattedText("%s%s|r %.1f%s", color, E:GameText(STAT_AVERAGE_ITEM_LEVEL, L["Item Level"]), average, ScoreText())
 end
 
 ---------------------------------------------------------------------------
@@ -1138,10 +1210,12 @@ end
 -- atlas or set texture coordinates): their region stays as the game set it,
 -- because the usual crop would show the wrong part of the sheet.
 local function SidebarTabIcon(tab, icon)
+	local atlas, readable = E.FrameAtlas(icon)
+	if not readable then return end
 	icon:ClearAllPoints()
 	icon:SetPoint("TOPLEFT", tab, "TOPLEFT", 1, -1)
 	icon:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", -1, 1)
-	if type(icon.GetAtlas) == "function" and icon:GetAtlas() then return end
+	if atlas and atlas ~= "" then return end
 	if type(icon.GetTexCoord) == "function" then
 		local left, top, _, _, _, _, right, bottom = icon:GetTexCoord()
 		if type(left) == "number" and type(top) == "number" and type(right) == "number" and type(bottom) == "number"
@@ -1601,7 +1675,7 @@ function M:ApplyCollapse()
 	collapse.fresh = false
 	for frame, mouse in pairs(collapse.hidden) do
 		frame:SetAlpha(1)
-		frame:EnableMouse(mouse)
+		if mouse ~= "keep" then frame:EnableMouse(mouse) end
 	end
 	wipe(collapse.hidden)
 	-- Forever's scrolling list folds through its data (M:FoldStatList).
@@ -1637,9 +1711,14 @@ function M:ApplyCollapse()
 			end
 			folded = (CanCollapse(self.db, key) and self.db.collapsedStats[key]) and frame or nil
 		elseif folded then
-			collapse.hidden[frame] = frame:IsMouseEnabled()
+			local mouse = E.FrameMouse(frame, "IsMouseEnabled")
 			frame:SetAlpha(0)
-			frame:EnableMouse(false)
+			if mouse ~= nil then
+				collapse.hidden[frame] = mouse
+				frame:EnableMouse(false)
+			else
+				collapse.hidden[frame] = "keep"
+			end
 		end
 	end
 end
@@ -1824,10 +1903,15 @@ end
 -- colors (reputation standing, skill blue) are kept.
 local function SkinBar(bar)
 	local parts = bars[bar]
+	local fill = bar:GetStatusBarTexture()
+	local atlas, readable
+	if fill then
+		atlas, readable = E.FrameAtlas(fill)
+		if not readable then return end
+	end
 	if not parts then
 		parts = {}
 		bars[bar] = parts
-		local fill = bar:GetStatusBarTexture()
 		for _, region in ipairs({ bar:GetRegions() }) do
 			if region:IsObjectType("Texture") and region ~= fill and region:GetDrawLayer() ~= "HIGHLIGHT" then
 				region:SetAlpha(0)
@@ -1849,9 +1933,10 @@ local function SkinBar(bar)
 		parts.bd = Backdrop(bar, false, false, E.pixel)
 		parts.bd:SetBackdropColor(0, 0, 0, 0.5)
 	end
-	local fill = bar:GetStatusBarTexture()
+	fill = bar:GetStatusBarTexture()
+	if fill then atlas, readable = E.FrameAtlas(fill) end
 	-- Atlas fills carry their color in the art; those stay as they are.
-	if fill and not (fill.GetAtlas and fill:GetAtlas()) and (parts.fill ~= fill or parts.tex ~= fill:GetTexture() or parts.file ~= E.media.statusbar) then
+	if fill and readable and (not atlas or atlas == "") and (parts.fill ~= fill or parts.tex ~= fill:GetTexture() or parts.file ~= E.media.statusbar) then
 		local r, g, b, a = bar:GetStatusBarColor()
 		bar:SetStatusBarTexture(E.media.statusbar)
 		if r then bar:SetStatusBarColor(r, g, b, a) end
@@ -2211,6 +2296,84 @@ local FLYOUT_SLOTS = {
 	Finger0Slot = { INVTYPE_FINGER = true }, Finger1Slot = { INVTYPE_FINGER = true },
 }
 local flyout = { buttons = {} }
+local nativeFlyoutLevels = setmetatable({}, { __mode = "k" })
+local nativeFlyoutHooked
+
+local function HideNativeFlyoutLevels()
+	for _, text in pairs(nativeFlyoutLevels) do text:Hide() end
+end
+
+local function FlyoutLevel(text, button, name, level, quality)
+	local r, g, b
+	if type(quality) == "number" and not E.Secret(quality) then
+		r, g, b = E.PlainCallAll(C_Item.GetItemQualityColor, quality)
+	end
+	StyleItemLevel(text, button, name, level, r, g, b, true)
+	text:Show()
+end
+
+local function UpdateOwnFlyoutLevel(button, info)
+	local level = M.db.itemLevel and ReadItemLevel(button.link)
+	if level then
+		button.level = button.level or E:CreateText(button, M.db.ilvlSize, "CENTER")
+		FlyoutLevel(button.level, button, info.name, level, button.quality)
+	elseif button.level then
+		button.level:Hide()
+	end
+	if M.db.itemLevel and not level then M.missingInfo = true end
+end
+
+local function CanReadFlyoutTable(value)
+	return type(value) == "table" and not E.Secret(value) and (not canaccesstable or canaccesstable(value))
+end
+
+local function NativeFlyoutItem(button)
+	local location = button.location
+	local special = _G.EQUIPMENTFLYOUT_FIRST_SPECIAL_LOCATION
+	if E.Secret(location) or type(location) ~= "number" or location <= 0
+		or type(special) ~= "number" or location >= special then return end
+	local data = E.PlainCall(_G.EquipmentManager_GetLocationData, location)
+	if not CanReadFlyoutTable(data) or E.Secret(data.slot) or type(data.slot) ~= "number" or data.slot <= 0 then return end
+	if E.Secret(data.isBags) or E.Secret(data.isPlayer) or E.Secret(data.bag) then return end
+	if data.isBags and type(data.bag) == "number" then
+		local info = E.PlainCall(C_Container.GetContainerItemInfo, data.bag, data.slot)
+		if CanReadFlyoutTable(info) then return info.hyperlink, info.quality end
+	elseif data.isPlayer then
+		return E.PlainCall(GetInventoryItemLink, "player", data.slot), E.PlainCall(GetInventoryItemQuality, "player", data.slot)
+	end
+end
+
+local function UpdateNativeFlyout(fromHook)
+	HideNativeFlyoutLevels()
+	if not ImproveOn() or not M.db.itemLevel then return end
+	local native = _G.EquipmentFlyoutFrame
+	if not CanReadFlyoutTable(native) or not Usable(native) or (not fromHook and E.PlainCall(native.IsVisible, native) ~= true) then return end
+	local owner = native.button
+	if E.Secret(owner) then return end
+	local info = owner and slotByButton[owner]
+	local buttons = native.buttons
+	if not info or NO_ITEM_LEVEL[info.name] or not CanReadFlyoutTable(buttons) then return end
+	for _, button in ipairs(buttons) do
+		if CanReadFlyoutTable(button) and Usable(button) and E.PlainCall(button.IsShown, button) == true then
+			local link, quality = NativeFlyoutItem(button)
+			local level = ReadItemLevel(link)
+			if level then
+				local text = nativeFlyoutLevels[button]
+				if InCombatLockdown() then
+					if text then text:SetText(level) text:Show() end
+				else
+					if not text then
+						text = E:CreateText(button, M.db.ilvlSize, "CENTER")
+						nativeFlyoutLevels[button] = text
+					end
+					FlyoutLevel(text, button, info.name, level, quality)
+				end
+			elseif type(link) == "string" and not E.Secret(link) then
+				M.missingInfo = true
+			end
+		end
+	end
+end
 
 local function BagItemsFor(kinds)
 	local list = {}
@@ -2294,13 +2457,14 @@ local function ShowFlyout(info)
 		button:SetSize(size, size)
 		button:ClearAllPoints()
 		button:SetPoint("TOPLEFT", frame, "TOPLEFT", 3, -3 - (index - 1) * (size + 2))
-		button.link, button.slotID = item.link, info.id
+		button.link, button.slotID, button.quality = item.link, info.id, item.quality
 		button.icon:SetTexture(item.icon or 134400)
 		if type(item.quality) == "number" and item.quality >= Enum.ItemQuality.Uncommon then
 			button.bd:SetBackdropBorderColor(C_Item.GetItemQualityColor(item.quality))
 		else
 			button.bd:SetBackdropBorderColor(unpack(E.media.borderColor))
 		end
+		UpdateOwnFlyoutLevel(button, info)
 		button:Show()
 	end
 	for index = #items + 1, #flyout.buttons do flyout.buttons[index]:Hide() end
@@ -2310,6 +2474,10 @@ local function ShowFlyout(info)
 end
 
 local function HookFlyouts()
+	if not nativeFlyoutHooked and type(_G.EquipmentFlyout_UpdateItems) == "function" then
+		hooksecurefunc("EquipmentFlyout_UpdateItems", function() UpdateNativeFlyout(true) end)
+		nativeFlyoutHooked = true
+	end
 	if flyout.hooked then return end
 	flyout.hooked = true
 	CollectSlots()
@@ -2322,6 +2490,20 @@ local function HookFlyouts()
 				end)
 			end)
 		end
+	end
+end
+
+local function UpdateFlyoutLevels()
+	UpdateNativeFlyout()
+	if not (flyout.frame and flyout.frame:IsShown()) then return end
+	if not (ImproveOn() and Additions() and M.db.slotFlyout) then
+		HideFlyout()
+		return
+	end
+	local info = slotByButton[flyout.owner]
+	if not info then return end
+	for _, button in ipairs(flyout.buttons) do
+		if button:IsShown() then UpdateOwnFlyoutLevel(button, info) end
 	end
 end
 
@@ -2361,7 +2543,10 @@ local function Hooks()
 			M:QueueStats()
 		end)
 	end
-	CharacterFrame:HookScript("OnHide", function() M:SetModelOnly(false) end)
+	CharacterFrame:HookScript("OnHide", function()
+		M:SetModelOnly(false)
+		M:UpdateWeaponBuffTimes()
+	end)
 	if _G.PaperDollFrame then
 		local function Follow()
 			if not Live() then return end
@@ -2370,6 +2555,7 @@ local function Hooks()
 			M:UpdateAverage()
 			M:UpdateGear()
 			HideFlyout()
+			M:UpdateWeaponBuffTimes()
 		end
 		_G.PaperDollFrame:HookScript("OnShow", Follow)
 		_G.PaperDollFrame:HookScript("OnHide", Follow)
@@ -2405,7 +2591,10 @@ function M:QueueSlots()
 	self.slotsQueued = true
 	C_Timer.After(0.1, function()
 		self.slotsQueued = false
-		if self.active then self:UpdateSlots() end
+		if self.active then
+			self:UpdateSlots()
+			UpdateFlyoutLevels()
+		end
 	end)
 end
 
@@ -2446,6 +2635,7 @@ function M:Refresh()
 	self:UpdateChrome()
 	self:UpdateModelBackground()
 	self:UpdateSlots()
+	UpdateFlyoutLevels()
 	self:StyleStats()
 	self:SafeCollapse()
 	self:FoldStatLists()
@@ -2463,6 +2653,7 @@ end
 -- header, extras, overlays and model background go (the window mover gives
 -- the scale and place back). Art made invisible by the skin needs /reload.
 function M:Restore()
+	E.Ticker:Unsubscribe(WEAPON_BUFF_TICK)
 	if not CharacterFrame or not self.applied then return end
 	self:SetModelOnly(false)
 	self:UpdateHeader()
@@ -2484,6 +2675,7 @@ function M:Restore()
 	if chrome.avgScore then chrome.avgScore:Hide() end
 	if gear.bar then gear.bar:Hide() end
 	HideFlyout()
+	HideNativeFlyoutLevels()
 	self:UpdateModelBackground()
 end
 
@@ -2502,9 +2694,14 @@ function M:OnEnable()
 	self.db.swapOnSpec, self.db.swapOnStance, self.db.stanceSets = nil, nil, nil
 	self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function() M:QueueSlots() end)
 	self:RegisterEvent("UPDATE_INVENTORY_DURABILITY", function() M:QueueSlots() end)
+	self:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player", function()
+		if M.db.weaponBuffTime and ImproveOn() and CharacterFrame and CharacterFrame:IsShown()
+			and (not PaperDollFrame or PaperDollFrame:IsShown()) then M:QueueSlots() end
+	end)
 	self:RegisterEvent("GET_ITEM_INFO_RECEIVED", function()
 		if M.missingInfo and CharacterFrame and CharacterFrame:IsShown() then M:QueueSlots() end
 	end)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", function() if nativeFlyoutHooked then UpdateNativeFlyout() end end)
 	-- Panels that load on demand (currency, PvP) are picked up when they arrive.
 	self:RegisterEvent("ADDON_LOADED", function() M:QueueApply() end)
 	-- Header line: name, title, level and specialization.
@@ -2533,6 +2730,7 @@ function M:OnDisable()
 	self:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
 	self:UnregisterEvent("UPDATE_INVENTORY_DURABILITY")
 	self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
 	self:UnregisterEvent("ADDON_LOADED")
 	self:UnregisterUnitEvent("UNIT_NAME_UPDATE", "player")
 	for _, event in ipairs({ "PLAYER_LEVEL_UP", "KNOWN_TITLES_UPDATE",
@@ -2566,7 +2764,7 @@ M.options = {
 	{ type = "execute", label = "Open Windows", desc = "Dragging, the mouse wheel scale and the reset of the character window are on the Move windows page, with every other Blizzard window.",
 		func = function() E:ToggleConfig("windows") end },
 	{ type = "select", key = "header", label = "Title and level line",
-		desc = "EldoUI shows \"Name the Title\" and the level, specialization and class in class color, all as the game reports them.",
+		desc = "EldoUI shows \"Name the Title\" and the level, specialization and class in class color.",
 		values = { blizzard = "Blizzard's", eldo = "EldoUI: name, title, class color" } },
 	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "eyeButton", label = "Eye button (show only the model)",
 		desc = "A small eye in the top-left corner fades the slots and stats so only the model shows. Click again, or close the window, to bring them back." },
@@ -2590,7 +2788,7 @@ M.options = {
 	{ type = "select", key = "slotBorder", label = "Slot border", desc = "Color of the border around each equipped item.",
 		values = { quality = "Item quality", accent = "Accent color", none = "Plain black" } },
 	{ type = "range", key = "slotBorderSize", label = "Slot border thickness", desc = "Border width in pixels.", min = 1, max = 3, step = 1 },
-	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "itemLevel", label = "Item level on each slot", desc = "The item level of each equipped item." },
+	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "itemLevel", label = "Item level on each slot", desc = "Shows item levels on equipped gear and in equipment flyouts." },
 	{ type = "range", key = "ilvlSize", label = "Item level text size", dependsOn = "itemLevel", desc = "Text size of the slot item levels.", min = 8, max = 20, step = 1 },
 	{ type = "select", key = "ilvlPosition", label = "Item level position", dependsOn = "itemLevel",
 		desc = "Beside the slot puts the number next to the icon, on the side facing the model.",
@@ -2606,6 +2804,8 @@ M.options = {
 		func = function() E:ToggleConfig("general") end },
 	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "enchantHint", label = "Mark gear without an enchant",
 		desc = "A small red mark on enchantable slots whose item carries no enchant, and a line in the tooltip. Read from the item link." },
+	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "weaponBuffTime", label = "Weapon buff time",
+		desc = "Shows the time left on oils, stones and poisons below your weapons while the character window is open." },
 	{ type = "header", label = "Stats and headers" },
 	{ type = "select", key = "statsLayout", label = "Stats layout",
 		desc = "Modern: centered section titles between thin lines, labels left and values right. The values are Blizzard's own.",
@@ -2623,7 +2823,7 @@ M.options = {
 	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "gearBar", label = "Set buttons on the character window", desc = "One button per set; click to equip it. The open set has an accent border, a set with missing items a red one." },
 	{ type = "select", key = "gearBarPosition", label = "Set buttons position", dependsOn = "gearBar", desc = "Where the set buttons sit.",
 		values = { TOP = "Left of the level line", BELOW = "Under the window" } },
-	{ type = "range", key = "gearBarSize", label = "Set button size", dependsOn = "gearBar", desc = "Size of each set button.", min = 14, max = 32, step = 1 },
+	{ type = "range", unit = "px", key = "gearBarSize", label = "Set button size", dependsOn = "gearBar", desc = "Size of each set button.", min = 14, max = 32, step = 1 },
 	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "slotFlyout", label = "Trinket and ring flyout",
 		desc = "Hover a trinket or ring slot to see the matching items in your bags, and click one to wear it there. Out of combat only. Blizzard's own Alt flyout keeps working." },
 	{ type = "header", label = "Side panels" },

@@ -223,6 +223,16 @@ local HEALER_SCT = {
 	EldoVanillaFocus = { -780, -130, 446, -197 },
 }
 
+-- A spot measured from the screen center keeps the anchor of its part of
+-- the screen: on a screen taller than the 1440 canvas (16:10 at Auto) the
+-- top and bottom parts move apart from the middle, and the frame moves with
+-- its neighbors there. `edge` is true when y is the frame's top edge.
+local function Spot(point, x, y, edge)
+	if y > (edge and 400 or 360) then return { point, "UIParent", "TOP", x, y - 720 } end
+	if y < -360 then return { point, "UIParent", "BOTTOM", x, y + 720 } end
+	return { point, "UIParent", "CENTER", x, y }
+end
+
 local function HealerLayouts()
 	local list = {}
 	for key, spot in pairs(HEALER_SPOTS) do
@@ -232,12 +242,12 @@ local function HealerLayouts()
 		}
 		for name, point in pairs(HEALER_EXTRA[key] or {}) do list[key][name] = point end
 		for name, at in pairs(HEALER_ASIDE[key] or {}) do
-			list[key]["EldoUI_" .. name] = { "TOPLEFT", "UIParent", "CENTER", at[1], at[2] }
+			list[key]["EldoUI_" .. name] = Spot("TOPLEFT", at[1], at[2], true)
 		end
 		local sct = HEALER_SCT[key]
 		if sct then
-			list[key].EldoUI_SCTIncoming = { "CENTER", "UIParent", "CENTER", sct[1], sct[2] }
-			list[key].EldoUI_SCTStatic = { "CENTER", "UIParent", "CENTER", sct[3], sct[4] }
+			list[key].EldoUI_SCTIncoming = Spot("CENTER", sct[1], sct[2])
+			list[key].EldoUI_SCTStatic = Spot("CENTER", sct[3], sct[4])
 		end
 	end
 	return list
@@ -282,7 +292,7 @@ local function HealerBottomLayouts(side)
 		spots.EldoUI_Party = { "BOTTOM", "UIParent", "BOTTOM", 0, bottom }
 		spots.EldoUI_Raid = { "BOTTOM", "UIParent", "BOTTOM", 0, bottom }
 		for name, at in pairs(HEALER_BOTTOM_ASIDE[key] or {}) do
-			spots["EldoUI_" .. name] = { "TOPLEFT", "UIParent", "CENTER", at[1], at[2] }
+			spots["EldoUI_" .. name] = Spot("TOPLEFT", at[1], at[2], true)
 		end
 		list[key] = spots
 	end

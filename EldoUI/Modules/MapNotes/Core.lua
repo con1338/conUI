@@ -759,8 +759,8 @@ M.options = {
 	{ type = "toggle", key = "mapButton", label = L["Button on the world map"], desc = L["A small button at the top right of the world map: click for the groups, Shift-click to show or hide everything."] },
 	{ type = "toggle", key = "filterMenu", label = L["Entries in the map's filter menu"], desc = L["Add the same checks to the world map's own filter menu. Needs the World Map element switch (Blizzard UI page)."] },
 	{ type = "toggle", key = "altClick", label = L["Alt+right-click adds a note"], desc = L["Hold Alt and right-click on the world map to add your own note there. While HandyNotes is loaded, its own Alt+right-click is used instead."] },
-	{ type = "header", label = L["HandyNotes"] },
-	{ type = "toggle", key = "handyNotesBridge", label = L["The switch controls HandyNotes"], desc = L["With HandyNotes installed, it becomes a group in the map button's menu, so one click hides EldoUI's and HandyNotes' pins together."] },
+	{ type = "header", label = L["HandyNotes"], hidden = function() return not HandyNotesLoaded() end },
+	{ type = "toggle", key = "handyNotesBridge", label = L["The switch controls HandyNotes"], desc = L["With HandyNotes installed, it becomes a group in the map button's menu, so one click hides EldoUI's and HandyNotes' pins together."], hidden = function() return not HandyNotesLoaded() end },
 	{ type = "toggle", key = "groups.handynotes", label = L["Show HandyNotes"], desc = L["Show HandyNotes' pins (with all its plugins). Off turns HandyNotes off until you check it again."], dependsOn = "handyNotesBridge", hidden = function() return not HandyNotesLoaded() end },
 	{ type = "execute", label = L["Open HandyNotes settings"], desc = L["HandyNotes' own settings, where its plugins are listed."], func = function() if M.OpenHandyNotes then M:OpenHandyNotes() end end, hidden = function() return not HandyNotesLoaded() end },
 }

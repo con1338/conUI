@@ -7,7 +7,7 @@
 -- gives the same fight and two gear sets can be compared on the same dice.
 --
 -- Input is a character sheet (from Reader.lua, or any table of this shape):
---   class, level, ap, rap, crit, rangedCrit, hit, spellHit, spellCrit
+--   class, level, ap, rap, crit, rangedCrit, hit, rangedHit, spellHit, spellCrit
 --   (number or per school), spellPower (number or per school), mh / oh /
 --   ranged = { min, max, speed, kind, skill, twoHand }, power, maxPower,
 --   regen = { idle, casting } (mana per second), spells = { key = values
@@ -424,12 +424,6 @@ local function WeaponProcs(self, hand, yellow)
 			for _, each in ipairs(enchant) do EnchantProc(self, hand, weapon, each, proc) end
 		end
 	end
-	local sword = self:Special("swordSpec")
-	if sword and weapon.kind == "sword" and not self.inExtra and proc:Chance(sword) then
-		self.inExtra = true
-		Swing(self, "mh", true)
-		self.inExtra = nil
-	end
 	-- Paladin seals.
 	local seal = self:Aura("seal")
 	if seal and hand == "mh" then
@@ -574,6 +568,11 @@ end
 ---------------------------------------------------------------------------
 function Fight:SpellHits(spell)
 	local hit = C.SpellHitChance(self.targetLevel - self.level, self.sheet.spellHit or 0)
+	if spell.hitType == "ranged" then
+		local weapon = self.sheet.ranged
+		local skill = weapon and weapon.skill or self.level * 5
+		hit = 100 - C.MissChance(C.SkillDiff(self.targetLevel, skill), self.sheet.rangedHit or self.sheet.hit or 0, false)
+	end
 	return self.dice.spell:Random() * 100 < hit
 end
 

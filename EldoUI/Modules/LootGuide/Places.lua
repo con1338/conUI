@@ -116,10 +116,13 @@ local function BuildCatalog()
 		end
 	end
 	-- WoW: Forever's own dungeons (Forever.lua), with or without the data.
+	local foreverByMap = {}
 	for index, def in ipairs(LG.FOREVER or {}) do
-		Add({ key = def.key, name = def.name, kind = "dungeon", min = def.min, max = def.max, size = 5,
+		local entry = { key = def.key, name = def.name, kind = "dungeon", min = def.min, max = def.max, size = 5,
 			status = "forever", forever = def, zoneName = LG:ForeverZone(def), aliases = def.aliases,
-			order = 2000 + index, bosses = 0 })
+			order = 2000 + index, bosses = 0 }
+		Add(entry)
+		if def.map then foreverByMap[def.map] = entry end
 	end
 	-- Its announced raids: listed, never suggested before they open.
 	local current = LG:CurrentPhase() or 1
@@ -145,7 +148,8 @@ local function BuildCatalog()
 	end
 	for mapID, lfg in pairs(LfgIndex()) do
 		local kind = (lfg.size and lfg.size > 5) and "raid" or "dungeon"
-		local same = not mapsKnown[mapID] and byName[NameKey(kind, lfg.name)]
+		-- A Forever dungeon is matched by its map first, in any client language.
+		local same = not mapsKnown[mapID] and (foreverByMap[mapID] or byName[NameKey(kind, lfg.name)])
 		if same then
 			same.lfg = same.lfg or lfg
 			same.enterLevel = same.enterLevel or lfg.min
