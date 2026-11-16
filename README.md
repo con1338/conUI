@@ -7,8 +7,7 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > [EldoUI 0.7.3001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3001) (Ordner `EldoUI*/`). Die Releases
 > liegen unverändert im Branch `upstream-release` und kommen von dort per Merge nach `main`.
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
-> Eigene Ergänzungen des Forks: das deutsche Sprachpaket `EldoUI_Locale_deDE` (20.536 von 21.525 Texten; die
-> 989 neuen Texte aus EldoUI 0.7.3000 folgen,
+> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 21.525 Texte,
 > Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
 > aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
 > `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
