@@ -100,6 +100,8 @@ check_tests() {
 	lua5.1 tools/qol/test_meal_done.lua || return 1
 	step "Quality of Life: a hint when the bags are almost full"
 	lua5.1 tools/qol/test_bag_space.lua || return 1
+	step "Character: a gear set clicked in combat goes on after combat"
+	lua5.1 tools/character/test_gear_after_combat.lua || return 1
 	step "Quest Item Bar: the quest items you can use, out of combat only"
 	lua5.1 tools/questbar/test_quest_bar.lua || return 1
 	step "Consumable Bar: buttons work with Shift, Ctrl or Alt held"
