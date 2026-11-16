@@ -737,7 +737,20 @@ do
 	Check(type(M.db.hidden) == "table", "and Show hidden items again makes a new list")
 	Check(M.buttons[1].clicks[1] == "LeftButtonUp" and M.buttons[1].clicks[2] == "LeftButtonDown" and M.buttons[1].clicks[3] == "RightButtonUp",
 		"the left button acts on press and release, the right button on release")
-	Check(M.buttons[1].attributes.type == nil and M.buttons[1].attributes.type1 == "item", "only the left button uses the item")
+	Check(M.buttons[1].attributes.type == nil and M.buttons[1].attributes["*type1"] == "item", "only the left button uses the item")
+	-- The game looks a secure attribute up as modifier-name-button, *name-button, modifier-name*, *name*, name
+	-- (Blizzard_FrameXML/SecureTemplates.lua): with Shift, Ctrl or Alt held, as for a key bound with a modifier, the
+	-- left button must still find its action, the right button none.
+	local function Action(button, prefix, suffix)
+		local a = button.attributes
+		for _, key in ipairs({ prefix .. "type" .. suffix, "*type" .. suffix, prefix .. "type*", "*type*", "type" }) do
+			if a[key] ~= nil and a[key] ~= "" then return a[key] end
+		end
+	end
+	for _, prefix in ipairs({ "", "shift-", "ctrl-", "alt-", "alt-ctrl-shift-" }) do
+		Check(Action(M.buttons[1], prefix, "1") == "item", "the left button uses the item with modifier '" .. prefix .. "' (keys bound with Shift, Ctrl or Alt)")
+		Check(Action(M.buttons[1], prefix, "2") == nil, "the right button uses nothing with modifier '" .. prefix .. "'")
+	end
 end
 
 -- Bind keys.
