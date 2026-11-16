@@ -278,6 +278,7 @@ Modules\Social\GroupFinder.lua
 Modules\Social\PvP.lua
 Modules\Setups.lua
 Modules\Integrations.lua
+Modules\IntegrationsRXPLocale.lua
 Modules\DBM.lua
 Modules\EncounterTimeline\Core.lua
 Modules\EncounterTimeline\Store.lua
