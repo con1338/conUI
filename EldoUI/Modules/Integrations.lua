@@ -1225,6 +1225,14 @@ function M:SetupRXP()
 	C_Timer.After(2, function() M:PlaceRXP() end)
 end
 
+-- "Fit RestedXP to this game language": Modules/IntegrationsRXPLocale.lua
+-- loads after this file and replaces these. Without it (a /reload after
+-- copying in a newer Integrations.lua: the game reads the file list only at
+-- start) the switch stays hidden and nothing changes.
+function M:SetupRXPLocale() end
+function M:RXPLocaleShown() return false end
+function M:RXPLocaleStatus() return "" end
+
 -- The theme: RXP reads every table in the global RXPGuides_Themes when it
 -- starts (EldoUI loads first, alphabetically) and offers it in its theme
 -- list. Missing keys fall back to RXP's own default theme, so no RXP
