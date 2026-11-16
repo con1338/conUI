@@ -23,7 +23,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B9 | „Wer fehlt?“ für Gruppe und Raid (Herbeirufen) | mittel | abwarten | |
 | B10 | Wowhead-Links in der Spielsprache (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d` |
 | B11 | Absitzen und Aufstehen bei Fehlermeldung (einschaltbar) | klein | offen | |
-| B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | umgesetzt | `9cdd6aa` |
+| B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | umgesetzt | `9cdd6aa`, `dd84be6` |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
@@ -505,10 +505,16 @@ wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand f
   - Nur der letzte Klick zählt. Ein zweiter Klick auf dasselbe Set oder ein Klick auf das getragene Set nimmt es zurück
     („EldoUI: kein Setwechsel nach dem Kampf.“). Ein Klick auf das getragene Set ohne gemerktes Set tut nichts.
   - Am Kampfende (`PLAYER_REGEN_ENABLED`) wird es angelegt, mit der Chatzeile „Nach dem Kampf: Schaden angelegt.“
-  - Ist man dann tot, wartet es, bis man wieder lebt (`PLAYER_ALIVE`, `PLAYER_UNGHOST`), und außerhalb des Kampfs ist.
+  - Ist man dann tot oder stellt sich tot, wartet es, bis man wieder lebt und steht (`PLAYER_ALIVE`,
+    `PLAYER_UNGHOST`, beim Totstellen die Auren des Spielers) und außerhalb des Kampfs ist. Ein Klick, während man
+    außerhalb des Kampfs tot ist, wird genauso gemerkt („… wird angelegt, sobald Ihr wieder lebt“).
+  - Beginnt ein neuer Kampf, bevor es angelegt werden konnte, verfällt es mit „kein Setwechsel nach dem Kampf“. So kommt
+    es nie nach einem späteren, fremden Kampf. Eine Wiederbelebung im Kampf zählt dabei als neuer Kampf.
   - Ein Klick außerhalb des Kampfs gilt vor dem gemerkten Set.
-  - Ist der Schalter inzwischen aus, das Set gelöscht oder schon angelegt, passiert nichts. Nach einem Neuladen ist
-    nichts mehr gemerkt.
+  - Ist der Schalter inzwischen aus, das Charakter-Modul aus, das Set gelöscht oder schon angelegt, passiert nichts.
+    Schalter und Modul nehmen es sofort weg. Nach einem Neuladen ist nichts mehr gemerkt.
+  - Die Chatzeile kommt nur, wenn das Spiel den Wechsel angenommen hat (Antwort von `UseEquipmentSet`).
+  - Der Infoleisten-Block „Ausrüstung“ nimmt dafür im Kampf Klicks an (`combatClick`). Sein Menü ist EldoUIs eigenes.
 - Anzeige: Das gemerkte Set hat an der Set-Leiste einen gelben Rand. Sein Tooltip sagt „Wird angelegt, sobald der Kampf
   endet.“ Der Tooltip des Infoleisten-Blocks zeigt „Nach dem Kampf: Schaden“. Die Klick-Hinweise lauten bei
   eingeschaltetem Schalter „anlegen (im Kampf: sobald er endet)“.
@@ -519,18 +525,21 @@ wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand f
   geschieht außerhalb des Kampfes“.
 - Upstream-Datei (D1): `Character.lua`, gut 100 Zeilen im Abschnitt „Gear sets“ und zwei Zeilen bei Standards und
   Optionen. Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (10 Texte).
-- Test: `tools/character/test_gear_after_combat.lua` (läuft in `tools/ci/check_all.sh tests`, 37 Prüfungen). Er schneidet
-  den Abschnitt „Gear sets“ aus `Character.lua` heraus und lässt ihn unverändert laufen. Geprüft werden:
+- Test: `tools/character/test_gear_after_combat.lua` (läuft in `tools/ci/check_all.sh tests`, 57 Prüfungen). Er schneidet
+  den Abschnitt „Gear sets“ sowie `OnDisable` und `OnProfileChanged` aus `Character.lua` heraus und lässt sie unverändert
+  laufen. Geprüft werden:
   - Schalter aus: wie vorher.
   - Schalter an: gemerkt, der letzte Klick zählt, zurücknehmen, Klick außerhalb des Kampfs gilt, einmal am Kampfende.
-  - Tot, Geist, wiederbelebt, im Kampf wiederbelebt, eine geheime Antwort zum Tod.
-  - Schalter aus, Set gelöscht oder schon angelegt, das Spiel lehnt ab, ein geheimer Set-Name.
+  - Tot, Geist, wiederbelebt, im Kampf wiederbelebt, tot außerhalb des Kampfs, Totstellen, ein neuer Kampf, geheime
+    Antworten zum Tod und zum Totstellen.
+  - Schalter, Modul oder Profil aus, Set gelöscht oder schon angelegt, das Spiel lehnt ab (Fehler oder `false`), ein
+    geheimer Set-Name. Der Block „Ausrüstung“ nimmt Klicks im Kampf an.
   - Events nur, solange ein Set gemerkt ist. Rand, Tooltips, Hinweise, Menü, Standard und Option.
   - Gegenprobe: Drei absichtlich eingebaute Fehler (Anlegen im Tod, Merken ohne Schalter, kein Zurücknehmen beim zweiten
     Klick) lassen den Test fehlschlagen.
 - Offen, nur im Spiel zu klären: ob `C_EquipmentSet.UseEquipmentSet` unter den Midnight-Regeln auch aus einem Event
-  ohne Tastendruck läuft. Andere Addons wechseln Sets seit Langem nach dem Kampf. Klappt es nicht, kommt keine
-  Fehlermeldung, nur die Chatzeile fehlt.
+  ohne Tastendruck läuft. Andere Addons wechseln Sets seit Langem nach dem Kampf. Klappt es nicht, gibt es keinen
+  Lua-Fehler, und die Chatzeile bleibt aus. Gibt das Spiel stattdessen „blockiert“ aus, steht das unter `/eui errors`.
 - Im Spiel prüfen (`/reload` reicht):
   - Charakter › Ausrüstungssets › „Nach dem Kampf anlegen“ einschalten. Zwei Sets im Ausrüstungsmanager haben.
   - Im Kampf auf das andere Set klicken (Set-Leiste am Charakterfenster oder Infoleisten-Block „Ausrüstung“). Erwartung:
@@ -540,7 +549,23 @@ wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand f
     bleibt die Ausrüstung.
   - Im Kampf sterben, während ein Set gemerkt ist: Nach dem Wiederbeleben wird es angelegt.
   - Schalter aus: Ein Klick im Kampf sagt wie bisher „Ausrüstungssets wechseln nur außerhalb des Kampfes“.
+  - Im Kampf den Infoleisten-Block „Ausrüstung“ anklicken: Das Menü öffnet sich, ein Set darin wird gemerkt.
   - Danach `/eui errors`: keine Lua-Fehler.
+
+**Gegenprüfung von B12 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit `9cdd6aa` und
+die EldoUI-Funktionen, die er nutzt, und ließ alle Prüfungen laufen (grün). Er fand keine Lua-Fehler, keinen Wechsel im
+Kampf, kein doppeltes Anlegen und nichts ohne Schalter. Die Befunde und was daraus wurde (Korrekturen in `dd84be6`,
+jeder Fall im Test, der gegen den alten Stand fehlschlägt):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | Ein gemerktes Set wurde auch angelegt, nachdem das Charakter-Modul ausgeschaltet war: Die eigenen Events nimmt der Modulschalter nicht mit | mittel | behoben |
+| 2 | Der Block „Ausrüstung“ nahm im Kampf keine Klicks an (`combatClick` fehlte), Hinweis und Option versprachen es | mittel | behoben |
+| 3 | Die Chatzeile kam auch, wenn das Spiel den Wechsel ablehnte (Antwort `false`) | klein–mittel | behoben |
+| 4 | Ein Klick, während man außerhalb des Kampfs tot ist, verwarf das gemerkte Set (plausibel) | klein | behoben: wird gemerkt |
+| 5 | Den Schalter ausschalten nahm das gemerkte Set erst beim nächsten Event weg | klein | behoben |
+| 6 | Ein gemerktes Set lief nie ab; bei Totstellen konnte es nach einem späteren Kampf kommen (plausibel) | klein | behoben: Totstellen wie tot, ein neuer Kampf verwirft es |
+| 7 | Test: Block im Kampf, Modul aus, Profilwechsel und Ablehnung per `false` fehlten | klein | behoben |
 
 **B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
 - Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
