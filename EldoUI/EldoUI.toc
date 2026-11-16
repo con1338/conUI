@@ -179,6 +179,7 @@ Modules\MapNotes\Met.lua
 Modules\Farming.lua
 Modules\PlayerNotes.lua
 Modules\ConsumableBar.lua
+Modules\QuestBar.lua
 Modules\Camera.lua
 Modules\ObjectiveTracker.lua
 Modules\Chat\Core.lua

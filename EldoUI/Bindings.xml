@@ -68,6 +68,18 @@
 	<Binding name="CLICK EldoUI_ConsumableButton7:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK EldoUI_ConsumableButton8:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK EldoUI_ConsumableButton9:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton1:LeftButton" header="ELDOUIQUESTBAR" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton2:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton3:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton4:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton5:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton6:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton7:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton8:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton9:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton10:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton11:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_QuestBarButton12:LeftButton" category="ADDONS"/>
 	<Binding name="ELDOUI_WHISPER_TARGET" category="ADDONS">
 		EldoUI:RunBinding("WHISPER_TARGET")
 	</Binding>
