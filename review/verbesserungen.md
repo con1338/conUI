@@ -24,15 +24,15 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B10 | Wowhead-Links in der Spielsprache (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d` |
 | B11 | Absitzen und Aufstehen bei Fehlermeldung (einschaltbar) | klein | offen | |
 | B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | umgesetzt | `9cdd6aa`, `dd84be6` |
-| C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
+| C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197`, `575bafc` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
 | C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt | `d83f389` |
 | C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
 | C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
-| C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt | `95002b5` |
-| D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
+| C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt (seit 0.7.3000 von EldoUI) | `95002b5`, `c323ceb` |
+| D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
 | D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | umgesetzt | `fb8c242` … `141e84d` |
@@ -495,6 +495,17 @@ wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand f
 | 8 | Geld oder ein Zauber am Mauszeiger wurde nicht erkannt (plausibel) | klein | behoben (`GetCursorInfo`) |
 | 9 | Texte: Titel bei `/eui room`, Begründung der leeren Liste unvollständig, „klickt auf einen Händler“ statt Händlerfenster | klein | behoben |
 | 10 | Test: Der Nachbau zeigte jede Karte sofort, Alarmleiste und Warteschlange fehlten | klein | behoben |
+
+**B7 und EldoUI 0.7.3000 (16.11.2026, offen: Entscheidung des Nutzers):** EldoUI warnt jetzt selbst vor vollen
+Taschen, aber nur, solange Taschen- oder Lootfenster offen sind: Die Fußzeile der Taschen färbt sich ab 5 freien
+Plätzen (`Modules/Bags/Core.lua`), der Info-Bar-Block „Bags“ ab 4, ein Pfeil markiert ab 5 freien Plätzen den
+billigsten Stapel (`Modules/Bags/Marks.lua`, Option `lowestValueMark`), und das Lootfenster nennt ihn, wenn kein
+Platz mehr ist (`Modules/Loot.lua`). B7 bleibt, denn es meldet sich auch bei geschlossenen Taschen, mit Liste,
+Klick an den Mauszeiger, `/eui room` und Warten bis nach dem Kampf. Beide laufen aber gleichzeitig und können
+verschiedene Gegenstände nennen: B7 lässt Verbrauchsgüter, Reagenzien, Munition, Rezepte und Schlüssel weg, EldoUI nur
+Quest-, geschützte, Set-, erstattbare und unverkäufliche Gegenstände. Möglich wäre, B7 auf EldoUIs Auswahl
+(`Bags:LowestValueItem`) und Platzzählung (`E.BagCache:GeneralSlots`, meldet eine unlesbare Tasche als unbekannt statt
+0 frei) zu stellen.
 
 **B12 – Ausrüstungsset nach dem Kampf anlegen (umgesetzt):**
 - Geändert: `Modules/Character.lua`, Abschnitt „Gear sets“, der einzige Ort, an dem EldoUI Sets wechselt (Set-Knöpfe im
@@ -979,9 +990,41 @@ Inspect-Anfragen, automatische Loot-Verteilung.
 - **D1 Upstream-Updates:**
   - neue Releases unverändert in einen Branch `upstream-release` importieren und von dort nach `main` mergen;
   - eigene Features möglichst als Plugin-Addons `EldoUI_<Name>` über die öffentliche API (`docs/PLUGINS.md`).
-  - **Teilweise umgesetzt:** Der Versionswächter (`.github/workflows/watch.yml`) meldet jede neue EldoUI-Version
-    als Issue, dazu neue WoW: Forever-Patches (live und im Test-Client). Den Branch `upstream-release` gibt es
-    noch nicht; er entsteht beim ersten Upstream-Update.
+  - Der Versionswächter (`.github/workflows/watch.yml`) meldet jede neue EldoUI-Version als Issue, dazu neue
+    WoW: Forever-Patches (live und im Test-Client).
+  - **Umgesetzt (16.11.2026, EldoUI 0.7.3001, Issue #29):** Der Branch `upstream-release` hält die Releases
+    unverändert: `e454ab1` (0.7.2001) und `8b8f957` (0.7.3001, ZIP byte-genau geprüft). `c323ceb` mergt ihn nach
+    `main`, davor `549e229` EldoUIs Doku-Historie bis 0.7.3001. Der Weg steht in `tools/ci/README.md`
+    („Neue EldoUI-Version übernehmen“).
+    - Umfang 0.7.2001 → 0.7.3001: 332 Dateien geändert, 15 neu, rund +47.000/−17.000 Zeilen. Von den rund 60
+      Upstream-Dateien, die der Fork geändert hat, hatten 11 Konflikte (18 Stellen).
+    - Doppelte Fixes (Absprache: EldoUIs Lösung gilt, der Fork behält nur, was sie nicht abdeckt): F05 und F07
+      teilweise, F14 und C8 ganz (Tabelle in `fehler.md`). C8: `EldoUI_LootSim` ist wieder ganz EldoUIs,
+      `tools/lootsim/test_judgement.lua` prüft jetzt EldoUIs Regel (`hitType = "ranged"`).
+    - Fork-Features gegen 0.7.3001 geprüft: keins ist doppelt. Überschneidungen: B7 (siehe dort), B5 (EldoUIs
+      Questgegenstand-Knopf folgt jetzt der gewählten Quest; unsere Leiste bleibt) und E2 (EldoUI zeigt seine
+      Gesamtzeit pro Bild unter der Seitenleiste, `/eui perf` teilt sie weiter nach Modulen auf).
+    - Angepasst, weil EldoUI den Code umgebaut hat: F18 (Reihenfolge in EldoUIs neuen `Set`/`Apply`), E3 (EldoUIs
+      Ereignis-Sounds im schlankeren Updater), C1 (Masque bekommt `button.hover` aus EldoUIs `E:SkinHudButton`;
+      vorher zeigte der Code auf eine nicht mehr vorhandene Variable).
+    - Deutsches Paket: 292 Texte, die die dänische Liste nicht mehr hat, sind raus; 989 neue fehlen noch
+      (20.536 von 21.525, sie erscheinen bis zur Übersetzung auf Englisch). Dezimalkomma an
+      (`E.decimalCommas.deDE`, neu in 0.7.3000).
+    - Prüfungen: 21 neue WoW-API-Namen in `tools/ci/globals.lua`; Platzhalter in vier Tests für EldoUIs neue
+      Helfer; `check_all.sh tests` läuft jetzt ganz durch und nennt am Ende alle roten Tests. Offline-Start:
+      630 bzw. 636 Dateien, 103 Module (84 an), 0 Fehler, englischer und deutscher Client.
+    - Version `0.7.3001-p1`. Im Spiel ist das Update noch nicht getestet.
+    - Im Spiel prüfen (vorher `WTF` sichern; alte `EldoUI*`-Ordner löschen, das neue ZIP entpacken und das Spiel ganz
+      neu starten, die TOC hat neue Dateien):
+      - Login: `/eui errors` ohne neue Fehler; der Hinweis „Was ist neu“ zu 0.7.3001 kommt einmal.
+      - Deutscher Client: EldoUIs Texte deutsch, nur Neues aus 0.7.3000 englisch; Schieberegler mit Komma (z. B. „0,71“).
+      - F18: Profilseite „Neues Profil“, „Umbenennen“ und die Auswahllisten; eine Auswahl auch mit den Pfeiltasten.
+      - F14 (jetzt EldoUIs): `/eui move`, einen Mover ziehen und dabei in den Kampf kommen: kein ADDON_ACTION_BLOCKED,
+        der Verschiebemodus geht nach dem Kampf wieder auf.
+      - E3/C5: Kampftext im Stil „Kräftig“; Loot-Zeilen mit Ton spielen ihn bei einem Schwung nur einmal.
+      - C1: mit Masque Hover-Optik auf Verbrauchsgüter- und Totemleiste.
+      - Rechtsklick auf einen Trank in der Tasche benutzt ihn (Hotfix 0.7.3001); dazu F22s Auktionshaus-Ablauf.
+      - B7: Taschen bis auf 3 freie Plätze füllen: unsere Karte und EldoUIs Pfeil, ob sie verschiedene Gegenstände nennen.
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.

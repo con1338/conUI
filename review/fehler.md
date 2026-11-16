@@ -12,16 +12,16 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F02 | Mover-Positionen aus Imports ungeprüft, Frames verschwinden | mittel–hoch | behoben | `723320c` |
 | F03 ✔ | Snapshot-Import übernimmt Makroinhalte ungeprüft | mittel | behoben | `9dac6fc` |
 | F04 | Settings-Angebote Fremder ohne Limit, schließen offene Dialoge | mittel | behoben | `8119cf7` |
-| F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben | `3deb369` |
+| F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben (Teil seit 0.7.3000 in EldoUI) | `3deb369`, `c323ceb` |
 | F06 | Fremdtext mit Link-/Escape-Codes ungefiltert im Chat | niedrig–mittel | behoben | `eee687e` |
-| F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | behoben | `419d511` |
+| F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | behoben (Meldung seit 0.7.3000 von EldoUI) | `419d511`, `c323ceb` |
 | F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | behoben | `d6042ce` |
 | F09 | Segensplan und Whisper-Kontakte ohne Obergrenze | niedrig | behoben | `3b0c340` |
 | F10 ✔ | RaidLoot-JSON: `null` verschiebt Array-Elemente | niedrig | bewusst nicht | |
 | F11 | Castbar wertet geheime Werte direkt aus | hoch (plausibel) | behoben | `e5844d2` |
 | F12 | Gruppenframes fallen fälschlich auf Blizzard zurück | mittel | behoben | `5c3b9c6` |
 | F13 ✔ | Drei Event-Handler mit falscher Signatur | mittel | behoben | `1dc7a1d` |
-| F14 | Mover ziehen über Kampfbeginn → ADDON_ACTION_BLOCKED | mittel (plausibel) | behoben | `8f18ddf` |
+| F14 | Mover ziehen über Kampfbeginn → ADDON_ACTION_BLOCKED | mittel (plausibel) | behoben (seit 0.7.3000 von EldoUI) | `8f18ddf`, `c323ceb` |
 | F15 | Blizzard-Leiste kommt mit „toten“ Buttons zurück | mittel | behoben | `c0345a9` |
 | F16 | Click-Casting: Hover-Unit veraltet nach Roster-Änderung | niedrig–mittel (plausibel) | behoben | `2731180` |
 | F17 | Kleinkram: Click-Bindungen, Secret-Checks, Unit-Filter | niedrig | behoben | `9159f19`, `e49c371` |
@@ -51,6 +51,20 @@ neuer Fehler.
 | F01: Für eine vorhandene, aber nicht teilbare Liste kam „a list your EldoUI doesn't have“ | Eigene Meldung; Name ohne Textcodes | `07c73da` |
 | F12: Mit „nur im Kampf“ wird ein wirklich defekter Client nie erkannt | bewusst so gelassen (vertretbar) | |
 | F04: In Schlachtfeldern lehnt auch das Senden einer Wunschliste an ein Gruppenmitglied ab, Text „only to your group…“ ist dort irreführend | bewusst so gelassen (seltener Fall) | |
+
+## Nach dem Update auf EldoUI 0.7.3001 (16.11.2026)
+
+Der Fork steht seit `c323ceb` auf EldoUI 0.7.3001 (vorher 0.7.2001; Weg in `tools/ci/README.md`). EldoUI 0.7.3000
+behebt einige der Fehler unten selbst. Absprache mit dem Nutzer: Dann gilt EldoUIs Lösung, und der Fork behält nur
+den Teil, den EldoUI nicht abdeckt. Geprüft wurde jeder Fix-Commit gegen den Code von 0.7.3001 (nicht im Spiel).
+
+| Nr. | In 0.7.3001 | Was im Fork bleibt |
+|---|---|---|
+| F05 | Teilweise: EldoUI wartet bei wiederholten Anfragen eines Spielers, begrenzt die offenen Angebote auf 32 und vergisst ein Angebot nach 61 s (`Modules/MinimapLayer.lua`, `ForgetOffer`). Ein „LR“ von jemandem ohne Angebot beantwortet es aber weiter mit „busy“. | Keine Antwort ohne eigenes Angebot (`OnChosen`). Das Aufräumen alter Angebote ist EldoUIs. |
+| F07 | Teilweise: EldoUI nennt bei einem String aus einer neueren oder unlesbaren Version den Grund (`PayloadAdmit`, „it was made with a newer EldoUI (%s)“). Teil-Importe migriert es weiter nicht. | Die Migration von Teil-Importen (`MigratePart`, Stempel in `BuildPayload`). Die eigenen Meldungen (`VersionMessage`, `E:ProfileVersionProblem`) und ihre drei deutschen Texte sind weg. |
+| F14 | Ja: `E:EndMoverDrag` beendet einen Zug bei Kampfbeginn und speichert die Stelle nach dem Kampf; der Verschiebemodus geht danach wieder auf. | Nichts; F02s Punktprüfung in `Core/Movers.lua` bleibt. |
+| F01–F04, F06, F08, F09, F11–F13, F15–F21 | Nein (Code an diesen Stellen gleich oder nur verschoben). | Alles. F18 sitzt jetzt in EldoUIs neuen Funktionen `Set` (Auswahl) und `Apply` (Farbe), die auch die Tastatur nutzt. |
+| F22 | Unverändert (teilweise behoben). Der Hotfix 0.7.3001 („Right-clicking a potion … uses it again“) betrifft einen Fehler aus 0.7.3000 (`WatchJunkSlot` ersetzte den Klick-Handler der Taschenplätze), nicht die Ursache von F22. | F22s Auktionshaus-Fix (PR #36). |
 
 ---
 
