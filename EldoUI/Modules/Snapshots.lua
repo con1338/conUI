@@ -1,6 +1,6 @@
--- EldoUI Bar Snapshots: save what is on your action bars, your macros, your
--- key bindings and your Edit Mode layout, and put it all back with a few
--- clicks. Snapshots are taken by hand and, if you switch it on, at every
+-- EldoUI Bar Snapshots: save what is on your action bars, which action bars
+-- are on, your macros, your key bindings and your Edit Mode layout, and put
+-- it all back with a few clicks. Snapshots are taken by hand and, if you switch it on, at every
 -- login and logout, so a client that resets bars or keys (a known
 -- WoW: Forever problem) costs one restore.
 -- Snapshots travel as "!EUS1!" strings through EldoUI's import box, with a
@@ -23,7 +23,7 @@ local MAX_LAYOUT_TEXT = 64 * 1024
 local M = E:NewModule("Snapshots", {
 	title = "Bar Snapshots",
 	category = "Quality of Life",
-	desc = "Save your action bars, macros, key bindings and Edit Mode layout, preview what a restore changes, and put them back with one click.",
+	desc = "Save your action bars, which bars are on, macros, key bindings and Edit Mode layout, preview what a restore changes, and put them back with one click.",
 	frames = { "EldoUISnapshotRestore" },
 	savedKeys = { "profile.modules.Snapshots", "global.BarSnapshots" },
 	optionsPage = "module:Snapshots",
@@ -37,6 +37,7 @@ local M = E:NewModule("Snapshots", {
 		restoreMacros = true,  -- add missing macros (never changes or deletes existing ones)
 		restoreBindings = true,
 		restoreEditMode = true,
+		restoreToggles = true, -- which of action bars 2 to 8 are on (Options > Action Bars)
 		clearEmpty = true,     -- slots empty in the snapshot are emptied too
 		selected = "1",
 		source = "",           -- "" = this character; else another character's key
@@ -226,6 +227,97 @@ local function ReadEditMode()
 end
 
 ---------------------------------------------------------------------------
+-- Which of action bars 2 to 8 are on (Options > Action Bars)
+---------------------------------------------------------------------------
+-- GetActionBarToggles gives seven values, bars 2 to 8: what the options'
+-- "Show Action Bar n" boxes read and write (Forever client,
+-- Blizzard_SettingsDefinitions_Frame/ActionBars.lua). WoW: Forever turned
+-- them back at every logout for players with dual specialization until the
+-- hotfix of 13 November 2026, so a snapshot keeps them too.
+local NUM_TOGGLES = 7
+local TOGGLES_RESET = 2 -- bars on in the snapshot and off now: from 2 a reset, not a choice
+
+-- The seven values as true / false, or nil when the game gives no clear
+-- answer. An unknown state is never saved, so a restore can't turn every
+-- bar off by mistake.
+local function ReadToggles()
+	if type(GetActionBarToggles) ~= "function" then return nil end
+	local values = { pcall(GetActionBarToggles) }
+	if not values[1] then return nil end
+	local toggles = {}
+	for index = 1, NUM_TOGGLES do
+		local value = Clean(values[index + 1])
+		if value == true or value == 1 then
+			toggles[index] = true
+		elseif value == false or value == 0 then
+			toggles[index] = false
+		else
+			return nil
+		end
+	end
+	return toggles
+end
+
+-- The bars whose state differs from the snapshot's:
+-- { bar = 2..8, on = the snapshot's state }, in bar order.
+local function ToggleChanges(want, now)
+	local changes = {}
+	if type(want) ~= "table" or type(now) ~= "table" then return changes end
+	for index = 1, NUM_TOGGLES do
+		if type(want[index]) == "boolean" and want[index] ~= now[index] then
+			changes[#changes + 1] = { bar = index + 1, on = want[index] }
+		end
+	end
+	return changes
+end
+
+-- The bars that were on in the snapshot and are off now, when that looks
+-- like the game's reset: at least TOGGLES_RESET of them and none turned on.
+-- Empty otherwise.
+local function TogglesTurnedOff(want, now)
+	local off = {}
+	for _, change in ipairs(ToggleChanges(want, now)) do
+		if not change.on then return {} end
+		off[#off + 1] = change.bar
+	end
+	if #off < TOGGLES_RESET then return {} end
+	return off
+end
+
+-- Set all seven at once, as the options do: Blizzard's note there says a
+-- second call before the server answered sends an old mask and undoes the
+-- first. The bars show after a reload: the game updates them only from its
+-- options' change callbacks and at login (Blizzard_ActionBarController,
+-- MultiActionBar_Update). EldoUI never calls those itself: they write
+-- VIEWABLE_ACTION_BAR_PAGES, which paging reads in combat
+-- (ActionBar_PageUp), and from addon code that would taint it.
+-- Returns the number of bars changed, or nil and why not.
+local function WriteToggles(want)
+	local now = ReadToggles()
+	if not now then return nil, L["the game doesn't say which action bars are on"] end
+	local changes = ToggleChanges(want, now)
+	if #changes == 0 then return 0 end
+	if type(SetActionBarToggles) ~= "function" then return nil, L["this game client can't turn action bars on or off"] end
+	local values = {}
+	for index = 1, NUM_TOGGLES do
+		if type(want[index]) == "boolean" then values[index] = want[index] else values[index] = now[index] end
+	end
+	if not pcall(SetActionBarToggles, unpack(values, 1, NUM_TOGGLES)) then
+		return nil, L["the game refused to turn the action bars on or off"]
+	end
+	return #changes
+end
+
+-- "Action Bar 6, 7 and 8" style list for a set of bar numbers.
+local function BarList(bars)
+	local names = {}
+	for i, bar in ipairs(bars) do names[i] = tostring(bar) end
+	if #names <= 1 then return names[1] or "" end
+	return (L["%s and %s"]):format(table.concat(names, ", ", 1, #names - 1), names[#names])
+end
+M.ReadToggles, M.ToggleChanges, M.TogglesTurnedOff = ReadToggles, ToggleChanges, TogglesTurnedOff
+
+---------------------------------------------------------------------------
 -- Snapshots
 ---------------------------------------------------------------------------
 -- A short fingerprint, so an automatic snapshot is only kept when
@@ -240,6 +332,11 @@ local function Signature(snapshot)
 	for _, m in ipairs(snapshot.macros) do parts[#parts + 1] = m.name .. #m.body end
 	local layout = snapshot.editMode
 	if layout then parts[#parts + 1] = tostring(layout.name) .. #layout.text end
+	if type(snapshot.toggles) == "table" then
+		local bits = {}
+		for index = 1, NUM_TOGGLES do bits[index] = snapshot.toggles[index] and "1" or "0" end
+		parts[#parts + 1] = "bars" .. table.concat(bits)
+	end
 	return table.concat(parts, ";")
 end
 
@@ -251,6 +348,7 @@ function M:Capture(label, auto)
 		actions = actions, macros = ReadMacros(), bindings = ReadBindings(),
 		bindingSet = GetCurrentBindingSet and GetCurrentBindingSet() or 1,
 		editMode = ReadEditMode(),
+		toggles = ReadToggles(),
 	}
 	snapshot.sig = Signature(snapshot)
 	return snapshot
@@ -482,6 +580,7 @@ function M:Plan(snapshot)
 	end
 	table.sort(plan.bindings, function(a, b) return a.key < b.key end)
 	plan.editMode = self:EditModePlan(snapshot)
+	plan.toggles = ToggleChanges(snapshot.toggles, ReadToggles())
 	return plan
 end
 
@@ -596,11 +695,21 @@ function M:RestoreEditMode(snapshot)
 	return (L["Edit Mode layout %q active again"]):format(tostring(plan.name))
 end
 
+-- Turn action bars 2 to 8 on or off as in the snapshot. Returns a line for
+-- the chat summary, and true when the bars need a reload to show.
+function M:RestoreToggles(snapshot)
+	if type(snapshot.toggles) ~= "table" then return nil end
+	local changed, err = WriteToggles(snapshot.toggles)
+	if not changed then return (L["Action bars not turned on or off (%s)"]):format(tostring(err)) end
+	if changed == 0 then return nil end
+	return E:Plural(changed, "%d action bar turned on or off", "%d action bars turned on or off"):format(changed), true
+end
+
 -- The parts a restore starts with (the options page's ticks).
 function M:DefaultParts()
 	local db = self.db
 	return { actions = db.restoreActions, clearEmpty = db.clearEmpty, macros = db.restoreMacros,
-		bindings = db.restoreBindings, editMode = db.restoreEditMode }
+		bindings = db.restoreBindings, editMode = db.restoreEditMode, toggles = db.restoreToggles }
 end
 
 local function ApplyRestore(self, snapshot, parts, notify)
@@ -628,12 +737,20 @@ local function ApplyRestore(self, snapshot, parts, notify)
 		local line = self:RestoreEditMode(snapshot)
 		if line then lines[#lines + 1] = line end
 	end
+	local reload
+	if parts.toggles then
+		local line
+		line, reload = self:RestoreToggles(snapshot)
+		if line then lines[#lines + 1] = line end
+	end
 	if #lines == 0 then lines[1] = L["nothing to change"] end
 	local text = L["Snapshot restored: "] .. table.concat(lines, ", ") .. "."
 	if parts.actions and snapshot.class and class and snapshot.class ~= class then
 		text = text .. "\n" .. L["That snapshot was taken on another class; its spells were skipped."]
 	end
 	notify(text)
+	-- The game shows the bars it now has on after a reload (see WriteToggles).
+	if reload then E:ShowReloadPrompt(L["The action bars you turned on or off show after a reload."]) end
 	return true
 end
 
@@ -673,6 +790,7 @@ local PART_ROWS = {
 	{ key = "macros", label = "Add missing macros", desc = "Create the snapshot's macros you no longer have. Existing macros are never changed or deleted." },
 	{ key = "bindings", label = "Key bindings", desc = "Set every key binding to the snapshot's." },
 	{ key = "editMode", label = "Edit Mode layout", desc = "Switch to the snapshot's Edit Mode layout, or add it as a new account layout when you no longer have it." },
+	{ key = "toggles", label = "Which bars are on", desc = "Turn action bars 2 to 8 on or off as in the snapshot (Options > Action Bars). They show after a reload." },
 }
 
 local function TipLines(tooltip, lines, limit)
@@ -878,6 +996,15 @@ function M:ShowPreview(snapshot, reason)
 	elseif em.status == "add" then emText = (L["add as %q"]):format(tostring(em.name))
 	else emText = tostring(em.reason) end
 	SetPart(parts.editMode, em.status == "activate" or em.status == "add", defaults.editMode, emText)
+	local barLines = {}
+	for _, change in ipairs(plan.toggles) do
+		barLines[#barLines + 1] = (change.on and L["Action Bar %d: on"] or L["Action Bar %d: off"]):format(change.bar)
+	end
+	local barText
+	if type(snapshot.toggles) ~= "table" then barText = L["not in this snapshot"]
+	elseif #plan.toggles == 0 then barText = L["already the same"]
+	else barText = E:Plural(#plan.toggles, "%d bar changes", "%d bars change"):format(#plan.toggles) end
+	SetPart(parts.toggles, #plan.toggles > 0, defaults.toggles, barText, barLines)
 	window.copyLayout:SetShown(em.status == "blocked")
 	window:UpdateButtons()
 	window:Show()
@@ -935,6 +1062,8 @@ function M:ResetSigns(snapshot)
 			if not found then signs[#signs + 1] = (L["your Edit Mode layout %q is gone"]):format(layout.name) end
 		end
 	end
+	local off = TogglesTurnedOff(snapshot.toggles, ReadToggles())
+	if #off > 0 then signs[#signs + 1] = (L["action bars %s are turned off"]):format(BarList(off)) end
 	return signs
 end
 
@@ -1039,12 +1168,23 @@ local function CleanImport(data)
 		and em.text ~= "" and #em.text <= MAX_LAYOUT_TEXT then
 		layout = { name = em.name:sub(1, 64), text = em.text, preset = em.preset == true or nil }
 	end
+	-- Which bars are on: seven true / false or nothing. Not in the checksum,
+	-- so a string from this version still passes in an older one.
+	local toggles
+	if type(data.toggles) == "table" then
+		toggles = {}
+		for index = 1, NUM_TOGGLES do
+			if type(data.toggles[index]) ~= "boolean" then toggles = nil break end
+			toggles[index] = data.toggles[index]
+		end
+	end
 	local clean = {
 		class = type(data.class) == "string" and data.class or nil,
 		time = type(data.time) == "number" and data.time or time(),
 		count = count, actions = actions, macros = macros, bindings = bindings,
 		bindingSet = (data.bindingSet == 1 or data.bindingSet == 2) and data.bindingSet or nil,
 		editMode = layout,
+		toggles = toggles,
 		label = L["imported"],
 		imported = true,
 	}
@@ -1081,7 +1221,7 @@ if E.RegisterShareKind then
 		build = function(arg)
 			local s = SnapshotByArg(arg) or M:Capture("export")
 			local payload = { class = s.class, time = s.time, label = s.label, count = s.count, actions = s.actions,
-				macros = s.macros, bindings = s.bindings, bindingSet = s.bindingSet, editMode = s.editMode }
+				macros = s.macros, bindings = s.bindings, bindingSet = s.bindingSet, editMode = s.editMode, toggles = s.toggles }
 			local clean = CleanImport(payload)
 			if clean then payload.sum = Checksum(Canonical(clean)) end
 			return payload
@@ -1229,7 +1369,7 @@ local function NoSelection()
 end
 
 M.options = {
-	{ type = "description", label = "A snapshot holds your action slots, macros, key bindings and Edit Mode layout. Restore shows each change first and can be undone." },
+	{ type = "description", label = "A snapshot holds your action slots, which action bars are on, macros, key bindings and Edit Mode layout. Restore shows each change first and can be undone." },
 	{ type = "header", label = "Snapshots" },
 	{ type = "execute", label = "Take a snapshot now", desc = "Save your action bars, macros, key bindings and Edit Mode layout as they are now.", func = function() M:Take(nil, false) end },
 	{ type = "select", key = "source", label = "Character", values = SourceValues, desc = "Whose snapshots to list. A snapshot from another character copies that setup to this one; spells this character doesn't know are skipped.",
@@ -1252,26 +1392,27 @@ M.options = {
 	{ type = "header", label = "Automatic" },
 	{ type = "toggle", key = "auto", label = "Snapshot at login and logout", desc = "Keep a snapshot whenever your bars, macros, keys or Edit Mode layout changed since the last one." },
 	{ type = "range", key = "keepAuto", label = "Automatic snapshots kept", min = 1, max = 20, step = 1, desc = "How many automatic snapshots to keep per character; the oldest go first. Your own snapshots are kept (up to 20).", dependsOn = "auto" },
-	{ type = "toggle", key = "offerRestore", label = "Offer a restore after a reset", desc = "At login, when your bars are empty, your key bindings differ or your Edit Mode layout is gone, offers to review a restore. Nothing is restored without your click." },
+	{ type = "toggle", key = "offerRestore", label = "Offer a restore after a reset", desc = "At login, when your bars are empty, your key bindings differ, your Edit Mode layout is gone or two or more action bars are turned off, offers to review a restore. Nothing is restored without your click." },
 	{ type = "header", label = "What a restore starts with" },
 	{ type = "toggle", key = "restoreActions", label = "Action bars", desc = "Checked in the restore window: place every spell, item, macro and equipment set back on its slot. Spells this character doesn't know are skipped." },
 	{ type = "toggle", key = "clearEmpty", label = "Empty the other slots", desc = "Checked in the restore window: slots that were empty in the snapshot are emptied too, so the bars match it exactly.", dependsOn = "restoreActions" },
 	{ type = "toggle", key = "restoreMacros", label = "Add missing macros", desc = "Checked in the restore window: create macros from the snapshot that you no longer have. Existing macros are never changed or deleted." },
 	{ type = "toggle", key = "restoreBindings", label = "Key bindings", desc = "Checked in the restore window: set every key binding to the snapshot's." },
 	{ type = "toggle", key = "restoreEditMode", label = "Edit Mode layout", desc = "Restores the snapshot's Edit Mode layout, or adds it as a new one (needs Improve for Edit Mode in Blizzard UI; otherwise you get the text for Edit Mode's Import)." },
+	{ type = "toggle", key = "restoreToggles", label = "Which bars are on", desc = "Checked in the restore window: turn action bars 2 to 8 on or off as in the snapshot (Options > Action Bars). They show after a reload." },
 }
 
 E:RegisterStyles("Snapshots", {
 	{ key = "Standard", title = "Standard", desc = "Snapshots only when you take them; a restore starts with every part checked.",
-		settings = { auto = false, keepAuto = 5, offerRestore = false, restoreActions = true, restoreMacros = true, restoreBindings = true, restoreEditMode = true, clearEmpty = true } },
+		settings = { auto = false, keepAuto = 5, offerRestore = false, restoreActions = true, restoreMacros = true, restoreBindings = true, restoreEditMode = true, restoreToggles = true, clearEmpty = true } },
 	{ key = "SafetyNet", title = "Safety net", desc = "Automatic snapshots at login and logout (10 kept) and a restore offer when the game resets your setup.",
 		settings = { auto = true, keepAuto = 10, offerRestore = true } },
 	{ key = "Careful", title = "Careful", desc = "A restore adds what is missing but never empties a slot.",
 		settings = { clearEmpty = false } },
-	{ key = "BarsOnly", title = "Bars only", desc = "A restore starts with only the action bars checked.",
-		settings = { restoreActions = true, restoreMacros = false, restoreBindings = false, restoreEditMode = false } },
+	{ key = "BarsOnly", title = "Bars only", desc = "A restore starts with only the action bars and which bars are on checked.",
+		settings = { restoreActions = true, restoreMacros = false, restoreBindings = false, restoreEditMode = false, restoreToggles = true } },
 	{ key = "KeysOnly", title = "Keys only", desc = "A restore starts with only the key bindings checked.",
-		settings = { restoreActions = false, restoreMacros = false, restoreBindings = true, restoreEditMode = false } },
+		settings = { restoreActions = false, restoreMacros = false, restoreBindings = true, restoreEditMode = false, restoreToggles = false } },
 	{ key = "LayoutOnly", title = "Layout only", desc = "A restore starts with only the Edit Mode layout checked.",
-		settings = { restoreActions = false, restoreMacros = false, restoreBindings = false, restoreEditMode = true } },
+		settings = { restoreActions = false, restoreMacros = false, restoreBindings = false, restoreEditMode = true, restoreToggles = false } },
 })

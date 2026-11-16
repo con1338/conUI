@@ -30,6 +30,8 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
 | C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt | `d83f389` |
 | C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
+| C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
+| C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt | `95002b5` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -936,6 +938,38 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       Sitzung 59 (16.11. 00:18, vor dem Einspielen) und hat mit C6 nichts zu tun, siehe F22 in `fehler.md`.
     - Noch offen: Guide-Assistent mit Milka (5., der Nutzer prüft das später, Milka ist ein Bankcharakter) und die
       Guide-Kette selbst bei Stufe 21/22.
+- **C7 Leisten-Schnappschüsse: welche Aktionsleisten an sind:** Bis zum Forever-Hotfix vom 13.11.2026 haben sich
+  mit Dual-Spezialisierung die Einstellungen der Aktionsleisten bei jedem Ausloggen zurückgesetzt („Fixed a bug that
+  caused Action Bar settings to reset every time players who acquired Secondary Talents logged out“). Laut Timesaver
+  (14.11.) meldete ein Spieler danach noch geleerte Leisten. Die Schnappschüsse sicherten Plätze, Makros, Tasten und
+  das Layout des Bearbeitungsmodus, aber nicht die Schalter „Aktionsleiste 2 bis 8 anzeigen“.
+  - **Umgesetzt** (`Modules/Snapshots.lua`): Ein Schnappschuss hält die sieben Werte von `GetActionBarToggles`, nur
+    wenn das Spiel klar true oder false meldet. Neuer Teil „Welche Leisten an sind“ im Wiederherstellungsfenster und
+    in den Optionen. Wiederherstellen setzt alle sieben mit einem Aufruf `SetActionBarToggles`, wie Blizzards
+    Optionen (`Blizzard_SettingsDefinitions_Frame/ActionBars.lua`, Branch `forever`), und bietet danach das Neuladen
+    an. EldoUI ruft `MultiActionBar_Update` bewusst nicht selbst auf: Es schreibt `VIEWABLE_ACTION_BAR_PAGES`, das
+    `ActionBar_PageUp` beim Blättern liest, und aus Addon-Code wäre das im Kampf verseucht. Die Prüfung beim Einloggen
+    zählt es als Zurücksetzen, wenn zwei oder mehr Leisten aus sind, die im Schnappschuss an waren, und keine neu an
+    ist. Strings zum Teilen tragen die Werte mit, außerhalb der Prüfsumme, damit ältere Versionen neue Strings
+    weiter annehmen. Test: `tools/snapshots/test_bar_toggles.lua` (31 Prüfungen, mit dem alten Code 11 Fehlschläge).
+  - **Im Spiel prüfen:**
+    1. Mit Blizzards Leisten (Aktionsleisten-Modul von EldoUI aus oder „Blizzards behalten“): `/eui snapshot take`.
+    2. Unter Optionen → Aktionsleisten zwei Leisten ausschalten, dann `/eui snapshot restore 1`. Erwartung: Der Teil
+       „Welche Leisten an sind“ ist angehakt und nennt „2 Leisten ändern sich“, der Tooltip die beiden Leisten.
+    3. Wiederherstellen, dann über die Abfrage neu laden. Erwartung: Beide Leisten sind wieder da, im Fehlerlog kein
+       `ADDON_ACTION_BLOCKED`. Danach im Kampf mit Umschalt + Mausrad bzw. Umschalt + Zahl blättern: Es geht.
+    4. Mit „Wiederherstellung nach einem Zurücksetzen anbieten“: zwei Leisten aus, ausloggen, einloggen. Erwartung: Die
+       Frage nennt „die Aktionsleisten … sind ausgeschaltet“.
+- **C8 Kampfsimulation: Richturteil als Fernkampfangriff:** Forever-Hotfix vom 11.11.2026: „Judgement changed to now
+  be considered a Ranged Attack … uses the Paladin's Ranged Hit chance“. Am 13.11. kam Richturteil des Befehls als
+  Nahkampf zurück. Die Simulation (`EldoUI_LootSim`) würfelte Richturteil mit der Zauber-Trefferchance.
+  - **Umgesetzt:** Richturteil (`Data.lua`, `rangedHit`) würfelt jetzt die Fehlschlagchance eines Fernkampfangriffs
+    aus der Trefferchance (`Engine.lua`, `Fight:SpellLands`), ohne Ausweichen wie die anderen Fernkampfangriffe der
+    Simulation. Schaden, Krit und Widerstand bleiben wie bei Zaubern, weil der Hotfix nur die Trefferchance nennt.
+    Richturteil des Befehls betrifft die Simulation nicht: Die Variante mit Siegel des Befehls richtet nie.
+    Test: `tools/lootsim/test_judgement.lua` (13 Prüfungen, ohne die Regel 5 Fehlschläge).
+  - **Offen:** Ob ein Krit des Richturteils jetzt wie ein Fernkampf-Krit zählt, sagt der Hotfix nicht. Es gibt keinen
+    Spieltest dafür, nur die Zahlen der Simulation.
 
 ## D – Infrastruktur für den Fork
 

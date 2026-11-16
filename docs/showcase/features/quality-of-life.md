@@ -34,7 +34,7 @@ EldoUI's own leveling guide, with over 200 community guides for WoW: Forever: le
 
 ## Bar Snapshots
 
-Saves what is on every action slot, your macros and your key bindings, and puts them back with one click (`/eui snapshot`). Snapshots are taken at login and logout when something changed. If the game comes up with empty bars, EldoUI offers to restore them. Snapshots can be exported as a string for another character.
+Saves what is on every action slot, which action bars are on, your macros and your key bindings, and puts them back with one click (`/eui snapshot`). Snapshots are taken at login and logout when something changed. If the game comes up with empty bars or turned your action bars off, EldoUI offers to restore them. Snapshots can be exported as a string for another character.
 
 ## Camp Helper
 

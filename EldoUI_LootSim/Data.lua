@@ -122,7 +122,8 @@ D.SPELLS = {
 	PALADIN = {
 		sealOfRighteousness = { id = 21084, kind = "buff", school = "holy", cost = 120, duration = 30, seal = "righteousness", perSpeed = 17, coef = 0.092 },
 		sealOfCommand = { id = 20375, kind = "buff", school = "holy", cost = 65, duration = 30, seal = "command", ppm = 7, weaponPct = 70, coef = 0.2 },
-		judgement = { id = 20271, kind = "spell", school = "holy", min = 116, max = 127, cost = 86, cd = 10, coef = 0.5, judge = true },
+		-- rangedHit: a ranged attack's miss roll since the hotfix of 11 November 2026 (Engine.lua, Fight:SpellLands).
+		judgement = { id = 20271, kind = "spell", school = "holy", min = 116, max = 127, cost = 86, cd = 10, coef = 0.5, judge = true, rangedHit = true },
 		consecration = { id = 26573, kind = "dot", school = "holy", min = 384, max = 384, duration = 8, ticks = 4, cost = 565, cd = 8, coef = 0.33, parse = "first" },
 	},
 	SHAMAN = {
