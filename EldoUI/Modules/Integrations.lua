@@ -23,6 +23,10 @@
 --   * Another addon's first-run window (a welcome window, a first choice)
 --     is never hidden, clicked or answered: the EldoUI setup waits for it
 --     (section "First-run windows of the companions").
+--   * One exception to "never changes their code": on a client in another
+--     language, "Fit RestedXP to this game language" wraps a few RestedXP
+--     functions so its English paid guides work there
+--     (Modules/IntegrationsRXPLocale.lua, which says what and why).
 --
 -- Checked against these releases for WoW: Forever 1.60.1:
 --   Details! Damage Meter  Details.20261107.15402.172
@@ -71,6 +75,7 @@ local M = E:NewModule("Integrations", {
 			move = true,
 			theme = true,       -- offer an "EldoUI" theme in RXP's theme list
 			cardDown = true,    -- the step card opens under the guide on a spot in the top half
+			locale = true,      -- fit RestedXP to a client in another language (IntegrationsRXPLocale.lua)
 		},
 		bigwigs = {
 			enabled = true,
@@ -2001,6 +2006,7 @@ function M:Setup()
 	if self.UpdateGuideHandoff then self:UpdateGuideHandoff() end
 	self:SetupDetails()
 	self:SetupRXP()
+	self:SetupRXPLocale()
 	self:SetupBigWigs()
 	if self:On("bigwigs") then self:RegisterBigWigsStyle() end
 	self:SetupQuestie()
@@ -2039,6 +2045,8 @@ function M:OnEnable()
 	self:RegisterEvent("ADDON_LOADED", function(_, _, name)
 		if name == "RXPGuides" then
 			M.rxpThemeRead = true
+			-- Before RestedXP picks a guide at login.
+			M:SetupRXPLocale()
 			-- Automatic may pick RestedXP now.
 			E:GuideProviderChanged()
 		elseif name == "Guidelime" then
@@ -2063,6 +2071,8 @@ function M:OnDisable()
 	for name in pairs(self.proxies) do self:HideProxy(name) end
 	for _, border in pairs(self.borders) do border:Hide() end
 	self:UpdateRXPTheme()
+	-- RestedXP's own group names come back, its own answers pass unchanged.
+	self:SetupRXPLocale()
 	E:GuideProviderChanged()
 end
 
@@ -2191,6 +2201,11 @@ M.options = {
 		desc = "When the guide's spot is in the top half of the screen, its current step card opens under the guide, so the guide grows down from its spot. Lower on the screen RestedXP's own choice stays." },
 	{ type = "toggle", key = "rxp.theme", label = "EldoUI theme", reload = true,
 		desc = "Adds an \"EldoUI\" theme (EldoUI colors, accent and font) to RestedXP's theme list. Pick it in RestedXP's settings. Takes effect after a reload." },
+	{ type = "toggle", key = "rxp.locale", label = "Fit RestedXP to this game language",
+		desc = "RestedXP's paid guides are in English. On a client in another language EldoUI looks up the NPC names of the target macro in QuestieDB and keeps quest experience out of the monster count of the leveling report. On a German client it also fixes RestedXP's group names and leads the free guides on into the paid ones. RestedXP's own files stay as they are.",
+		hidden = function() return not M:RXPLocaleShown() end },
+	{ type = "description", label = function() return M:RXPLocaleStatus() end,
+		hidden = function() return not (M:RXPLocaleShown() and M:RXPLocaleStatus() ~= "") end },
 	{ type = "header", label = "RestedXP's own settings", hidden = function() return not M:ChangeShown("rxpStepCard") end },
 	{ type = "description", label = function() return M:ChangeStatus("rxpStepCard") end,
 		hidden = function() return not M:ChangeShown("rxpStepCard") end },
