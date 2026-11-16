@@ -16,7 +16,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (Forever hat Weltbuffs, laut Nutzer) | mittel | umgesetzt | `2b77920` |
-| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen (Wunsch des Nutzers) | mittel | umgesetzt | `597197f` |
+| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen (Wunsch des Nutzers) | mittel | umgesetzt | `597197f`, `c64271e` |
 | B6 | Signal, wenn Essen und Trinken fertig sind (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
 | B7 | Taschen fast voll: früher Hinweis und Liste „Platz schaffen“ | klein–mittel | offen | |
 | B8 | Quest-EP hinter jedem Titel im Questlog (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
@@ -296,7 +296,8 @@ Geprüft und verworfen:
 - Welche Gegenstände, in der Reihenfolge der Taschen, jeder nur einmal:
   - Der Gegenstand, den das Questlog für eine Quest nennt (`GetQuestLogSpecialItemInfo`), solange er in der Tasche
     liegt. Bei einer Quest, die zum Abgeben bereit ist, nur wenn das Spiel ihn dafür behält
-    (`showWhenComplete`) oder „Auch abgeschlossene Quests“ an ist.
+    (`showWhenComplete`) oder „Auch abgeschlossene Quests“ an ist. Sonst bleibt er weg, auch wenn er nach der
+    Regel darunter passen würde, außer eine andere offene Quest nennt ihn.
   - Gegenstände, die das Spiel als Questgegenstand markiert (`GetContainerItemQuestInfo`) oder deren Klasse
     „Quest“ ist (12). Sie brauchen eine Benutzung: einen Zauber (`GetItemSpell`) oder einen Inhalt zum Öffnen
     (`hasLoot`). Reine Questbeute wie Felle bleibt weg, ebenso Tränke.
@@ -311,11 +312,13 @@ Geprüft und verworfen:
   - Jede Antwort des Spiels läuft über `pcall`. Eine geheime Antwort zählt als „nicht da“ und wird nie verglichen.
   - Die Abklingzeit kommt aus der gemeinsamen Quelle des Kampf-Kits, wie bei der Verbrauchsgüterleiste.
   - Reichweite: rotes Symbol, wenn das Spiel „außer Reichweite“ meldet (`IsQuestLogSpecialItemInRange`). Das gibt es
-    nur für die Gegenstände des Questlogs und nur, solange einer davon zu sehen ist (fünfmal pro Sekunde).
+    nur für die Gegenstände des Questlogs und nur, solange einer davon zu sehen ist (fünfmal pro Sekunde). Den Platz
+    der Quest im Questlog liest es jedes Mal neu (`GetLogIndexForQuestID`), ebenso der Tooltip.
+  - Leuchten nur für Gegenstände, die seit dem letzten Lesen in die Taschen kamen.
   - Bündel von Taschen- und Quest-Events werden einmal gelesen (0,2 s). Bringt ein Event dieselben Gegenstände,
     wird nichts neu gesetzt.
 - Einstellungen: Starter, abgeschlossene Quests, „Ausgeblendete Gegenstände zeigen“, „Tasten belegen“
-  (Tastenbelegungsmodus mit allen 12 Plätzen), Tastentext, Größe, Abstand, vertikal, Anzahlen, Farbe außer
+  (Tastenbelegungsmodus mit allen 12 Plätzen, auch wenn die Sichtbarkeitsregel die Leiste gerade versteckt), Tastentext, Größe, Abstand, vertikal, Anzahlen, Farbe außer
   Reichweite, Leuchten bei neuem Gegenstand, Masque, dazu die gemeinsamen Sichtbarkeitsregeln.
 - Tastenbelegung: 12 Einträge „Questgegenstand 1 … 12“ unter „EldoUI Questgegenstandsleiste“ im Tastenbelegungsfenster
   (`Bindings.xml`). Platz 1 hält den ersten Questgegenstand in den Taschen, und so weiter.
@@ -328,7 +331,7 @@ Geprüft und verworfen:
   Quest auf ihrer eigenen Taste. Dieser Gegenstand steht deshalb auch auf der Leiste.
 - Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (23 Texte). „Keys“ heißt im Paket schon „Schlüssel“, deshalb
   heißt der Abschnitt „Keybinds“ („Tastenbelegungen“).
-- Test: `tools/questbar/test_quest_bar.lua` (läuft in `tools/ci/check_all.sh tests`, 142 Prüfungen). Er lädt die
+- Test: `tools/questbar/test_quest_bar.lua` (läuft in `tools/ci/check_all.sh tests`, 157 Prüfungen). Er lädt die
   Datei ganz, dazu EldoUIs echtes `Core/Safe.lua` (geheime Werte) und `Core/BagCache.lua` (Taschen). Ein sicherer
   Knopf, der im Kampf gezeigt, versteckt, verschoben oder mit einem Attribut versehen wird, zählt als blockiert, wie
   im Spiel. Geprüft werden:
@@ -338,7 +341,9 @@ Geprüft und verworfen:
   - Geheime oder fehlerhafte Antworten, die Leiste ohne Gegenstände und im Verschiebemodus.
   - Kampf: nichts blockiert, Änderungen kommen am Kampfende. Dieselben Gegenstände werden nicht neu gesetzt.
   - Ein Lesen pro Bündel von Events, Layout waagrecht und senkrecht.
-  - Anzahl, Aufladungen, „!“, Tastentext, Abklingzeiten, Reichweitenfarbe (auch abgeschaltet), Leuchten nur für Neues.
+  - Anzahl, Aufladungen, „!“, Tastentext, Abklingzeiten.
+  - Reichweitenfarbe, auch abgeschaltet, nach einer neuen Quest im Kampf und ohne `GetLogIndexForQuestID`.
+  - Leuchten nur für Neues, nicht nach „Ausgeblendete Gegenstände zeigen“, Schaltern oder spät geladenen Daten.
   - Umschalt-Rechtsklick auch im Kampf, Tasten belegen, Tooltip, Modul aus im Kampf, Masque.
   - Namen der Tastenbelegungen, Standards, Optionen.
   - Gegenprobe: Drei absichtlich eingebaute Fehler (kein Kampfschutz, keine Benutzung nötig, Reichweite trotz
@@ -359,7 +364,8 @@ Geprüft und verworfen:
   - Im Kampf einen Questgegenstand plündern: Er erscheint erst nach dem Kampf. Danach `/eui errors`: kein
     „Blocked …“-Eintrag.
   - Optionen › Questgegenstandsleiste › „Tasten belegen“: alle 12 Plätze sind zu sehen. Eine Taste auf Platz 1
-    legen, speichern, danach benutzt die Taste den ersten Gegenstand, auch im Kampf.
+    legen, speichern, danach benutzt die Taste den ersten Gegenstand, auch im Kampf. Dasselbe mit der
+    Sichtbarkeit „Im Kampf“: Beim Belegen ist die Leiste trotzdem da.
   - Umschalt-Rechtsklick auf einen Platz: Der Gegenstand verschwindet, mit einer Chatzeile. „Ausgeblendete
     Gegenstände zeigen“ holt ihn zurück.
   - Mit einem Ziel außer Reichweite eines Questlog-Gegenstands: Das Symbol wird rot.
@@ -367,6 +373,19 @@ Geprüft und verworfen:
     die Taste und der Hinweis zum Ausblenden.
   - `/eui move`: Die Leiste lässt sich unter „Aktionsleisten“ verschieben.
   - Danach `/eui errors`: keine Lua-Fehler.
+
+**Gegenprüfung von B5 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit `597197f` und
+die EldoUI-Funktionen, die er nutzt, und ließ alle Prüfungen laufen (grün). Er fand keine Lua-Fehler, keine Änderung
+an sicheren Knöpfen im Kampf, keine Benutzung ohne Klick und keine Probleme mit geheimen Werten. Die Befunde und
+was daraus wurde (Korrekturen in `c64271e`, jeder Fall im Test, der gegen den alten Stand fehlschlägt):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | „Auch abgeschlossene Quests“ wirkungslos: Der Questlog-Gegenstand einer fertigen Quest kam über die Taschenregel (Klasse „Quest“ mit Benutzung) zurück. Der Test sah es nicht, weil sein Questlog-Gegenstand keine Questklasse hatte | mittel | behoben |
+| 2 | Platz der Quest im Questlog veraltet im Kampf (neue Quest darüber, Überschrift zugeklappt): Reichweitenfarbe und Tooltip zeigten auf eine andere Quest | klein | behoben |
+| 3 | „Tasten belegen“ bei einer Sichtbarkeitsregel wie „Im Kampf“: Der sichere Treiber versteckt die Leiste, nichts zum Zeigen | klein | behoben (`opts.condition`, `forceShow`) |
+| 4 | Leuchten ohne neuen Gegenstand: nach „Ausgeblendete Gegenstände zeigen“ und Schaltern (bestätigt), beim Login mit spät geladenen Daten (plausibel) | klein | behoben: nur, was neu in die Taschen kam |
+| 5 | Test: Einige Fälle (Modul aus, Einstellung im Kampf) laufen im Spiel so nicht, weil die Optionen und der Modulschalter bis zum Kampfende warten | klein | bleibt als Prüfung der eigenen Schutzabfragen, im Test vermerkt |
 
 **B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
 - Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
