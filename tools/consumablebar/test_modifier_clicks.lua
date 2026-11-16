@@ -67,6 +67,7 @@ function E:TrimIcon() end
 function E:CreateText() return NewFrame("FontString") end
 function E:IsSecret() return false end
 function E:MasqueButton() end
+function E:SkinHudButton() end -- the shared HUD look (Core/Skin.lua), not tested here
 function E:MasqueReSkin() end
 function E:ApplyMover() end
 

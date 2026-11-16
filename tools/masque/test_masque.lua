@@ -177,6 +177,20 @@ local function Setup(options)
 	function E:TrimIcon(texture) texture:SetTexCoord(0.08, 0.92, 0.08, 0.92) return texture end
 	function E:CreateText() return NewRegion("FontString") end
 	function E:SetFont() end
+	-- EldoUI's shared HUD button hover and pressed look (Core/Skin.lua,
+	-- since 0.7.3000), as far as the buttons here use it.
+	function E:SkinHudButton(button, area)
+		area = area or button.icon or button
+		local hover = button:CreateTexture(nil, "HIGHLIGHT")
+		hover:SetAllPoints(area)
+		hover:SetColorTexture(1, 1, 1, self.tokens.hover.hud)
+		local pressed = button:CreateTexture(nil, "OVERLAY")
+		pressed:SetAllPoints(area)
+		pressed:SetColorTexture(1, 0.5, 0, self.tokens.pressed)
+		button:SetPushedTexture(pressed)
+		button.hover, button.pushed = hover, pressed
+		return hover, pressed
+	end
 	mediaChunk(E)
 	masqueChunk(nil, E)
 	return E
@@ -262,7 +276,7 @@ for _, on in ipairs({ false, true }) do
 		local entry = group and group.buttons[button]
 		Check(entry and entry.kind == "Item", "Consumable Bar: in its group as an item button")
 		Check(entry and entry.parts.Icon == button.icon and entry.parts.Cooldown == button.cooldown and entry.parts.Count == button.count
-			and entry.parts.Highlight ~= nil, "Consumable Bar: icon, cooldown, count and highlight go to Masque")
+			and entry.parts.Highlight == button.hover and button.hover ~= nil, "Consumable Bar: icon, cooldown, count and hover go to Masque")
 		Check(not HasBox(button), "Consumable Bar: no EldoUI box")
 	else
 		Check(group == nil and HasBox(button), "Consumable Bar, switch off: no Masque, box stays")
@@ -282,11 +296,12 @@ for _, on in ipairs({ false, true }) do
 		local entry = Group("Totem Bar") and Group("Totem Bar").buttons[totem]
 		Check(entry and entry.kind == "Action" and entry.parts.Icon == totem.icon and entry.parts.HotKey == totem.hotkey
 			and entry.parts.Count == totem.count and entry.parts.Cooldown == totem.cooldown, "Totems: the totem button with its parts")
-		Check(entry and entry.parts.Pushed == nil, "Totems: the pressed look stays EldoUI's")
+		Check(entry and entry.parts.Pushed == nil and totem.pushedTexture == totem.pushed, "Totems: the pressed look stays EldoUI's")
+		Check(entry and entry.parts.Highlight == totem.hover and totem.hover ~= nil, "Totems: the hover goes to Masque")
 		Check(Group("Shaman Cooldowns") and Group("Shaman Cooldowns").buttons[cooldown], "Totems: the cooldown bar has its own group")
 		Check(not E:Masqued(plain) and HasBox(plain), "Totems: a button without a group stays EldoUI's")
 		M.PaintButton(totem)
-		Check(not HasBox(totem) and totem.pushed.color ~= nil, "Totems: PaintButton keeps the box off and paints the pressed look")
+		Check(not HasBox(totem), "Totems: PaintButton keeps the box off")
 	else
 		Check(Group("Totem Bar") == nil and HasBox(totem) and HasBox(cooldown), "Totems, switch off: no Masque, boxes stay")
 	end

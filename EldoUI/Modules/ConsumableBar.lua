@@ -571,7 +571,7 @@ function M:CreateButton(category, index)
 	button:SetScript("OnEnter", ShowTooltip)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	if self.db.masque then
-		E:MasqueButton(MASQUE_GROUP, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count, Highlight = highlight }, "Item")
+		E:MasqueButton(MASQUE_GROUP, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count, Highlight = button.hover }, "Item")
 	end
 	return button
 end
