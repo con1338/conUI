@@ -11,10 +11,14 @@
 -- no XP, a secret or failing answer stay as they are; a title that would
 -- take another line gives way to "..." and keeps its color code, one that
 -- would end up almost empty keeps no XP; a title that cuts itself off
--- (one line only) is handled the same way; at the level cap, with the
--- switch off, with the Blizzard UI switch off or the module off, every
--- title gets Blizzard's text back, but a title Blizzard wrote again since
--- is left alone; the hook is added once; defaults, Minimal and options.
+-- (one line only) is handled the same way; the color follows the XP bar's
+-- "Quest XP color"; Quest Marks' difficulty word goes in before the fit is
+-- measured, also when its hook runs after this one; a tracked quest's tick
+-- follows the title's new end (and back), other anchors stay; at the level
+-- cap, while XP gain is locked, with the switch off, with the Blizzard UI
+-- switch off or the module off, every title gets Blizzard's text back, but
+-- a title Blizzard wrote again since is left alone; the hook is added
+-- once; defaults, Minimal and options.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/qol/") or "./"
 
 local function ReadFile(path)
@@ -49,19 +53,45 @@ local function NewFontString(width, maxLines)
 		return lines
 	end
 	function fs:IsTruncated() return self.maxLines ~= nil and self:FullLines() > self.maxLines end
+	-- One character is one unit wide; a wrapped string is as wide as a line.
+	function fs:GetWrappedWidth() return math.min(Visible(self.text), self.width) end
 	return fs
 end
 
-local function NewRow(questID, title, width, maxLines)
+-- The tick of a tracked quest: anchored like Blizzard's row code does it,
+-- just after the title's text.
+local function NewTick()
+	local tick = { points = {} }
+	function tick:SetPoint(point, relativeTo, relativePoint, x, y)
+		self.points = { { point, relativeTo, relativePoint, x, y } }
+	end
+	function tick:GetNumPoints() return #self.points end
+	function tick:GetPoint(index) return unpack(self.points[index]) end
+	return tick
+end
+
+local function PlaceTick(row)
+	if row.Check then row.Check:SetPoint("LEFT", row.Text, "LEFT", row.Text:GetWrappedWidth() + 2, 0) end
+end
+
+local function NewRow(questID, title, width, maxLines, tracked)
 	local row = { questID = questID, Text = NewFontString(width or 40, maxLines) }
 	row.Text:SetText(title)
 	row.Text.sets = 0
+	if tracked then
+		row.Check = NewTick()
+		PlaceTick(row)
+	end
 	return row
 end
 
--- Blizzard's update: every title written again, then the post-hooks.
+-- Blizzard's update: every title written again (and its tick placed),
+-- then the post-hooks in the order they were added.
 local function BlizzardUpdate()
-	for _, row in ipairs(world.rows) do row.Text:SetText(row.blizzard) end
+	for _, row in ipairs(world.rows) do
+		row.Text:SetText(row.blizzard)
+		PlaceTick(row)
+	end
 	for _, fn in ipairs(world.hooks.QuestLogQuests_Update or {}) do fn() end
 end
 
@@ -83,6 +113,8 @@ function hooksecurefunc(name, fn)
 	table.insert(world.hooks[name], fn)
 end
 function QuestLogQuests_Update() end
+function IsXPUserDisabled() return world.xpLocked end
+function geterrorhandler() return function(err) table.insert(world.errors, err) end end
 QuestScrollFrame = { titleFramePool = { EnumerateActive = function()
 	local index = 0
 	return function()
@@ -92,7 +124,7 @@ QuestScrollFrame = { titleFramePool = { EnumerateActive = function()
 end } }
 
 local function Setup()
-	world = { xp = {}, rows = {}, hooks = {}, allowed = true, maxLevel = false }
+	world = { xp = {}, rows = {}, hooks = {}, allowed = true, maxLevel = false, xpLocked = false, errors = {} }
 	local L = setmetatable({}, { __index = function(_, key) return key end })
 	local test = { parts = {}, options = {} }
 	local M = { name = "QoL", active = true, defaults = {}, db = {} }
@@ -101,7 +133,17 @@ local function Setup()
 	local minimal = { key = "Minimal", settings = { summonPrompt = true } }
 	local E = { L = L, styles = { QoL = { { key = "Default", settings = {} }, minimal } } }
 	function E.Plain(value) if value == SECRET then return nil end return value end
-	function E:GetModule(name) if name == "QoL" then return M end end
+	function E.PlainCall(fn, ...)
+		if type(fn) ~= "function" then return nil end
+		local ok, value = pcall(fn, ...)
+		if not ok or value == SECRET then return nil end
+		return value
+	end
+	function E:GetModule(name)
+		if name == "QoL" then return M end
+		if name == "StatusBars" then return world.bars end
+		if name == "QuestTint" then return world.tint end
+	end
 	function E:BlizzardAllowed(id, action) return id == "world-map-quest-log" and action == "improve" and world.allowed end
 	function E:BlizzardNeeds() return function() return not world.allowed end end
 	function E:AtMaxLevel() return world.maxLevel end
@@ -112,8 +154,8 @@ local function Setup()
 	return test
 end
 
-local function AddRow(questID, title, xp, width, maxLines)
-	local row = NewRow(questID, title, width, maxLines)
+local function AddRow(questID, title, xp, width, maxLines, tracked)
+	local row = NewRow(questID, title, width, maxLines, tracked)
 	row.blizzard = title
 	world.xp[questID] = xp
 	table.insert(world.rows, row)
@@ -249,6 +291,102 @@ do
 	Is(other.Text.text, "[25] Elmore's Task", "module off: the other title back")
 	BlizzardUpdate()
 	Is(other.Text.text, "[25] Elmore's Task", "module off: the hook adds nothing")
+end
+
+-- The color follows the XP bar's "Quest XP color".
+do
+	local test = Setup()
+	world.bars = { db = { xp = { questColor = { 0.2, 0.4, 1.0 } } } }
+	Is(test.M.QuestXPSuffix(80), "  |cff3366ff+80 XP|r", "the XP bar's own quest color")
+	world.bars = { db = { xp = { questColor = { 2, -1, "x" } } } }
+	Is(test.M.QuestXPSuffix(80), "  |cffff0000+80 XP|r", "a broken color: clamped, the default for a missing part")
+	world.bars = { db = {} }
+	Is(test.M.QuestXPSuffix(80), "  " .. YELLOW .. "+80 XP|r", "no color saved: the default yellow")
+	-- A color change while Quest Marks rewrote the title: no second XP.
+	world.bars = nil
+	local row = AddRow(401, "[24] The Collector", 1250)
+	test.parts.QuestXP.enable(test.M)
+	row.Text:SetText("[24 hard] The Collector  " .. YELLOW .. "+1,250 XP|r")
+	world.bars = { db = { xp = { questColor = { 0.2, 0.4, 1.0 } } } }
+	test.M:UpdateQuestXP()
+	local _, count = row.Text.text:gsub("XP|r", "")
+	Is(count, 1, "new color, rewritten title: the XP stays once")
+end
+
+-- Quest Marks' difficulty word (color-blind mode), whichever hook runs first.
+do
+	local function Tint()
+		local tint = { active = true, db = { levelWord = true }, calls = 0 }
+		function tint:AddDifficultyWord(fontString)
+			self.calls = self.calls + 1
+			local text = fontString:GetText()
+			local level, rest = text:match("^%[(%d+)%] (.*)$")
+			if not level then return false end
+			fontString:SetText("[" .. level .. " hard] " .. rest)
+			return true
+		end
+		return tint
+	end
+	-- This part's hook first, Quest Marks' after it (Quest Marks switched
+	-- on later). 30 per line: "[24] The Missing Diplomat" is 25, with the
+	-- word 30, with the XP it needs to be shortened.
+	local test = Setup()
+	world.tint = Tint()
+	local row = AddRow(501, "[24] The Missing Diplomat", 1550, 30)
+	test.parts.QuestXP.enable(test.M)
+	hooksecurefunc("QuestLogQuests_Update", function() world.tint:AddDifficultyWord(row.Text) end)
+	BlizzardUpdate()
+	Check(row.Text.text:find("^%[24 hard%] ") ~= nil, "the word is in (" .. row.Text.text .. ")")
+	Is(row.Text:GetNumLines(), 1, "measured with the word: still one line")
+	Check(row.Text.text:find("+1,550 XP|r", 1, true) ~= nil, "and the XP is there")
+	-- Quest Marks off: no word.
+	world.tint.active = false
+	world.rows[1].blizzard = "[24] The Collector"
+	local before = world.tint.calls
+	test.M:UpdateQuestXP()
+	Is(world.tint.calls, before, "Quest Marks off: its word is not asked for")
+	-- An error in Quest Marks: reported, the XP still goes in.
+	local test2 = Setup()
+	world.tint = { active = true, db = {}, AddDifficultyWord = function() error("boom") end }
+	local plain = AddRow(502, "[24] The Collector", 1250)
+	test2.parts.QuestXP.enable(test2.M)
+	Is(#world.errors, 1, "an error in Quest Marks is reported")
+	Check(plain.Text.text:find("+1,250 XP|r", 1, true) ~= nil, "and the XP still goes in")
+end
+
+-- The tick of a tracked quest follows the end of the title.
+do
+	local test = Setup()
+	local tracked = AddRow(601, "[24] The Collector", 1250, 40, nil, true)
+	local far = AddRow(602, "[24] Elmore's Task", 600, 40, nil, true)
+	far.Check:SetPoint("LEFT", far.Text, "LEFT", 32, 0) -- not at the title's end (18 + 14)
+	test.parts.QuestXP.enable(test.M)
+	local _, relativeTo, _, x = tracked.Check:GetPoint(1)
+	Check(relativeTo == tracked.Text, "the tick stays on the title")
+	Is(x, tracked.Text:GetWrappedWidth() + 2, "the tick sits after the XP")
+	local _, _, _, farX = far.Check:GetPoint(1)
+	Is(farX, 32, "a tick that was not at the title's end: left alone")
+	local two = AddRow(603, "[24] A Letter", 300, 40, nil, true)
+	two.Check.points[2] = { "RIGHT", two.Text, "RIGHT", 0, 0 }
+	test.M:UpdateQuestXP()
+	Is(two.Check.points[1][4], 13 + 2, "a tick with two anchors: left alone")
+	test.M.db.questXP = false
+	test.parts.QuestXP.profile(test.M)
+	_, _, _, x = tracked.Check:GetPoint(1)
+	Is(x, 18 + 2, "switched off: the tick back after Blizzard's title")
+end
+
+-- XP gain locked.
+do
+	local test = Setup()
+	local row = AddRow(701, "[24] The Collector", 1250)
+	test.parts.QuestXP.enable(test.M)
+	world.xpLocked = true
+	BlizzardUpdate()
+	Is(row.Text.text, "[24] The Collector", "XP gain locked: no XP")
+	world.xpLocked = false
+	BlizzardUpdate()
+	Check(row.Text.text:find("+1,250 XP", 1, true) ~= nil, "unlocked: XP again")
 end
 
 print(("%d checks passed, %d failed"):format(passed, failed))

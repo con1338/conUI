@@ -6,13 +6,18 @@
 -- QoL module, the Consumable Bar's spell lists, the aura and spell API,
 -- your health and mana, the clock, the shared ticker and the sound.
 -- Checked: which auras are a meal (the client's own names for Food and
--- Drink, in German here, and the Consumable Bar's use spells), secret ones
+-- Drink, in German here, and the Consumable Bar's use spells; the English
+-- names without the spell API, the client's names read once), secret ones
 -- never; food waits for full health, drinks for full mana (a class without
--- mana gets it at once), rations for both, buff food also for Well Fed's
--- 10 seconds; one signal per meal, a new one when a drink joins a finished
--- meal; nothing in combat, nothing with a secret number, nothing after the
--- meal ends early; the ticker runs only during a meal; switch, sound,
--- taskbar flash and the Test button; defaults, Minimal and options.
+-- mana after a second), rations for both, buff food also for Well Fed's 10
+-- seconds counted from the buff food, also after a drink; food and drink
+-- from one key press are one meal; one signal per meal, a new one when a
+-- drink or buff food joins a finished meal; nothing in combat, a meal that
+-- ended in combat is gone when combat ends (no late signal, no stale
+-- meal), nothing with a secret number, nothing after the meal ends early;
+-- the ticker runs only during a meal; switch, sound, taskbar flash and the
+-- Test button; its own owner for the end of combat; defaults, Minimal and
+-- options.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/qol/") or "./"
 
 local function ReadFile(path)
@@ -30,7 +35,9 @@ local SECRET = setmetatable({}, { __tostring = function() return "<secret>" end 
 local world
 
 local NAMES = { [433] = "Essen", [430] = "Trinken" }
-C_Spell = { GetSpellName = function(id) return NAMES[id] end }
+local nameCalls = 0
+C_Spell = { GetSpellName = function(id) nameCalls = nameCalls + 1 return NAMES[id] end }
+local SPELL_API = C_Spell
 C_UnitAuras = { GetAuraDataByIndex = function(unit, index, filter)
 	assert(unit == "player" and filter == "HELPFUL")
 	if world.auras == SECRET then return SECRET end
@@ -55,7 +62,7 @@ local BAR = {
 local function Setup(options)
 	options = options or {}
 	world = { now = 100, combat = false, auras = {}, health = 50, healthMax = 100, mana = 40, manaMax = 100,
-		ticker = {}, sounds = {}, flashes = 0, unitEvents = {} }
+		ticker = {}, sounds = {}, flashes = 0, unitEvents = {}, events = {} }
 	local L = setmetatable({}, { __index = function(_, key) return key end })
 	local test = { parts = {}, options = {} }
 	local M = { name = "QoL", active = true, defaults = {}, db = {} }
@@ -76,6 +83,10 @@ local function Setup(options)
 		if name == "ConsumableBar" and not options.noBar then return BAR end
 	end
 	function E:PlayMedia(id, channel) table.insert(world.sounds, { id = id, channel = channel }) end
+	function E:RegisterEvent(event, fn, owner) world.events[event] = { fn = fn, owner = owner } end
+	function E:UnregisterEvent(event, owner)
+		if world.events[event] and world.events[event].owner == owner then world.events[event] = nil end
+	end
 	chunk(nil, E)
 	for key, value in pairs(M.defaults) do M.db[key] = value end
 	test.M, test.minimal = M, minimal
@@ -85,6 +96,10 @@ end
 
 local function Aura(id, name) return { spellId = id, name = name } end
 local function AuraEvent() world.unitEvents.UNIT_AURA.fn() end
+local function CombatEnds()
+	world.combat = false
+	if world.events.PLAYER_REGEN_ENABLED then world.events.PLAYER_REGEN_ENABLED.fn() end
+end
 -- Time passes on the ticker, a quarter second at a time.
 local function Wait(seconds)
 	local stop = world.now + seconds
@@ -122,6 +137,8 @@ do
 	Check(keys.mealDoneSound and keys.mealDoneSound.type == "media" and keys.mealDoneSound.none == true, "a sound choice with None")
 	Check(keys.mealDoneFlash and keys.mealDoneFlash.type == "toggle", "the taskbar flash switch")
 	Is(world.unitEvents.UNIT_AURA and world.unitEvents.UNIT_AURA.unit, "player", "your own auras only")
+	local regen = world.events.PLAYER_REGEN_ENABLED
+	Check(regen and regen.owner ~= M and type(regen.owner) == "string", "the end of combat under its own owner, not the module's")
 	Check(next(world.ticker) == nil, "no meal: no ticker")
 end
 
@@ -142,6 +159,21 @@ do
 	local noBar = Setup({ noBar = true }).M
 	Is(noBar.MealKind(Aura(1127, "Essen")), "food", "without the Consumable Bar's lists: names still work")
 	Is(noBar.MealKind(Aura(18071, "Enriched Manna Biscuit")), nil, "without its lists: rations unknown, no error")
+	-- The client's names are read once.
+	local cached = Setup().M
+	cached.MealKind(Aura(1127, "Essen"))
+	local calls = nameCalls
+	for _ = 1, 5 do cached.MealKind(Aura(1137, "Trinken")) cached.MealKind(Aura(1243, "x")) end
+	Is(nameCalls, calls, "the names are read once, not on every aura")
+end
+
+-- Without the spell API: the English names stand in.
+do
+	C_Spell = nil
+	local M = Setup().M
+	Is(M.MealKind(Aura(1127, "Food")), "food", "no spell API: plain food by its English name")
+	Is(M.MealKind(Aura(1137, "Drink")), "drink", "no spell API: water by its English name")
+	C_Spell = SPELL_API
 end
 
 -- Food: waits for full health, one signal.
@@ -169,7 +201,7 @@ do
 	world.auras = { Aura(1127, "Essen") }
 	AuraEvent()
 	world.health = 100
-	Wait(0.25)
+	Wait(1)
 	Is(Signals(), 2, "the next meal has its own signal")
 end
 
@@ -189,7 +221,9 @@ do
 	world.manaMax = 0
 	world.auras = { Aura(1137, "Trinken") }
 	AuraEvent()
-	Is(Signals(), 1, "no mana to fill: signal at once")
+	Is(Signals(), 0, "no mana to fill: not at the very start (food may follow)")
+	Wait(1)
+	Is(Signals(), 1, "no mana to fill: signal after a second")
 end
 
 -- Rations need both; a drink that joins a finished meal gets its own.
@@ -208,7 +242,7 @@ do
 	world.auras = { Aura(1127, "Essen") }
 	AuraEvent()
 	world.health = 100
-	Wait(0.25)
+	Wait(1)
 	Is(Signals(), 1, "food done")
 	world.auras = { Aura(1127, "Essen"), Aura(1137, "Trinken") }
 	AuraEvent()
@@ -231,6 +265,86 @@ do
 	Is(Signals(), 1, "after 10 seconds: signal")
 end
 
+-- Food and drink from one key press are one meal.
+do
+	Setup()
+	world.health = 100
+	world.auras = { Aura(1127, "Essen") }
+	AuraEvent()
+	world.auras = { Aura(1127, "Essen"), Aura(1137, "Trinken") }
+	AuraEvent()
+	Wait(1)
+	Is(Signals(), 0, "full health, the drink's aura a moment later: no signal for the food alone")
+	world.mana = 100
+	Wait(0.25)
+	Is(Signals(), 1, "mana full: one signal for the whole meal")
+end
+
+-- Well Fed counts from the buff food, also when a drink came first.
+do
+	Setup()
+	world.health = 100
+	world.auras = { Aura(1137, "Trinken") }
+	AuraEvent()
+	Wait(15)
+	Is(Signals(), 0, "drinking, mana not full")
+	world.auras = { Aura(1137, "Trinken"), Aura(5004, "Essen") }
+	AuraEvent()
+	Wait(2)
+	world.mana = 100
+	Wait(5)
+	Is(Signals(), 0, "mana full 2 s after the buff food: still waits for Well Fed")
+	Wait(3.75)
+	Is(Signals(), 1, "10.5 s after the buff food: signal")
+
+	Setup()
+	world.health = 100
+	world.auras = { Aura(1137, "Trinken") }
+	AuraEvent()
+	world.mana = 100
+	Wait(1)
+	Is(Signals(), 1, "the drink's signal")
+	Wait(20)
+	world.auras = { Aura(1137, "Trinken"), Aura(5004, "Essen") }
+	AuraEvent()
+	Wait(5)
+	Is(Signals(), 1, "buff food after a finished drink: waits for Well Fed")
+	Wait(5.75)
+	Is(Signals(), 2, "then its own signal")
+end
+
+-- A meal that ends in combat.
+do
+	Setup()
+	world.auras = { Aura(1127, "Essen") }
+	AuraEvent()
+	world.combat = true
+	world.auras = {}
+	AuraEvent()
+	CombatEnds()
+	Check(world.ticker["QoL:mealDone"] == nil, "combat ends: the meal that ended in it is gone, the ticker too")
+	world.health = 100
+	Wait(2)
+	Is(Signals(), 0, "health fills by itself afterwards: no signal")
+
+	Setup()
+	world.auras = { Aura(1127, "Essen") }
+	AuraEvent()
+	world.health = 100
+	Wait(1)
+	Is(Signals(), 1, "the first meal's signal")
+	world.combat = true
+	world.auras = {}
+	AuraEvent()
+	CombatEnds()
+	world.health = 50
+	world.auras = { Aura(1127, "Essen") }
+	AuraEvent()
+	world.health = 100
+	Wait(1)
+	Is(Signals(), 2, "a done meal that ended in combat does not swallow the next one")
+end
+
 -- Combat, secrets, a meal that ends early.
 do
 	Setup()
@@ -240,9 +354,9 @@ do
 	world.health = 100
 	Wait(1)
 	Is(Signals(), 0, "in combat: nothing checked")
-	world.combat = false
+	CombatEnds()
 	Wait(0.25)
-	Is(Signals(), 1, "after combat: the signal")
+	Is(Signals(), 1, "after combat, still eating: the signal")
 
 	Setup()
 	world.auras = { Aura(1127, "Essen") }
@@ -303,7 +417,7 @@ do
 	world.auras = { Aura(1127, "Essen") }
 	AuraEvent()
 	world.health = 100
-	Wait(0.25)
+	Wait(1)
 	Check(world.sounds[1] and world.sounds[1].id == "none" and world.flashes == 0, "sound None and no flash: silent (the media player skips None)")
 
 	test = Setup()
@@ -321,6 +435,7 @@ do
 	M.active = false
 	test.parts.MealDone.disable(M)
 	Check(world.ticker["QoL:mealDone"] == nil and M.MealState() == nil, "module off: the meal and ticker end")
+	Check(world.events.PLAYER_REGEN_ENABLED == nil, "module off: the end-of-combat handler goes too")
 end
 
 print(("%d checks passed, %d failed"):format(passed, failed))

@@ -14,9 +14,12 @@
 -- Rules (Midnight / Forever): you can't eat in combat, so nothing is read
 -- then; auras go through C_UnitAuras in pcall, and a secret aura, health
 -- or mana counts as "not readable" (no signal, nothing compared). Your own
--- aura changes wake it (UNIT_AURA for the player only); during a meal it
--- looks four times a second on the shared ticker and stops when the meal
--- ends. Nothing is cast, used or cancelled.
+-- aura changes wake it (UNIT_AURA for the player only), and the end of
+-- combat once (a meal that ended in combat was not read then); during a
+-- meal it looks four times a second on the shared ticker and stops when
+-- the meal ends. It waits a second after a meal starts or grows, so food
+-- and drink from one key press count as one meal. Nothing is cast, used
+-- or cancelled.
 -- Written from scratch for EldoUI.
 local _, E = ...
 local L = E.L
@@ -34,11 +37,14 @@ end
 
 local Plain, Secret = E.Plain, E.Secret
 local TICK = "QoL:mealDone"
+local OWNER = "QoL:MealDone" -- its own event owner: Tweaks already has the module's PLAYER_REGEN_ENABLED
 local PERIOD = 0.25
 local WELL_FED_DELAY = 10.5 -- Well Fed comes after 10 seconds of eating
+local SETTLE = 1            -- one press can start food and drink: wait for both auras
 local FOOD_SPELL, DRINK_SPELL = 433, 430
 
-local meal -- { started, food, drink, buff, done } while you eat or drink
+-- While you eat or drink: { food, drink, buff, buffSince, changed, done }.
+local meal
 
 local function SpellName(id)
 	local spell = C_Spell
@@ -47,6 +53,20 @@ local function SpellName(id)
 	name = ok and Plain(name) or nil
 	if type(name) ~= "string" or name == "" then return nil end
 	return name
+end
+
+-- The client's names for Food and Drink, read once. Without them the
+-- English names stand in, as on the Consumable Bar, and are asked again
+-- next time.
+local names
+local function Names()
+	if names then return names end
+	local food, drink = SpellName(FOOD_SPELL), SpellName(DRINK_SPELL)
+	if food and drink then
+		names = { food = food, drink = drink }
+		return names
+	end
+	return { food = food or "Food", drink = drink or "Drink" } -- no-L: the game's own spell names
 end
 
 -- The Consumable Bar's lists of use spells (its file loads before this
@@ -66,8 +86,9 @@ function M.MealKind(aura)
 	local uses, buff = Lists()
 	local isBuff = type(id) == "number" and buff[id] and true or false
 	if type(id) == "number" and uses[id] then return uses[id], isBuff end
-	if id == FOOD_SPELL or (type(name) == "string" and name == SpellName(FOOD_SPELL)) then return "food", isBuff end
-	if id == DRINK_SPELL or (type(name) == "string" and name == SpellName(DRINK_SPELL)) then return "drink", false end
+	local known = Names()
+	if id == FOOD_SPELL or (type(name) == "string" and name == known.food) then return "food", isBuff end
+	if id == DRINK_SPELL or (type(name) == "string" and name == known.drink) then return "drink", false end
 	return nil
 end
 
@@ -106,10 +127,12 @@ local function ManaUser()
 	return type(maximum) == "number" and maximum > 0, mana
 end
 
--- True once everything the meal restores is full.
+-- True once everything the meal restores is full. Well Fed counts from
+-- when the buff food started, not from the drink before it.
 function M.MealIsDone(state, now)
 	if not state then return false end
-	if state.buff and now - state.started < WELL_FED_DELAY then return false end
+	if now - (state.changed or now) < SETTLE then return false end
+	if state.buff and now - (state.buffSince or now) < WELL_FED_DELAY then return false end
 	if state.food then
 		local full = Full(UnitHealth("player"), UnitHealthMax("player"))
 		if not full then return false end
@@ -144,8 +167,9 @@ function M:StopMeal()
 	E.Ticker:Unsubscribe(TICK)
 end
 
--- From your own aura changes: a meal starts, grows (a drink after the
--- food) or ends.
+-- From your own aura changes, and once more when combat ends (an aura that
+-- went in combat was not read then): a meal starts, grows (a drink after
+-- the food, buff food after a drink) or ends.
 function M:UpdateMeal()
 	if not (self.active and self.db.mealDone) then
 		self:StopMeal()
@@ -157,12 +181,15 @@ function M:UpdateMeal()
 		self:StopMeal()
 		return
 	end
-	if not meal then
-		meal = { started = GetTime() }
-	elseif meal.done and ((found.food and not meal.food) or (found.drink and not meal.drink)) then
+	local now = GetTime()
+	if not meal then meal = { changed = now } end
+	local grows = (found.food and not meal.food) or (found.drink and not meal.drink) or (found.buff and not meal.buff)
+	if grows then
 		-- Something new to fill: the next signal is for it.
-		meal.done = nil
+		meal.done, meal.changed = nil, now
 	end
+	if found.buff and not meal.buff then meal.buffSince = now end
+	if not found.buff then meal.buffSince = nil end
 	meal.food, meal.drink, meal.buff = found.food, found.drink, found.buff
 	if not meal.done and not E.Ticker:IsSubscribed(TICK) then E.Ticker:Subscribe(TICK, PERIOD, CheckMeal, self) end
 	CheckMeal()
@@ -174,15 +201,19 @@ M.MealState = function() return meal end -- tools/qol/test_meal_done.lua
 M:AddPart("MealDone", {
 	enable = function(self)
 		self:RegisterUnitEvent("UNIT_AURA", "player", function() M:UpdateMeal() end)
+		E:RegisterEvent("PLAYER_REGEN_ENABLED", function() M:UpdateMeal() end, OWNER)
 		self:UpdateMeal()
 	end,
-	disable = function(self) self:StopMeal() end,
+	disable = function(self)
+		E:UnregisterEvent("PLAYER_REGEN_ENABLED", OWNER)
+		self:StopMeal()
+	end,
 	profile = function(self) self:UpdateMeal() end,
 })
 
 M:AddOptions(E.Key("Sound and misc"), {
 	{ type = "header", label = "Eating and drinking" },
-	{ type = "toggle", key = "mealDone", label = "Signal when you are full",
+	{ type = "toggle", key = "mealDone", label = "Signal when the meal is done",
 		desc = "While you eat or drink: a sound and a flash of the game in the taskbar once your health and mana are full, so you know when to get up. Food that gives Well Fed waits for the buff. Once per meal, out of combat only." },
 	{ type = "media", key = "mealDoneSound", label = "Sound", mediaKind = "sound", none = true, dependsOn = "mealDone",
 		desc = "The sound when your meal is done. None for silence." },
