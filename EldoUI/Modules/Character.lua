@@ -78,6 +78,7 @@ local M = E:NewModule("Character", {
 		gearBar = true,          -- equipment set buttons on the paper doll (Improve switch)
 		gearBarPosition = "TOP", -- TOP (left of the level line) or BELOW (under the window)
 		gearBarSize = 20,        -- button size
+		gearAfterCombat = false, -- a set clicked in combat goes on when combat ends (acts later: the player turns it on)
 		slotFlyout = false,      -- hover a trinket or ring slot: pick another one from your bags
 	},
 })
@@ -2026,11 +2027,16 @@ end
 ---------------------------------------------------------------------------
 -- Gear sets. Blizzard's own equipment sets (C_EquipmentSet): a row of
 -- set buttons on the paper doll and an info bar "Gear" block. Every swap is
--- a click, only out of combat; nothing is queued for later
--- and nothing picks "best" gear. Saving and editing sets stays in Blizzard's
--- equipment manager tab. Written from scratch; no addon code reused.
+-- a click and happens out of combat; nothing picks "best" gear. Saving and
+-- editing sets stays in Blizzard's equipment manager tab.
+-- "Equip after combat" (off by default; review verbesserungen.md, B12): a
+-- set clicked in combat is kept and goes on once combat ends (or, when you
+-- are dead then, once you are alive again). Only the last click counts; a
+-- second click on that set, or a click on the set you wear, takes it back.
+-- Nothing is kept past a reload. Written from scratch; no addon code reused.
 ---------------------------------------------------------------------------
-local gear = { buttons = {} }
+local gear = { buttons = {} } -- pending: the set ID that goes on after combat
+local GEAR_OWNER = "Character:gearAfterCombat" -- its own event owner (the module's events stay as they are)
 
 local function SetsAvailable()
 	return C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs and true or false
@@ -2059,14 +2065,60 @@ local function EquippedSetName()
 	end
 end
 
+-- The name of a set and whether you wear it, read in pcall (nil, false
+-- for a set that is gone).
+local function SetState(id)
+	local ok, name, _, _, isEquipped = pcall(C_EquipmentSet.GetEquipmentSetInfo, id)
+	if not ok or type(name) ~= "string" or E:IsSecret(name) then return nil, false end
+	return name, (not E:IsSecret(isEquipped) and isEquipped) and true or false
+end
+
+local TryPendingSet -- below: puts the kept set on
+
+local function WatchPending(on)
+	for _, event in ipairs({ "PLAYER_REGEN_ENABLED", "PLAYER_ALIVE", "PLAYER_UNGHOST" }) do
+		if on then
+			E:RegisterEvent(event, function() TryPendingSet() end, GEAR_OWNER)
+		else
+			E:UnregisterEvent(event, GEAR_OWNER)
+		end
+	end
+end
+
+local function SetPending(id)
+	gear.pending = id
+	WatchPending(id ~= nil)
+	if M.active then M:UpdateGear() end
+end
+
+-- A click in combat with "Equip after combat" on: keep the set, or take
+-- the kept one back (its second click, or a click on the set you wear).
+local function KeepSet(id)
+	local name, isEquipped = SetState(id)
+	if not name then return end
+	if gear.pending and (gear.pending == id or isEquipped) then
+		SetPending(nil)
+		UIErrorsFrame:AddMessage(L["EldoUI: no set change after combat."], unpack(E.tokens.text.warn))
+	elseif not isEquipped then
+		SetPending(id)
+		UIErrorsFrame:AddMessage(L["EldoUI: %s goes on when combat ends. Click it again to keep your gear."]:format(name), unpack(E.tokens.text.good))
+	end
+end
+
 -- Equip a set. `why` names the trigger for the chat line.
 local function EquipSet(id, why)
 	if not SetsAvailable() or not id then return false end
 	if InCombatLockdown() then
-		UIErrorsFrame:AddMessage(L["EldoUI: gear sets change only out of combat."], unpack(E.tokens.text.warn))
+		if M.db.gearAfterCombat then
+			KeepSet(id)
+		else
+			UIErrorsFrame:AddMessage(L["EldoUI: gear sets change only out of combat."], unpack(E.tokens.text.warn))
+		end
 		return false
 	end
-	local name, _, _, isEquipped = C_EquipmentSet.GetEquipmentSetInfo(id)
+	-- A click out of combat wins over a set kept from the fight.
+	if gear.pending then SetPending(nil) end
+	local name, isEquipped = SetState(id)
 	if not name or isEquipped then return false end
 	local ok = pcall(C_EquipmentSet.UseEquipmentSet, id)
 	if ok and why then M:Print(L["%s: equipped %s."]:format(why, name)) end
@@ -2074,8 +2126,30 @@ local function EquipSet(id, why)
 end
 M.EquipSet = function(_, id) return EquipSet(id) end
 
+-- After combat (or once you are alive again): the kept set goes on. The
+-- switch turned off in the meantime drops it.
+TryPendingSet = function()
+	local id = gear.pending
+	if not id then
+		WatchPending(false)
+		return
+	end
+	if InCombatLockdown() then return end
+	if not M.db.gearAfterCombat then
+		SetPending(nil)
+		return
+	end
+	local ok, dead = pcall(UnitIsDeadOrGhost, "player")
+	if ok and not E:IsSecret(dead) and dead then return end
+	SetPending(nil)
+	EquipSet(id, L["After combat"])
+end
+M.TryPendingSet = TryPendingSet
+M.PendingSet = function() return gear.pending end -- tools/character/test_gear_after_combat.lua
+
 -- The menu of the info bar block: equip a set with a click. EldoUI never
--- swaps gear on its own (no spec or stance swaps).
+-- swaps gear on its own (no spec or stance swaps); "Equip after combat"
+-- only finishes a click from the fight.
 local function GearMenu(owner)
 	E.UIKit.ContextMenu(owner, function(_, root)
 		root:CreateTitle(L["Gear sets"])
@@ -2105,6 +2179,8 @@ if E.RegisterDataText then
 			E.UIKit.TipTitle(tooltip, L["Gear sets"])
 			local sets = GearSets()
 			if #sets == 0 then E.UIKit.TipText(tooltip, L["Save a set in the character window's equipment manager."]) end
+			local pending = gear.pending and SetState(gear.pending)
+			if pending then tooltip:AddLine(L["After combat: %s"]:format(pending), E:TokenColor("warn")) end
 			for _, set in ipairs(sets) do
 				local right = ("%d/%d"):format(set.numEquipped, set.numItems)
 				if set.numLost > 0 then right = right .. " " .. E:TextHex("bad") .. L["%d missing"]:format(set.numLost) .. "|r" end
@@ -2114,7 +2190,7 @@ if E.RegisterDataText then
 					E.UIKit.TipPair(tooltip, set.name, right, unpack(E.UIKit.SECONDARY))
 				end
 			end
-			E:TooltipHint(tooltip, { L["Click"], L["equip a set (out of combat)"] })
+			E:TooltipHint(tooltip, { L["Click"], M.db.gearAfterCombat and L["equip a set (in combat: when it ends)"] or L["equip a set (out of combat)"] })
 		end,
 		onClick = function(button) GearMenu(button) end,
 	})
@@ -2145,7 +2221,8 @@ local function GearButton(index)
 			E.UIKit.TipText(GameTooltip, L["%d of %d items worn"]:format(self.info.numEquipped, self.info.numItems))
 			if self.info.numLost > 0 then GameTooltip:AddLine(E:Plural(self.info.numLost, "%d item missing", "%d items missing"):format(self.info.numLost), E:TokenColor("bad")) end
 		end
-		E:TooltipHint(GameTooltip, { L["Click"], L["equip (out of combat)"] })
+		if gear.pending == self.setID then GameTooltip:AddLine(L["Goes on when combat ends."], E:TokenColor("warn")) end
+		E:TooltipHint(GameTooltip, { L["Click"], M.db.gearAfterCombat and L["equip (in combat: when it ends)"] or L["equip (out of combat)"] })
 		GameTooltip:Show()
 	end)
 	button:SetScript("OnLeave", function() if not E.FrameCheck(GameTooltip, "IsForbidden") then GameTooltip:Hide() end end)
@@ -2190,6 +2267,8 @@ function M:UpdateGear()
 		button.icon:SetTexture(set.icon or 134400)
 		if set.equipped then
 			button.bd:SetBackdropBorderColor(r, g, b, 1)
+		elseif gear.pending == set.id then
+			button.bd:SetBackdropBorderColor(E:TokenColor("warn", 1))
 		elseif set.numLost > 0 then
 			button.bd:SetBackdropBorderColor(E:TokenColor("bad", 1))
 		else
@@ -2619,11 +2698,13 @@ M.options = {
 	{ less = true, type = "color", key = "headerColor", label = "Custom header color", desc = "Color of the section titles.", hidden = function() return M.db.headerColorMode ~= "custom" end },
 	{ type = "range", key = "statsFontSize", label = "Stats text size", desc = "Text size in the stats pane.", min = 9, max = 18, step = 1 },
 	{ type = "header", label = "Gear sets" },
-	{ type = "description", label = "Uses the game's equipment sets from the character window. Every swap happens out of combat; nothing is queued for later." },
+	{ type = "description", label = "Uses the game's equipment sets from the character window. Every swap happens out of combat." },
 	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "gearBar", label = "Set buttons on the character window", desc = "One button per set; click to equip it. The open set has an accent border, a set with missing items a red one." },
 	{ type = "select", key = "gearBarPosition", label = "Set buttons position", dependsOn = "gearBar", desc = "Where the set buttons sit.",
 		values = { TOP = "Left of the level line", BELOW = "Under the window" } },
 	{ type = "range", key = "gearBarSize", label = "Set button size", dependsOn = "gearBar", desc = "Size of each set button.", min = 14, max = 32, step = 1 },
+	{ type = "toggle", acts = true, key = "gearAfterCombat", label = "Equip after combat",
+		desc = "Acts for you when turned on: a set you click in combat (set buttons or the Gear block) goes on once combat ends, or once you are alive again. Only your last click counts; click that set again, or the set you wear, to keep your gear. Off by default." },
 	{ type = "toggle", disabled = E:BlizzardNeeds(ELEMENT, "improve"), key = "slotFlyout", label = "Trinket and ring flyout",
 		desc = "Hover a trinket or ring slot to see the matching items in your bags, and click one to wear it there. Out of combat only. Blizzard's own Alt flyout keeps working." },
 	{ type = "header", label = "Side panels" },
