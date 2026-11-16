@@ -94,6 +94,9 @@ check("notes cut", long_notes.endswith("[…]\n````"), True)
 check("notes cut short", len(long_notes) < 200, True)
 
 state = W.addon_state()
+# The stand-in's EldoUI release is one patch after the addon's own base
+# version, so the run below finds it new whatever version the fork is on.
+NEXT = ".".join(state["base"].split(".")[:-1] + [str(int(state["base"].split(".")[-1]) + 1)])
 check("addon state reads the toc", (state["base"] == W.base_version(state["version"]), isinstance(state["interface"], int)),
       (True, True))
 
@@ -130,12 +133,12 @@ class Stand(http.server.BaseHTTPRequestHandler):
         if self.path.startswith("/versions/"):
             return self.answer(404, "", text=True)
         if self.path == "/repos/Eldodeldo/EldoUI/releases/latest":
-            return self.answer(200, {"tag_name": "v0.7.2002", "html_url": "https://example.invalid/r",
+            return self.answer(200, {"tag_name": "v" + NEXT, "html_url": "https://example.invalid/r",
                                      "published_at": "2026-11-20T10:00:00Z", "body": "Notes"})
         if self.path.startswith("/repos/me/fork/issues?"):
             if Stand.issues_status != 200:
                 return self.answer(Stand.issues_status, {"message": "Issues are disabled for this repo"})
-            return self.answer(200, [{"body": "old\n<!-- version-watch:upstream:0.7.2002 -->"}])
+            return self.answer(200, [{"body": "old\n<!-- version-watch:upstream:%s -->" % NEXT}])
         self.answer(404, {})
 
     def do_POST(self):
@@ -170,7 +173,7 @@ check("run: exit code", code, 0)
 check("run: one new issue (the patch)", [issue["title"] for issue in Stand.filed],
       ["WoW: Forever 1.61.0 ist live: Interface 16100 (Addon: %d)" % state["interface"]])
 check("run: issue has the label", Stand.filed[0]["labels"] if Stand.filed else None, [W.LABEL])
-check("run: release already filed, skipped", "schon gemeldet: EldoUI 0.7.2002" in out, True)
+check("run: release already filed, skipped", "schon gemeldet: EldoUI %s" % NEXT in out, True)
 check("run: token sent to GitHub", Stand.seen_auth.get("/repos/Eldodeldo/EldoUI/releases/latest"), "Bearer test-token")
 check("run: no token to Blizzard", Stand.seen_auth.get("/versions/wowf"), None)
 

@@ -4,9 +4,11 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 
 > **Fork-Hinweis:** Dieses Repository ist ein Fork von EldoUI (Copyright 2026 Eldodeldo, Apache License 2.0).
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
-> [EldoUI 0.7.2001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.2001) (Ordner `EldoUI*/`).
+> [EldoUI 0.7.3001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3001) (Ordner `EldoUI*/`). Die Releases
+> liegen unverändert im Branch `upstream-release` und kommen von dort per Merge nach `main`.
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
-> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 20.827 Texte,
+> Eigene Ergänzungen des Forks: das deutsche Sprachpaket `EldoUI_Locale_deDE` (20.536 von 21.525 Texten; die
+> 989 neuen Texte aus EldoUI 0.7.3000 folgen,
 > Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
 > aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
 > `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
@@ -14,10 +16,9 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > deutsche Texte). Ein Tag `v*` baut
 > das fertige ZIP auf der Releases-Seite dieses Repos, und ein täglicher Versionswächter meldet neue
 > WoW: Forever-Patches und EldoUI-Versionen als Issue. Wie das alles läuft: [`tools/ci/README.md`](tools/ci/README.md).
-> Fork-Versionen tragen die Endung `-pN` (`0.7.2001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
-> Das Original-README folgt. Es spricht vom „0.7.1000 setup“: 0.7.1000 ist EldoUIs Ausgangsstand für Profile und
-> Presets, und Upstream hat den Text für 0.7.2000 und 0.7.2001 so gelassen (das Wiki in `docs/wiki/` ebenso). Was
-> sich seitdem geändert hat, steht im [CHANGELOG](CHANGELOG.md) und in
+> Fork-Versionen tragen die Endung `-pN` (`0.7.3001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
+> Das Original-README folgt. Das Wiki in `docs/wiki/` spricht noch vom „0.7.1000 setup“: 0.7.1000 ist EldoUIs
+> Ausgangsstand für Profile und Presets. Was sich seitdem geändert hat, steht im [CHANGELOG](CHANGELOG.md) und in
 > [`docs/wiki/current-release.md`](docs/wiki/current-release.md). Geändert sind im Original nur die
 > Installationshinweise zum deutschen Paket und zum Plugin, die Sprachangaben (Deutsch) und der Link für
 > Fehlerberichte (zu diesem Repo, wie der Report-Knopf im Spiel).
