@@ -21,6 +21,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
 | C4 | Versionsgrenzen bei Integrationen (Ace3-Skins bis AceGUI-Minor 41) | – | Daueraufgabe | |
 | C5 | Combat Text: Stil „Kräftig“ (Wunsch des Nutzers, Entwurf gewählt) | mittel | umgesetzt | `d83f389` |
+| C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | teilweise | `c77d98e` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -391,6 +392,72 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     elfenbein, Krits gold; keine Lua-Fehler. Danach eine andere Vorlage wählen: alter Look ohne Schatten.
   - **Im Spiel geprüft (15.11.2026):** „Kräftig“ angewendet, Test und Kampf: gefällt dem Nutzer („Passt so“), keine
     Einträge im Fehlerlog. Der Gegentest mit einer anderen Vorlage steht noch aus.
+- **C6 RestedXP im deutschen Client:** Der Nutzer spielt mit den gekauften RestedXP-Guides (nur Englisch) und hatte
+  das Gefühl, dass sie sich mit dem deutschen Forever-Client beißen (16.11.2026). Geprüft: RestedXP Guides v4.11.36 im
+  Forever-Ordner, die 198 gekauften Guides aus RestedXPs Guide-Speicher (`WTF/…/SavedVariables/RXPGuides.lua`, nur
+  lokal ausgewertet, nichts davon im Repo) und die NPC-Namen aus QuestieDB.
+  - **Gefunden** (alles ohne Fehlermeldung, es passiert nur nichts):
+    - Zielnamen: Die gekauften Guides haben rund 16.800 Einträge in `.target`, `.mob` und `.unitscan` mit englischen
+      NPC-Namen. 556 Namen (rund 3.100 Einträge) heißen im deutschen Client anders und fehlen in RestedXPs eigener Liste
+      (`locale/NPCnames.lua`). Zielmakro, Zielknöpfe, Plakettenmarkierung und Rare-Alarm finden diese NPCs nicht.
+    - Guide-Kette: Die Gratis-Guides 1–22 laden auf Deutsch, mit eigenen Gruppen („RestedXP Forever Route (H)“,
+      „RestedXP Forever Dungeonführer (H)“). Die gekauften bleiben in den englischen Gruppen und beginnen bei 21/22.
+      Sechs „nächster Guide“-Verweise am Ende der Gratis-Guides laufen ins Leere (z. B. „22-24 Hügellandhof“ statt
+      „22-24 Hillsbrad“); im englischen Client keiner.
+    - Gruppennamen: RestedXPs deutsche Liste (`locale/deDE.lua:353-356`) übersetzt „RestedXP Forever Guide“ mit
+      „Dungeonführer“ und „RestedXP Forever Dungeon Guide“ mit „Dungeon Dungeonführer“. Im Guide-Menü heißt die gekaufte
+      Route deshalb wie der Gratis-Dungeonguide. Die Standardgruppe (`DB/forever/db.lua`) kommt aus diesem Text: Der
+      Guide-Assistent bietet für die Open-World-Route den Dungeonguide an und für die Dungeon-Route gar nichts. Milka
+      stand deshalb im Dungeonguide.
+    - Levelstatistik: RestedXP erkennt Quest-Erfahrung nur am englischen Anfang „You“; im deutschen Client zählt sie
+      zusätzlich als Erfahrung von Gegnern.
+    - Sprachunabhängig (über IDs) und in Ordnung: Quests, Ruhestein, Zonen, Flugpunkte, Händler, Lehrer,
+      Gesprächsoptionen, Gegenstände.
+  - **Umgesetzt:** neuer Schalter „Fit RestedXP to this game language“ / „RestedXP an die Spielsprache anpassen“
+    (`rxp.locale`, Standard an) im RestedXP-Reiter der Integrationen, sichtbar nur auf einem nicht-englischen Client mit
+    RestedXP. Code in `EldoUI/Modules/IntegrationsRXPLocale.lua`. Das ist die einzige Stelle, an der EldoUI Funktionen
+    eines anderen Addons umhüllt (Regel oben in `Integrations.lua` ergänzt). Jede Hülle ruft zuerst RestedXPs eigene
+    Funktion und füllt nur Lücken. Ausgeschaltet (oder Integration bzw. Modul aus) gibt sie RestedXPs Antwort
+    unverändert weiter. Dateien und gespeicherte Einstellungen von RestedXP bleiben unberührt.
+    - `GetCreatureName`: Namen, die RestedXP englisch lässt, kommen aus QuestieDB (`LibQuestieDB.Npc`, Vertrag 4):
+      englischer Name → NPC → deutscher Name. Die englischen Namen werden einmal pro Sitzung nach dem Login in Schritten
+      gelesen (500 NPCs alle 0,05 s, nicht im Kampf), danach baut RestedXP seine Zielliste neu. Ohne QuestieDB bleibt
+      RestedXPs Liste.
+    - `GetGuideTable`: Einen Guide, den RestedXP in einer deutschen Gratis-Gruppe nicht findet, sucht EldoUI in der
+      englischen Gruppe: unter dem Namen des gekauften Guides (feste Tabelle der Übergänge) oder über den Stufenbereich,
+      wenn genau ein nutzbarer Guide passt.
+    - `GetActiveGuidesByGroupNameOrId`: Deutsche Gratis-Gruppe und englische Gruppe stehen im Guide-Assistenten zusammen
+      (eine Route von 1 bis 60).
+    - Die vier falschen Gruppennamen bekommen die Namen der deutschen Gratis-Gruppen, so wie RestedXPs französische und
+      spanische Liste es machen; die Standardgruppe ebenso. Nur Texte mit genau RestedXPs falschem Wortlaut, ausgeschaltet
+      kommen sie zurück. Im Guide-Menü steht „RestedXP Forever Route (H)“ danach zweimal (Gratis 1–22, gekauft ab 21):
+      so zeigt RestedXP das in den anderen Sprachen auch.
+    - Levelstatistik: Die Quest-Meldungen der Spielsprache (Spieltexte `COMBATLOG_XPGAIN_FIRSTPERSON_UNNAMED…`) zählen
+      nicht mehr als Gegner-Erfahrung.
+    - Andere Sprachen bekommen Zielnamen und Levelstatistik; Daten für Gruppen und Guide-Kette gibt es nur für Deutsch.
+    - Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+  - **Test:** `tools/integrations/test_rxp_locale.lua` (läuft in `tools/ci/check_all.sh tests`). Er lädt die echte Datei
+    in ein Modell von RestedXP (nach dem Verhalten von v4.11.36 nachgebaut, kein RestedXP-Code) und von QuestieDB.
+    Geprüft: Zielnamen aus QuestieDB erst nach dem Lesen, in Schritten und nicht im Kampf; RestedXPs eigene Liste und
+    gleiche Namen bleiben; das „*“ vor einem Namen; NPC-IDs; mehrere NPCs mit einem englischen Namen; ohne QuestieDB
+    oder mit falschem Vertrag nichts. Guide-Kette über die bekannten Namen und den Stufenbereich, nie zu einem Guide,
+    den die Figur nicht nutzen kann, und nicht, wenn zwei passen. Der Assistent listet Gratis und gekauft zusammen.
+    Gruppennamen und Standardgruppe ändern sich nur, solange sie RestedXPs falsche sind, und kommen zurück.
+    Quest-Erfahrung auf Deutsch zählt nicht als Gegner. Ausgeschaltet, Modul aus oder englischer Client: RestedXP
+    antwortet wie vorher. Ein französischer Client bekommt Namen und Statistik, aber nicht die deutschen Guide-Daten.
+  - **Im Spiel prüfen:**
+    1. `/reload`, ein paar Sekunden warten, `/eui` → Integrationen → RestedXP. Erwartung: Schalter „RestedXP an die
+       Spielsprache anpassen“ an, darunter „Zielnamen: bisher … mit QuestieDB übersetzt.“
+    2. Ohne Laufen, eine Zeile: `/run local r=LibStub("AceAddon-3.0"):GetAddon("RXPGuides") print(r.GetCreatureName("Thistlefur Shaman"),(r.GetGuideTable("RestedXP Forever Route (H)","22-24 Hügellandhof") or {}).name)`
+       Erwartung: „Schamane der Distelfelle“ und „22-24 Hillsbrad“.
+    3. Defron in „26-28 Ashenvale“: bei einem Schritt mit Distelfell-Gegnern oder Geisterpfotenalpha das Makro
+       „RXPTargeting“ ansehen (deutsche Namen nach `/targetexact`) und den Zielknopf drücken: Er trifft.
+    4. RestedXPs Guide-Menü: Gruppen „RestedXP Forever Route (H)“ und „RestedXP Forever Dungeonführer (H)“, kein
+       „Dungeon Dungeonführer“ mehr.
+    5. Milka: RestedXPs Guide-Assistent → Dungeon-Route: Die Liste ist nicht leer. Open-World-Route: bietet die Route an,
+       nicht den Dungeonguide.
+    6. Danach: Fehlerlog (`EldoUIErrorsDB`) ohne neue Einträge. Die Guide-Kette selbst zeigt sich erst bei Stufe 21/22
+       (Milka); Punkt 2 prüft sie vorher.
 
 ## D – Infrastruktur für den Fork
 
