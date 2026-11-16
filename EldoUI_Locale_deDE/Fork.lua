@@ -73,7 +73,6 @@ E:RegisterLocale("deDE", function() return {
 	["Flash big lines"] = "Große Zeilen aufblitzen lassen",
 	["Flash critical hits"] = "Kritische Treffer aufblitzen lassen",
 	["Font of plate numbers. Default: the UI font."] = "Schriftart der Plakettenzahlen. Standard: die UI-Schriftart.",
-	["Free slots"] = "Freie Plätze",
 	["Free slots left: %d."] = "Noch freie Plätze: %d.",
 	["From the note"] = "Aus der Notiz",
 	["Game language"] = "Spielsprache",
@@ -175,9 +174,6 @@ E:RegisterLocale("deDE", function() return {
 	["the cheapest things in your bags, to make room"] = "die billigsten Gegenstände in Euren Taschen, um Platz zu schaffen",
 	["the game doesn't say which action bars are on"] = "das Spiel meldet nicht, welche Aktionsleisten an sind",
 	["the game refused to turn the action bars on or off"] = "das Spiel hat das Ein- oder Ausschalten der Aktionsleisten abgelehnt",
-	["the string comes from a newer EldoUI (%s). Update EldoUI, then import it again."] = "der String stammt aus einem neueren EldoUI (%s). Aktualisiert EldoUI und importiert ihn dann erneut.",
-	["the string comes from a newer EldoUI. Update EldoUI, then import it again."] = "der String stammt aus einem neueren EldoUI. Aktualisiert EldoUI und importiert ihn dann erneut.",
-	["the string comes from an EldoUI before 0.7.1000, which this version can't read. Ask for a new string."] = "der String stammt aus einem EldoUI vor 0.7.1000; diese Version kann ihn nicht lesen. Bittet um einen neuen String.",
 	["this game client can't turn action bars on or off"] = "dieser Spielclient kann Aktionsleisten nicht ein- oder ausschalten",
 	["v%s loaded. Type %s for options."] = "v%s geladen. Gebt %s ein, um die Optionen zu öffnen.",
 } end)

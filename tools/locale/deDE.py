@@ -143,6 +143,12 @@ def write_section(section, entries, complete=False):
             "E.completeLanguages = E.completeLanguages or {}",
             "E.completeLanguages.deDE = true",
         ]
+    if section == "Core":
+        lines += [
+            "-- German writes decimals with a comma: 1,5 Sekunden, 0,40 bis 1,20.",
+            "E.decimalCommas = E.decimalCommas or {}",
+            "E.decimalCommas.deDE = true",
+        ]
     if section == FORK:
         lines += [
             "-- Later tables for the same language add keys (E:RegisterLocale), so these",
