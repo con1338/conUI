@@ -135,6 +135,9 @@ local function NewWorld()
 		TAB_TITLES = { Shopping = "Shopping List", Selling = "Quick Sell", Cancelling = "Cancel Undercut" },
 		InCombatLockdown = function() return world.combat end,
 		GetTime = function() return world.now end,
+		-- Since EldoUI 0.7.3000 HidePanel also refreshes the deal hint on
+		-- Blizzard's sell page; not part of this test.
+		Deals = { UpdateNativeSell = function() end },
 	}, { __index = _G })
 	for _, part in ipairs({ { SCREENS, "screens" }, { PAGES, "pages" } }) do
 		local chunk = assert(loadstring(part[1], "@EldoUI/Modules/Auction.lua (" .. part[2] .. ")"))
