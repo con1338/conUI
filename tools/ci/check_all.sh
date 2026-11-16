@@ -92,6 +92,8 @@ check_tests() {
 	lua5.1 tools/fishing/test_fishing.lua || return 1
 	step "RestedXP on a client in another language: target names, guide chain, group names"
 	lua5.1 tools/integrations/test_rxp_locale.lua || return 1
+	step "Auction House: Blizzard's screens come back under EldoUI's pages (F22)"
+	lua5.1 tools/auction/test_native_screens.lua || return 1
 	step "German pack: Fork.lua rules"
 	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"
