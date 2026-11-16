@@ -133,12 +133,14 @@ end
 ---------------------------------------------------------------------------
 -- itemID -> { logIndex, questID, charges }: the items the quest log names
 -- for its quests. A quest ready to turn in only when the game keeps its item
--- for it (showWhenComplete) or the setting asks for it.
+-- for it (showWhenComplete) or the setting asks for it. Second result:
+-- itemID -> true for the items left out that way, so the bag rule below
+-- doesn't bring them back.
 function M:QuestLogItems()
-	local items = {}
+	local items, finished = {}, {}
 	local log = C_QuestLog
 	local special = rawget(_G, "GetQuestLogSpecialItemInfo")
-	if not (log and log.GetNumQuestLogEntries and log.GetInfo and special) then return items end
+	if not (log and log.GetNumQuestLogEntries and log.GetInfo and special) then return items, finished end
 	local entries = PlainCall(log.GetNumQuestLogEntries)
 	for index = 1, type(entries) == "number" and entries or 0 do
 		local info = PlainCall(log.GetInfo, index)
@@ -150,16 +152,32 @@ function M:QuestLogItems()
 				local complete = questID and PlainCall(log.IsComplete, questID) == true
 				if not complete or showWhenComplete or self.db.complete then
 					items[itemID] = { logIndex = index, questID = questID, charges = charges }
+				else
+					finished[itemID] = true
 				end
 			end
 		end
 	end
-	return items
+	return items, finished
 end
 
+-- The quest's place in the quest log now. The log can change in combat (a
+-- new quest, a folded header) while the bar keeps its items; a quest that
+-- left the log has none.
+local function LogIndex(quest)
+	local lookup = C_QuestLog and C_QuestLog.GetLogIndexForQuestID
+	if quest.questID and type(lookup) == "function" then
+		local index = PlainCall(lookup, quest.questID)
+		return type(index) == "number" and index or nil
+	end
+	return quest.logIndex
+end
+M.LogIndex = LogIndex
+
 -- "quest", "starter" or nil for the item in a bag slot.
-function M:KindOf(itemID, bag, slot, info, logItems)
+function M:KindOf(itemID, bag, slot, info, logItems, finished)
 	if logItems[itemID] then return "quest" end
+	if finished and finished[itemID] then return nil end
 	local quest = SlotQuestInfo(bag, slot)
 	local questID = quest and Plain(quest.questID)
 	if self.db.starters and type(questID) == "number" and Plain(quest.isActive) ~= true and not Completed(questID) then
@@ -170,23 +188,25 @@ function M:KindOf(itemID, bag, slot, info, logItems)
 	return nil
 end
 
--- The bar's items in bag order: { id, kind, bag, slot, quest }.
+-- The bar's items in bag order: { id, kind, bag, slot, quest }. Second
+-- result: itemID -> true for every item in the bags, on the bar or not.
 function M:Scan()
 	local hidden = self.db.hidden or {}
-	local logItems = self:QuestLogItems()
-	local list, seen = {}, {}
+	local logItems, finished = self:QuestLogItems()
+	local list, carried = {}, {}
 	for bag, slot, info in E.BagCache:Items() do
 		local itemID = Plain(info.itemID)
-		if type(itemID) == "number" and not seen[itemID] and not hidden[itemID] then
-			seen[itemID] = true
-			local kind = self:KindOf(itemID, bag, slot, info, logItems)
-			if kind then
-				list[#list + 1] = { id = itemID, kind = kind, bag = bag, slot = slot, quest = logItems[itemID] }
-				if #list >= M.MAX then break end
+		if type(itemID) == "number" and not carried[itemID] then
+			carried[itemID] = true
+			if not hidden[itemID] and #list < M.MAX then
+				local kind = self:KindOf(itemID, bag, slot, info, logItems, finished)
+				if kind then
+					list[#list + 1] = { id = itemID, kind = kind, bag = bag, slot = slot, quest = logItems[itemID] }
+				end
 			end
 		end
 	end
-	return list
+	return list, carried
 end
 
 -- What the secure attributes depend on: the items in their order.
@@ -211,8 +231,9 @@ local function ShowTooltip(button)
 	GameTooltip:SetOwner(button, "ANCHOR_TOP")
 	local item = button.item
 	if item then
-		if item.quest and GameTooltip.SetQuestLogSpecialItem then
-			GameTooltip:SetQuestLogSpecialItem(item.quest.logIndex)
+		local logIndex = item.quest and LogIndex(item.quest)
+		if logIndex and GameTooltip.SetQuestLogSpecialItem then
+			GameTooltip:SetQuestLogSpecialItem(logIndex)
 		elseif GameTooltip.SetBagItem and E.BagCache:ItemID(item.bag, item.slot) == item.id then
 			GameTooltip:SetBagItem(item.bag, item.slot)
 		elseif GameTooltip.SetItemByID then
@@ -387,10 +408,15 @@ function M:UpdateVisibility()
 		E:UpdateVisibility(self.holder)
 	else
 		self.visibilityBlock = self.db.visibility
+		-- Move mode and Bind keys show the bar whatever the rule says; Bind
+		-- keys also through the state driver, or a rule that really hides
+		-- the bar ("In combat", "With a target") leaves nothing to hover.
 		E:AttachVisibility(self.holder, self.db.visibility, {
 			watch = self.bar,
 			secure = true,
-			forceShow = function() return E.IsMoveMode and E:IsMoveMode() end,
+			forceShow = function() return M.binding or (E.IsMoveMode and E:IsMoveMode()) or false end,
+			forceShowFirst = true,
+			condition = function() return M.binding and "show" or nil end,
 		})
 	end
 end
@@ -400,7 +426,8 @@ end
 function M:PaintRange(check)
 	for _, button in ipairs(self.buttons or {}) do
 		local quest = check and button.item and button.item.quest
-		local valid = quest and PlainCall(IsQuestLogSpecialItemInRange, quest.logIndex)
+		local logIndex = quest and LogIndex(quest)
+		local valid = logIndex and PlainCall(IsQuestLogSpecialItemInRange, logIndex)
 		if valid == 0 then
 			button.icon:SetVertexColor(E:TokenColor("bad"))
 		else
@@ -426,11 +453,11 @@ function M:UpdateRange()
 	end
 end
 
--- A new item (not one that was there at login) glows for a moment.
-function M:GlowNew(previous, list)
-	if not (self.seenOnce and self.db.glow) then return end
-	local before = {}
-	for _, item in ipairs(previous or {}) do before[item.id] = true end
+-- An item that came into the bags since the last read glows for a moment.
+-- Not the ones there at the first read, nor items that join the bar
+-- otherwise (their data came late, "Show hidden items again", a setting).
+function M:GlowNew(before, list)
+	if not (before and self.db.glow) then return end
 	for index, item in ipairs(list) do
 		local button = self.buttons[index]
 		if not before[item.id] and button and button:IsShown() then
@@ -452,13 +479,12 @@ function M:Update(fromEvent)
 		return
 	end
 	self.dirty = false
-	local previous = self.list
-	local list = self:Scan()
-	self.list = list
+	local before = self.carried
+	local list, carried = self:Scan()
+	self.list, self.carried = list, carried
 	if not (fromEvent and Signature(list) == self.appliedSignature) then self:ApplySecure() end
 	self:UpdateButtons()
-	self:GlowNew(previous, list)
-	self.seenOnce = true
+	self:GlowNew(before, list)
 	self:UpdateVisibility()
 	self:UpdateRange()
 end
@@ -509,6 +535,7 @@ function M:BindKeys()
 	self.binding = true
 	self:ApplySecure()
 	self:UpdateButtons()
+	self:UpdateVisibility()
 	E:ToggleKeybindMode(true)
 	E:KeybindStatus(L["Hover a button of the Quest Item Bar and press a key, then click Save."])
 	E.Ticker:Subscribe(BIND_TICK, 0.5, function()
@@ -552,7 +579,7 @@ function M:OnDisable()
 	E.Ticker:UnsubscribeOwner(M)
 	self.binding = false
 	self.pending = false
-	self.seenOnce = false -- turned on again later, its items are not new
+	self.carried = nil -- turned on again later, its items are not new
 	local source = Cooldowns()
 	if source then source.Unsubscribe(COOLDOWN_KEY) end
 	if self.holder then E:DetachVisibility(self.holder) end

@@ -181,7 +181,14 @@ C_QuestLog = {
 		return false
 	end,
 	IsQuestFlaggedCompleted = function(questID) return world.completed[questID] or false end,
+	GetLogIndexForQuestID = function(questID)
+		for index, quest in ipairs(world.log) do
+			if quest.questID == questID then return index end
+		end
+		return nil
+	end,
 }
+local LOG_INDEX_FOR_QUEST = C_QuestLog.GetLogIndexForQuestID
 function GetQuestLogSpecialItemInfo(index)
 	local quest = world.log[index]
 	local special = quest and quest.special
@@ -385,7 +392,7 @@ end
 -- The standard bag: every kind of item once.
 local function StandardWorld()
 	Item(5005, { class = 0, spell = "Healing Potion" })       -- a potion: not a quest item
-	Item(5000, { class = 0, spell = "Use" })                  -- the quest log's item for quest 100
+	Item(5000, { class = 12, spell = "Use" })                 -- the quest log's item for quest 100
 	Item(5001, { class = 12, spell = "Use" })                 -- a Quest item with a use
 	Item(5002, { class = 12 })                                -- plain quest loot: nothing to use
 	Item(5003, { class = 12 })                                -- a quest item with something inside
@@ -431,6 +438,14 @@ do
 	M:OnProfileChanged()
 	Check(Bar(M) == "5000 5001 5003 5004 5006", "or Finished quests too is on")
 	M.db.complete = false
+	world.bags[0][2].quest = { isQuestItem = true }
+	Fire("QUEST_LOG_UPDATE")
+	Check(Bar(M) == "5001 5003 5004 5006", "a finished quest's item the game flags as a quest item stays off too: " .. Bar(M))
+	world.bags[0][2].quest = nil
+	world.log[2] = { questID = 101, special = { id = 5000 } }
+	Fire("QUEST_LOG_UPDATE")
+	Check(Bar(M) == "5000 5001 5003 5004 5006" and M.list[1].quest.questID == 101, "another open quest with the same item keeps it")
+	world.log[2] = { questID = 300, header = true }
 	world.log[1].complete = false
 
 	-- Starters.
@@ -483,10 +498,13 @@ do
 	Check(M.buttons[1].attributes.item == nil, "and the buttons hold no item")
 	world.moveMode = true
 	M:OnProfileChanged()
-	Check(M.bar.shown == true, "in move mode the empty bar shows")
+	Check(M.bar.shown == true, "applied again in move mode, the empty bar shows")
 end
 
--- Combat: the bar keeps its items until combat ends.
+-- Combat: the bar keeps its items until combat ends. In the game the
+-- options window queues a settings change in combat (E:RefreshModule) and
+-- the module switch waits for the end of combat; the module's own guards
+-- are checked here anyway.
 do
 	local M = Setup()
 	StandardWorld()
@@ -606,6 +624,33 @@ do
 	M:OnProfileChanged()
 	Check(world.ticker["QuestBar:range"] == nil and M.buttons[1].icon.vertex[2] == 1, "switched off: no check, the color back")
 	M.db.range = true
+	M:OnProfileChanged()
+	-- In combat a quest comes in above ours: the bar keeps its items, the
+	-- range and the tooltip follow our quest to its new place.
+	StartCombat()
+	Item(5500, { class = 12, spell = "Use" })
+	table.insert(world.log, 1, { questID = 150, special = { id = 5500 } })
+	world.range[1], world.range[2] = 0, 1
+	Fire("QUEST_LOG_UPDATE")
+	world.ticker["QuestBar:range"].fn()
+	Check(M.buttons[1].item.id == 5000 and M.buttons[1].icon.vertex[2] == 1, "in combat the range is read at the quest's new place")
+	M.buttons[1].scripts.OnEnter(M.buttons[1])
+	Check(GameTooltip.set == "log:2", "and the tooltip shows our quest's item")
+	table.remove(world.log, 2)
+	world.range[1] = 0
+	world.ticker["QuestBar:range"].fn()
+	M.buttons[1].scripts.OnEnter(M.buttons[1])
+	Check(M.buttons[1].icon.vertex[2] == 1 and GameTooltip.set == "bag:0:2", "a quest gone from the log: no range, the bag's tooltip")
+	EndCombat()
+	Check(#world.blocked == 0, "nothing blocked")
+	-- A client without GetLogIndexForQuestID: the place from the last read.
+	world.log = { { questID = 100, special = { id = 5000 } } }
+	world.range = { [1] = 0 }
+	Fire("QUEST_LOG_UPDATE")
+	C_QuestLog.GetLogIndexForQuestID = nil
+	world.ticker["QuestBar:range"].fn()
+	Check(M.buttons[1].icon.vertex[2] == 0.47, "without the lookup: the place from the last read")
+	C_QuestLog.GetLogIndexForQuestID = LOG_INDEX_FOR_QUEST
 	world.log = {}
 	Fire("QUEST_LOG_UPDATE")
 	Check(world.ticker["QuestBar:range"] == nil, "no quest log item: no check")
@@ -633,6 +678,28 @@ do
 	M:OnDisable()
 	Enable(M)
 	Check(#world.glows == 1, "turned on again, its items don't glow")
+	M:HideItem(5001)
+	M:ShowHidden()
+	Check(#world.glows == 1, "Show hidden items again: no glow")
+	M.db.starters = false
+	M:OnProfileChanged()
+	M.db.starters = true
+	M:OnProfileChanged()
+	Check(#world.glows == 1, "starters off and on again: no glow")
+	Item(5011, { class = 12 })
+	world.bags[0][12] = { id = 5011 }
+	Fire("BAG_UPDATE_DELAYED")
+	world.items[5011].spell = "Use"
+	Fire("GET_ITEM_INFO_RECEIVED")
+	Check(M.buttons[8].item and M.buttons[8].item.id == 5011 and #world.glows == 1,
+		"an item whose data came late joins the bar without a glow")
+	StartCombat()
+	Item(5012, { class = 12, spell = "Use" })
+	world.bags[0][13] = { id = 5012 }
+	Fire("BAG_UPDATE_DELAYED")
+	EndCombat()
+	Check(#world.glows == 2 and world.glows[2].frame == M.buttons[9] and M.buttons[9].item.id == 5012,
+		"an item looted in combat glows after combat")
 	Check(test.glowUser.key == "questBar" and test.glowUser.info.button == true, "the glow is on the Glows page")
 end
 
@@ -689,11 +756,18 @@ do
 	Check(Bar(M) == "5000 5001 5003 5004 5006 - - - - - - -", "the empty ones hold nothing: " .. Bar(M))
 	Check(world.keybind[M.buttons[12]] == "CLICK EldoUI_QuestBarButton12:LeftButton", "every button can take its key")
 	Check(world.keybindStatus ~= nil, "the banner says what to do")
+	local vis = world.visibility.opts
+	Check(vis.condition() == "show" and vis.forceShow() == true and vis.forceShowFirst == true,
+		"while binding, the bar shows whatever the visibility rule says")
+	Check(world.visibilityUpdates > 0, "and the visibility rule is read again")
 	world.ticker["QuestBar:bind"].fn()
 	Check(Bar(M):find("-", 1, true) ~= nil, "while keybind mode is open the buttons stay")
 	world.keybindMode = false
 	world.ticker["QuestBar:bind"].fn()
 	Check(Bar(M) == "5000 5001 5003 5004 5006" and world.ticker["QuestBar:bind"] == nil, "keybind mode closed: the items again")
+	Check(vis.condition() == nil and vis.forceShow() == false, "and the visibility rule decides again")
+	world.moveMode = true
+	Check(vis.forceShow() == true, "move mode shows the bar too")
 end
 
 -- Tooltip.
