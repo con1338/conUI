@@ -23,7 +23,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B9 | „Wer fehlt?“ für Gruppe und Raid (Herbeirufen) | mittel | abwarten | |
 | B10 | Wowhead-Links in der Spielsprache (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d` |
 | B11 | Absitzen und Aufstehen bei Fehlermeldung (einschaltbar) | klein | offen | |
-| B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | offen | |
+| B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | umgesetzt | `9cdd6aa` |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
@@ -39,7 +39,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | `d83f389` |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B11, B12, C1 (Rest), E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B11, C1 (Rest), E1.
 **Stand 16.11.2026:** B5 bis B12 kommen aus einer Suche nach QoL-Lücken (Abschnitt B, „QoL-Vorschläge“). Der Nutzer
 hat B6, B8 und B10 gewählt. B9 wartet, bis er Stufe 60 erreicht und Gruppeninhalte spielt (seine Auskunft). Bei B11
 erst im Spiel prüfen, ob Forever schon von selbst absitzt. B6 und B8 sind neue Dateien in der `EldoUI.toc`: Nach dem
@@ -48,7 +48,9 @@ nur die beiden Funktionen, Fehler gibt es keine, weil nichts in `QoL.lua` sie au
 Danach wählte der Nutzer B5. Auch B5 ist eine neue Datei in der TOC, dazu kommen neue Einträge in `Bindings.xml`:
 wieder das Spiel ganz neu starten. Die zwei offenen Fragen zu B8 (eigene EP je Quest, Häkchen) prüft der Nutzer am
 Abend des 16.11. im Spiel. Nach dem Merge von B5 (PR #31) ging es mit dem nächsten offenen Punkt weiter, B7. Auch B7 ist
-eine neue Datei in der TOC (`Modules/QoL/BagSpace.lua`): wieder ganz neu starten.
+eine neue Datei in der TOC (`Modules/QoL/BagSpace.lua`): wieder ganz neu starten. Nach dem Merge von B7 (PR #33) wählte
+der Nutzer B12 und ließ B11 zunächst aus, weil dort erst ein Spieltest klären muss, ob Forever von selbst absitzt. B12
+ändert nur eine vorhandene Datei: `/reload` reicht.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
@@ -491,6 +493,54 @@ wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand f
 | 8 | Geld oder ein Zauber am Mauszeiger wurde nicht erkannt (plausibel) | klein | behoben (`GetCursorInfo`) |
 | 9 | Texte: Titel bei `/eui room`, Begründung der leeren Liste unvollständig, „klickt auf einen Händler“ statt Händlerfenster | klein | behoben |
 | 10 | Test: Der Nachbau zeigte jede Karte sofort, Alarmleiste und Warteschlange fehlten | klein | behoben |
+
+**B12 – Ausrüstungsset nach dem Kampf anlegen (umgesetzt):**
+- Geändert: `Modules/Character.lua`, Abschnitt „Gear sets“, der einzige Ort, an dem EldoUI Sets wechselt (Set-Knöpfe im
+  Charakterfenster, Menü des Infoleisten-Blocks „Ausrüstung“).
+- Neuer Schalter „Nach dem Kampf anlegen“ unter Charakter › Ausrüstungssets, standardmäßig aus. Er handelt später für
+  den Spieler und ist deshalb in der Liste als `acts` markiert.
+- Klickt man an, solange der Kampf läuft:
+  - Das Set wird gemerkt. Eine Meldung in Grün sagt: „EldoUI: Schaden wird angelegt, sobald der Kampf endet. Ein zweiter
+    Klick darauf behält Eure Ausrüstung.“
+  - Nur der letzte Klick zählt. Ein zweiter Klick auf dasselbe Set oder ein Klick auf das getragene Set nimmt es zurück
+    („EldoUI: kein Setwechsel nach dem Kampf.“). Ein Klick auf das getragene Set ohne gemerktes Set tut nichts.
+  - Am Kampfende (`PLAYER_REGEN_ENABLED`) wird es angelegt, mit der Chatzeile „Nach dem Kampf: Schaden angelegt.“
+  - Ist man dann tot, wartet es, bis man wieder lebt (`PLAYER_ALIVE`, `PLAYER_UNGHOST`), und außerhalb des Kampfs ist.
+  - Ein Klick außerhalb des Kampfs gilt vor dem gemerkten Set.
+  - Ist der Schalter inzwischen aus, das Set gelöscht oder schon angelegt, passiert nichts. Nach einem Neuladen ist
+    nichts mehr gemerkt.
+- Anzeige: Das gemerkte Set hat an der Set-Leiste einen gelben Rand. Sein Tooltip sagt „Wird angelegt, sobald der Kampf
+  endet.“ Der Tooltip des Infoleisten-Blocks zeigt „Nach dem Kampf: Schaden“. Die Klick-Hinweise lauten bei
+  eingeschaltetem Schalter „anlegen (im Kampf: sobald er endet)“.
+- Ohne den Schalter bleibt alles wie vorher („Ausrüstungssets wechseln nur außerhalb des Kampfes“).
+- Regeln: Die Events laufen nur, solange ein Set gemerkt ist, unter einem eigenen Besitzer. Set-Infos werden in `pcall`
+  gelesen; eine geheime Antwort ändert nichts. `UseEquipmentSet` läuft weiter in `pcall`.
+- Die Beschreibung des Abschnitts hieß „… nichts wird für später vorgemerkt“. Sie heißt jetzt nur „Jeder Wechsel
+  geschieht außerhalb des Kampfes“.
+- Upstream-Datei (D1): `Character.lua`, gut 100 Zeilen im Abschnitt „Gear sets“ und zwei Zeilen bei Standards und
+  Optionen. Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (10 Texte).
+- Test: `tools/character/test_gear_after_combat.lua` (läuft in `tools/ci/check_all.sh tests`, 37 Prüfungen). Er schneidet
+  den Abschnitt „Gear sets“ aus `Character.lua` heraus und lässt ihn unverändert laufen. Geprüft werden:
+  - Schalter aus: wie vorher.
+  - Schalter an: gemerkt, der letzte Klick zählt, zurücknehmen, Klick außerhalb des Kampfs gilt, einmal am Kampfende.
+  - Tot, Geist, wiederbelebt, im Kampf wiederbelebt, eine geheime Antwort zum Tod.
+  - Schalter aus, Set gelöscht oder schon angelegt, das Spiel lehnt ab, ein geheimer Set-Name.
+  - Events nur, solange ein Set gemerkt ist. Rand, Tooltips, Hinweise, Menü, Standard und Option.
+  - Gegenprobe: Drei absichtlich eingebaute Fehler (Anlegen im Tod, Merken ohne Schalter, kein Zurücknehmen beim zweiten
+    Klick) lassen den Test fehlschlagen.
+- Offen, nur im Spiel zu klären: ob `C_EquipmentSet.UseEquipmentSet` unter den Midnight-Regeln auch aus einem Event
+  ohne Tastendruck läuft. Andere Addons wechseln Sets seit Langem nach dem Kampf. Klappt es nicht, kommt keine
+  Fehlermeldung, nur die Chatzeile fehlt.
+- Im Spiel prüfen (`/reload` reicht):
+  - Charakter › Ausrüstungssets › „Nach dem Kampf anlegen“ einschalten. Zwei Sets im Ausrüstungsmanager haben.
+  - Im Kampf auf das andere Set klicken (Set-Leiste am Charakterfenster oder Infoleisten-Block „Ausrüstung“). Erwartung:
+    die grüne Meldung, das Set bekommt einen gelben Rand.
+  - Kampf beenden. Erwartung: Das Set wird angelegt, mit der Chatzeile „Nach dem Kampf: … angelegt.“
+  - Im Kampf zweimal auf dasselbe Set klicken: Die zweite Meldung sagt „kein Setwechsel nach dem Kampf“, nach dem Kampf
+    bleibt die Ausrüstung.
+  - Im Kampf sterben, während ein Set gemerkt ist: Nach dem Wiederbeleben wird es angelegt.
+  - Schalter aus: Ein Klick im Kampf sagt wie bisher „Ausrüstungssets wechseln nur außerhalb des Kampfes“.
+  - Danach `/eui errors`: keine Lua-Fehler.
 
 **B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
 - Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
