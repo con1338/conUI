@@ -745,6 +745,17 @@ Inspect-Anfragen, automatische Loot-Verteilung.
        nicht den Dungeonguide.
     6. Danach: Fehlerlog (`EldoUIErrorsDB`) ohne neue Einträge. Die Guide-Kette selbst zeigt sich erst bei Stufe 21/22
        (Milka); Punkt 2 prüft sie vorher.
+  - **Im Spiel geprüft (16.11.2026, Defron, Stand `6a2c479` in den AddOns-Ordner kopiert, Client neu gestartet):**
+    - 1.: Der Schalter steht im RestedXP-Reiter, laut Nutzer „sieht alles sauber aus“. Ob die Statuszeile die Zahl der
+      übersetzten Namen zeigte, hat er nicht eigens gesagt.
+    - 2.: Die `/run`-Zeile zeigt „Schamane der Distelfelle“ und „22-24 Hillsbrad“.
+    - 3.: Zielmakro in „26-28 Ashenvale“: funktioniert bisher.
+    - 4.: Im Guide-Menü stehen „RestedXP Forever Route (H)“ (zweimal, Gratis und gekauft) und „RestedXP Forever
+      Dungeonführer (H)“, kein „Dungeon Dungeonführer“ mehr.
+    - 6.: Nach `/reload` kein Eintrag im Fehlerlog aus der Zeit nach dem Einspielen. Der jüngste Eintrag stammt aus
+      Sitzung 59 (16.11. 00:18, vor dem Einspielen) und hat mit C6 nichts zu tun, siehe F22 in `fehler.md`.
+    - Noch offen: Guide-Assistent mit Milka (5., der Nutzer prüft das später, Milka ist ein Bankcharakter) und die
+      Guide-Kette selbst bei Stufe 21/22.
 
 ## D – Infrastruktur für den Fork
 

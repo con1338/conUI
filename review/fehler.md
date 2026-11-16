@@ -29,6 +29,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F19 | Ausgeblendete Blizzard-Aktionsleisten: Platzwechsel im Kampf → ADDON_ACTION_BLOCKED (im Spiel gefunden) | mittel | behoben | `512df80` |
 | F20 | Angeln: Die Angeltaste erreicht den Schwimmer nicht, „Ihr müsst Euch näher an Eurem Ziel befinden …“ (im Spiel gefunden) | mittel | behoben | `cfebaee` |
 | F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
+| F22 | Taschen: `UseContainerItem` beim Klick auf einen Gegenstand verboten (im Fehlerlog gefunden) | mittel (plausibel) | offen | |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -452,6 +453,16 @@ neuer Fehler.
   - Fehlt `LOOT_CLOSED`, zählt nach dem nächsten Auswurf wieder ein Fang.
   - Außerhalb des Angelmodus zählt nichts.
 - **Nicht geprüft:** ob die Skill-ups im Protokoll ankommen (`GetProfessions` auf diesem Client).
+
+### F22 – Klick in die Taschen: `UseContainerItem` verboten (mittel, plausibel, offen)
+- **Gefunden:** 16.11.2026 beim Lesen des Fehlerlogs für C6 (`review/verbesserungen.md`). Der Eintrag stammt aus
+  Sitzung 59 (15.11. 23:32 bis 16.11. 00:18, Orgrimmar, außerhalb des Kampfes, 51-mal), also aus der Zeit vor C6.
+- **Meldung:** „Forbidden: EldoUI tried to call the protected function UNKNOWN() at
+  Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua:1611“. Stapel: `UseContainerItem` aus
+  `ContainerFrameItemButton_OnClick` (`ContainerFrame.lua:1611`, aufgerufen aus Zeile 1696). Das Spiel schreibt die
+  Sperre EldoUI zu: Der Klickweg der Taschenknöpfe lief verunreinigt (Taint), und der Gegenstand wurde nicht benutzt.
+- **Offen:** welches Modul den Klickweg verunreinigt, was der Spieler dabei getan hat (z. B. beim Händler per
+  Rechtsklick verkauft oder etwas angelegt) und ob es sich nachstellen lässt.
 
 ## Sonstiges
 
