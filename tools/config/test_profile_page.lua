@@ -108,7 +108,8 @@ local function Setup()
 	frames = {}
 	EldoUIDB = { profiles = { Main = {}, Alt = {} } }
 	local L = setmetatable({}, { __index = function(_, key) return key end })
-	local E = { profileName = "Main", tokens = { size = { label = 12 } }, UIKit = {} }
+	local E = { profileName = "Main", charKey = "Me - Realm", tokens = { size = { label = 12, body = 12 }, height = { row = 20 } },
+		UIKit = { RegisterKeyControl = noop } }
 	function E.DeepEqual(a, b) return a == b end
 	function E:TextScale() return 1 end
 	function E:ModuleStatesPerCharacter() return false end
@@ -138,6 +139,10 @@ local function Setup()
 	function E:CopyProfile(from) world.copied[#world.copied + 1] = from return true end
 	function E:ShowCopyParts(from) world.copiedParts[#world.copiedParts + 1] = from end
 	function E:DeleteProfile(name) world.deleted[#world.deleted + 1] = name EldoUIDB.profiles[name] = nil return true end
+	-- Since EldoUI 0.7.3000: the questions name the other users, and a copy
+	-- is kept before a reset, copy or delete (here: the change runs at once).
+	function E:ProfileUsers() return { E.charKey } end
+	function E:ChangeProfileWithUndo(_, _, change) return change() end
 	-- The shared question: answered with Accept at once.
 	function E:ShowConfirm(info) world.confirms = world.confirms + 1 if info.onAccept then info.onAccept() end end
 	-- The options window redraws every row it shows.
@@ -154,7 +159,11 @@ local function Setup()
 	end
 
 	local env = {
-		Tree = { ControlWidth = function() return 200 end, NoChoices = function() return false end },
+		Tree = { ControlWidth = function() return 200 end, NoChoices = function() return false end,
+			RootOf = function(page, option)
+				if type(option.root) == "function" then return option.root() end
+				return page.target()
+			end },
 		builders = {},
 		Recent = { log = {}, MAX = 20, Copy = function(value) return value end },
 		Cell = function() local cell = Widget({ controls = {}, label = Widget() }); cells[#cells + 1] = cell; return cell end,
