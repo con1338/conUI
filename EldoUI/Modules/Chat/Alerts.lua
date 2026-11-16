@@ -24,7 +24,8 @@ local M = E:GetModule("Chat")
 local IsSecret = function(value) return issecretvalue and issecretvalue(value) or false end
 local Readable = E.Plain
 
-local ALERT_NAME = "Alerts"
+-- The saved window name stays stable while its displayed title follows EldoUI.
+local ALERT_NAME = E.Key("Alerts")
 local MAX_KEYWORDS, MAX_QUEUE = 50, 50
 M.ALERT_NAME = ALERT_NAME
 M.MAX_KEYWORDS = MAX_KEYWORDS
@@ -139,6 +140,15 @@ local function SoundOf(entry)
 	return entry.sound ~= "none" and entry.sound or nil
 end
 
+function M:PlayChatAlertSound(sound)
+	if not sound or sound == "none" or self:QuietNow() then return end
+	local now = GetTime()
+	if now - lastSound >= 2 then
+		lastSound = now
+		E:PlayMedia(sound)
+	end
+end
+
 function M:OnKeywordMatch(lineID, entry)
 	if lineID ~= nil then
 		if sounded[lineID] then return end
@@ -147,12 +157,7 @@ function M:OnKeywordMatch(lineID, entry)
 		if soundedCount > 400 then wipe(sounded); soundedCount = 0 end
 	end
 	if self:QuietNow() then return end
-	local sound = SoundOf(entry)
-	local now = GetTime()
-	if sound and now - lastSound >= 2 then
-		lastSound = now
-		E:PlayMedia(sound)
-	end
+	self:PlayChatAlertSound(SoundOf(entry))
 	if self.db.keywordFlash and FlashClientIcon then FlashClientIcon() end
 end
 
@@ -172,29 +177,79 @@ end
 local function WindowInfo(index)
 	if not GetChatWindowInfo then return nil end
 	local name, _, _, _, _, _, shown, _, docked = GetChatWindowInfo(index)
-	return name, shown, docked
+	return Readable(name), shown, docked
+end
+
+local function IsAlertName(name)
+	return name ~= nil and (name == ALERT_NAME or name == L[ALERT_NAME])
+end
+
+local function ReleasedWindows()
+	local store = E:GetMessagesDB()
+	if type(store._releasedAlertWindows) ~= "table" then store._releasedAlertWindows = {} end
+	return store._releasedAlertWindows
+end
+
+local function SavedWindow()
+	local store = E:GetMessagesDB()
+	if type(store._alertWindow) ~= "table" then store._alertWindow = {} end
+	local saved = store._alertWindow
+	local id = saved.index
+	if type(id) ~= "number" or id < 1 or id > MaxWindows() or id ~= math.floor(id)
+		or type(saved.name) ~= "string" or saved.name == "" then
+		saved.index, saved.name, saved.released = nil, nil, nil
+	elseif saved.released then
+		ReleasedWindows()[id] = saved.name
+		saved.index, saved.name, saved.released = nil, nil, nil
+	end
+	return saved
+end
+
+local function RememberWindow(frame, name)
+	local saved = SavedWindow()
+	saved.index, saved.name, saved.released = frame:GetID(), name, nil
+	ReleasedWindows()[saved.index] = nil
+	alertFrame = frame
+	return frame
 end
 
 function M:IsAlertFrame(frame)
 	if not frame then return false end
-	if frame == alertFrame then return true end
 	local id = frame.GetID and frame:GetID()
 	if type(id) ~= "number" or id < 1 then return false end
-	return (WindowInfo(id)) == ALERT_NAME
+	local name = WindowInfo(id)
+	local saved = SavedWindow()
+	if ReleasedWindows()[id] == name and name ~= nil then return false end
+	if saved.index == id then return name == saved.name end
+	return IsAlertName(name)
 end
 
--- The open Alerts window, found by its name (also after a reload).
+-- Keep a previously acquired window through a language change or reload.
+-- A player rename releases it, including a rename to another alert label.
 function M:FindAlertFrame()
-	if alertFrame then
-		local name, shown, docked = WindowInfo(alertFrame:GetID())
-		if name == ALERT_NAME and (shown or docked) then return alertFrame end
-		alertFrame = nil
+	local saved = SavedWindow()
+	local released = ReleasedWindows()
+	local id = saved.index
+	if id then
+		local name, shown, docked = WindowInfo(id)
+		local frame = alertFrame or _G["ChatFrame" .. id]
+		if frame and frame:GetID() ~= id then frame = _G["ChatFrame" .. id] end
+		if frame and (shown or docked) then
+			if name == saved.name then
+				alertFrame = frame
+				return frame
+			elseif type(name) == "string" and name ~= saved.name then
+				released[id] = name
+				saved.index, saved.name = nil, nil
+			end
+		end
 	end
+	alertFrame = nil
 	for index = 1, MaxWindows() do
 		local name, shown, docked = WindowInfo(index)
-		if name == ALERT_NAME and (shown or docked) then
-			alertFrame = _G["ChatFrame" .. index]
-			return alertFrame
+		if released[index] ~= name and IsAlertName(name) and (shown or docked) then
+			local frame = _G["ChatFrame" .. index]
+			if frame then return RememberWindow(frame, name) end
 		end
 	end
 end
@@ -220,14 +275,25 @@ local function ClearSubscriptions(frame)
 	elseif ChatFrame_RemoveAllChannels then ChatFrame_RemoveAllChannels(frame) end
 end
 
-local function WaitForCombat()
-	reason = "combat"
+local function WaitForCombat(titleOnly)
+	if not titleOnly then reason = "combat" end
 	if flushPending then return end
 	flushPending = true
 	E:RunOutOfCombat(function()
 		flushPending = false
-		M:FlushAlerts()
+		if Improve() and M.db.alertTab then M:ApplyAlerts() end
 	end)
+end
+
+-- Keep the saved window name stable for reloads and chat history.
+local function LocalizeTitle(frame)
+	local name, title = Readable(frame.name), L[ALERT_NAME]
+	if type(name) ~= "string" or name == title or type(FCF_SetWindowName) ~= "function" then return end
+	if InCombatLockdown() then
+		WaitForCombat(true)
+		return
+	end
+	FCF_SetWindowName(frame, title, true)
 end
 
 -- Finds the window or makes it (outside combat). Returns the frame or nil;
@@ -235,6 +301,7 @@ end
 function M:EnsureAlertFrame()
 	local frame = self:FindAlertFrame()
 	if frame then
+		LocalizeTitle(frame)
 		reason = nil
 		return frame
 	end
@@ -259,7 +326,8 @@ function M:EnsureAlertFrame()
 	ClearSubscriptions(frame)
 	-- The new tab must not take the focus away from the tab you read.
 	if selected and selected ~= frame and FCF_SelectDockFrame then FCF_SelectDockFrame(selected) end
-	alertFrame = frame
+	RememberWindow(frame, WindowInfo(frame:GetID()))
+	LocalizeTitle(frame)
 	reason = nil
 	return frame
 end
@@ -280,10 +348,10 @@ function M:OpenAlertTab()
 end
 
 local SOURCES = {
-	SAY = "Say", YELL = E.Key("Yell"), EMOTE = "Emote", GUILD = "Guild", OFFICER = "Officer",
-	PARTY = "Party", PARTY_LEADER = "Party", RAID = "Raid", RAID_LEADER = "Raid", RAID_WARNING = "Raid warning",
-	INSTANCE_CHAT = "Instance", INSTANCE_CHAT_LEADER = "Instance", WHISPER = "Whisper", BN_WHISPER = "Whisper",
-	COMMUNITIES_CHANNEL = "Community",
+	SAY = E.Key("Say"), YELL = E.Key("Yell"), EMOTE = E.Key("Emote"), GUILD = E.Key("Guild"), OFFICER = E.Key("Officer"),
+	PARTY = E.Key("Party"), PARTY_LEADER = E.Key("Party"), RAID = E.Key("Raid"), RAID_LEADER = E.Key("Raid"),
+	RAID_WARNING = E.Key("Raid warning"), INSTANCE_CHAT = E.Key("Instance"), INSTANCE_CHAT_LEADER = E.Key("Instance"),
+	WHISPER = E.Key("Whisper"), BN_WHISPER = E.Key("Whisper"), COMMUNITIES_CHANNEL = E.Key("Community"),
 }
 
 local function DisplayName(sender)
@@ -313,6 +381,8 @@ local function SenderLink(chatType, sender, args, lineID)
 end
 
 -- The copy of one line, before the shared rewrite: [time] [source] [Name]: text
+-- With EldoUI timestamps on, the shared rewrite adds the clickable stamp
+-- (with the time the line came in), so the line has no stamp of its own.
 function M:AlertLine(event, args, stamp)
 	local chatType = event:sub(10)
 	local message, sender = Readable(args[1]), Readable(args[2])
@@ -338,7 +408,7 @@ function M:AlertLine(event, args, stamp)
 	else
 		body = message
 	end
-	local time = ("|c%s[%s]|r "):format(Hex(unpack(self.db.timestampColor)), stamp or E:FormatTime())
+	local time = self.db.eldoTimestamps and "" or ("|c%s[%s]|r "):format(Hex(unpack(self.db.timestampColor)), stamp or E:FormatTime())
 	return time .. ("[%s] "):format(source) .. body, r, g, b
 end
 
@@ -349,8 +419,9 @@ end
 local function AddCopy(frame, item)
 	local text, r, g, b = M:AlertLine(item.event, item.args, item.stamp)
 	if not text then return end
-	if M.FormatLine then text, r, g, b = M.FormatLine(frame, text, r, g, b, item.event, item.args, true) end
-	frame:AddMessage(text, r, g, b)
+	if M.FormatLine then text, r, g, b = M.FormatLine(frame, text, r, g, b, item.event, item.args, true, item.stamp) end
+	-- The event goes with the copy, so the saved history knows a whisper.
+	frame:AddMessage(text, r, g, b, nil, nil, nil, item.event)
 end
 
 function M:FlushAlerts()
@@ -392,11 +463,9 @@ local function OnChatEvent(_, event, ...)
 	local args = Pack(...)
 	local entry = M.MatchKeyword and M.MatchKeyword(event, args)
 	if not entry then return end
-	-- Hidden by the content filters (same decision as the chat windows).
-	if M.FilterLine then
-		local ok, hide = pcall(M.FilterLine, M, event, ...)
-		if ok and hide then return end
-	end
+	-- Hidden by the content filters or a guild mute (same decision as the
+	-- chat windows).
+	if M.LineHidden and M:LineHidden(event, ...) then return end
 	local lineID = Readable(args[11])
 	if lineID ~= nil then
 		if copied[lineID] then return end
@@ -443,7 +512,8 @@ function M:ApplyAlerts()
 		wipe(queue)
 		reason = nil
 	else
-		self:FindAlertFrame()
+		local frame = self:FindAlertFrame()
+		if frame then LocalizeTitle(frame) end
 		if #queue > 0 and not InCombatLockdown() then self:FlushAlerts() end
 	end
 	self:RefreshListEditor("keywords")
@@ -477,7 +547,7 @@ function M:ChooseKeywordSound(button, index)
 				return entry ~= nil and entry.sound == id
 			end, function() M:SetKeywordSound(index, id) end)
 		end
-		Radio(root, NONE or L["None"], "none")
+		Radio(root, E:GameText(NONE, L["None"]), "none")
 		for _, source in ipairs(sources) do
 			local menu = #sources > 1 and root:CreateButton(source) or root
 			if menu.SetScrollMode then menu:SetScrollMode(360) end
@@ -491,7 +561,7 @@ function M:OpenKeywordEditor()
 		key = "keywords",
 		title = L["Alert keywords"],
 		help = L["Lines with one of these words are highlighted and play the word's sound. With the Alerts tab on they are copied there too. Upper and lower case don't matter."],
-		emptyText = L["No keywords yet. Your name still counts while \"Alert on my name\" is on."],
+		emptyText = L["No keywords yet. Your name still counts while \"Alert on your name\" is on."],
 		items = function() return M.db.keywordList end,
 		text = function(entry) return tostring(entry.word) end,
 		controls = {

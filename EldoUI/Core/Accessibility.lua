@@ -38,7 +38,7 @@ E.defaults.general.access = {
 	highContrast = false,
 	largeText = false,
 	textScale = 1.3,          -- the scale Large text uses
-	colorBlind = "off",       -- off | on | game
+	colorBlind = "game",      -- off | on | game
 	colorBlindType = "deutan", -- protan | deutan | tritan
 	shapeMarks = true,        -- a word or shape next to colors with a meaning
 	soundCues = false,
@@ -83,6 +83,7 @@ local function Palette(kind)
 		status = { lowHealth = SAFE.vermilion, lowPower = SAFE.orange, trail = SAFE.vermilion, execute = SAFE.orange,
 			offTank = SAFE.purple, gradientLow = SAFE.vermilion, gradientMid = SAFE.yellow, gradientHigh = good },
 		prediction = { healMine = SAFE.sky, healOther = SAFE.blue, healAbsorb = SAFE.vermilion },
+		difficulty = { trivial = SAFE.gray, standard = good, difficult = SAFE.yellow, verydifficult = SAFE.orange, impossible = SAFE.vermilion },
 	}
 end
 E.AccessibilityPalette = Palette
@@ -144,6 +145,17 @@ local MARKS = { good = "+", warn = "!", bad = "x" }
 function E:StatusMark(kind)
 	if Access().shapeMarks == false then return "" end
 	return MARKS[kind] or ""
+end
+
+-- How far a level is above or below yours ("+3", "-5"), next to a level
+-- in its difficulty color while the safe colors and shape marks are on;
+-- empty otherwise and for your own level.
+function E:LevelMark(level)
+	if Access().shapeMarks == false or not self:ColorBlindActive() then return "" end
+	local mine = UnitLevel("player")
+	if type(level) ~= "number" or type(mine) ~= "number" or (issecretvalue and (issecretvalue(level) or issecretvalue(mine))) then return "" end
+	if level <= 0 or level == mine then return "" end
+	return ("%+d"):format(level - mine)
 end
 
 -- Text in a status color with its mark: E:StatusText("bad", "Missing").
@@ -268,6 +280,25 @@ function E:AccessibilityChanged()
 	self:ApplyAccessibility()
 end
 
+-- The hint for a screen whose smallest text draws under 9 pixels
+-- (E:SmallTextAdvice), or nil.
+function E:SmallTextHint()
+	local now, need = self:SmallTextAdvice()
+	if not now then return nil end
+	return L["Smallest text on this screen: %.1f px. Large text at %d %% brings it to 9 px, without moving any frame."]:format(now, math.floor(need * 100 + 0.5)), need
+end
+
+-- Large text at the size the hint names, through this page's own path, so
+-- Undo puts back what was there.
+function E:UseSuggestedTextSize()
+	local _, need = self:SmallTextAdvice()
+	if not need then return false end
+	local access = self.db.general.access
+	access.largeText, access.textScale = true, need
+	self:AccessibilityChanged()
+	return true
+end
+
 function E:CanUndoAccessibility()
 	return before ~= nil
 end
@@ -288,12 +319,12 @@ end
 -- Everything. Each writes the four switches; Default and Everything also
 -- set Reduce motion.
 E.ACCESS_PRESETS = {
-	{ key = "default", title = "Default", desc = "Every switch off: EldoUI's normal look, sounds and motion.",
-		values = { highContrast = false, largeText = false, colorBlind = "off", soundCues = false, reduceMotion = false } },
+	{ key = "default", title = "Default", desc = "EldoUI's normal look, sounds and motion. Safe colors follow the game's color-blind mode.",
+		values = { highContrast = false, largeText = false, colorBlind = "game", soundCues = false, reduceMotion = false } },
 	{ key = "contrast", title = "High contrast", desc = "Black opaque panels with bright borders and a thick text outline.",
-		values = { highContrast = true, largeText = false, colorBlind = "off", soundCues = false } },
+		values = { highContrast = true, largeText = false, colorBlind = "game", soundCues = false } },
 	{ key = "large", title = "Large text", desc = "Every EldoUI text at 130 %.",
-		values = { highContrast = false, largeText = true, textScale = 1.3, colorBlind = "off", soundCues = false } },
+		values = { highContrast = false, largeText = true, textScale = 1.3, colorBlind = "game", soundCues = false } },
 	{ key = "colorblind", title = "Color-blind safe", desc = "Safe colors with shape marks, always on.",
 		values = { highContrast = false, largeText = false, colorBlind = "on", shapeMarks = true, soundCues = false } },
 	{ key = "everything", title = "Everything", desc = "High contrast, large text, safe colors, sound cues and reduced motion together.",
@@ -368,7 +399,13 @@ local function UpdatePreview(frame)
 	frame.title:SetText(L["Easy to read"])
 	frame.title:SetTextColor(E:TokenColor("accent"))
 	frame.body:SetFont(E.media.font, E.tokens.size.body * scale, outline or "")
-	frame.body:SetText(L["Body text at this size."])
+	local _, height = GetPhysicalScreenSize()
+	local ui = E.GetTargetScale and E:GetTargetScale()
+	if tonumber(height) and height > 0 and tonumber(ui) then
+		frame.body:SetText(L["Body text at this size: %.1f px on this screen."]:format(E.tokens.size.body * scale * ui * height / 768))
+	else
+		frame.body:SetText(L["Body text at this size."])
+	end
 	frame.body:SetTextColor(unpack(E.tokens.text.body))
 	local palette = (access.colorBlind == "on" or (access.colorBlind == "game" and E:GameColorBlindMode())) and Palette(access.colorBlindType)
 	local items = {
@@ -435,6 +472,15 @@ local function BuildRows()
 			desc = "Every EldoUI text grows by the scale below." },
 		{ type = "range", percent = true, key = "textScale", label = "Text scale", min = 1, max = 1.6, step = 0.05, dependsOn = "largeText",
 			desc = "How much bigger EldoUI's text gets with Large text on, from 100 to 160 %." },
+		{ type = "description", label = function() return E:SmallTextHint() or "" end,
+			hidden = function() return E:SmallTextHint() == nil end },
+		{ type = "execute", label = "Use the suggested size", width = 200,
+			desc = "Turns on Large text at the size named above. Undo puts back what you had.",
+			hidden = function() return E:SmallTextHint() == nil end,
+			func = function()
+				if E:UseSuggestedTextSize() and E.ConfigNotice then E:ConfigNotice(L["Large text set for this screen."]) end
+				if E.RefreshConfig then E:RefreshConfig() end
+			end },
 		{ type = "header", label = "Colors" },
 		{ type = "select", key = "colorBlind", label = "Color-blind safe colors", order = { "off", "game", "on" },
 			values = { off = "Off", game = "Follow the game", on = "On" },

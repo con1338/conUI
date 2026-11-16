@@ -36,6 +36,7 @@ local Read = E.PlainCall
 local Layer = {
 	maps = {},          -- [mapID] = { [key] = last seen (GetTime) }
 	offered = {},       -- [sender .. "#" .. id] = { sender, id, key, at } (as helper)
+	lastOffer = {},     -- [sender] = time of the last accepted request
 	cards = {},         -- [sender .. "#" .. id] = { sender, id, timer } (as helper)
 }
 M.Layer = Layer
@@ -47,6 +48,8 @@ local DECIDE_WAIT = 20        -- seconds a helper's card waits for a click
 local HOP_LIMIT = 120         -- the whole hop ends after this, unless the game has a move scheduled
 local MOVE_RECHECK = 5        -- seconds between looks at a scheduled move once HOP_LIMIT has passed
 local MAX_KNOWN = 12          -- layer keys sent along with a request
+local OFFER_COOLDOWN = 10     -- seconds between offers to the same asker
+local MAX_OFFERS = 32         -- simultaneous choices and recent askers
 local MARK_TIME = 60          -- the chip stays marked this long after a hop
 
 local function Now() return GetTime() end
@@ -440,7 +443,7 @@ local function OnReply(sender, parts)
 		Status(L["In line for an invite."])
 	elseif command == "LI" then
 		hop.state = "invited"
-		Status(L["Accept the invite in the game's popup."])
+		Status(L["If an invite appears, accept it in the game's popup."])
 	elseif command == "LN" or command == "LD" or command == "LA" then
 		Layer.Choose()
 	end
@@ -470,18 +473,34 @@ local function OnRequest(sender, parts, channel)
 	if not (id and map and mine) or map ~= Layer.map or theirs == mine then return end
 	if wanted ~= "*" and wanted ~= mine then return end
 	local tag = sender .. "#" .. id
-	-- Offers nobody took up are dropped after the same minute OnChosen allows.
 	local now = Now()
-	for key, old in pairs(Layer.offered) do
-		if now - old.at > 60 then Layer.offered[key] = nil end
+	if Layer.offered[tag] or (Layer.lastOffer[sender] and now - Layer.lastOffer[sender] < OFFER_COOLDOWN) then return end
+	local offers, askers = 0, 0
+	for _ in pairs(Layer.offered) do offers = offers + 1 end
+	for asker, at in pairs(Layer.lastOffer) do
+		if now - at >= OFFER_COOLDOWN then Layer.lastOffer[asker] = nil else askers = askers + 1 end
 	end
-	Layer.offered[tag] = { sender = sender, id = id, key = mine, map = map, at = now }
+	if offers >= MAX_OFFERS or askers >= MAX_OFFERS then return end
+	Layer.lastOffer[sender] = now
+	local offer = { sender = sender, id = id, key = mine, map = map, at = now }
+	Layer.offered[tag] = offer
+	-- Most askers choose someone else: the offer is forgotten once the
+	-- asker could no longer pick it (OnChosen refuses it after 60 s too).
+	offer.expiry = C_Timer.NewTimer(61, function()
+		if Layer.offered[tag] == offer and not Layer.cards[tag] then Layer.offered[tag] = nil end
+	end)
 	C_Timer.After(0.2 + math.random() * 1.0, function()
-		local offer = Layer.offered[tag]
-		if not offer or Layer.key ~= mine or Layer.map ~= map or InCombat() or not CanInvite() then return end
+		if Layer.offered[tag] ~= offer or not Layer.Helping(channel) or Layer.key ~= mine or Layer.map ~= map
+			or InCombat() or not CanInvite() then return end
 		local group = Read(IsInGroup) and (Read(GetNumGroupMembers) or 0) or 0
 		Whisper(sender, ("LO|%d|%d|%s|%d|%d|ACT=1|LANG=any"):format(id, map, mine, group, Layer.Load()))
 	end)
+end
+
+local function ForgetOffer(tag)
+	local offer = Layer.offered[tag]
+	if offer and offer.expiry then offer.expiry:Cancel() end
+	Layer.offered[tag] = nil
 end
 
 -- How many hops this character helped with in the last ten minutes.
@@ -496,10 +515,14 @@ end
 function Layer.Decide(tag, invite)
 	local card = Layer.cards[tag]
 	if not card then return end
+	if card.expiry then card.expiry:Cancel() end
 	Layer.cards[tag] = nil
-	Layer.offered[tag] = nil
+	ForgetOffer(tag)
 	if invite and not InCombat() and C_PartyInfo and C_PartyInfo.InviteUnit then
-		if pcall(C_PartyInfo.InviteUnit, card.sender) then
+		local called, result = pcall(C_PartyInfo.InviteUnit, card.sender)
+		-- The client returns no result for an attempt and can still ask for
+		-- confirmation. An explicit refusal must not send the invite reply.
+		if called and not E.Secret(result) and result ~= false then
 			Layer.helped = Layer.helped or {}
 			Layer.helped[Now()] = true
 			Whisper(card.sender, "LI|" .. card.id)
@@ -516,27 +539,32 @@ local function OnChosen(sender, parts)
 	if not id then return end
 	local tag = sender .. "#" .. id
 	local offer = Layer.offered[tag]
-	-- Only a player this character sent an offer to gets an answer. Anyone
-	-- else whispering "LR" hears nothing, so a stranger can't use it to see
-	-- who is online with EldoUI.
+	-- Only a player this character sent an offer to gets an answer (fork,
+	-- F05). Anyone else whispering "LR" hears nothing, so a stranger can't
+	-- use it to see who is online with EldoUI.
 	if not offer then return end
-	if Now() - offer.at > 60 or not (Layer.Helping("WHISPER") or Layer.Helping("GUILD")) then
-		Layer.offered[tag] = nil
+	if Now() - offer.at > 60 then
+		ForgetOffer(tag)
+		offer = nil
+	end
+	if not offer or not (Layer.Helping("WHISPER") or Layer.Helping("GUILD")) then
 		Whisper(sender, ("LN|%d|busy"):format(id))
 		return
 	end
 	if InCombat() or InInstance() or not CanInvite() or Layer.key ~= offer.key then
-		Layer.offered[tag] = nil
+		ForgetOffer(tag)
 		Whisper(sender, ("LN|%d|layer changed"):format(id))
 		return
 	end
+	if Layer.cards[tag] then return end
 	if next(Layer.cards) then
 		Whisper(sender, ("LN|%d|busy"):format(id))
 		return
 	end
 	Whisper(sender, "LW|" .. id)
 	local name = Ambiguate and Ambiguate(sender, "none") or sender
-	Layer.cards[tag] = { sender = sender, id = id }
+	local card = { sender = sender, id = id }
+	Layer.cards[tag] = card
 	M:PushAlert({
 		key = "EldoUI.LayerHelp", title = L["Layer hop"],
 		text = L["%s wants to hop to your layer."]:format(name),
@@ -546,10 +574,10 @@ local function OnChosen(sender, parts)
 			{ label = L["Not now"], func = function() Layer.Decide(tag, false) end },
 		},
 	})
-	C_Timer.After(DECIDE_WAIT, function()
-		if Layer.cards[tag] then
+	card.expiry = C_Timer.NewTimer(DECIDE_WAIT, function()
+		if Layer.cards[tag] == card then
 			Layer.cards[tag] = nil
-			Layer.offered[tag] = nil
+			ForgetOffer(tag)
 			E:DismissAlert("EldoUI.LayerHelp")
 			Whisper(sender, "LA|" .. id)
 		end
@@ -654,7 +682,7 @@ function Layer.ShowTooltip(chip)
 	E.UIKit.TipText(GameTooltip, L["Read from the creatures around you. It is not an official layer number."])
 	GameTooltip:AddLine(" ")
 	if Layer.Integrated() then
-		E:TooltipHint(GameTooltip, { L["Click"], L["open the layer addon"] })
+		E:TooltipHint(GameTooltip, { L["Click"], L["open %s"]:format(NET.folder) })
 	else
 		E:TooltipHint(GameTooltip, { L["Click"], L["hop to another layer"] })
 	end
@@ -697,6 +725,8 @@ function Layer.CreateChip(overlay)
 	end)
 	chip:SetScript("OnEnter", Layer.ShowTooltip)
 	chip:SetScript("OnLeave", GameTooltip_Hide)
+	-- The shared hover and pressed look: the chip can be clicked.
+	E:SkinHoverPress(chip)
 	E:BindOptionsLink(chip, { page = "module:Minimap", key = "layer" })
 	chip:Hide()
 	Layer.chip = chip
@@ -715,7 +745,7 @@ function Layer.Refresh()
 	if show then
 		E:SetFont(chip.text, M.db.textSize)
 		-- Moved by the game, the new layer not read yet.
-		local text = Layer.key and ("L " .. Short(Layer.key)) or "L ?"
+		local text = Layer.key and L["L %s"]:format(Short(Layer.key)) or L["L ?"]
 		local hop = Layer.request
 		local marked = (Layer.markedUntil and Now() < Layer.markedUntil) or (hop and hop.state ~= "done")
 		if marked then
@@ -726,6 +756,9 @@ function Layer.Refresh()
 		end
 		chip.text:SetText(text)
 		chip:SetSize(math.max(20, (chip.text:GetStringWidth() or 0) + 6), math.max(14, (M.db.textSize or 13) + 4))
+		-- The same plate as the zone, coordinates and clock: readable over
+		-- a bright map.
+		if M.UpdatePlate then M:UpdatePlate(chip.text) end
 	end
 	if chip:IsShown() ~= show then
 		chip:SetShown(show)
@@ -780,6 +813,11 @@ end
 function Layer.Disable()
 	for event in pairs(EVENTS) do E:UnregisterEvent(event, Layer) end
 	if Layer.request then Layer.Finish() end
+	for tag in pairs(Layer.offered) do ForgetOffer(tag) end
+	for _, card in pairs(Layer.cards) do if card.expiry then card.expiry:Cancel() end end
+	if next(Layer.cards) then E:DismissAlert("EldoUI.LayerHelp") end
+	wipe(Layer.cards)
+	wipe(Layer.lastOffer)
 	Layer.ApplyNetwork()
 	if Layer.chip then Layer.chip:Hide() end
 end

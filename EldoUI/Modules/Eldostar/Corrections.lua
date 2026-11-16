@@ -4,8 +4,8 @@
 -- game itself shows a guide is wrong or incomplete, the fix lives here and
 -- applies to the loaded data, before Eldostar reads it:
 --
---   tips      { find, text }: in every step tip of the guide, `find` (plain
---             text) becomes `text`; an empty `text` takes it out
+--   tips      { find, text, current }: `find` becomes `text`; an empty text
+--             takes it out. Current markers recognize text corrected upstream.
 --   collects  item IDs added to the guide's collection list
 --   notes     { step title, line }: a note goal added to that step, or to
 --             the last step that buys when the title is nil
@@ -14,6 +14,10 @@
 -- EldoUI.
 local _, E = ...
 local M = E:GetModule("Eldostar")
+local CORRECTED_SOURCES = {
+	["89c62f73905df2f2218ff791bfe9b4671ab7ea29"] = true,
+	["19bd636e7d6f33231770f6029c76d2d4dfc63798"] = true,
+}
 
 local RIDING_OTHER = "Your race's riding comes with it; another race's mounts need that race's riding, taught by its riding trainer once you are Exalted with that race."
 
@@ -23,7 +27,8 @@ local RIDING_OTHER = "Your race's riding comes with it; another race's mounts ne
 local function RacialMounts(side, riding, trainer, faction)
 	return {
 		tips = { { ("The Forever client lets every %s race ride these."):format(side),
-			("Each mount needs %s: it comes with this race's riding, and other %s races learn it from %s once Exalted with %s (the trainer shows the price)."):format(riding, side, trainer, faction) } },
+			("Each mount needs %s: it comes with this race's riding, and other %s races learn it from %s once Exalted with %s (the trainer shows the price)."):format(riding, side, trainer, faction),
+			{ riding, trainer, "Exalted with " .. faction } } },
 	}
 end
 
@@ -36,11 +41,13 @@ M.CORRECTIONS = {
 	-- Black Dragon Champion is the quest item that leads to it.
 	["forever/legacy/legacy-challenges"] = {
 		tips = { { "In Classic her lair needs an attunement: Drakefire Amulet for the Alliance, Blood of the Black Dragon Champion for the Horde.",
-			"Each raider needs their own Drakefire Amulet in their bags to enter her lair: the Alliance chain ends with Haleh in Winterspring, the Horde chain with Rexxar in Desolace." } },
+			"Each raider needs their own Drakefire Amulet in their bags to enter her lair: the Alliance chain ends with Haleh in Winterspring, the Horde chain with Rexxar in Desolace.",
+			{ "Every raider needs the Drakefire Amulet", "Alliance chain", "Horde chain" } } },
 	},
 	-- Molten Core is not open on WoW: Forever.
 	["forever/reputation/thorium-brotherhood"] = {
-		tips = { { " Lothos Riftwaker at the Blackrock Mountain entrance offers attunement to the Molten Core.", "" } },
+		tips = { { " Lothos Riftwaker at the Blackrock Mountain entrance offers attunement to the Molten Core.", "",
+			{ "Molten Core", "not among the first raids", "until it opens, Dark Iron Ore is the way" } } },
 	},
 	["forever/alliance/40-50/01-stranglethorn-vale"] = {
 		tips = {
@@ -50,8 +57,10 @@ M.CORRECTIONS = {
 	},
 	["forever/horde/40-50/02-feralas"] = {
 		tips = {
-			{ "In Classic each race learns it from its own race's trainer: yours is ", "Your race's riding trainer teaches it: " },
-			{ "Forever may let any race learn from any riding trainer (not confirmed): try Kildar in Orgrimmar's Valley of Honor first, as he is the nearest, and skip this step if he teaches you.", RIDING_OTHER },
+			{ "In Classic each race learns it from its own race's trainer: yours is ", "Your race's riding trainer teaches it: ",
+				{ "Riding needs level 40", "Each race learns it from its own race's trainer:" } },
+			{ "Forever may let any race learn from any riding trainer (not confirmed): try Kildar in Orgrimmar's Valley of Honor first, as he is the nearest, and skip this step if he teaches you.", RIDING_OTHER,
+				{ "Riding needs level 40", "Each race learns it from its own race's trainer:" } },
 		},
 	},
 	["forever/collectibles/mounts/alliance/horse"] = RacialMounts("Alliance", "Horse Riding", "Randal Hunter", "Stormwind"),
@@ -77,7 +86,8 @@ M.CORRECTIONS = {
 		"The Green, Dark and Purple Skeletal Horses and the Ochre Skeletal Warhorse are new Forever colors (200g in the client) whose seller is not confirmed yet."),
 	["forever/collectibles/mounts/neutral/galestrider"] = {
 		tips = { { "Galestriders need level 40 and Riding (Galestrider Riding comes with it in the Forever client). Any riding trainer of your faction teaches it;",
-			"Galestriders need level 40, Riding and Galestrider Riding: the Skyborne know it from the start, and every other race can train it. Any riding trainer of your faction teaches Riding;" } },
+			"Galestriders need level 40, Riding and Galestrider Riding: the Skyborne know it from the start, and every other race can train it. Any riding trainer of your faction teaches Riding;",
+			{ "riding one also takes Galestrider Riding", "only the Skyborne get with Riding", "how is not known yet" } } },
 		collects = { 269682 },
 		notes = { { "Genn Fairweather", "Regal Galestrider (20g in the client) is a new Forever color whose seller is not confirmed yet." } },
 	},
@@ -103,10 +113,14 @@ end
 -- EldoUI_GuideData), once. Anything that does not fit is left alone and
 -- listed in M.correctionMisses ("<guide id>: <what>"), so a new guide
 -- release that already fixed or reworded a line shows up in the tests.
+-- Current source markers retain upstream fixes without changing their text.
 function M.ApplyCorrections(raw)
 	if type(raw) ~= "table" or rawget(raw, "eldouiCorrected") then return end
 	local list = rawget(raw, "guides")
 	if type(list) ~= "table" then return end
+	local source = rawget(raw, "source")
+	local commit = type(source) == "table" and rawget(source, "commit")
+	local reviewed = type(commit) == "string" and CORRECTED_SOURCES[commit] == true
 	local misses, seen = {}, {}
 	M.correctionMisses = misses
 	for index = 1, #list do
@@ -121,8 +135,16 @@ function M.ApplyCorrections(raw)
 				for _, step in ipairs(steps) do
 					if type(step) == "table" and type(step.tip) == "string" then
 						for number, pair in ipairs(fix.tips or {}) do
-							if step.tip:find(pair[1], 1, true) then hits[number] = true end
-							step.tip = Replace(step.tip, pair[1], pair[2])
+							if step.tip:find(pair[1], 1, true) then
+								hits[number] = true
+								step.tip = Replace(step.tip, pair[1], pair[2])
+							elseif reviewed and pair[3] then
+								local matches = true
+								for _, marker in ipairs(pair[3]) do
+									if not step.tip:find(marker, 1, true) then matches = false break end
+								end
+								if matches then hits[number] = true end
+							end
 						end
 					end
 				end

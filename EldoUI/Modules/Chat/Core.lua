@@ -78,6 +78,8 @@ local M = E:NewModule("Chat", {
 		sticky = { say = true, yell = false, party = true, raid = true, instance = true,
 			guild = true, officer = true, whisper = true, channel = true },
 		altInvite = false,       -- Alt-click a player name in chat sends one group invite
+		whisperInvite = false,
+		whisperInviteWord = "inv", -- no-L: player-typed keyword
 		copyButton = true,
 		searchButton = true,
 		-- Buttons (element switch "hide")
@@ -119,6 +121,7 @@ local M = E:NewModule("Chat", {
 		maxLines = 0,            -- 0 = game default
 		linkTooltips = true,     -- hover a link in chat for its tooltip
 		linkIcons = true,        -- icon in front of item and spell link names
+		linkItemTypes = false,   -- slot and type inside gear links
 		questMarks = true,       -- mark after quest links: in your log or done
 		mentions = true,         -- names of group, guild and friends in class color
 		mentionGroup = true,
@@ -143,11 +146,20 @@ local M = E:NewModule("Chat", {
 		spamFilter = false,
 		spamWindow = 10,
 		spamWords = "",          -- old comma list, moved into filterPhrases once
+		tradeBoard = false,
+		tradeGeneral = true,
+		tradeChannel = true,
+		tradeLooking = true,
+		tradeMinutes = 30,
+		tradeWatchWords = "",
+		tradeWatchSound = true,
 		contentFilters = true,   -- master switch for phrases, script filter and mutes
 		filterPhrases = {},      -- blocked words and phrases
 		filterWholeWords = false,
-		filterScope = "public",  -- public, all
+		filterScope = "public",  -- public, whispers, all
+		filterDisguised = false,
 		filterCyrillic = false,
+		hideLearning = false,
 		hideOthersCrafts = true, -- other players' "X creates Y." lines stay out of chat
 		foldRoster = false,      -- a burst of guild join/leave and online/offline lines as one line
 		foldFriends = false,     -- ... friends' online/offline lines too
@@ -990,17 +1002,22 @@ end
 function M:ApplyCVars()
 	if not E:BlizzardAllowed(ELEMENT) then return end
 	local db = self.db
-	if self:Allowed("improve") then
-		if db.eldoTimestamps then
-			E:SetCVar("showTimestamps", "none", ELEMENT)
-		elseif db.timestamps ~= "KEEP" then
-			E:SetCVar("showTimestamps", db.timestamps, ELEMENT)
-		end
-		if db.classNames == "ON" then
-			E:SetCVar("chatClassColorOverride", "0", ELEMENT)
-		elseif db.classNames == "OFF" then
-			E:SetCVar("chatClassColorOverride", "1", ELEMENT)
-		end
+	local improve = self:Allowed("improve")
+	-- A setting back on "Keep game setting" (or Improve off) gives the
+	-- player's own game value back; the other values set it.
+	if improve and db.eldoTimestamps then
+		E:SetCVar("showTimestamps", "none", ELEMENT)
+	elseif improve and db.timestamps ~= "KEEP" then
+		E:SetCVar("showTimestamps", db.timestamps, ELEMENT)
+	else
+		E:RestoreCVar("showTimestamps", ELEMENT)
+	end
+	if improve and db.classNames == "ON" then
+		E:SetCVar("chatClassColorOverride", "0", ELEMENT)
+	elseif improve and db.classNames == "OFF" then
+		E:SetCVar("chatClassColorOverride", "1", ELEMENT)
+	else
+		E:RestoreCVar("chatClassColorOverride", ELEMENT)
 	end
 end
 
@@ -1091,7 +1108,7 @@ function M:WhisperTarget()
 end
 E:NameBinding("BINDING_NAME_ELDOUI_WHISPER_TARGET", E.Key("Whisper your target"))
 
-E:AddCommand("tt", "  whisper your target: opens the chat box as /w <name>", function() M:WhisperTarget() end, "Tools")
+E:AddCommand("tt", "whisper your target: opens the chat box as /w <name>", function() M:WhisperTarget() end, "Tools")
 
 ---------------------------------------------------------------------------
 -- Apply / undo
@@ -1118,6 +1135,7 @@ function M:Apply()
 	self:UpdateErrorButton()
 	self:ApplyCVars()
 	self:ApplySticky()
+	self:RefreshWhisperInvites()
 	if self.ApplyMessages then self:ApplyMessages() end
 	if self.errorPane and panelMode then self:LayoutPane(self.errorPane) end
 	if self.searchPane and panelMode then self:LayoutPane(self.searchPane) end
@@ -1128,6 +1146,7 @@ end
 -- Back to Blizzard as far as possible without a reload. Positions come
 -- back with Edit Mode after /reload (the handler asks for it).
 function M:RestoreBlizzard()
+	self:RefreshWhisperInvites()
 	if self.panel then self.panel:Hide() end
 	self:ClosePanes()
 	for _, frame in self:IterateFrames() do
@@ -1524,8 +1543,9 @@ end
 ---------------------------------------------------------------------------
 function M:Reapply()
 	if not self.active then return end
+	-- Keyed: calls in combat (whisper tabs, dock changes) run once after it.
 	E:Debounce("chat:reapply", 0, function()
-		E:RunOutOfCombat(function() M:Apply() end)
+		E:RunOutOfCombat(function() M:Apply() end, "chat:apply")
 	end)
 end
 
@@ -1533,7 +1553,7 @@ function M:InstallHooks()
 	-- Edit Mode and chat setup move these back; put them where we want them.
 	hooksecurefunc(ChatFrame1, "SetPoint", function()
 		if self.active and not placing and self:PanelMode() then
-			C_Timer.After(0, function() E:RunOutOfCombat(function() self:PlaceMainChat() end) end)
+			C_Timer.After(0, function() E:RunOutOfCombat(function() self:PlaceMainChat() end, "chat:placeMain") end)
 		end
 	end)
 	if GeneralDockManager then
@@ -1600,6 +1620,7 @@ function M:InstallHooks()
 end
 
 function M:OnEnable()
+	self:RefreshWhisperInvites()
 	-- The error window setting moved to General > Lua errors: carry over a
 	-- choice made here once (the key stays for old profiles).
 	if self.db.scriptErrors == "1" or self.db.scriptErrors == "0" then
@@ -1621,6 +1642,8 @@ end
 
 -- Blizzard's chat look comes back fully with a reload.
 function M:OnDisable()
+	if self.SyncTradeBoard then self:SyncTradeBoard() end
+	self:RefreshWhisperInvites()
 	self:MuteTabs(false)
 	self:UnregisterEvent("UPDATE_CHAT_WINDOWS")
 	self:UnregisterEvent("UPDATE_FLOATING_CHAT_WINDOWS")
@@ -1632,6 +1655,8 @@ function M:OnDisable()
 end
 
 function M:OnProfileChanged()
+	if self.SyncTradeBoard then self:SyncTradeBoard() end
+	self:RefreshWhisperInvites()
 	if self.active then E:RunOutOfCombat(function() self:Apply() end) end
 	-- Held guild and friend notices are written out when folding goes off.
 	if self.FlushRosterBursts and not (self.active and self.db.foldRoster) then self:FlushRosterBursts() end
@@ -1642,7 +1667,7 @@ end
 
 E:AddCommand("chatdebug", "outline the chat frames and print their positions", function()
 	if M.active and M.panel then M:ToggleDebug() elseif not M.active then E:Print(E:ModuleOffHint("Chat")) end
-end)
+end, "Troubleshooting")
 
 ---------------------------------------------------------------------------
 -- Options
@@ -1672,7 +1697,7 @@ end
 local IconCog = {
 	{ type = "range", key = "nameIconSize", label = "Icon size", unit = "%", min = 50, max = 150, step = 5, disabled = NoIcons,
 		desc = "Size of the name icons compared with the chat text." },
-	{ type = "range", key = "nameIconOffset", label = "Y offset", min = -6, max = 6, step = 1, disabled = NoIcons,
+	{ type = "range", unit = "px", key = "nameIconOffset", label = "Y offset", min = -6, max = 6, step = 1, disabled = NoIcons,
 		desc = "Moves the icons up (positive) or down (negative) by a few pixels, for fonts that sit higher or lower." },
 }
 for _, entry in ipairs({ { "say", "Say and emote" }, { "yell", E.Key("Yell") }, { "whisper", "Whispers" }, { "guild", E.Key("Guild and officer") },
@@ -1718,8 +1743,8 @@ M.options = {
 	{ type = "tab", label = "Panel" },
 	{ type = "description", label = "What EldoUI may do with Blizzard's chat is set on the Blizzard UI page. These settings shape what each switch does." },
 	{ type = "header", label = "Size and look" },
-	{ type = "range", key = "width", label = "Width", min = 300, max = 1200, step = 1, desc = "Width of the chat panel." },
-	{ type = "range", key = "height", label = "Height", min = 120, max = 800, step = 1, desc = "Height of the chat panel." },
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 300, max = 1200, step = 1, desc = "Width of the chat panel." },
+	{ type = "range", unit = "px", key = "height", label = "Height", min = 120, max = 800, step = 1, desc = "Height of the chat panel." },
 	{ type = "range", key = "panelAlpha", label = "Background opacity", percent = true, min = 0, max = 1, step = 0.05, desc = "How dark the panel behind the chat is (panel mode only).",
 		cog = {
 			{ type = "select", key = "panelImage", label = "Background image", values = PanelImages,
@@ -1735,10 +1760,10 @@ M.options = {
 	{ type = "toggle", key = "fontShadow", label = "Text shadow", desc = "A soft shadow under the chat text, so it reads on bright ground." },
 	{ type = "media", mediaKind = "font", key = "chatFont", label = "Chat font", default = "theme", defaultLabel = "Theme font",
 		desc = "The font of the chat windows and the edit box (skin switch). Theme font follows EldoUI's font; any EldoUI or SharedMedia font can be picked." },
-	{ type = "range", key = "lineSpacing", label = "Line spacing", min = 0, max = 8, step = 1,
+	{ type = "range", unit = "px", key = "lineSpacing", label = "Line spacing", min = 0, max = 8, step = 1,
 		zeroText = "Game", desc = "Extra space between chat lines, in pixels (skin switch). Game keeps the game's spacing." },
 	{ type = "header", label = "Tabs and edit box" },
-	{ type = "range", key = "tabHeight", label = "Tab height", min = 18, max = 40, step = 1, desc = "Height of the tab strip and the tabs in it." },
+	{ type = "range", unit = "px", key = "tabHeight", label = "Tab height", min = 18, max = 40, step = 1, desc = "Height of the tab strip and the tabs in it." },
 	{ type = "range", key = "tabFontSize", label = "Tab text size", min = 8, max = 18, step = 1, desc = "Text size on the tabs." },
 	{ type = "toggle", key = "tabFlash", label = "Flash whisper tabs", desc = "A tab that gets a whisper while you look at another tab flashes (the game's alert, in the EldoUI look). Off: it stays still. Skin switch.",
 		cog = {
@@ -1758,7 +1783,7 @@ M.options = {
 	{ type = "select", key = "editBox", label = "Edit box position",
 		desc = "Over the tabs: the box covers the tab strip while you type. Top of screen: centered near the top.",
 		values = { TABS = "Over the tabs", ABOVE = "Above the chat", BELOW = "Below the chat", TOP = "Top of screen" } },
-	{ type = "range", key = "editBoxHeight", label = "Edit box height", min = 0, max = 40, step = 1,
+	{ type = "range", unit = "px", key = "editBoxHeight", label = "Edit box height", min = 0, max = 40, step = 1,
 		zeroText = "Auto", desc = "Height of the box you type in. Auto follows the tab height. The width is always the panel width." },
 	{ type = "range", key = "editBoxFontSize", label = "Edit box text size", min = 0, max = 24, step = 1,
 		zeroText = "Auto", desc = "Text size in the box you type in (skin switch). Auto uses the chat text size." },
@@ -1786,7 +1811,7 @@ M.options = {
 	{ type = "preview", label = "Preview", height = 132, desc = "Sample lines drawn with your current chat settings.",
 		create = function(canvas) if M.DrawPreview then M:DrawPreview(canvas) end end,
 		update = function(canvas) if M.DrawPreview then M:DrawPreview(canvas) end end },
-	{ type = "description", label = "Message extras need the Blizzard UI switch Improve. During chat lockdown (boss fights) EldoUI shows chat text untouched." },
+	{ type = "description", label = "Message extras need the Blizzard UI switch Improve. During boss fights chat text shows untouched." },
 	{ type = "header", label = "Colors" },
 	{ type = "select", key = "colorMode", label = "Chat colors",
 		values = { game = "Game colors", channel = "My colors", quiet = "My colors, quiet text" },
@@ -1797,7 +1822,7 @@ M.options = {
 		desc = "With quiet text, the game's timestamp in front of a line is gray too." },
 	{ type = "header", label = "Channels and names" },
 	{ type = "toggle", key = "linkTooltips", label = "Link tooltips on hover", desc = "Point at an item, spell, quest, achievement, currency or talent link in chat to see its tooltip, where your tooltips usually show." },
-	{ type = "toggle", key = "mentions", label = "Known names in class color", desc = "Names of your group, guild and friends inside other players' lines get their class color. Not during chat lockdown.",
+	{ type = "toggle", key = "mentions", label = "Known names in class color", desc = "Names of your group, guild and friends inside other players' lines get their class color. Not during boss fights.",
 		cog = {
 			{ type = "toggle", key = "mentionGroup", label = "Group", desc = "Party and raid members." },
 			{ type = "toggle", key = "mentionGuild", label = "Guild", desc = "Guild members (as the guild list knows them)." },
@@ -1828,6 +1853,11 @@ M.options = {
 		} },
 	{ type = "toggle", key = "altInvite", label = "Alt-click a name to invite", acts = true,
 		desc = "Alt-click a player's name in chat to send one group invite. Not in combat. Other clicks on names work as before. Off by default." },
+	{ type = "toggle", key = "whisperInvite", label = "Invite by whisper keyword", acts = true,
+		desc = "Acts for you when turned on: sends a group invite when a player's regular whisper exactly matches your keyword. Out of combat only. Off by default.",
+		disabled = E:BlizzardNeeds(ELEMENT, "improve") },
+	{ type = "input", key = "whisperInviteWord", label = "Invite keyword", dependsOn = "whisperInvite",
+		desc = "A regular whisper must match this text exactly, including case and spaces. Leave empty to pause invites." },
 	{ type = "header", label = "Timestamps" },
 	{ type = "select", key = "timestamps", label = "Game timestamps",
 		values = { KEEP = "Keep game setting", none = "None", ["%H:%M "] = "15:04", ["%H:%M:%S "] = "15:04:05", ["%I:%M "] = "03:04", ["%I:%M %p "] = "03:04 PM",
@@ -1843,6 +1873,8 @@ M.options = {
 	{ type = "toggle", key = "urlBrackets", label = "Brackets around links", desc = "Shows links as [example.com].", dependsOn = "urls" },
 	{ type = "toggle", key = "urlAutoClose", label = "Close the copy box after Ctrl+C", desc = "The link box closes itself once you copied.", dependsOn = "urls" },
 	{ type = "toggle", key = "linkIcons", label = "Icons on item and spell links", desc = "Item and spell links in chat show their icon in front of the name, at the height of the chat text. The link works as before." },
+	{ type = "toggle", key = "linkItemTypes", label = "Slot and type on item links",
+		desc = "Gear links in chat show their equipment slot and armor or weapon type. Off by default." },
 	{ type = "toggle", key = "questMarks", label = "Quest status marks", desc = "A small mark after a quest link: a tick when you have done the quest, the quest icon when it is in your quest log. Nothing when neither or unknown." },
 	{ type = "header", label = "Fading" },
 	{ type = "select", key = "fade", label = "Fade old lines", values = { KEEP = "Game default", never = "Never", fade = "After a set time" },
@@ -1858,12 +1890,12 @@ M.options = {
 
 	{ type = "tab", label = "Alerts and filters" },
 	{ type = "header", label = "Keyword alert" },
-	{ type = "description", label = "Lines that mention a keyword are highlighted and can play a sound. Works outside chat lockdown only; EldoUI never replies for you." },
+	{ type = "description", label = "Lines that mention one of your keywords are highlighted and can play a sound. Paused during boss fights." },
 	{ type = "execute", label = "Edit keywords", desc = "The keyword list (up to 50), with a sound per keyword and Pause. Also /eui chat alerts, and /eui chat alert <word> adds or removes one.",
 		func = function() if M.OpenKeywordEditor then M:OpenKeywordEditor() end end },
 	{ type = "toggle", key = "keywordsPaused", label = "Pause keyword alerts", desc = "Stops highlights, sounds and Alerts tab copies for all keywords. The list stays saved." },
-	{ type = "toggle", key = "keywordName", label = "Alert on my name", desc = "Your character's name counts as a keyword." },
-	{ type = "media", mediaKind = "sound", none = true, key = "keywordSound", label = "Sound for my name", dependsOn = "keywordName",
+	{ type = "toggle", key = "keywordName", label = "Alert on your name", desc = "Your character's name counts as a keyword." },
+	{ type = "media", mediaKind = "sound", none = true, key = "keywordSound", label = "Name alert sound", dependsOn = "keywordName",
 		desc = "Played when a line mentions your name. Every other keyword has its own sound in Edit keywords. At most one sound every 2 seconds." },
 	{ less = true, type = "toggle", key = "keywordAccent", label = "Highlight in accent color", desc = "Off uses the color below." },
 	{ less = true, type = "color", key = "keywordColor", label = "Highlight color", desc = "Color of a matched keyword.", hidden = function() return M.db.keywordAccent end },
@@ -1890,8 +1922,9 @@ M.options = {
 	{ type = "media", mediaKind = "sound", none = true, key = "whisperSound", label = "Whisper sound",
 		desc = "An extra sound when someone whispers you (also Battle.net whispers). The game's own whisper sound still plays. Instant Messages plays this same sound, so a whisper sounds once." },
 	{ type = "toggle", key = "whisperFlash", label = "Flash the game icon on whispers", desc = "Flashes the WoW icon in the taskbar when a whisper arrives." },
+	{ type = "header", label = "Alert sounds" },
+	{ type = "toggle", key = "quietInCombat", label = "No alert sounds in combat", desc = "Skips keyword, whisper and channel sounds, the taskbar flash and the Instant Messages whisper sound in combat. The game's own whisper sound still plays." },
 	{ type = "header", label = "Channel sounds" },
-	{ type = "toggle", key = "quietInCombat", label = "No alert sounds in combat", desc = "Keyword, whisper and channel sounds and the taskbar flash are skipped while you are in combat. They are not played afterwards. The game's own whisper sound is not affected." },
 	{ type = "cog", label = "Sound per channel", options = ChannelSoundOptions,
 		desc = "A sound when someone else writes in guild, party, raid or another channel. None by default." },
 	{ type = "header", label = "Content filters" },
@@ -1904,12 +1937,15 @@ M.options = {
 	{ type = "toggle", key = "filterWholeWords", label = "Whole words only", dependsOn = "contentFilters",
 		desc = "A phrase matches only as a whole word: \"gold\" hides \"buy gold\" but not \"goldfish\"." },
 	{ type = "select", key = "filterScope", label = "Blocked phrases apply to", dependsOn = "contentFilters", wide = true,
-		values = { public = "Channels, say, yell, emote", all = "All chat except your own lines" },
-		desc = "Where blocked phrases and the Cyrillic filter look. All also covers guild, group and whispers." },
+		values = { public = "Channels, say, yell, emote", whispers = "Public channels and whispers from strangers", all = "All chat except your own lines" },
+		desc = "Where blocked phrases and the Cyrillic filter look. Friends, guild members, and group members are always shown." },
+	{ type = "toggle", key = "filterDisguised", label = "Also catch disguised spellings", dependsOn = "contentFilters",
+		desc = "Match your blocked phrases across punctuation, spacing, and common look-alike letters. Off by default." },
 	{ type = "toggle", key = "filterCyrillic", label = "Hide Cyrillic lines", dependsOn = "contentFilters",
 		desc = "Hides lines that contain Cyrillic letters. It looks at the letters, not the language. Off by default." },
 	{ type = "header", label = "Crafting" },
 	{ type = "toggle", key = "hideOthersCrafts", label = "Hide other players' crafting", desc = "Lines like \"Name creates Item.\" from players near you stay out of chat, so the Loot tab shows only what you craft yourself. Your own crafts always show." },
+	{ type = "toggle", key = "hideLearning", label = "Hide learn/unlearn lines", desc = "Hides system messages about learning or unlearning spells, abilities, and passive effects." },
 	{ type = "header", label = "Guild and friend notices" },
 	{ type = "toggle", key = "foldRoster", label = "Fold join and online notices",
 		desc = "A burst of guild join, leave, online and offline lines shows as one line per kind, such as \"5 more came online: Name, Name ...\". Point at [all] for every name. Off by default." },
@@ -1919,11 +1955,29 @@ M.options = {
 	{ type = "toggle", key = "spamFilter", label = "Hide repeated lines", desc = "In public channels, say and yell: the same text from the same player within the time below shows only once. Off by default." },
 	{ type = "range", key = "spamWindow", label = "Repeat window", unit = "s", min = 2, max = 120, step = 1, dependsOn = "spamFilter", desc = "How long a repeated line stays hidden." },
 
+	{ type = "tab", label = "Trade board" },
+	{ type = "toggle", key = "tradeBoard", label = "Keep recent trade offers",
+		desc = "Reads offers from visible public chat in the chosen channels. Kept for this session only. Off by default.",
+		disabled = E:BlizzardNeeds(ELEMENT, "improve") },
+	{ type = "execute", label = "Open the Trade board", dependsOn = "tradeBoard",
+		desc = "Search recent sales, requests and services. A row opens an unsent whisper draft.",
+		func = function() if M.ToggleTradeBoard then M:ToggleTradeBoard() end end },
+	{ type = "header", label = "Trade board channels" },
+	{ type = "toggle", key = "tradeChannel", label = "Trade channel", dependsOn = "tradeBoard", desc = "Collect offers from the game's Trade channel." },
+	{ type = "toggle", key = "tradeGeneral", label = "General channel", dependsOn = "tradeBoard", desc = "Collect offers from the game's General channel." },
+	{ type = "toggle", key = "tradeLooking", label = "LookingForGroup channel", dependsOn = "tradeBoard", desc = "Collect trade and service offers from the game's LookingForGroup channel." },
+	{ type = "range", unit = "min", key = "tradeMinutes", label = "Keep offers for", min = 5, max = 60, step = 5,
+		dependsOn = "tradeBoard", desc = "Offers this old disappear. The board keeps up to 300 offers." },
+	{ type = "input", key = "tradeWatchWords", label = "Trade watch words", dependsOn = "tradeBoard",
+		desc = "Comma-separated words or phrases. Matching offers stand out in the list." },
+	{ type = "toggle", key = "tradeWatchSound", label = "Sound for watched offers", dependsOn = "tradeBoard",
+		desc = "Uses the Chat keyword sound and its quiet-in-combat setting." },
+
 	{ type = "tab", label = "History and search" },
 	{ type = "header", label = "Saved history" },
 	{ type = "toggle", key = "history", label = "Keep chat between sessions", desc = "The last lines of every chat tab come back after a reload or the next login, under a gray divider. Per character. Turning it off asks first, because it deletes the saved lines." },
 	{ type = "range", key = "historyLines", label = "Lines saved per window", min = 20, max = 500, step = 10, desc = "Capped so the saved file stays small. Lowering it asks first when saved lines would be deleted." },
-	{ type = "toggle", key = "historyWhispers", label = "Save whispers", desc = "Off leaves whispers out of the saved history." },
+	{ type = "toggle", key = "historyWhispers", label = "Save whispers", desc = "Off leaves whispers out of the saved history, also their copies in the right panel and the Alerts tab, and deletes the whispers saved so far." },
 	{ type = "execute", label = "Clear saved history", desc = "Deletes the saved chat lines of this character (asks first).", func = function() if M.ConfirmClearHistory then M:ConfirmClearHistory() end end },
 	{ type = "header", label = "Typed lines" },
 	{ type = "range", key = "editHistoryLines", label = "Typed lines kept", min = 0, max = 50, step = 1,
@@ -1935,8 +1989,8 @@ M.options = {
 	{ type = "tab", label = "Right panel" },
 	{ type = "description", label = "A second panel on the right for chosen kinds of messages, such as loot, so the main chat stays readable." },
 	{ type = "toggle", key = "rightPanel", label = "Show the right panel", desc = "Turns the right chat panel on. Move it with /eui move (EldoUI_ChatRight)." },
-	{ type = "range", key = "rightWidth", label = "Width", min = 200, max = 900, step = 1, hidden = NotRight, desc = "Width of the right panel." },
-	{ type = "range", key = "rightHeight", label = "Height", min = 100, max = 600, step = 1, hidden = NotRight, desc = "Height of the right panel." },
+	{ type = "range", unit = "px", key = "rightWidth", label = "Width", min = 200, max = 900, step = 1, hidden = NotRight, desc = "Width of the right panel." },
+	{ type = "range", unit = "px", key = "rightHeight", label = "Height", min = 100, max = 600, step = 1, hidden = NotRight, desc = "Height of the right panel." },
 	{ type = "input", key = "rightTitle", label = "Title", hidden = NotRight, desc = "Name shown on the panel. Empty uses the message kinds." },
 	{ type = "toggle", key = "rightMove", label = "Only in the right panel", hidden = NotRight, desc = "Removes these lines from the main chat. Off shows them in both." },
 }

@@ -2376,7 +2376,7 @@ end
 ---------------------------------------------------------------------------
 E.defaults.general.colors = {
 	blizzardClass = true,  -- use the game's class colors
-	class = {}, power = {}, reaction = {}, dispel = {}, threat = {}, status = {}, prediction = {},
+	class = {}, power = {}, reaction = {}, dispel = {}, threat = {}, status = {}, prediction = {}, difficulty = {},
 }
 
 -- What each table lists, in display order. Labels prefer the game's own
@@ -2396,6 +2396,12 @@ E.colorGroups = {
 	{ key = "dispel", title = "Dispel types", list = {
 		{ "Magic", Key("Magic") }, { "Curse", Key("Curse") }, { "Disease", Key("Disease") },
 		{ "Poison", Key("Poison") }, { "Bleed", Key("Bleed") }, { "None", Key("Physical / no type") },
+	} },
+	-- The game's level difficulty steps, from a level far below yours to
+	-- one far above (quests, creatures, zones, trainer rows).
+	{ key = "difficulty", title = "Level difficulty", list = {
+		{ "trivial", Key("Trivial") }, { "standard", Key("Easy") }, { "difficult", Key("Fair") },
+		{ "verydifficult", Key("Hard") }, { "impossible", Key("Very hard") },
 	} },
 	{ key = "threat", title = "Threat", list = {
 		{ 0, Key("Low threat") }, { 1, Key("Gaining threat") }, { 2, Key("Losing aggro") }, { 3, Key("Tanking") },
@@ -2428,6 +2434,9 @@ local DISPEL_GLOBAL = { Magic = "MAGIC", Curse = "CURSE", Disease = "DISEASE", P
 local FALLBACK = {
 	dispel = { Magic = { 0.2, 0.6, 1 }, Curse = { 0.6, 0, 1 }, Disease = { 0.6, 0.4, 0 }, Poison = { 0, 0.6, 0 }, Bleed = { 0.8, 0, 0 }, None = { 0.8, 0, 0 } },
 	threat = { [0] = { 0.69, 0.69, 0.69 }, { 1, 1, 0.47 }, { 1, 0.6, 0 }, { 1, 0, 0 } },
+	-- The game's QuestDifficultyColors, for a client without them.
+	difficulty = { trivial = { 0.5, 0.5, 0.5 }, standard = { 0.25, 0.75, 0.25 }, difficult = { 1, 0.82, 0 },
+		verydifficult = { 1, 0.5, 0.25 }, impossible = { 1, 0.1, 0.1 } },
 	power = { HAPPINESS = { 0, 1, 1 } },
 	-- The game's standing colors (FACTION_BAR_COLORS), for a client
 	-- without them: 1 hated ... 8 exalted.
@@ -2457,6 +2466,9 @@ function E:GameColor(group, key)
 		r, g, b = Unpack(DISPEL_GLOBAL[key] and _G["DEBUFF_TYPE_" .. DISPEL_GLOBAL[key] .. "_COLOR"])
 	elseif group == "threat" and GetThreatStatusColor then
 		r, g, b = GetThreatStatusColor(key)
+	elseif group == "difficulty" then
+		local colors = rawget(_G, "QuestDifficultyColors")
+		r, g, b = Unpack(type(colors) == "table" and colors[key])
 	end
 	if r then return r, g, b end
 	return Unpack(FALLBACK[group] and FALLBACK[group][key])
@@ -2489,6 +2501,37 @@ function E:GetThreatStatusColor(status) return self:GetColor("threat", status) e
 function E:GetStatusColor(key) return self:GetColor("status", key) end
 function E:GetPredictionColor(key) return self:GetColor("prediction", key) end
 
+-- Level difficulty: the step of a color the game hands out
+-- (GetQuestDifficultyColor, GetCreatureDifficultyColor), and that color
+-- through the player's picks and the color-blind safe ramp. A color that
+-- matches no step comes back as it is.
+local DIFFICULTY_KEYS = { "trivial", "standard", "difficult", "verydifficult", "impossible" }
+function E:DifficultyKey(color)
+	if type(color) ~= "table" or type(color.r) ~= "number" then return nil end
+	for _, key in ipairs(DIFFICULTY_KEYS) do
+		local r, g, b = self:GameColor("difficulty", key)
+		if r and math.abs(r - color.r) < 0.01 and math.abs(g - color.g) < 0.01 and math.abs(b - color.b) < 0.01 then return key end
+	end
+	return nil
+end
+
+-- Only the player's pick or the safe step for a difficulty, else nil.
+function E:DifficultyOverride(key)
+	local custom = Override("difficulty", key)
+	if custom then return Unpack(custom) end
+	local safe = self.colorBlindPalette and self.colorBlindPalette.difficulty
+	if safe and safe[key] then return Unpack(safe[key]) end
+	return nil
+end
+
+function E:DifficultyColor(color)
+	local key = self:DifficultyKey(color)
+	if not key then return color end
+	local r, g, b = self:GetColor("difficulty", key)
+	if not r then return color end
+	return { r = r, g = g, b = b }
+end
+
 -- Class files of this client, for the Colors page.
 function E:ClassList()
 	if self.classList then return self.classList end
@@ -2506,7 +2549,7 @@ function E:ClassList()
 	return list
 end
 
-E.colors = { class = {}, power = {}, reaction = {}, dispel = {}, threat = {}, status = {}, prediction = {} }
+E.colors = { class = {}, power = {}, reaction = {}, dispel = {}, threat = {}, status = {}, prediction = {}, difficulty = {} }
 
 local function Fill(target, r, g, b)
 	target[1], target[2], target[3] = r, g, b
@@ -2620,7 +2663,7 @@ local function FormatPlain(value, style, decimals)
 				unit = units[index - 1]
 				shown = ("%." .. decimals .. "f"):format(abs / unit[1])
 			end
-			if decimals > 0 then shown = shown:gsub("%.?0+$", "") end
+			if decimals > 0 then shown = E:LocalDecimals((shown:gsub("%.?0+$", ""))) end
 			return (negative and "-" or "") .. shown .. unit[2]
 		end
 	end
@@ -3001,6 +3044,7 @@ local function ModuleValue(profile, module, key, oldDefault)
 	local value = db[key]
 	db[key] = nil
 	if value ~= nil and value ~= oldDefault then return value end
+	return nil
 end
 
 E:RegisterProfileMigration(function(profile)

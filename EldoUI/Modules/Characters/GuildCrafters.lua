@@ -2,7 +2,7 @@
 --
 -- Who in your guild can craft something, from recipe lists guild members
 -- share on purpose:
---   * "Share my recipes with the guild" (off by default) adds two buttons
+--   * "Share your recipes with the guild" (off by default) adds two buttons
 --     to the Crafters tab: "Send my recipes" sends the known recipes of
 --     your characters on this realm (the packed recipe IDs your own
 --     profession windows saved), and "Ask the guild" asks members who use
@@ -169,7 +169,7 @@ M.EncodeCrafters, M.DecodeCrafters = Encode, Decode
 ---------------------------------------------------------------------------
 local function CanSend()
 	if not M.db.crafterShare then
-		M:Say(L["Turn on \"Share my recipes with the guild\" in /eui > Alts first."], true)
+		M:Say(L["Turn on \"Share your recipes with the guild\" in /eui > Alts first."], true)
 		return false
 	end
 	if not IsInGuild() then
@@ -245,9 +245,17 @@ end
 -- Online members (from the guild roster the game already has)
 ---------------------------------------------------------------------------
 local online = {}
+local onlineDirty = true
+
+-- The roster changes often in a big guild: the online set is only marked
+-- out of date, and read again when something asks who is online.
+function M:MarkGuildOnline()
+	onlineDirty = true
+end
 
 function M:ScanGuildOnline()
 	wipe(online)
+	onlineDirty = false
 	if not (Try(IsInGuild) and GetNumGuildMembers and GetGuildRosterInfo) then return end
 	local count = Try(GetNumGuildMembers) or 0
 	for index = 1, math.min(count, 1000) do
@@ -258,7 +266,10 @@ function M:ScanGuildOnline()
 end
 
 function M:CrafterOnline(name)
-	return type(name) == "string" and online[name:lower()] == true or false
+	if type(name) ~= "string" then return false end
+	-- Without a shared list nobody asks; with one, the roster is read once.
+	if onlineDirty and next(Peers()) ~= nil then self:ScanGuildOnline() end
+	return online[name:lower()] == true
 end
 
 ---------------------------------------------------------------------------
@@ -589,7 +600,7 @@ M:AddTab({
 				end)
 				widget:HookScript("OnLeave", function() GameTooltip:Hide() end)
 			end,
-			empty = { L["No recipe lists yet"], L["Turn on \"Share my recipes with the guild\" in /eui > Alts, then click Ask the guild. Lists guild members send show here."] },
+			empty = { L["No recipe lists yet"], L["Turn on \"Share your recipes with the guild\" in /eui > Alts, then click Ask the guild. Lists guild members send show here."] },
 		})
 		frame.list:SetPoint("TOPLEFT", frame.toolbar, "BOTTOMLEFT", 0, -6)
 		frame.list:SetPoint("BOTTOMRIGHT")
@@ -603,12 +614,13 @@ M:AddTab({
 	enable = function()
 		Listen()
 		HookTooltip()
-		E:RegisterEvent("GUILD_ROSTER_UPDATE", function() if M.active then M:ScanGuildOnline() end end, "CharactersGuildCrafters")
-		M:ScanGuildOnline()
+		E:RegisterEvent("GUILD_ROSTER_UPDATE", function() M:MarkGuildOnline() end, "CharactersGuildCrafters")
+		M:MarkGuildOnline()
 	end,
 	disable = function()
 		E:UnregisterEvent("GUILD_ROSTER_UPDATE", "CharactersGuildCrafters")
 		wipe(online)
+		onlineDirty = true
 	end,
 })
 
@@ -635,7 +647,7 @@ end)
 -- Options: under the Guild header on the Alts page
 ---------------------------------------------------------------------------
 local ROWS = {
-	{ type = "toggle", key = "crafterShare", label = "Share my recipes with the guild", desc = "Adds Send my recipes and Ask the guild buttons to the Crafters tab, to swap known recipes with guild members who use EldoUI. Nothing is sent without your click. Off by default." },
+	{ type = "toggle", key = "crafterShare", label = "Share your recipes with the guild", desc = "Adds Send my recipes and Ask the guild buttons to the Crafters tab, to swap known recipes with guild members who use EldoUI. Nothing is sent without your click. Off by default." },
 	{ type = "select", key = "crafterLine", label = "Guild crafters on tooltips", dependsOn = "crafterShare",
 		values = { names = "Names (online marked)", count = "Count only", online = "Online only", compact = "Two names and a count", off = "Off" },
 		order = { "names", "count", "online", "compact", "off" },

@@ -167,7 +167,7 @@ local function CostsMoney()
 end
 
 -- Repeatable quests (reputation hand-ins, dailies), left to the player while
--- "Leave repeatable quests to me" is on, so a stack is never handed in at once.
+-- "Leave repeatable quests to you" is on, so a stack is never handed in at once.
 local function Repeatable(questID)
 	if IsSecret(questID) or not (M.db.leaveRepeatable and questID) then return false end
 	if C_QuestLog and C_QuestLog.IsRepeatableQuest then
@@ -839,7 +839,7 @@ function M:GameSettingLines()
 	return lines
 end
 
-E:AddCommand("gamesettings", "  list the game settings Quality of Life can change and whether this client has them", function()
+E:AddCommand("gamesettings", "list the game settings Quality of Life can change and whether this client has them", function()
 	for _, line in ipairs(M:GameSettingLines()) do E:Print(line) end
 end, "Tools")
 
@@ -961,7 +961,7 @@ M:AddOptions("Quests", {
 		desc = "Accepts quests from NPCs when their window opens. Quests shared by other players are never accepted. Off by default." },
 	{ type = "toggle", acts = true, key = "autoTurnIn", label = "Turn in quests automatically",
 		desc = "Hands in finished quests. Stops when there is a reward to choose or the quest costs gold, so you decide yourself. Off by default." },
-	{ type = "toggle", key = "leaveRepeatable", label = "Leave repeatable quests to me",
+	{ type = "toggle", key = "leaveRepeatable", label = "Leave repeatable quests to you",
 		desc = "The quest helpers skip repeatable quests, such as reputation hand-ins, so a stack is never handed in at once." },
 	{ type = "toggle", acts = true, key = "skipGossip", label = "Skip the chat at plain vendors",
 		desc = "When an NPC's only option is their shop and they have no quest for you, the shop opens straight away. Off by default." },
@@ -983,15 +983,15 @@ do
 	local Leveling = E.ConvenienceRules.BelowLevelCap
 	E:RegisterConvenience({ id = "autoAccept", module = "QoL", setting = "autoAccept", order = 60,
 		label = "Accept quests automatically",
-		desc = "Acts for you: accepts quests from NPCs when their window opens, never quests other players share. Change it later under Quality of Life.",
+		desc = "Acts for you: accepts quests from NPCs when their window opens, never quests other players share.",
 		suits = Leveling })
 	E:RegisterConvenience({ id = "autoTurnIn", module = "QoL", setting = "autoTurnIn", order = 70,
 		label = "Turn in quests automatically",
-		desc = "Acts for you: hands in finished quests and stops when there is a reward to choose, so you always pick it. Change it later under Quality of Life.",
+		desc = "Acts for you: hands in finished quests and stops when there is a reward to choose, so you always pick it.",
 		suits = Leveling })
 	E:RegisterConvenience({ id = "skipGossip", module = "QoL", setting = "skipGossip", order = 80,
 		label = "Skip the chat at plain vendors",
-		desc = "Acts for you: when an NPC only has a shop and no quest for you, the shop opens at once. Change it later under Quality of Life.",
+		desc = "Acts for you: when an NPC only has a shop and no quest for you, the shop opens at once.",
 		suits = Leveling })
 end
 
@@ -1008,7 +1008,7 @@ M:AddOptions("Interface", {
 	{ type = "header", label = "Screen edge panels" },
 	{ type = "toggle", key = "edgeTop", label = "Top edge panel", desc = "A thin bar across the top edge of the screen that frames the interface." },
 	{ type = "toggle", key = "edgeBottom", label = "Bottom edge panel", desc = "A thin bar across the bottom edge of the screen that frames the interface." },
-	{ type = "range", key = "edgeHeight", label = "Panel height", min = 4, max = 60, step = 1, desc = "Height of the edge panels.",
+	{ type = "range", unit = "px", key = "edgeHeight", label = "Panel height", min = 4, max = 60, step = 1, desc = "Height of the edge panels.",
 		hidden = function() return not (M.db.edgeTop or M.db.edgeBottom) end },
 	{ type = "toggle", key = "edgeTransparent", label = "See-through background", desc = "The panels let the game show through a little. How much: General > Panel opacity.",
 		hidden = function() return not (M.db.edgeTop or M.db.edgeBottom) end },

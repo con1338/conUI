@@ -5,7 +5,8 @@
 --   for bag, slot, info in E.BagCache:Items({ reagent = true }) do ... end
 --   local info = E.BagCache:Info(bag, slot)                   -- or nil
 --   local slots = E.BagCache:NumSlots(bag)
---   local free, family = E.BagCache:Free(bag)
+--   local free, family, known = E.BagCache:Free(bag)
+--   local free, total = E.BagCache:GeneralSlots(bags)
 --   E.BagCache:RegisterCallback(owner, fn) -- fn() once the bags settled
 --
 -- `info` is the game's container item info (itemID, hyperlink, iconFileID,
@@ -27,6 +28,7 @@ E.BagCache = B
 
 local cache = {}      -- bag -> { at, slots, info = { [slot] = info | false }, free, family }
 local callbacks = {}  -- owner -> fn
+local revision = 0
 
 local function Container()
 	local container = rawget(_G, "C_Container")
@@ -47,25 +49,33 @@ end
 
 -- The record of one bag, read again when a bag event came in or a new
 -- frame started since it was read.
+local function SlotCount(value)
+	return type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0
+end
+
 local function Record(bag)
 	local now = GetTime()
 	local record = cache[bag]
 	if record and record.at == now then return record end
 	local container = Container()
 	local slots = container and Call(container.GetContainerNumSlots, bag)
-	record = { at = now, slots = type(slots) == "number" and slots or 0, info = {} }
+	local known = SlotCount(slots)
+	record = { at = now, slots = known and slots or 0, slotsKnown = known, info = {} }
 	cache[bag] = record
 	return record
 end
 
 -- Forget one bag, or every bag (nil).
 function B:Invalidate(bag)
+	revision = revision + 1
 	if bag == nil then
 		wipe(cache)
 	else
 		cache[bag] = nil
 	end
 end
+
+function B:Revision() return revision end
 
 function B:NumSlots(bag)
 	return Record(bag).slots
@@ -114,6 +124,7 @@ function B:Link(bag, slot)
 end
 
 -- Free slots of a bag and its bag family (as GetContainerNumFreeSlots).
+-- The third result tells whether its free slot count was readable.
 function B:Free(bag)
 	local record = Record(bag)
 	if record.free == nil then
@@ -121,9 +132,55 @@ function B:Free(bag)
 		local free, family
 		if container then free, family = Call(container.GetContainerNumFreeSlots, bag) end
 		record.free = type(free) == "number" and free or 0
-		record.family = family
+		record.readFamily = family
+		record.family = type(free) == "number" and family or nil
+		record.freeKnown = type(free) == "number"
 	end
-	return record.free, record.family
+	return record.free, record.family, record.freeKnown
+end
+
+local function FixedBankTab(index, bag)
+	if not index then return false end
+	local first, last = index.CharacterBankTab_1, index.CharacterBankTab_9
+	if first and last and bag >= first and bag <= last then return true end
+	first, last = index.AccountBankTab_1, index.AccountBankTab_9
+	return first and last and bag >= first and bag <= last
+end
+
+-- General capacity in the caller's bag or bank list. An unknown family
+-- only counts for known fixed storage with a readable free-slot count.
+-- A requested breakdown also reports whether the general total is complete.
+function B:GeneralSlots(bags, fixedBankTabs, breakdown)
+	local free, total, known = 0, 0, true
+	local rows = breakdown and {} or nil
+	local index = Enum and Enum.BagIndex
+	local bank = index and index.Bank or rawget(_G, "BANK_CONTAINER")
+	for _, bag in ipairs(bags) do
+		local excluded = index and (bag == index.Keyring or bag == index.ReagentBag)
+		if rows or not excluded then
+			local bagFree, family, freeKnown = self:Free(bag)
+			local record = Record(bag)
+			local slots = self:NumSlots(bag)
+			local general = not excluded and (family == 0 or (freeKnown and family == nil
+				and (bag == 0 or bag == bank or (fixedBankTabs and FixedBankTab(index, bag)))))
+			if general then
+				free = free + bagFree
+				total = total + slots
+			end
+			-- A container change can leave the free read from the former bag.
+			if rows and general and slots == 0 and bagFree ~= 0 then known = false end
+			if rows and (not record.slotsKnown or slots > 0) then
+				local capacityFamily = record.readFamily
+				local special = excluded or (SlotCount(capacityFamily) and capacityFamily > 0)
+				local readable = record.slotsKnown and freeKnown and SlotCount(bagFree) and bagFree <= slots
+				if not special and not (general and readable) then known = false end
+				rows[#rows + 1] = { bag = bag, special = special, free = readable and bagFree or nil,
+					total = record.slotsKnown and slots or nil }
+			end
+		end
+	end
+	if rows then return free, total, known and total > 0, rows end
+	return free, total
 end
 
 -- The bag IDs to look through (see opts at the top).
@@ -178,15 +235,11 @@ end
 local owner = {}
 
 local function DropBag(_, _, bag)
-	if type(bag) == "number" and not (E.Secret and E.Secret(bag)) then
-		cache[bag] = nil
-	else
-		wipe(cache)
-	end
+	B:Invalidate(type(bag) == "number" and Plain(bag) or nil)
 end
 
 local function DropAll()
-	wipe(cache)
+	B:Invalidate()
 end
 
 E:RegisterEvent("BAG_UPDATE", DropBag, owner)
@@ -197,7 +250,7 @@ for _, event in ipairs({ "BAG_CONTAINER_UPDATE", "BAG_SLOT_FLAGS_UPDATED", "INVE
 end
 
 E:RegisterEvent("BAG_UPDATE_DELAYED", function()
-	wipe(cache)
+	B:Invalidate()
 	for key, fn in pairs(callbacks) do
 		local ok, err = pcall(fn, key)
 		if not ok then geterrorhandler()(err) end

@@ -113,7 +113,7 @@ Switches(options, ALERTS, {
 Add({ type = "header", label = "Lane", hidden = function() return not (E:BlizzardAllowed(ALERTS, "move") or E:BlizzardAllowed(ALERTS, "replace")) end })
 Add({ type = "select", key = "alerts.growth", label = "Growth direction", desc = "New alerts are added below (Down) or above (Up) the Alert lane mover.", values = GROWTH,
 	hidden = function() return not (E:BlizzardAllowed(ALERTS, "move") or E:BlizzardAllowed(ALERTS, "replace")) end })
-Add({ type = "range", key = "alerts.spacing", label = "Spacing", desc = "Gap between alerts in the lane.", min = 0, max = 30, step = 1,
+Add({ type = "range", unit = "px", key = "alerts.spacing", label = "Spacing", desc = "Gap between alerts in the lane.", min = 0, max = 30, step = 1,
 	hidden = function() return not (E:BlizzardAllowed(ALERTS, "move") or E:BlizzardAllowed(ALERTS, "replace")) end })
 Add({ type = "range", percent = true, key = "alerts.scale", label = "Blizzard alert scale", desc = "Size of Blizzard's alerts in the lane.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(ALERTS, "move") })
 Add({ type = "range", percent = true, key = "alerts.bannerScale", label = "Banner scale", desc = "Size of level-up toasts and the boss banner.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(ALERTS, "move") })
@@ -149,14 +149,19 @@ for _, entry in ipairs({
 end
 Add({ type = "range", key = "alerts.lane.max", label = "Toasts at once", desc = "More wait in line until one goes.", min = 1, max = 8, step = 1, hidden = Off(ALERTS, "replace") })
 Add({ type = "range", unit = "s", key = "alerts.lane.duration", label = "Seconds on screen", desc = "How long a toast stays. Hovering it keeps it; right-click closes it.", min = 2, max = 20, step = 1, hidden = Off(ALERTS, "replace") })
-Add({ type = "range", key = "alerts.lane.width", label = "Width", desc = "Width of each toast.", min = 200, max = 480, step = 10, hidden = Off(ALERTS, "replace") })
-Add({ type = "range", key = "alerts.lane.iconSize", label = "Icon size", desc = "Size of the icon; the toast's height follows it.", min = 20, max = 64, step = 2, hidden = Off(ALERTS, "replace") })
+Add({ type = "range", unit = "px", key = "alerts.lane.width", label = "Width", desc = "Width of each toast.", min = 200, max = 480, step = 10, hidden = Off(ALERTS, "replace") })
+Add({ type = "range", unit = "px", key = "alerts.lane.iconSize", label = "Icon size", desc = "Size of the icon; the toast's height follows it.", min = 20, max = 64, step = 2, hidden = Off(ALERTS, "replace") })
 Add({ type = "range", key = "alerts.lane.fontSize", label = "Text size", desc = "Size of the toast's main line.", min = 9, max = 20, step = 1, hidden = Off(ALERTS, "replace") })
 Add({ type = "toggle", key = "alerts.lane.sound", label = "Sound", desc = "A short sound with each toast.", hidden = Off(ALERTS, "replace") })
 Add({ type = "media", key = "alerts.lane.soundID", label = "Toast sound", mediaKind = "sound", dependsOn = "alerts.lane.sound",
 	desc = "The sound each toast plays. The default is the game's epic loot sound.", hidden = Off(ALERTS, "replace") })
 Add({ type = "toggle", key = "alerts.lane.holdInCombat", label = "Wait until combat ends", desc = "Toasts that arrive in combat show after it.", hidden = Off(ALERTS, "replace") })
 Add({ type = "execute", label = "Test the lane", desc = "Shows three sample toasts (/eui notify test lane).", func = function() M:Test("lane") end, hidden = Off(ALERTS, "replace") })
+Add({ type = "header", label = "Professions" })
+Add({ type = "toggle", key = "professionCap.enabled", label = "Profession at its cap",
+	desc = "A chat line when a profession reaches the top of its rank, such as First Aid at 75/75, naming the rank to train. Also a card in the EldoUI alert lane when that lane is on." })
+Add({ type = "toggle", key = "professionCap.early", label = "Five points before the cap", dependsOn = "professionCap.enabled",
+	desc = "The line comes when the profession is five points from the cap too, so you can plan the trip to the trainer." })
 Add({ type = "header", label = "Game toast settings", hidden = Off(ALERTS) })
 for _, entry in ipairs({
 	{ "enableLootToasts", E.Key("Loot toasts"), E.Key("Blizzard's loot alerts (game setting).") },
@@ -182,11 +187,11 @@ Switches(options, HEAD, {
 	move = { "Move", E.Key("Into the alert lane, or onto its own \"Talking Head\" mover.") },
 	hide = { "Hide", E.Key("No talking head (see below for the voice).") },
 })
-Add({ type = "description", label = "Forever may use the talking head only in a few places; check it in game.", hidden = Off(HEAD) })
+Add({ type = "description", label = "Only a few quests and events use the talking head, so you may rarely see it.", hidden = Off(HEAD) })
 Add({ type = "select", key = "talkingHead.anchor", label = "Where", desc = "In the alert lane (above or below the alerts), or on its own mover.",
 	values = { lane = "Alert lane", own = "Own mover" }, hidden = Off(HEAD, "move") })
 Add({ type = "range", percent = true, key = "talkingHead.scale", label = "Scale", desc = "Size of the talking head.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(HEAD, "move") })
-Add({ type = "range", key = "talkingHead.textSize", label = "Text size", desc = "0 keeps Blizzard's size.", min = 0, max = 20, step = 1, hidden = Off(HEAD, "skin") })
+Add({ type = "range", key = "talkingHead.textSize", label = "Text size", desc = "Font size of what the talking head says.", min = 0, max = 20, step = 1, zeroText = "Game size", hidden = Off(HEAD, "skin") })
 Add({ type = "select", key = "talkingHead.hideMode", label = "When hidden", desc = "Hide it completely (no voice), or hide only the frame and still hear the voice.",
 	values = { all = "No talking head", frame = "Frame only, keep voice" }, hidden = HideOff(HEAD) })
 
@@ -220,7 +225,7 @@ Switches(options, ERRORS, {
 	move = { "Move and scale", E.Key("On the \"Red Error Text\" mover.") },
 	hide = { "Hide (filter)", E.Key("Hide red errors by category, in combat, or always. Yellow quest progress always shows.") },
 })
-Add({ type = "range", key = "errors.fontSize", label = "Text size", desc = "0 keeps Blizzard's size.", min = 0, max = 24, step = 1, hidden = Off(ERRORS, "skin") })
+Add({ type = "range", key = "errors.fontSize", label = "Text size", desc = "Font size of the red error lines, such as \"Not enough mana\".", min = 0, max = 24, step = 1, zeroText = "Game size", hidden = Off(ERRORS, "skin") })
 Add({ type = "range", unit = "s", key = "errors.duration", label = "Seconds on screen", desc = "How long a message stays; 0 keeps Blizzard's time.", min = 0, max = 10, step = 0.5, hidden = Off(ERRORS, "skin") })
 Add({ type = "range", percent = true, key = "errors.scale", label = "Scale", desc = "Size of the error text.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(ERRORS, "move") })
 Add({ type = "select", key = "errors.mode", label = "Hide", desc = "By category (checked below), every red error in combat, or always.",
@@ -252,9 +257,9 @@ Switches(options, ZONE, {
 	move = { "Move and scale", E.Key("On the \"Zone Text\" mover.") },
 	hide = { "Hide", E.Key("No zone text when you enter a new area.") },
 })
-Add({ type = "range", key = "zoneText.zoneSize", label = "Zone size", desc = "0 keeps Blizzard's size.", min = 0, max = 48, step = 1, hidden = Off(ZONE, "skin") })
-Add({ type = "range", key = "zoneText.subZoneSize", label = "Subzone size", desc = "0 keeps Blizzard's size.", min = 0, max = 40, step = 1, hidden = Off(ZONE, "skin") })
-Add({ type = "range", key = "zoneText.pvpSize", label = "PvP text size", desc = "\"Contested territory\" and similar; 0 keeps Blizzard's size.", min = 0, max = 30, step = 1, hidden = Off(ZONE, "skin") })
+Add({ type = "range", key = "zoneText.zoneSize", label = "Zone size", desc = "Font size of the zone name that appears when you enter a new area.", zeroText = "Game size", min = 0, max = 48, step = 1, hidden = Off(ZONE, "skin") })
+Add({ type = "range", key = "zoneText.subZoneSize", label = "Subzone size", desc = "Font size of the smaller place name under the zone name.", zeroText = "Game size", min = 0, max = 40, step = 1, hidden = Off(ZONE, "skin") })
+Add({ type = "range", key = "zoneText.pvpSize", label = "PvP text size", desc = "Font size of \"Contested territory\" and similar lines under the zone name.", zeroText = "Game size", min = 0, max = 30, step = 1, hidden = Off(ZONE, "skin") })
 Add({ type = "range", percent = true, key = "zoneText.scale", label = "Scale", desc = "Size of all zone text.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(ZONE, "move") })
 Add({ type = "select", key = "zoneText.hidePart", label = "Hide what", desc = "All zone text, or only the subzone (the zone name still shows when you enter a new zone).",
 	values = { both = "Zone and subzone", sub = "Only the subzone" }, hidden = HideOff(ZONE) })
@@ -272,7 +277,7 @@ Switches(options, POPUPS, {
 })
 Add({ type = "range", percent = true, key = "popups.scale", label = "Ready check scale", desc = "Size of the ready check.", min = 0.5, max = 1.5, step = 0.05, hidden = Off(POPUPS, "move") })
 Add({ type = "range", percent = true, key = "popups.pingScale", label = "Ping wheel scale", desc = "Size of the ping wheel (changed out of combat only).", min = 0.5, max = 1.5, step = 0.05, hidden = Off(POPUPS, "move") })
-Add({ type = "toggle", key = "popups.masterSound", label = "Sound on the Master channel", desc = "The ready-check sound plays even with game sound effects turned off.", hidden = Off(POPUPS, "improve") })
+Add({ type = "toggle", key = "popups.masterSound", label = "Play a pop-up sound", desc = "A sound for ready checks, role polls and battleground or dungeon ready, once per pop-up. It plays on the Master channel, so you hear it with game sound effects off.", hidden = Off(POPUPS, "improve") })
 Add({ type = "media", key = "popups.soundID", label = "Pop-up sound", mediaKind = "sound", dependsOn = "popups.masterSound",
 	desc = "The sound for the ready check, role poll, battleground and dungeon ready pop-ups. The default is the game's ready check sound.", hidden = Off(POPUPS, "improve") })
 Add({ type = "toggle", key = "popups.flash", label = "Taskbar flash", desc = "The game flashes in the taskbar when a pop-up appears.", hidden = Off(POPUPS, "improve") })
@@ -299,7 +304,7 @@ for _, entry in ipairs({
 end
 Add({ type = "range", key = "pings.rows", label = "Rows", desc = "How many pings the feed shows; the newest is on top.", min = 2, max = 12, step = 1, hidden = NoFeed })
 Add({ type = "range", key = "pings.fade", label = "Fade after", unit = "s", desc = "Rows fade out after this time; 0 keeps them until newer pings push them out.", min = 0, max = 120, step = 5, hidden = NoFeed })
-Add({ type = "range", key = "pings.width", label = "Width", desc = "Width of the feed.", min = 180, max = 480, step = 10, hidden = NoFeed })
+Add({ type = "range", unit = "px", key = "pings.width", label = "Width", desc = "Width of the feed.", min = 180, max = 480, step = 10, hidden = NoFeed })
 Add({ type = "range", key = "pings.fontSize", label = "Text size", desc = "Text size of the rows.", min = 9, max = 18, step = 1, hidden = NoFeed })
 Add({ type = "toggle", key = "pings.backdrop", label = "Background", desc = "A see-through panel behind the rows.", hidden = NoFeed })
 Add({ type = "toggle", key = "pings.sound", label = "Sound", desc = "Plays the sound below when a ping arrives.", hidden = NoFeed })
@@ -345,7 +350,7 @@ Add({ type = "execute", label = "Forget seen cutscenes", desc = "Every cutscene 
 -- recommended.
 E:RegisterConvenience({ id = "skipCutscenes", module = "Notifications", setting = "cinematics.skipSeen", order = 160,
 	label = "Skip cutscenes you've seen",
-	desc = "Acts for you: skips a cutscene or movie you already watched on any character. Change it later under Alerts and Banners.",
+	desc = "Acts for you: skips a cutscene or movie you already watched on any character.",
 	blocked = function() return E:BlizzardNeedsReason(CINE, "improve") end })
 
 M.options = options

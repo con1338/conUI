@@ -128,6 +128,7 @@ local function SectionDefaults(width, height, spacing, growth, per, extra)
 		spacingY = spacing,
 		centered = false,          -- the first row or column grows from the middle
 		unitsPerColumn = per, maxColumns = 8, maxGroups = 8, sortBy = "GROUP", sortDir = "ASC",
+		roleOrder = "TANK",        -- sorting by role: TANK (tanks, healers, damage) or HEALER first
 		visibilityMacro = "",      -- advanced: own macro conditional for the header
 		classColor = true, classColorName = false, colorByValue = false,
 		fill = "HORIZONTAL", reverseFill = false,
@@ -139,6 +140,7 @@ local function SectionDefaults(width, height, spacing, growth, per, extra)
 		nameBar = false,           -- the name in its own bar over the health bar (Boxed look)
 		badge = { enabled = false, size = 16, mode = "CLASS" }, -- class or role badge on the frame's right edge
 		nameLength = 10, fontSize = 12, roleIcon = true,
+		roleDamage = true,         -- the role icon on damage dealers too (off: tanks and healers only)
 		texts = { name = TextSlot("name"), health = TextSlot("healthpercent"), extra = TextSlot("off"), extraPosition = "BOTTOM" },
 		icons = {
 			topSize = 0, topPosition = "TOPLEFT",           -- role, leader and main tank row (0 = fits the font)
@@ -195,7 +197,7 @@ local M = E:NewModule("GroupFrames", {
 		bossGlow = false,
 		privateAuras = { enabled = true, count = 1, size = 20, position = "TOP", countdown = false },
 		indicators = {
-			leader = true, mainTank = true, raidTarget = true, readyCheck = true, readyHold = 6,
+			leader = true, masterLooter = true, mainTank = true, raidTarget = true, readyCheck = true, readyHold = 6,
 			resurrect = true, summon = true, phase = true, afk = true,
 			aggroSource = "any", target = true, mouseover = true,
 		},
@@ -346,9 +348,9 @@ end
 -- "Offline", "Ghost", "Dead", "AFK" or nil. Group members' states are
 -- normally not secret; anything secret or failing reads as "no status".
 local function UnitStatus(unit)
-	if Plain(UnitIsConnected, unit) == false then return PLAYER_OFFLINE or L["Offline"] end
+	if Plain(UnitIsConnected, unit) == false then return E:GameText(PLAYER_OFFLINE, L["Offline"]) end
 	if Plain(UnitIsGhost, unit) then return L["Ghost"] end
-	if Plain(UnitIsDead, unit) then return DEAD or L["Dead"] end
+	if Plain(UnitIsDead, unit) then return E:GameText(DEAD, L["Dead"]) end
 	if M.db.indicators.afk and Plain(UnitIsAFK, unit) then return "AFK" end
 end
 
@@ -402,6 +404,7 @@ local GROUP_ICONS = {
 	assist = "Interface\\GroupFrame\\UI-Group-AssistantIcon",
 	maintank = "Interface\\GroupFrame\\UI-Group-MainTankIcon",
 	mainassist = "Interface\\GroupFrame\\UI-Group-MainAssistIcon",
+	looter = "Interface\\GroupFrame\\UI-Group-MasterLooter",
 }
 
 -- Center status icons, the same atlases Blizzard's raid frames use.
@@ -924,11 +927,20 @@ function GFX.UpdateBadge(button, unit)
 	badge:SetShown(E.FrameFX.BadgeClass(badge, unit or button.unit, settings.mode))
 end
 
+-- The role icon: on every role, or with "Damage icon" off on tanks and
+-- healers only.
+local function RoleIconShown(settings, role)
+	if not settings.roleIcon then return false end
+	return role ~= "DAMAGER" or settings.roleDamage ~= false
+end
+M.RoleIconShown = RoleIconShown
+
 local function UpdateRole(button)
 	local icon = button.roleIcon
 	local ok, role = pcall(UnitGroupRolesAssigned, button.unit)
 	if not ok or IsSecret(role) then role = nil end
-	if not SettingsOf(button).roleIcon or not pcall(SetRoleTexture, icon, role) then icon:Hide() end
+	local settings = SettingsOf(button)
+	if not RoleIconShown(settings, role) or not pcall(SetRoleTexture, icon, role) then icon:Hide() end
 	local healer = role == "HEALER"
 	if button.isHealer ~= healer then
 		button.isHealer = healer
@@ -961,6 +973,8 @@ local function UpdateGroupIcons(button)
 	button.leaderIcon:SetShown(leaderTexture ~= nil)
 	button.tankIcon:SetTexture(tankTexture)
 	button.tankIcon:SetShown(tankTexture ~= nil)
+	local looter = indicators.masterLooter and E.MasterLooterUnit()
+	button.lootIcon:SetShown(looter and Plain(UnitIsUnit, looter, unit) and true or false)
 	LayoutTopIcons(button)
 end
 
@@ -1653,7 +1667,9 @@ local function CreateVisuals(button, db)
 	button.roleIcon = textLayer:CreateTexture(nil, "OVERLAY")
 	button.leaderIcon = textLayer:CreateTexture(nil, "OVERLAY")
 	button.tankIcon = textLayer:CreateTexture(nil, "OVERLAY")
-	button.topIcons = { button.roleIcon, button.leaderIcon, button.tankIcon }
+	button.lootIcon = textLayer:CreateTexture(nil, "OVERLAY")
+	button.lootIcon:SetTexture(GROUP_ICONS.looter)
+	button.topIcons = { button.roleIcon, button.leaderIcon, button.lootIcon, button.tankIcon }
 	for _, icon in ipairs(button.topIcons) do icon:Hide() end
 	button.raidIcon = textLayer:CreateTexture(nil, "OVERLAY")
 	button.raidIcon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
@@ -1857,16 +1873,20 @@ local function ContainerSettings(button)
 		wanted.defensives = row
 	end
 	local dispel = M.db.dispel
+	-- The debuff row's "Use the Never show list" covers the highlight too.
+	local neverShow = E.NeverShowFilter and E:NeverShowFilter(debuffs.filter)
 	if dispel.enabled and dispel.style ~= "GLOW" then
 		wanted.highlight = {
 			filters = { DispelFilter() },
+			groups = { { key = "group1", filter = DispelFilter(), maxFrameCount = 1, candidateFilters = neverShow } },
 			max = 1, perGroup = 1, perRow = 1, width = db.width, height = db.height, spacing = 0,
 			growth = "RIGHT", wrap = "DOWN", attach = "TOPLEFT", sort = "INDEX", duration = "NONE",
 			edgeOnly = true, edgeSize = E.pixel * 2, dispelColors = HIGHLIGHT_COLORS, tooltip = false,
 		}
 	end
 	if dispel.enabled and (dispel.style == "GLOW" or dispel.style == "BOTH") then
-		wanted.dispelGlow = { slot = true, filter = DispelFilter(), glow = "groupDispel", width = db.width, height = db.height }
+		wanted.dispelGlow = { slot = true, filter = DispelFilter(), candidateFilters = neverShow, glow = "groupDispel",
+			width = db.width, height = db.height }
 	end
 	if M.db.bossGlow and E.AuraHighlightSpec then
 		local filter, options = E:AuraHighlightSpec("boss")
@@ -1905,7 +1925,16 @@ end
 
 local function SlotSignature(spec)
 	local flags = {}
-	for key, value in pairs(spec.candidateFilters or {}) do flags[#flags + 1] = key .. "=" .. tostring(value) end
+	for key, value in pairs(spec.candidateFilters or {}) do
+		if type(value) == "table" then
+			-- A spell set: its ids in order, so the same list keeps the slot.
+			local ids = {}
+			for id in pairs(value) do ids[#ids + 1] = tostring(id) end
+			table.sort(ids)
+			value = "{" .. table.concat(ids, ",") .. "}"
+		end
+		flags[#flags + 1] = key .. "=" .. tostring(value)
+	end
 	table.sort(flags)
 	return table.concat({ "slot", spec.filter, table.concat(flags, ","), spec.glow, spec.width, spec.height, E.pixel or 1,
 		GlowLook(spec.glow), E.ThemeKey and E:ThemeKey() or "" }, ":")
@@ -2094,8 +2123,10 @@ local function StyleButton(button, db)
 	button.extraText:ClearAllPoints()
 	button.extraText:SetPoint(extraPosition, button.health, extraPosition, extraOffset[1], extraOffset[2])
 
+	-- The hover is the HUD hover token, as on the unit frames; the accent
+	-- marks the target.
+	button.hover:SetVertexColor(1, 1, 1, E.tokens.hover.hud)
 	local r, g, b = unpack(E.media.accentColor)
-	button.hover:SetVertexColor(r, g, b, 0.15)
 	SetBorderColor(button.targetBorder, r, g, b, 1)
 	LayoutEdgeBorder(button.targetBorder, E.pixel)
 	E.FrameFX.ColorPrediction(button.prediction)
@@ -2383,14 +2414,18 @@ local TANK_FILTERS = {
 	BOTH = "MAINTANK,TANK",
 }
 
+local HEALERS_FIRST = { groupBy = "ASSIGNEDROLE", groupingOrder = "HEALER,TANK,DAMAGER,NONE", sortMethod = "INDEX" }
+
 local function SortFor(key, db)
 	local sort = SORTS[db.sortBy] or SORTS.GROUP
 	if key == "party" and sort == SORTS.GROUP then return SORTS.INDEX end
+	if sort == SORTS.ROLE and db.roleOrder == "HEALER" then return HEALERS_FIRST end
 	if sort == SORTS.CLASS then
 		return { groupBy = "CLASS", groupingOrder = table.concat(CLASS_SORT_ORDER or {}, ","), sortMethod = "NAME" }
 	end
 	return sort
 end
+M.SortFor = SortFor
 
 -- "1,2,3" for the first three raid groups.
 local function GroupList(db)
@@ -2467,7 +2502,7 @@ local function ConfigureHeader(header, key, db)
 		and not previousIgnore, "Group header is already being configured")
 	local expectedShown, expectedIgnore = shown, previousIgnore
 	local fields = { "enabled", "width", "height", "spacing", "spacingY", "splitSpacing", "growth", "growth2", "centered",
-		"unitsPerColumn", "maxColumns", "maxGroups", "sortDir", "showSolo", "showPlayer", "inParty", "inRaid", "source", "assists", "sortBy", "targets" }
+		"unitsPerColumn", "maxColumns", "maxGroups", "sortDir", "showSolo", "showPlayer", "inParty", "inRaid", "source", "assists", "sortBy", "roleOrder", "targets" }
 	local saved, engine, fallback = {}, settings.engine, M.fallback
 	for index = 1, #fields do
 		local value = db[fields[index]]
@@ -2942,7 +2977,7 @@ local function UpdateFake(button, sample, index, db)
 	-- The sample's state color (General > Colors, Status) and the same
 	-- gradient curve the real frames use.
 	local deadLook = GFX.On("deadLook")
-	local stateKey = status and (status == (DEAD or L["Dead"]) and "dead" or "offline") or nil
+	local stateKey = status and (status == (E:GameText(DEAD, L["Dead"])) and "dead" or "offline") or nil
 	local painted, light = false, nil
 	if stateKey and deadLook then
 		local r, g, b = E:GetStatusColor(stateKey)
@@ -3009,11 +3044,12 @@ local function UpdateFake(button, sample, index, db)
 	GFX.UpdateBadge(button, "player")
 
 	local indicators = M.db.indicators
-	if db.roleIcon then SetRoleTexture(button.roleIcon, role) else button.roleIcon:Hide() end
+	if RoleIconShown(db, role) then SetRoleTexture(button.roleIcon, role) else button.roleIcon:Hide() end
 	button.leaderIcon:SetTexture(GROUP_ICONS.leader)
 	button.leaderIcon:SetShown(indicators.leader and index == 1)
 	button.tankIcon:SetTexture(GROUP_ICONS.maintank)
 	button.tankIcon:SetShown(indicators.mainTank and role == "TANK" and index > 5)
+	button.lootIcon:SetShown(indicators.masterLooter and index == 2)
 	LayoutTopIcons(button)
 	button.raidIcon:SetShown(indicators.raidTarget and index == 1)
 	if index == 1 then button.raidIcon:SetTexCoord(0, 0.25, 0, 0.25) end
@@ -3276,12 +3312,19 @@ local function MissingBuffsWanted()
 	return false
 end
 
+-- v0.5.0 had "blizzard" for Blizzard's frames with the skin toggle on.
+-- Runs once per saved profile, and a new or reset profile is stamped before
+-- the player picks anything, so a fresh "Blizzard frames, untouched" stays.
+-- A profile the old login check already looked at carries engineMigrated.
+function M.MigrateEngine(profile)
+	local modules = type(profile) == "table" and type(profile.modules) == "table" and profile.modules
+	local own = modules and type(modules.GroupFrames) == "table" and modules.GroupFrames
+	if not own or own.engineMigrated then return end
+	if own.engine == "blizzard" and own.skinBlizzard ~= false then own.engine = "skin" end
+end
+E:RegisterProfileMigration(M.MigrateEngine, "GroupFrames:engine", 1)
+
 function M:OnInitialize()
-	-- v0.5.0 had "blizzard" for Blizzard's frames with the skin toggle on.
-	if not self.db.engineMigrated then
-		if self.db.engine == "blizzard" and self.db.skinBlizzard then self.db.engine = "skin" end
-		self.db.engineMigrated = true
-	end
 	self:Migrate()
 end
 
@@ -3296,6 +3339,7 @@ function M:OnEnable()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function() self:OnRosterUpdate() end)
 	self:RegisterEvent("PLAYER_ROLES_ASSIGNED", function() UpdateEach(UpdateRole) end)
 	self:RegisterEvent("PARTY_LEADER_CHANGED", function() UpdateEach(UpdateGroupIcons) end)
+	self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED", function() UpdateEach(UpdateGroupIcons) end)
 	self:RegisterEvent("RAID_TARGET_UPDATE", function() UpdateEach(UpdateRaidTarget) end)
 	self:RegisterEvent("PLAYER_TARGET_CHANGED", function()
 		UpdateEach(UpdateTargetBorder)

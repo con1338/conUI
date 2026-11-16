@@ -2101,7 +2101,7 @@ E.skinOriginal = {
 	},
 	sources = {
 		anatomy = "wow-ui-source-vanilla, branch classic_era, 33e177d9bf38d76d5c6c6e05d5da78db1899659a (1.15.9.69722)",
-		probe = "WoW: Forever 1.60.1 (70862) file list, 2026-11-08; first in-game lookup 1.60.1 (70450), 2026-10-19",
+		probe = "WoW: Forever 1.60.1 (70938) file list, 2026-11-14; first in-game lookup 1.60.1 (70450), 2026-10-19",
 		textures = "wow-ui-textures, branch classic, 312a6e61bab69370c65ccc0a08f1075d62196294",
 	},
 	surfaces = {

@@ -683,7 +683,7 @@ function M:OnProfileChanged()
 	end
 end
 
-E:AddCommand("macros", "  open the EldoUI macro editor", function()
+E:AddCommand("macros", "open the EldoUI macro editor", function()
 	if not M.active then
 		E:Print(E:ModuleOffHint("Macros"))
 		return

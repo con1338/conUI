@@ -392,8 +392,18 @@ local function SetUIHidden(hide)
 	Shell.FadeUI("AFK", hide)
 end
 
+local function InteractionOpen()
+	for _, name in ipairs({ "CinematicFrame", "MovieFrame", "BarberShopFrame" }) do
+		local frame = rawget(_G, name)
+		if frame and E.FrameCheck(frame, "IsShown") then return true end
+	end
+	-- An NPC window (vendor, trainer, bank ...) counts while the game says it
+	-- is open: the interaction events below track it.
+	return M.interacting == true
+end
+
 function M:CanShow()
-	if not self.active or InCombatLockdown() or UnitAffectingCombat("player") then return false end
+	if not self.active or InCombatLockdown() or UnitAffectingCombat("player") or InteractionOpen() then return false end
 	if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then return false end
 	if not self.db.inInstances and IsInInstance() then return false end
 	return true
@@ -432,6 +442,7 @@ function M:Check()
 	local away = IsAway()
 	if away == nil then return end
 	if away then
+		if not self:CanShow() then self:Close() return end
 		if not state.started then
 			state.started = GetTime()
 			state.whispers = 0
@@ -461,6 +472,20 @@ function M:OnInitialize()
 	end, "Layout & frames")
 end
 
+local function InteractionStarted(_, event)
+	if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then M.interacting = true end
+	M:ScreenHidden()
+	if screen then
+		for _, animation in pairs(screen.eldoAnim or {}) do animation:Stop() end
+		screen:Hide()
+	end
+end
+
+local function InteractionEnded(_, event)
+	if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then M.interacting = nil end
+	C_Timer.After(0, function() if M.active then M:Check() end end)
+end
+
 function M:OnEnable()
 	self:RegisterUnitEvent("PLAYER_FLAGS_CHANGED", "player", function() M:Check() end)
 	self:RegisterEvent("PLAYER_REGEN_DISABLED", function()
@@ -471,6 +496,12 @@ function M:OnEnable()
 		if screen then screen:Hide() end
 	end)
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", function() M:Check() end)
+	for _, event in ipairs({ "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "CINEMATIC_START", "PLAY_MOVIE" }) do
+		self:RegisterEvent(event, InteractionStarted)
+	end
+	for _, event in ipairs({ "PLAYER_INTERACTION_MANAGER_FRAME_HIDE", "CINEMATIC_STOP", "STOP_MOVIE" }) do
+		self:RegisterEvent(event, InteractionEnded)
+	end
 	local function Whisper(_, event, text, sender, ...)
 		if screen and screen:IsShown() then state.whispers = state.whispers + 1 end
 		if event == "CHAT_MSG_BN_WHISPER" then
@@ -514,10 +545,10 @@ M.options = {
 	{ type = "range", key = "chatLines", label = "Lines shown", desc = "How many of the newest lines the list shows.", min = 3, max = 12, step = 1, dependsOn = "chatList" },
 	{ type = "toggle", key = "clock", label = "Clock and date", desc = "Your computer's time and date." },
 	{ type = "toggle", key = "inInstances", label = "Also in instances", desc = "Show it inside dungeons, raids and battlegrounds too." },
-	{ type = "toggle", key = "spin", label = "Slow camera turn", desc = "The camera slowly circles your character. Uses the camera API; off by default." },
+	{ type = "toggle", key = "spin", label = "Slow camera turn", desc = "The camera slowly circles your character." },
 	{ type = "range", key = "spinSpeed", label = "Turn speed", desc = "How fast the camera turns.", min = 0.01, max = 0.2, step = 0.01, hidden = function() return not M.db.spin end },
 	{ type = "range", percent = true, key = "dim", label = "Darken the world", desc = "How dark the game world behind the panel gets.", min = 0, max = 0.8, step = 0.05 },
-	{ type = "range", key = "panelHeight", label = "Panel height", desc = "Height of the info panel at the bottom.", min = 100, max = 220, step = 5 },
+	{ type = "range", unit = "px", key = "panelHeight", label = "Panel height", desc = "Height of the info panel at the bottom.", min = 100, max = 220, step = 5 },
 	{ type = "range", key = "fontSize", label = "Text size", desc = "Size of the info text; the name is a little bigger.", min = 10, max = 20, step = 1 },
 	{ type = "execute", label = "Test", desc = "Shows the screen now (/eui afk test). Click to close.", func = function() if M.active then state.started = GetTime(); M:Open() end end },
 }

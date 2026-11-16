@@ -219,7 +219,7 @@ function M:BuildHistory()
 
 	frame:Hide()
 	self.history = frame
-	E:CreateMover(frame, M.HISTORY_MOVER, "Rare History", M.HISTORY_POINT, { followShown = true })
+	E:CreateMover(frame, M.HISTORY_MOVER, L["Rare History"], M.HISTORY_POINT, { followShown = true })
 	E:RegisterHideable(frame.header, M.HISTORY_MOVER, { mouse = true })
 	return frame
 end

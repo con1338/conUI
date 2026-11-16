@@ -1,7 +1,7 @@
--- EldoUI Flight Games: Sea Battle. Your fleet and the Horde's lie hidden
+-- EldoUI Flight Games: Sea Battle. Your fleet and the opponent's lie hidden
 -- on two seas of ten by ten. Take turns firing at a square of the other
 -- sea; a hit shows fire, a ship whose every square is hit sinks. Sink the
--- whole Horde fleet first, in as few shots as you can.
+-- whole opposing fleet first, in as few shots as you can.
 -- Written from scratch for EldoUI.
 local _, E = ...
 local M = E.FlightGames
@@ -119,7 +119,7 @@ local function Fire(fleet, shots, i)
 end
 Sea.Fire = Fire
 
--- The Horde's aim. Hits on a ship not yet sunk come first: along their
+-- The opponent's aim. Hits on a ship not yet sunk come first: along their
 -- line when there are two, else next to the one. Otherwise it searches:
 -- at random (easy), on every other square (normal), or where the ships
 -- still afloat fit in the most ways (hard).
@@ -304,10 +304,10 @@ function Sea:Answer()
 	if result == "miss" then
 		self.fx:Burst(x, y, palette[1], CELL, 0.3)
 	else
-		self.fx:Burst(x, y, palette[6], CELL * 1.4, 0.4)
-		self.fx:Sparks(x, y, palette[6], 8, 60)
+		self.fx:Burst(x, y, self.host.FactionColor(-1, palette), CELL * 1.4, 0.4)
+		self.fx:Sparks(x, y, self.host.FactionColor(-1, palette), 8, 60)
 		if result == "sunk" then
-			self.fx:Float(x, y - 10, L["The Horde sank your %s."]:format(L[SHIPS[s].name]), color("bad"), E.tokens.size.small)
+			self.fx:Float(x, y - 10, L["The %s sank your %s."]:format(self.host.FactionName(-1), L[SHIPS[s].name]), color("bad"), E.tokens.size.small)
 			self.host.Sound("over")
 		end
 	end
@@ -362,13 +362,13 @@ end
 
 function Sea:Summary()
 	if not self.theirs then return nil end
-	return L["Horde ships sunk: %d of %d"]:format(#SHIPS - Afloat(self.theirs, self.myShots), #SHIPS)
+	return L["%s ships sunk: %d of %d"]:format(self.host.FactionName(-1), #SHIPS - Afloat(self.theirs, self.myShots), #SHIPS)
 end
 
 -- One sea: what is known of it, and (for your own) where your ships lie.
 function Sea:DrawSea(grid, marks, fleet, shots, own)
 	local palette, color = self.host.Palette(), self.host.Color
-	local water, fire, bronze = palette[7], palette[2], E.tokens.palette.bronze
+	local water, fire = palette[7], palette[2]
 	for y = 1, N do
 		for x = 1, N do
 			local i = Index(x, y)
@@ -378,15 +378,15 @@ function Sea:DrawSea(grid, marks, fleet, shots, own)
 			dot:Hide()
 			if shot == HIT then
 				if Sunk(fleet, shots, s) then
-					grid:Paint(x, y, own and palette[6] or fire, 0.95)
+					grid:Paint(x, y, own and self.host.FactionColor(-1, palette) or fire, 0.95)
 				else
-					grid:Paint(x, y, own and palette[6] or fire, 0.6)
+					grid:Paint(x, y, own and self.host.FactionColor(-1, palette) or fire, 0.6)
 					local c = color("gold")
 					dot:SetVertexColor(c[1], c[2], c[3], 1)
 					dot:Show()
 				end
 			elseif own and s ~= 0 then
-				grid:Paint(x, y, bronze, 0.85)
+				grid:Paint(x, y, self.host.FactionColor(1, palette), 0.85)
 			elseif shot == MISS then
 				grid:Paint(x, y, water, 0.22)
 				local c = color("body")
@@ -403,6 +403,7 @@ end
 
 function Sea:Draw()
 	local color = self.host.Color
+	local palette = self.host.Palette()
 	self:DrawSea(self.enemy, self.marks.enemy, self.theirs, self.myShots, false)
 	self:DrawSea(self.home, self.marks.home, self.mine, self.theirShots, true)
 	self.lastRing:SetShown(self.last ~= nil)
@@ -414,30 +415,30 @@ function Sea:Draw()
 	for side, pair in pairs({ enemy = { self.theirs, self.myShots }, home = { self.mine, self.theirShots } }) do
 		for s, bar in ipairs(self.bars[side]) do
 			local sunk = Sunk(pair[1], pair[2], s)
-			B.Fill(bar, sunk and color("dim") or (side == "home" and E.tokens.palette.bronze or color("body")), sunk and 0.35 or 0.9)
+			B.Fill(bar, sunk and color("dim") or self.host.FactionColor(side == "home" and 1 or -1, palette), sunk and 0.35 or 0.9)
 		end
 	end
-	self.enemyTitle:SetText(L["Horde waters"])
+	self.enemyTitle:SetText(L["%s waters"]:format(self.host.FactionName(-1)))
 	self.homeTitle:SetText(L["Your fleet"])
 	self.shotText:SetText(E:Plural(self.shots, "%d shot", "%d shots"):format(self.shots))
 	local text
 	if self.result == "won" then
-		text = L["The Horde fleet is sunk: you win!"]
+		text = L["The %s fleet is sunk: you win!"]:format(self.host.FactionName(-1))
 	elseif self.result == "lost" then
 		text = L["Your fleet is sunk."]
 	elseif self.turn == 1 then
-		text = self.shots == 0 and not next(self.theirShots) and L["Fire at a square of the Horde's waters, or R for a new fleet."]
+		text = self.shots == 0 and not next(self.theirShots) and L["Fire at a square of the %s's waters, or R for a new fleet."]:format(self.host.FactionName(-1))
 			or L["Your shot."]
 	else
-		text = L["The Horde takes aim..."]
+		text = L["The %s takes aim..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end
 
 M:RegisterGame({
 	key = "seabattle", order = 170, group = "board",
-	title = "Sea Battle", desc = "Find and sink the hidden Horde fleet before it sinks yours.",
-	controls = Key("Click a square of the Horde's waters. R: new fleet before the first shot. P: pause."),
+	title = "Sea Battle", desc = "Find and sink the opposing fleet before it sinks yours.",
+	controls = Key("Click a square of enemy waters. R: new fleet before the first shot. P: pause."),
 	icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
 	modes = MODES, lower = true, unit = "shots",
 	width = WIDTH, height = HEIGHT,

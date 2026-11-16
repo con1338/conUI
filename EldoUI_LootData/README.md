@@ -9,7 +9,7 @@ rest of EldoUI is Apache-2.0 and does not include this data; a release zip
 that ships both folders side by side is an aggregate (GPLv3 section 5).
 
 - Source: cmangos/classic-db, commit `ec4f596146be6467ea93c57397858e329e2db852` (2026-09-22)
-- Generator: `tools/lootdata/gen_lootdata.py` 1.7.0 in the EldoUI repository
+- Generator: `tools/lootdata/gen_lootdata.py` 1.8.0 in the EldoUI repository
   (Apache-2.0, our own code; this is the corresponding source). Regenerate with
   `python3 -I tools/lootdata/gen_lootdata.py --db <classic-db checkout> --out EldoUI_LootData`.
 - Values are Classic-era emulator values. **WoW: Forever may differ.**

@@ -4,7 +4,7 @@
 ## Author: Eldodeldo
 ## X-License: Apache-2.0
 ## X-Copyright: Copyright 2026 Eldodeldo
-## Version: 0.7.2001-p2
+## Version: 0.7.3001-p1
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
 ## AddonCompartmentFunc: EldoUI_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: EldoUI_OnAddonCompartmentEnter
@@ -114,6 +114,7 @@ Data\ItemLimitGroups.lua
 Data\QuestLines.lua
 Data\PvPRewards.lua
 Data\ForeverDungeons.lua
+Data\LevelXP.lua
 Core\DungeonMaps.lua
 Core\MinimapHost.lua
 Core\MapPins.lua
@@ -144,6 +145,8 @@ Modules\InfoBar\Rates.lua
 Modules\InfoBar\Mail.lua
 Modules\InfoBar\Rolls.lua
 Modules\InfoBar\Broker.lua
+Modules\InfoBar\Group.lua
+Modules\InfoBar\Calendar.lua
 Modules\Minimap.lua
 Modules\MinimapLayer.lua
 Modules\StatusBars.lua
@@ -190,6 +193,7 @@ Modules\Chat\Colors.lua
 Modules\Chat\Senders.lua
 Modules\Chat\Filters.lua
 Modules\Chat\Alerts.lua
+Modules\Chat\TradeBoard.lua
 Modules\Chat\Layout.lua
 Modules\Chat\Emoji.lua
 Modules\ChatBubbles.lua
@@ -197,6 +201,7 @@ Core\Portrait.lua
 Core\FrameFX.lua
 Modules\UnitFrames.lua
 Modules\UnitFrames\Options.lua
+Modules\UnitFrames\Interrupt.lua
 Modules\ClassPower.lua
 Modules\Auras.lua
 Modules\AuraGroups.lua
@@ -207,6 +212,8 @@ Modules\GroupFrames\Options.lua
 Modules\GroupFrames\Cast.lua
 Modules\ClickCast.lua
 Modules\RaidTools.lua
+Modules\RaidTools\Markers.lua
+Modules\RaidTools\HealerMana.lua
 Modules\Nameplates.lua
 Modules\Nameplates\Options.lua
 Modules\Nameplates\Size.lua
@@ -241,6 +248,7 @@ Modules\Notifications\Messages.lua
 Modules\Notifications\Popups.lua
 Modules\Notifications\Pings.lua
 Modules\Notifications\Cinematics.lua
+Modules\Notifications\Professions.lua
 Modules\Notifications\Options.lua
 Modules\AFK.lua
 Modules\Bags\Core.lua
@@ -254,7 +262,10 @@ Modules\Bags\GuildBank.lua
 Modules\BagActions\Data.lua
 Modules\BagActions\BagActions.lua
 Modules\Tooltip.lua
+Modules\Nemesis.lua
+Modules\Nemesis\Details.lua
 Modules\TooltipInfo.lua
+Modules\TooltipServices.lua
 Modules\Upgrades.lua
 Modules\MobInfo.lua
 Modules\Auction.lua
@@ -489,6 +500,7 @@ Modules\Battlegrounds\Countdown.lua
 Modules\Battlegrounds\Captures.lua
 Modules\Battlegrounds\Score.lua
 Modules\Battlegrounds\Extras.lua
+Modules\Battlegrounds\Resurrection.lua
 Modules\Battlegrounds\Probe.lua
 Modules\Battlegrounds\Options.lua
 # Cooldowns
@@ -631,6 +643,9 @@ Modules\FlightGames\Games\LeyLines.lua
 Modules\FlightGames\Games\Caravan.lua
 Modules\FlightGames\Games\Pegs.lua
 Modules\FlightGames\Games\WordHunt.lua
+Modules\FlightGames\Games\MushroomLevels.lua
+Modules\FlightGames\MushroomAppearance.lua
+Modules\FlightGames\Games\Mushroom.lua
 Modules\FlightGames\Options.lua
 
 # Transport Maps

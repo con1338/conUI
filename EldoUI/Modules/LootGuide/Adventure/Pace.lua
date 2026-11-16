@@ -23,12 +23,21 @@
 --       now       { kills, quests } this level so far (the game's own lines)
 --       last      { kills, quests, took } of the level before
 --       text      "~1h 20m to 25" or nil
+--       rate      XP per second at your pace (this session, else your last
+--                 levels weighed by the XP each took), or nil
+--       toCap     { level, xp, eta } XP to the level cap from the game's
+--                 level list, and seconds at your pace counting rested XP
+--                 and finished quests as a head start; nil at the cap or
+--                 when the list does not reach it
 --   }
 --   J:PaceText()             the short line (Today's header, the tracker)
+--   J:CapText([pace])        "To 60: 2.37M XP. At your pace about 41h played."
 --   J:RestedPlan() -> { rested, xpMax, percent, state, resting, fullIn, lines }
 --       state: "none", "some", "well" (30 % and up) or "full"
 --   J:Milestones([limit]) -> { { level, kind, label, levels, eta, far }, ... }
---       eta only up to 5 levels ahead; far = true past that (level count only)
+--       xp to go and eta at your pace from the game's level list (E.LevelXP);
+--       without the list, eta only up to 5 levels ahead and far = true past
+--       that (level count only)
 --       kinds: dungeon (the next one that opens), attune (an attunement's
 --       first level), ten (the next tenth level), max (the level cap)
 --   N.FormatDuration(seconds) "1h 05m", "14m", "2d 4h"
@@ -106,7 +115,9 @@ function J:Pace()
 	local xp, xpMax = Num(UnitXP("player")), Num(UnitXPMax("player"))
 	local rested = Num(GetXPExhaustion and GetXPExhaustion()) or 0
 	local out = { level = level, maxLevel = maxLevel, atMax = level >= maxLevel, xp = xp, xpMax = xpMax, rested = rested, levels = {} }
+	local curve = E.LevelXP
 	if xp and xpMax and xpMax > 0 then
+		if curve then curve.Learn(level, xpMax) end
 		out.toLevel = max(0, xpMax - xp)
 		out.percent = floor(xp / xpMax * 1000 + 0.5) / 10
 		out.restedPercent = floor(rested / xpMax * 100 + 0.5)
@@ -115,11 +126,18 @@ function J:Pace()
 	local rec = Record()
 	local log = rec and type(rec.levels) == "table" and rec.levels or {}
 	local took = {}
+	local spent, earned = 0, 0
 	for back = 0, LEVELS_BACK - 1 do
 		local row = log[level - back]
 		if type(row) == "table" and tonumber(row.took) and row.took > 0 then
 			out.levels[#out.levels + 1] = { level = level - back - 1, took = row.took, kills = row.kills, quests = row.quests }
 			took[#took + 1] = row.took
+			local span = curve and curve.ToNext(level - back - 1)
+			if span and earned then
+				spent, earned = spent + row.took, earned + span
+			else
+				earned = nil
+			end
 		end
 	end
 	if #took >= 2 then out.median = Median(took) end
@@ -147,12 +165,38 @@ function J:Pace()
 		end
 	end
 	if out.eta then out.text = (L["~%s to %d"]):format(FormatDuration(out.eta.seconds), level + 1) end
+	-- XP per second: this session's pace, else your last levels by the XP
+	-- each one took (so a long level weighs more than a short one).
+	if steady then
+		out.rate = s.perHour / 3600
+	elseif #took >= 2 and earned and spent > 0 then
+		out.rate = earned / spent
+	end
+	-- To the level cap: the game's level list, with rested XP and finished
+	-- quests as a head start for the time.
+	if curve and not out.atMax then out.headStart = rested + (curve.FinishedQuestXP() or 0) end
+	local toCap = not out.atMax and out.toLevel and curve and curve.ToLevel(maxLevel, level, out.toLevel)
+	if toCap then
+		out.toCap = { level = maxLevel, xp = toCap }
+		if out.rate and out.rate > 0 then out.toCap.eta = max(0, toCap - out.headStart) / out.rate end
+	end
 	return out
 end
 
 function J:PaceText()
 	local pace = self:Pace()
 	return pace.text
+end
+
+-- "To 60: 2.37M XP. At your pace about 41h 10m played." (the time once a
+-- pace is known), or nil at the cap.
+function J:CapText(pace)
+	pace = pace or self:Pace()
+	local cap = pace.toCap
+	if not cap then return nil end
+	local xp = E:FormatNumber(cap.xp)
+	if cap.eta then return (L["To %d: %s XP. At your pace about %s played."]):format(cap.level, xp, FormatDuration(cap.eta)) end
+	return (L["To %d: %s XP."]):format(cap.level, xp)
 end
 
 ---------------------------------------------------------------------------
@@ -213,7 +257,13 @@ function J:Milestones(limit)
 	local function Add(target, kind, label)
 		if target <= level or target > maxLevel then return end
 		local item = { level = target, kind = kind, label = label, levels = target - level }
-		if target - level > MILESTONE_HORIZON then
+		local curve = E.LevelXP
+		local xp = curve and pace.toLevel and curve.ToLevel(target, level, pace.toLevel)
+		if xp then
+			-- The XP each level needs, so later, longer levels weigh right.
+			item.xp = xp
+			if pace.rate and pace.rate > 0 then item.eta = max(0, xp - (pace.headStart or 0)) / pace.rate end
+		elseif target - level > MILESTONE_HORIZON then
 			item.far = true
 		elseif pace.median and pace.median > 0 then
 			-- Your recent median per level; this level counts what is left.

@@ -50,22 +50,10 @@ end
 -- never changes the gamepad settings. A short "Low" pulse, a longer "High"
 -- one for a rare with a collectable drop. A type name the client does not
 -- know fails inside the pcall and the alert goes on.
-local PULSE = { Low = 0.25, High = 0.6 }
 function M:Pulse(info)
 	local db = self.db
 	if not db.vibrate then return false end
-	local pad = rawget(_G, "C_GamePad")
-	if not (pad and pad.SetVibration) then return false end
-	if pad.IsEnabled and M.Read(pad.IsEnabled) ~= true then return false end
-	local device = pad.GetActiveDeviceID and M.Read(pad.GetActiveDeviceID)
-	if type(device) == "number" and device < 0 then return false end
-	local kind = info.notable and "High" or "Low"
-	local strength = math.max(0.1, math.min(1, tonumber(db.vibrateStrength) or 0.6))
-	if not pcall(pad.SetVibration, kind, strength) then return false end
-	if pad.StopVibration then
-		C_Timer.After(PULSE[kind], function() pcall(pad.StopVibration) end)
-	end
-	return kind
+	return E:PulseGamepad(info.notable and "High" or "Low", tonumber(db.vibrateStrength) or 0.6)
 end
 
 -- "45.2, 33.8" from 0-1 map coordinates, or nil.

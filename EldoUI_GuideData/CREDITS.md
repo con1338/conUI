@@ -9,8 +9,8 @@ authors for writing them and for sharing them under an open license.
 | Project | Polestar |
 | Authors | The Polestar authors: Fitz (fitzforge) and the project's contributors, as credited in its repository ("Copyright (c) 2026 The Polestar authors") |
 | Repository | https://github.com/fitzforge/polestar |
-| Release | `v0.2.6` |
-| Commit | `39f0b8b2be9b9330b2a3617ab54b7c034169aedd` |
+| Release | `v0.3.7.2` |
+| Commit | `19bd636e7d6f33231770f6029c76d2d4dfc63798` |
 | Files used | the English WoW: Forever guides, `guides/forever/**/*.guide` |
 | License | GNU General Public License, version 3 (GPL-3.0-only), see `LICENSE` in this folder |
 

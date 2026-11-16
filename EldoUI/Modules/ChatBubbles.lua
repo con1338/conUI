@@ -118,12 +118,23 @@ end
 -- art and tail are made invisible: the tail hangs where the game's wider
 -- frame ends, so it would float apart from a tighter box.
 ---------------------------------------------------------------------------
+local holders = setmetatable({}, { __mode = "k" })   -- bubble -> its holder, found once
 local function BubbleHolder(bubble)
 	if not bubble or E.FrameCheck(bubble, "IsForbidden") then return end
+	local known = holders[bubble]
+	if known then return known end
 	for _, child in ipairs({ bubble:GetChildren() }) do
-		if not E.FrameCheck(child, "IsForbidden") and child.String then return child end
+		if not E.FrameCheck(child, "IsForbidden") and child.String then
+			holders[bubble] = child
+			return child
+		end
 	end
 end
+
+-- Bumped when the look changes (settings, profile, theme): a bubble painted
+-- with the current look is left alone when the next line is said.
+local styleGen = 0
+E:OnThemeChanged("ChatBubbles", function() styleGen = styleGen + 1 end)
 
 local SIDES = { "top", "bottom", "left", "right" }
 
@@ -202,11 +213,15 @@ end
 function M:SkinBubble(bubble)
 	local holder = BubbleHolder(bubble)
 	if not holder then return end
+	local box = Box(holder)
+	if box.gen == styleGen then return end
 	HideArt(holder, true)
-	self:PaintBox(holder, Box(holder))
+	self:PaintBox(holder, box)
+	box.gen = styleGen
 end
 
 function M:UnskinBubble(holder, box)
+	box.gen = nil
 	ShowBox(box, false)
 	if E.FrameCheck(holder, "IsForbidden") then return end
 	HideArt(holder, false)
@@ -223,12 +238,19 @@ function M:RestoreBubbles()
 	for holder, box in pairs(boxes) do self:UnskinBubble(holder, box) end
 end
 
--- New bubbles appear a frame after the chat event that makes them.
+-- New bubbles appear a frame after the chat event that makes them, and
+-- now and then a moment later: a second look at 0.15 s catches those.
 function M:QueueScan()
 	if self.scanQueued then return end
 	self.scanQueued = true
 	C_Timer.After(0, function()
 		self.scanQueued = nil
+		self:ScanBubbles()
+	end)
+	if self.lateScanQueued then return end
+	self.lateScanQueued = true
+	C_Timer.After(0.15, function()
+		self.lateScanQueued = nil
 		self:ScanBubbles()
 	end)
 end
@@ -262,6 +284,7 @@ end
 -- Apply and undo
 ---------------------------------------------------------------------------
 function M:Apply()
+	styleGen = styleGen + 1
 	self:ApplyFont()
 	if self:Allowed("skin") then
 		for _, event in ipairs(BUBBLE_EVENTS) do
@@ -324,15 +347,15 @@ M.options = {
 	{ type = "range", percent = true, key = "alpha", label = "Background opacity", min = 0.1, max = 1, step = 0.05, hidden = NoBackground, desc = "How dark the bubble box is." },
 	{ type = "select", key = "border", label = "Border", values = { dark = "Dark", accent = "Accent color", none = "None" },
 		desc = "The 1-pixel line around the bubble box." },
-	{ type = "range", key = "padding", label = "Padding", min = 2, max = 16, step = 1, desc = "Space between the text and the edge of the box." },
+	{ type = "range", unit = "px", key = "padding", label = "Padding", min = 2, max = 16, step = 1, desc = "Space between the text and the edge of the box." },
 	{ type = "header", label = "Which bubbles show" },
 	{ type = "description", label = "Needs the Blizzard UI switch Hide for chat bubbles. Game setting leaves Blizzard's Social option alone." },
 	{ type = "select", key = "say", label = "Say and yell bubbles", values = { KEEP = "Game setting", ON = "Show", OFF = "Hide" },
-		desc = "Bubbles for /say, /yell and NPC speech (CVar chatBubbles; off hides every bubble)." },
+		desc = "Bubbles for /say, /yell and NPC speech. Off hides every bubble." },
 	{ type = "select", key = "party", label = "Party bubbles", values = { KEEP = "Game setting", ON = "Show", OFF = "Hide" },
-		desc = "Bubbles for party chat (CVar chatBubblesParty)." },
+		desc = "Bubbles for party chat." },
 	{ type = "select", key = "raid", label = "Raid bubbles", values = { KEEP = "Game setting", ON = "Show", OFF = "Hide" },
-		desc = "Bubbles for raid chat (CVar chatBubblesRaid)." },
+		desc = "Bubbles for raid chat." },
 	{ type = "toggle", key = "hideInInstances", label = "No bubbles in instances", desc = "Turn every bubble off in dungeons, raids and battlegrounds, and back on when you leave." },
 }
 

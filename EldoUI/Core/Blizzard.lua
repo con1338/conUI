@@ -989,13 +989,13 @@ local function BuildPage()
 			keywords = category.title, func = function() OpenCategory(category) end })
 	end
 	table.insert(options, { type = "header", label = "Reset" })
-	table.insert(options, { type = "execute", label = "Blizzard default for everything", desc = "Turn every switch off and put your own CVar values back. If a part needs a reload to look like Blizzard's again, you are asked once.",
+	table.insert(options, { type = "execute", label = "Blizzard default for everything", desc = "Turn every switch off and put your own game settings back. If a part needs a reload to look like Blizzard's again, you are asked once.",
 		func = function() E:ConfirmBlizzardReset() end })
 	for _, category in ipairs(E.blizzardCategories or {}) do
 		table.insert(options, { type = "tab", label = category.title })
 		table.insert(options, { type = "description", label = category.desc })
-		table.insert(options, { type = "execute", label = "Blizzard default for this tab", desc = "Turn every switch on this tab off and put your own CVar values back.",
-			confirm = L["Turn every switch on this tab off and put your own CVar values back? The choices you made on this tab are lost."],
+		table.insert(options, { type = "execute", label = "Blizzard default for this tab", desc = "Turn every switch on this tab off and put your own game settings back.",
+			confirm = L["Turn every switch on this tab off and put your own game settings back? The choices you made on this tab are lost."],
 			func = function()
 				-- The window's reload banner carries the reload, like every switch.
 				if E:ResetBlizzard(category.id, true) and E.ConfigNeedsReload then
@@ -1087,7 +1087,7 @@ E:AddCommand("blizz", "[element] [on | off | toggle] | <element> skin | move | h
 				return
 			end
 			E:ShowConfirm({ title = L["Reset to Blizzard default"], danger = true, accept = YES, cancel = NO,
-				text = L["Turn every %s switch off and put your own CVar values back?"]:format(E:Highlight(L[found.title])),
+				text = L["Turn every %s switch off and put your own game settings back?"]:format(E:Highlight(L[found.title])),
 				onAccept = function()
 					E:ResetBlizzard(found.id)
 					E:Print(L["Blizzard default for %s."]:format(L[found.title]))

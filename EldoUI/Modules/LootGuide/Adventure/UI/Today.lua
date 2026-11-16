@@ -633,7 +633,18 @@ local function DrawMilestones(flow, list)
 		local fmt = A.Pace and A.Pace.FormatDuration
 		local eta = item.eta and fmt and fmt(item.eta)
 		tile.eta:SetText(eta and ("%s  ·  ~%s"):format(levels, eta) or levels)
-		Kit().Tooltip(tile, item.label, eta and (L["About %s of play at your recent pace. It counts your own last levels only."]):format(eta)
+		local tip
+		if item.kind == "max" and J.CapText then
+			tip = J:CapText()
+		elseif item.xp then
+			tip = eta and (L["%s XP to go: about %s of play at your pace."]):format(E:FormatNumber(item.xp), eta)
+				or (L["%s XP to go."]):format(E:FormatNumber(item.xp))
+		end
+		if item.xp and tip then
+			tip = tip .. "\n" .. (eta and L["Rested XP and finished quests count as a head start."]
+				or L["A time shows once you have a few levels or some play this session behind you."])
+		end
+		Kit().Tooltip(tile, item.label, tip or eta and (L["About %s of play at your recent pace. It counts your own last levels only."]):format(eta)
 			or item.far and L["More than 5 levels away. Later levels take longer than your recent ones, so no time is shown."]
 			or L["Your own level times show here once you have a few levels behind you."])
 		tile:Show()

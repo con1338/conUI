@@ -12,6 +12,8 @@
 -- setting (repair, selling, loot), and never touches another addon.
 -- Modules in E.uiAmountNever are part of playing your class or role, act
 -- for you, or own a whole Blizzard window: no level lists them.
+-- Flight Games is in neither list: it is on for everyone and shows only
+-- on a flight path, so no level switches it; the Modules page does.
 --
 -- E.uiAmountRecommended: the level each layout was made for. A layout
 -- not listed (a plugin's) gets Moderate.
@@ -34,7 +36,6 @@ E.uiAmountModules = {
 	{ module = "Counters", essential = false, moderate = true, full = true },
 	{ module = "Farming", essential = false, moderate = true, full = true },
 	{ module = "SplitTimer", essential = false, moderate = true, full = true },
-	{ module = "FlightGames", essential = false, moderate = false, full = true },
 	{ module = "RareScanner", essential = false, moderate = true, full = true },
 	{ module = "ReadyReport", essential = false, moderate = true, full = true },
 	{ module = "PartyQuests", essential = false, moderate = true, full = true },

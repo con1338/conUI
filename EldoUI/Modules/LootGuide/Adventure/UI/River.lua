@@ -140,7 +140,7 @@ local function MarkerButton(river, index)
 				for i, fact in ipairs(self.facts) do
 					local title, sub = E.Story:Row(fact, river.set)
 					local c = i == 1 and T.text.body or T.text.secondary
-					tip:AddLine(title or (MARKERS[self.kind] and MARKERS[self.kind].label) or "", c[1], c[2], c[3], true)
+					tip:AddLine(title or (MARKERS[self.kind] and E:Translate(MARKERS[self.kind].label)) or "", c[1], c[2], c[3], true)
 					if sub and i == 1 then
 						local s = T.text.secondary
 						tip:AddLine(sub, s[1], s[2], s[3], true)

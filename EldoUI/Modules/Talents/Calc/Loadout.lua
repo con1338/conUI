@@ -149,7 +149,7 @@ C.Register({
 		stream.Read(128)
 		local current = CurrentVersion()
 		if current and version ~= current then
-			return { error = L["This talent loadout string was made for another game build. Make it again on the calculator site, then paste the new string."] }
+			return { error = L["This talent loadout string was made for another version of the game. Make it again on the calculator site, then paste the new string."] }
 		end
 		local class = ClassOfSpec(specID)
 		if not class then

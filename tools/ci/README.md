@@ -89,21 +89,41 @@ mit in die Liste zu rutschen.
 
 ## Release
 
-1. In `EldoUI/EldoUI.toc` (und `EldoUI_Locale_deDE/EldoUI_Locale_deDE.toc`) `## Version:` setzen, z. B. `0.7.2001-p2`, und nach `main` bringen.
+1. In `EldoUI/EldoUI.toc` (und `EldoUI_Locale_deDE/EldoUI_Locale_deDE.toc`) `## Version:` setzen, z. B. `0.7.3001-p1`, und nach `main` bringen.
 2. Release starten, auf einem der zwei Wege:
-   - **Auf GitHub, ohne git:** Actions → **Release** → **Run workflow**, Branch `main`, Tag `v0.7.2001-p2` eintragen → Run.
+   - **Auf GitHub, ohne git:** Actions → **Release** → **Run workflow**, Branch `main`, Tag `v0.7.3001-p1` eintragen → Run.
      Der Workflow legt den Tag auf den neuesten Commit von `main` und das Release dazu.
-   - **Mit git:** `git tag v0.7.2001-p2 && git push origin v0.7.2001-p2`
+   - **Mit git:** `git tag v0.7.3001-p1 && git push origin v0.7.3001-p1`
 
 Der Workflow bricht ab, wenn der Tag nicht zur Version passt, es den Tag schon für einen anderen Stand gibt oder
 eine Prüfung fehlschlägt. Das ZIP heißt
 `EldoUI-<Version>.zip` und enthält alle `EldoUI*`-Ordner, die git kennt: entpacken nach `Interface\AddOns`, fertig.
 Lokal: `python3 tools/ci/build_zip.py` → `dist/`.
 
-**Versions-Endung `-pN`:** Der Fork hängt an die EldoUI-Version eine Endung an (`0.7.2001-p1`). EldoUIs
+**Versions-Endung `-pN`:** Der Fork hängt an die EldoUI-Version eine Endung an (`0.7.3001-p1`). EldoUIs
 Versionscheck liest nur die Zahlen davor. Andere EldoUI-Spieler in Gilde und Gruppe bekommen so keinen falschen
-Hinweis „neuere Version“, und eine echte neue EldoUI-Version (0.7.2002) wird weiter gemeldet. Der Hinweis
+Hinweis „neuere Version“, und eine echte neue EldoUI-Version (0.7.3002) wird weiter gemeldet. Der Hinweis
 „Was ist neu“ nach einem Update gehört zur EldoUI-Version vor der Endung (`EldoUI/Core/Config.lua`).
+
+## Neue EldoUI-Version übernehmen
+
+EldoUIs Git-Repository enthält nur die Doku; der Addon-Code erscheint nur als ZIP auf der Releases-Seite. Darum
+gibt es zwei Quellen und zwei Merges (zuerst so gemacht für 0.7.3001):
+
+1. **Doku:** `git fetch https://github.com/Eldodeldo/EldoUI.git main:refs/remotes/upstream/main`, dann
+   `upstream/main` nach dem Arbeitsbranch mergen (CHANGELOG, README, `docs/`).
+2. **Code:** Der Branch `upstream-release` hält jedes Release unverändert, einen Commit pro Version
+   (`Import EldoUI <Version> addon source from release zip`). Für das neue Release: die sechs Ordner aus dem ZIP
+   (`EldoUI`, `EldoUI_Emoji`, `EldoUI_GuideData`, `EldoUI_Locale_daDK`, `EldoUI_LootData`, `EldoUI_LootSim`) in
+   einem Commit auf `upstream-release` ersetzen, Binärdateien unverändert (ohne Zeilenende-Umwandlung). Danach
+   `upstream-release` in den Arbeitsbranch mergen: Git legt die Änderungen des Forks per Dreiwege-Merge auf das
+   neue Release, Konflikte gibt es nur, wo beide dieselben Zeilen geändert haben.
+3. **Doppelte Fixes:** Behebt EldoUI selbst etwas, das der Fork schon behoben hatte, gilt EldoUIs Lösung, und der
+   Fork behält nur den Teil, den EldoUI nicht abdeckt (Entscheidung des Nutzers vom 16.11.2026). Das betrifft auch
+   Fork-Änderungen, die ohne Konflikt durchgelaufen sind; welche es waren, steht in `review/`.
+4. **Deutsches Paket:** Die dänische Liste gibt die Schlüssel vor. Texte, die sie nicht mehr hat, fliegen aus den
+   vier deutschen Dateien, neue brauchen eine Übersetzung (`deDE.py export` / `import`).
+5. Versionen auf `<EldoUI-Version>-p1` setzen (siehe Release), Prüfungen grün, im Spiel testen, Tag pushen.
 
 ## Versionswächter
 

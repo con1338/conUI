@@ -20,6 +20,9 @@
 	<Binding name="ELDOUI_MAPNOTES_TOGGLE" category="ADDONS">
 		EldoUI:RunBinding("MAPNOTES_TOGGLE")
 	</Binding>
+	<Binding name="ELDOUI_MINIMAP_OVERLAY" category="ADDONS">
+		EldoUI:RunBinding("MINIMAP_OVERLAY")
+	</Binding>
 	<Binding name="ELDOUI_ADVENTURE" category="ADDONS">
 		EldoUI:RunBinding("ADVENTURE")
 	</Binding>
@@ -32,11 +35,20 @@
 	<Binding name="ELDOUI_ADVENTURE_NEXT" category="ADDONS">
 		EldoUI:RunBinding("ADVENTURE_NEXT")
 	</Binding>
+	<Binding name="ELDOUI_MOVEMODE" category="ADDONS">
+		EldoUI:RunBinding("MOVEMODE")
+	</Binding>
 	<Binding name="ELDOUI_TALENTS" category="ADDONS">
 		EldoUI:ToggleTalentPlanner()
 	</Binding>
 	<Binding name="ELDOUI_SHOW_HUD" runOnUp="true" category="ADDONS">
 		EldoUI:SetHUDHold(keystate == "down")
+	</Binding>
+	<Binding name="ELDOUI_FOCUS_QUEST_NEXT" category="ADDONS">
+		EldoUI:RunBinding("FOCUS_QUEST_NEXT")
+	</Binding>
+	<Binding name="ELDOUI_FOCUS_QUEST_PREVIOUS" category="ADDONS">
+		EldoUI:RunBinding("FOCUS_QUEST_PREVIOUS")
 	</Binding>
 	<Binding name="CLICK EldoUI_QuestItemButton:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK EldoUI_Quickdraw1:LeftButton" header="ELDOUIQUICKDRAW" category="ADDONS"/>

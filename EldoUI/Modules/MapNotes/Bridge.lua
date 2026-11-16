@@ -42,11 +42,11 @@ function M:ApplyBridge()
 	if want and not enabled and turnedOff then
 		E:RunOutOfCombat(function()
 			if pcall(addon.Enable, addon) then turnedOff = nil end
-		end)
+		end, "mapnotes:bridge")
 	elseif not want and enabled then
 		E:RunOutOfCombat(function()
 			if pcall(addon.Disable, addon) then turnedOff = true end
-		end)
+		end, "mapnotes:bridge")
 	end
 end
 
@@ -56,7 +56,7 @@ function M:ReleaseBridge()
 	if not (addon and turnedOff) then return end
 	E:RunOutOfCombat(function()
 		if pcall(addon.Enable, addon) then turnedOff = nil end
-	end)
+	end, "mapnotes:bridge")
 end
 
 -- HandyNotes' own settings (its slash command, which every version has).

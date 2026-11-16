@@ -126,14 +126,20 @@ end
 function K.Undo(group)
 	local list = records[group]
 	if not list then return end
+	local pending = {}
 	for i = #list, 1, -1 do
 		local entry = list[i]
-		local ok, err = pcall(entry.restore)
-		if not ok then geterrorhandler()(err) end
-		local seen = recorded[entry.region]
-		if seen and seen[entry.group] then seen[entry.group][entry.kind] = nil end
+		local ok, result = pcall(entry.restore)
+		if not ok then geterrorhandler()(result) end
+		if ok and result == false then
+			table.insert(pending, 1, entry)
+		else
+			local seen = recorded[entry.region]
+			if seen and seen[entry.group] then seen[entry.group][entry.kind] = nil end
+		end
 	end
-	records[group] = nil
+	records[group] = #pending > 0 and pending or nil
+	return #pending
 end
 
 -- Make Blizzard art invisible (never hidden or reparented).
@@ -230,17 +236,45 @@ function K.GetBackdrop(target)
 	return backdrops[target]
 end
 
+local barTextures = setmetatable({}, { __mode = "k" })
+
+local function BarTextureState(bar)
+	local region = bar:GetStatusBarTexture()
+	if not region then return nil, nil, true end
+	local atlas, readable = E.FrameAtlas(region)
+	if not readable then return nil, nil, false end
+	local ok, path = pcall(region.GetTexture, region)
+	if not ok or issecret(path) or (type(path) ~= "nil" and type(path) ~= "string" and type(path) ~= "number") then
+		return nil, nil, false
+	end
+	return atlas ~= "" and atlas or nil, path, true
+end
+
 function K.BarTexture(group, bar, texture)
 	if not (K.Usable(bar) and bar.SetStatusBarTexture) then return end
+	local atlas, path, readable = BarTextureState(bar)
+	if not readable then return end
+	local states = barTextures[bar]
+	if not states then
+		states = {}
+		barTextures[bar] = states
+	end
+	local state = states[group]
 	if not Recorded(group, bar, "bartexture") then
-		local old = bar:GetStatusBarTexture()
-		local file = old and old.GetAtlas and old:GetAtlas()
-		local path = old and old.GetTexture and old:GetTexture()
+		state = { atlas = atlas, path = path }
+		states[group] = state
 		Record(group, bar, "bartexture", function()
-			if file then bar:SetStatusBarTexture(file) elseif path then bar:SetStatusBarTexture(path) end
+			local currentAtlas, currentPath, currentReadable = BarTextureState(bar)
+			if not currentReadable then return false end
+			if currentAtlas == nil and currentPath == state.applied then
+				if state.atlas then bar:GetStatusBarTexture():SetAtlas(state.atlas)
+				else bar:SetStatusBarTexture(state.path) end
+			end
+			states[group] = nil
 		end)
 	end
-	bar:SetStatusBarTexture(texture or E.media.statusbar)
+	state.applied = texture or E.media.statusbar
+	bar:SetStatusBarTexture(state.applied)
 end
 
 ---------------------------------------------------------------------------
@@ -1486,31 +1520,43 @@ function Stack.Refresh(force)
 end
 
 -- A member showed, hid or changed size: re-lay the stack on the next frame.
-function Stack.Changed()
-	if refreshing then return end
-	E:Debounce("hud:stack", 0, function()
-		if not InCombatLockdown() then Stack.Refresh() end
-	end)
+local function RefreshOutOfCombat()
+	if not InCombatLockdown() then Stack.Refresh() end
 end
 
+function Stack.Changed()
+	if refreshing then return end
+	E:Debounce("hud:stack", 0, RefreshOutOfCombat)
+end
+
+-- The row's width changes with the tracked spells: check now and then,
+-- only while the stack has members and never in combat.
 local ticker
+local function StackTick()
+	if next(members) and not InCombatLockdown() then Stack.Refresh() end
+end
+
 function Stack.Register(key, spec)
 	local defaults = Stack.ORDER[key]
 	spec.side = spec.side or (defaults and defaults.side) or "BELOW"
 	spec.order = spec.order or (defaults and defaults.order) or 50
 	members[key] = spec
 	lastSignature = nil
-	if not ticker then
-		-- The row's width changes with the tracked spells: check now and then.
-		ticker = C_Timer.NewTicker(1, function()
-			if next(members) and not InCombatLockdown() then Stack.Refresh() end
-		end)
-	end
+	if not ticker then ticker = C_Timer.NewTicker(1, StackTick) end
 end
 
 function Stack.Unregister(key)
 	members[key] = nil
 	lastSignature = nil
+	if ticker and not next(members) then
+		ticker:Cancel()
+		ticker = nil
+	end
+end
+
+-- True while the stack's width check runs.
+function Stack.Ticking()
+	return ticker ~= nil
 end
 
 function Stack.IsRegistered(key)

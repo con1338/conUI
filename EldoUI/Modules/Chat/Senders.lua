@@ -276,18 +276,22 @@ M.WhisperHeader = WhisperHeader
 local SENDER_LINK = "|H[BN]*player:.-|h.-|h"
 
 function M:SenderDetails(text, event, args, frame)
+	if type(Readable(text)) ~= "string" then return end
+	if E.Secret(args) or (args ~= nil and (type(args) ~= "table" or (canaccesstable and not canaccesstable(args)))) then return end
 	local db = self.db
 	local markers = db.whisperMarkers and WHISPER_TEMPLATES[event or ""]
 	local icons = db.nameIcons ~= "none"
 	local levels = db.showLevel
 	local names = E.NameFormat and E:NameFormat("Chat") ~= "blizzard"
-	if not (markers or icons or levels or names) then return nil end
+	local social = event == "CHAT_MSG_GUILD" and E.modules.Social
+	local guid = args and Readable(args[12])
+	local main = social and social.GuildMainForChat and social:GuildMainForChat(guid)
+	if not (markers or icons or levels or names or main) then return nil end
 	local first, last = text:find(SENDER_LINK)
 	if not first then return nil end
 	local link = text:sub(first, last)
 	local kind, payload, label = link:match("^|H(%a+):(.-)|h(.*)|h$")
 	if not label then return nil end
-	local guid = args and Readable(args[12])
 	local sender = args and Readable(args[2])
 
 	-- Inside the label: icons, then the formatted name.
@@ -317,7 +321,8 @@ function M:SenderDetails(text, event, args, frame)
 			after = ": " .. after:sub(#tail + 1)
 		end
 	end
-	local result = before .. lead .. newLink .. after
+	local tag = main and kind == "player" and (" (" .. main .. ")") or ""
+	local result = before .. lead .. newLink .. tag .. after
 	if result == text then return nil end
 	return result
 end
@@ -367,3 +372,75 @@ end
 if type(SetItemRef) == "function" then
 	hooksecurefunc("SetItemRef", function(link, _, button) M:OnNameClick(link, button) end)
 end
+
+---------------------------------------------------------------------------
+-- Keep keyword invites separate from the sound listener on the same event.
+---------------------------------------------------------------------------
+local whisperInviteOwner = {}
+local listeningForInvite = false
+
+local function WhisperInvitesOn()
+	return Improve() and M.db.whisperInvite == true
+end
+
+local function QueueAllowsInvite()
+	local inside, kind = E.PlainCallAll(IsInInstance)
+	if type(inside) ~= "boolean" or type(kind) ~= "string" or kind == "pvp" or kind == "arena" then return false end
+	local slots = E.PlainCall(GetMaxBattlefieldID)
+	if type(slots) ~= "number" or slots < 0 or slots % 1 ~= 0 then return false end
+	for index = 1, slots do
+		if E.PlainCall(GetBattlefieldStatus, index) ~= "none" then return false end
+	end
+	local categories = rawget(_G, "NUM_LE_LFG_CATEGORYS")
+	if E.Secret(categories) then return false end
+	if categories ~= nil then
+		if type(categories) ~= "number" or categories < 0 or categories % 1 ~= 0 or type(GetLFGMode) ~= "function" then return false end
+		for category = 1, categories do
+			local ok, mode = pcall(GetLFGMode, category)
+			if not ok or E.Secret(mode) or (mode and mode ~= "lfgparty") then return false end
+		end
+	end
+	return true
+end
+
+local function OnWhisperInvite(_, event, text, name, ...)
+	if not WhisperInvitesOn() then return end
+	if E.PlainCall(InCombatLockdown) ~= false or E.PlainCall(UnitAffectingCombat, "player") ~= false then return end
+	if E.PlainCall(C_ChatInfo and C_ChatInfo.InChatMessagingLockdown) ~= false then return end
+	local keyword = M.db.whisperInviteWord
+	if E.Secret(keyword) or type(keyword) ~= "string" or not keyword:find("%S") then return end
+	if E.Secret(text) or type(text) ~= "string" or text ~= keyword then return end
+	if E.Secret(name) or type(name) ~= "string" or name == "" or name:find("[|%c]") then return end
+	local guid, account = select(10, ...)
+	if E.Secret(guid) or type(guid) ~= "string" or not guid:match("^Player%-%d+%-%x+$") or E.Secret(account) then return end
+	local flags = select(4, ...)
+	if E.Secret(flags) or flags == "GM" or flags == "DEV" then return end
+	local myGUID = E.PlainCall(UnitGUID, "player")
+	if type(myGUID) ~= "string" or guid == myGUID then return end
+	local grouped = E.PlainCall(IsInGroup)
+	if grouped ~= false and (grouped ~= true or (E.PlainCall(UnitIsGroupLeader, "player") ~= true
+		and E.PlainCall(UnitIsGroupAssistant, "player") ~= true)) then return end
+	local party = C_PartyInfo
+	if not (party and E.PlainCall(party.CanInvite) == true and E.PlainCall(party.IsGUIDInGroup, guid) == false) then return end
+	if E.PlainCall(C_FriendList and C_FriendList.IsIgnoredByGuid, guid) == true then return end
+	if not QueueAllowsInvite() or (M.LineHidden and M:LineHidden(event, text, name, ...)) then return end
+	-- Use the unmodified name from the event, including a surname or realm.
+	-- The game's own invite confirmation still applies when it is needed.
+	E.PlainCall(party.InviteUnit, name)
+end
+
+function M:RefreshWhisperInvites()
+	local on = WhisperInvitesOn() and C_PartyInfo and type(C_PartyInfo.InviteUnit) == "function" or false
+	if on == listeningForInvite then return end
+	listeningForInvite = on
+	if on then E:RegisterEvent("CHAT_MSG_WHISPER", OnWhisperInvite, whisperInviteOwner)
+	else E:UnregisterEvent("CHAT_MSG_WHISPER", whisperInviteOwner) end
+end
+
+-- The keyword invite acts for the player: listed for the setup's Convenience
+-- step and the Conveniences page (Core/Conveniences.lua), off until ticked
+-- and never recommended.
+E:RegisterConvenience({ id = "whisperInvite", module = "Chat", setting = "whisperInvite", order = 145,
+	label = "Invite by whisper keyword",
+	desc = "Acts for you: sends a group invite when a regular whisper matches your keyword exactly, out of combat. Set the keyword in Chat settings.",
+	blocked = function() return E:BlizzardNeedsReason(M.element, "improve") end })

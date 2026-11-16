@@ -386,6 +386,10 @@ function Reader.Read()
 	sheet.rangedCrit = Num(Read(rawget(_G, "GetRangedCritChance"))) or sheet.crit
 	sheet.hit = Num(Read(rawget(_G, "GetHitModifier"))) or 0
 	sheet.spellHit = Num(Read(rawget(_G, "GetSpellHitModifier"))) or 0
+	local rangedHit = Num(Read(rawget(_G, "GetRangedHitModifier")))
+	local rangedRating = Num(rawget(_G, "CR_HIT_RANGED"))
+	local rangedBonus = rangedRating and Num(Read(rawget(_G, "GetCombatRatingBonus"), rangedRating)) or 0
+	sheet.rangedHit = rangedHit and rangedHit + (rangedBonus or 0) or sheet.hit
 	local mhExpertise, ohExpertise, rangedExpertise = Read(rawget(_G, "GetExpertise"))
 	sheet.expertise = { mh = Num(mhExpertise) or 0, oh = Num(ohExpertise) or 0, ranged = Num(rangedExpertise) or 0 }
 	sheet.spellCrit, sheet.spellPower = {}, {}

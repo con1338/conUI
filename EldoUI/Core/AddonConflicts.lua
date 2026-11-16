@@ -45,7 +45,8 @@
 -- EldoUI never turns another addon on or off by itself: DisableAddOn runs
 -- only from the player's "Use EldoUI's" click and from the setup's
 -- Finish, and EnableAddOn only from "Keep" on an addon EldoUI turned off
--- this session (Core/OtherAddons.lua, Core/Installer.lua).
+-- this session, or from "Undo the setup" for an addon that setup turned
+-- off (Core/OtherAddons.lua, Core/Installer.lua).
 local _, E = ...
 local L = E.L
 
@@ -200,11 +201,19 @@ local function Loaded(addon)
 	return C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded(addon) and true or false
 end
 
+-- This character as the game's addon list names it: by its GUID (a name
+-- can be shared, or hold a surname), the name only when there is no GUID.
+local function Me()
+	local guid = UnitGUID("player")
+	if type(guid) == "string" and not E:IsSecret(guid) and guid ~= "" then return guid end
+	return UnitName("player")
+end
+
 -- Enabled for this character and load-on-demand, but not loaded yet.
 local function Waiting(addon)
 	if not (C_AddOns and C_AddOns.IsAddOnLoadOnDemand and C_AddOns.GetAddOnEnableState) then return false end
 	if Loaded(addon) or not C_AddOns.IsAddOnLoadOnDemand(addon) then return false end
-	local ok, state = pcall(C_AddOns.GetAddOnEnableState, addon, UnitName("player"))
+	local ok, state = pcall(C_AddOns.GetAddOnEnableState, addon, Me())
 	return ok and type(state) == "number" and state > 0
 end
 
@@ -421,7 +430,7 @@ end
 -- Does picking EldoUI for this row turn the other addon off?
 function E:CompetitorNeedsDisable(row)
 	local entry = row.entry or row
-	return (entry.scope == "replace" or entry.exclusive) and true or false
+	return (entry.scope == "replace" or entry.exclusive) and Overlaps(entry) and true or false
 end
 
 ---------------------------------------------------------------------------
@@ -496,14 +505,14 @@ end
 -- character, from the next reload.
 local function DisableCompetitor(addon)
 	if not (C_AddOns and C_AddOns.DisableAddOn) then return false end
-	C_AddOns.DisableAddOn(addon, UnitName("player"))
+	C_AddOns.DisableAddOn(addon, Me())
 	C.disabled[addon] = true
 	return true
 end
 
 local function EnableCompetitor(addon)
 	if not (C_AddOns and C_AddOns.EnableAddOn) then return false end
-	C_AddOns.EnableAddOn(addon, UnitName("player"))
+	C_AddOns.EnableAddOn(addon, Me())
 	C.disabled[addon] = nil
 	return true
 end
@@ -525,8 +534,10 @@ function E:UseEldoUIFor(addon, job, disable)
 	local entries = Jobs(addon, job)
 	if #entries == 0 then return nil end
 	local off = disable and true or false
+	-- A frame owner whose own option is off right now (its `active` check)
+	-- holds nothing, so it turns nothing off.
 	for _, entry in ipairs(entries) do
-		if entry.scope == "replace" or entry.exclusive then off = true end
+		if (entry.scope == "replace" or entry.exclusive) and Overlaps(entry) then off = true end
 	end
 	if off then
 		if not C.disabled[addon] then DisableCompetitor(addon) end
@@ -565,6 +576,17 @@ function E:KeepCompetitor(addon, job)
 	end
 	Changed()
 	return restored and "restored" or "live"
+end
+
+-- Undo the setup (the player's own click, also after a reload): an addon
+-- the setup turned off is on again for this character from the next
+-- reload, and its jobs go back to "auto".
+function E:TurnCompetitorBackOn(addon)
+	if E.Secret(addon) or type(addon) ~= "string" then return false end
+	if not EnableCompetitor(addon) then return false end
+	for _, entry in ipairs(C.byAddon[addon] or EMPTY) do SetChoice(entry, "auto") end
+	Changed()
+	return true
 end
 
 -- Turned off by the player's click this session (waits for a reload).

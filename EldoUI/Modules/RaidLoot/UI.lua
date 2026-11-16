@@ -44,10 +44,12 @@ local function BuildLine(owner)
 	box.bg:SetFrameLevel(math.max(box:GetFrameLevel() - 1, 0))
 	E:SetTemplate(box.bg, true)
 	box.sr = E:CreateText(box, E.tokens.size.small, "LEFT")
+	E:UseNameFont(box.sr)
 	box.sr:SetPoint("TOPLEFT", 6, -5)
 	box.sr:SetPoint("TOPRIGHT", -6, -5)
 	box.sr:SetWordWrap(false)
 	box.tmb = E:CreateText(box, E.tokens.size.small, "LEFT")
+	E:UseNameFont(box.tmb)
 	box.tmb:SetPoint("TOPLEFT", box.sr, "BOTTOMLEFT", 0, -3)
 	box.tmb:SetPoint("TOPRIGHT", box.sr, "BOTTOMRIGHT", -46, -3)
 	box.tmb:SetWordWrap(false)
@@ -368,7 +370,11 @@ local function BuildReserves(content)
 	}, {
 		sortKey = "name", rowHeight = function() return M.db.rowHeight end,
 		onClick = function(row, _, widget) RowMenu(widget, row) end,
-		createRow = HoverRows,
+		createRow = function(row)
+			HoverRows(row)
+			E:UseNameFont(row.cells[2])
+			E:UseNameFont(row.cells[3])
+		end,
 		empty = { L["No reserve lists"], L["Import a softres.it or That's My BiS export to see who wants which item."] },
 	})
 	frame.list:SetPoint("TOPLEFT", frame.summary, "BOTTOMLEFT", -4, -6)
@@ -381,6 +387,7 @@ local function DateText(t)
 end
 
 local function RefreshReserves(frame)
+	M.window:UpdateFooter()
 	local data = M:Data()
 	local parts = {}
 	if (data.sr.count or 0) > 0 then
@@ -458,7 +465,7 @@ local function LedgerMenu(owner)
 			root:CreateButton(L["Delete this ledger"], function()
 				E:ShowConfirm({ key = "ELDOUI_RAIDLOOT_DELETE_LEDGER", title = L["Raid Loot"],
 					text = L["Delete the ledger %s with all its sales and cuts? This can't be undone."]:format(E:Highlight(current.name or "")),
-					accept = DELETE or L["Delete"], danger = true,
+					accept = E:GameText(DELETE, L["Delete"]), danger = true,
 					onAccept = function() M:DeleteLedger(current.id) end })
 			end)
 		end
@@ -564,7 +571,10 @@ local function BuildLedger(content)
 				root:CreateButton(L["Remove this sale"], function() M:RemoveSale(row.saleID) end)
 			end)
 		end,
-		createRow = HoverRows,
+		createRow = function(row)
+			HoverRows(row)
+			E:UseNameFont(row.cells[2])
+		end,
 		empty = { L["No sales yet"], L["Add each sale above: the item, who bought it and for how much gold."] },
 	})
 	frame.sales:SetPoint("TOPLEFT", frame.form, "BOTTOMLEFT", -4, -8)
@@ -577,6 +587,7 @@ local function BuildLedger(content)
 			color = function(row) return unpack(row.net < 0 and E.tokens.text.warn or E.tokens.text.body) end },
 	}, {
 		sortKey = "name", rowHeight = function() return M.db.rowHeight end,
+		createRow = function(row) E:UseNameFont(row.cells[1]) end,
 		empty = { L["No players"], L["Use Players > Fill from your group, or add players by name."] },
 	})
 	frame.payout:SetPoint("TOPLEFT", frame.form, "BOTTOM", 4, -8)
@@ -592,6 +603,7 @@ local function BuildLedger(content)
 end
 
 local function RefreshLedger(frame)
+	M.window:UpdateFooter()
 	local ledger = M:Ledger()
 	frame.pick:SetText(ledger and ledger.name or L["New ledger"])
 	Kit.FitButton(frame.pick, 100)
@@ -613,6 +625,196 @@ local function RefreshLedger(frame)
 	frame.export:SetEnabled(ledger ~= nil)
 end
 
+---------------------------------------------------------------------------
+-- Attendance
+---------------------------------------------------------------------------
+local RefreshAttendance
+local function NightText(night)
+	return date("%Y-%m-%d", night.at) .. (night.instance and "  ·  " .. night.instance or "")
+end
+
+local function AttendanceNights(owner, frame)
+	Kit.ContextMenu(owner, function(_, root)
+		local nights = M:AttendanceHistory().nights
+		for index = #nights, 1, -1 do
+			local night = nights[index]
+			root:CreateRadio(NightText(night), function() return frame.night == night end, function()
+				frame.night, frame.snapshot = night, nil
+				RefreshAttendance(frame)
+			end)
+		end
+	end, { at = "owner" })
+end
+
+local function AttendanceBench(owner, frame)
+	local night = frame.night
+	if not night or night ~= M:CurrentAttendanceNight() then return end
+	Kit.ContextMenu(owner, function(_, root)
+		root:CreateButton(L["Add to bench"], function()
+			M:AskText(L["Enter the full name of the player on the bench."], function(name)
+				if not M:SetAttendanceBench(night, name, true) then M:Notify(L["That player could not be added to the bench."], true) end
+			end)
+		end)
+		local names = {}
+		for _, name in pairs(night.bench) do names[#names + 1] = name end
+		table.sort(names)
+		if #names > 0 then
+			root:CreateDivider()
+			root:CreateTitle(L["Click to remove"])
+			for _, name in ipairs(names) do
+				root:CreateButton(name, function() M:SetAttendanceBench(night, name, false) end)
+			end
+		end
+	end, { at = "owner" })
+end
+
+local function AttendanceSnapshots(owner, frame)
+	if not frame.night then return end
+	Kit.ContextMenu(owner, function(_, root)
+		root:CreateRadio(L["Whole night"], function() return frame.snapshot == nil end, function()
+			frame.snapshot = nil
+			RefreshAttendance(frame)
+		end)
+		for _, snapshot in ipairs(frame.night.snapshots) do
+			local row = snapshot
+			local label = date("%H:%M", row.at) .. "  ·  " .. M:AttendanceSampleName(row)
+			root:CreateRadio(label, function() return frame.snapshot == row end, function()
+				frame.snapshot = row
+				RefreshAttendance(frame)
+			end)
+		end
+	end, { at = "owner" })
+end
+
+local function AttendanceActions(owner, frame)
+	Kit.ContextMenu(owner, function(_, root)
+		root:CreateCheckbox(L["Record raid attendance"], function() return M.db.recordAttendance end, function()
+			M.db.recordAttendance = not M.db.recordAttendance
+			M:SyncAttendance()
+			RefreshAttendance(frame)
+			E:RefreshConfig()
+		end)
+		local night = frame.night
+		if night then
+			root:CreateDivider()
+			local function Copy(csv)
+				E:ShowCopyBox(L["Raid attendance"], L["Everything is selected. Press Ctrl+C and paste it where you keep your records."], M:ExportAttendance(night, csv))
+			end
+			root:CreateButton(L["Copy attendance as text"], function() Copy(false) end)
+			root:CreateButton(L["Copy attendance as CSV"], function() Copy(true) end)
+			root:CreateButton(L["Delete this raid night"], function()
+				E:ShowConfirm({ key = "ELDOUI_DELETE_RAID_NIGHT", title = L["Raid attendance"],
+					text = L["Delete this raid night and its snapshots?"], accept = L["Delete"], danger = true,
+					onAccept = function() M:DeleteAttendanceNight(night) end })
+			end)
+		end
+		local keep = root:CreateButton(L["Nights to keep"])
+		for _, amount in ipairs({ 5, 10, 20, 40, 60 }) do
+			keep:CreateRadio(tostring(amount), function() return M:AttendanceHistory().keep == amount end, function()
+				if #M:AttendanceHistory().nights <= amount then M:SetAttendanceKeep(amount); return end
+				E:ShowConfirm({ key = "ELDOUI_TRIM_RAID_NIGHTS", title = L["Raid attendance"],
+					text = L["Remove the oldest nights to keep %d?"]:format(amount), accept = ACCEPT, danger = true,
+					onAccept = function() M:SetAttendanceKeep(amount) end })
+			end)
+		end
+	end, { at = "owner" })
+end
+
+local function AttendanceTip(widget)
+	local data = widget.attendance
+	local info = data and data.latest
+	if not info then return end
+	GameTooltip:SetOwner(widget, "ANCHOR_RIGHT")
+	GameTooltip:SetText(data.name)
+	if info.class then Kit.TipText(GameTooltip, info.class) end
+	if info.group then Kit.TipText(GameTooltip, L["Group %d"]:format(info.group)) end
+	if info.zone then Kit.TipText(GameTooltip, info.zone) end
+	Kit.TipText(GameTooltip, L[M:AttendanceStatus(info)])
+	GameTooltip:Show()
+end
+
+local function BuildAttendance(content)
+	local frame = CreateFrame("Frame", nil, content)
+	frame:SetAllPoints()
+	frame.pick = Kit.Button(frame, "", 190, nil, function(owner) AttendanceNights(owner, frame) end)
+	frame.pick:SetPoint("TOPLEFT", 4, -2)
+	frame.bench = Kit.Button(frame, L["Bench"], 100, nil, function(owner) AttendanceBench(owner, frame) end)
+	frame.bench:SetPoint("TOPRIGHT", -4, -2)
+	frame.take = Kit.Button(frame, L["Take snapshot"], 150, nil, function(owner)
+		if not M:TakeAttendanceSnapshot() then Kit.Toast(owner, L["No raid roster is available after combat."], { warn = true }) end
+	end)
+	frame.take:SetPoint("RIGHT", frame.bench, "LEFT", -6, 0)
+	frame.snapshots = Kit.Button(frame, "", 190, nil, function(owner) AttendanceSnapshots(owner, frame) end)
+	frame.snapshots:SetPoint("TOPLEFT", frame.pick, "BOTTOMLEFT", 0, -6)
+	frame.actions = Kit.Button(frame, L["Attendance options"], 156, nil, function(owner) AttendanceActions(owner, frame) end)
+	frame.actions:SetPoint("TOPRIGHT", frame.bench, "BOTTOMRIGHT", 0, -6)
+	frame.summary = Kit.Text(frame, 12, "LEFT")
+	frame.summary:SetPoint("TOPLEFT", frame.snapshots, "BOTTOMLEFT", 0, -6)
+	frame.summary:SetPoint("TOPRIGHT", frame.actions, "BOTTOMRIGHT", 0, -6)
+	frame.summary:SetWordWrap(true)
+	frame.list = Kit.CreateTable(frame, {
+		{ key = "name", title = L["Player"], value = function(row) return row.name end },
+		{ key = "class", title = L["Class"], width = 92, value = function(row) return row.class or "" end },
+		{ key = "status", title = L["Status"], width = 108, value = function(row) return row.status or "" end },
+		{ key = "bench", title = L["Bench"], width = 62, align = "RIGHT", value = function(row) return row.bench or 0 end },
+		{ key = "percent", title = "%", width = 54, align = "RIGHT", value = function(row) return row.percent or 0 end,
+			text = function(row) return row.percent and ("%d%%"):format(row.percent) or "" end },
+	}, {
+		sortKey = "name", rowHeight = function() return math.max(M.db.rowHeight, math.ceil(E:TextScale() * 14 + 4)) end,
+		createRow = function(widget)
+			E:UseNameFont(widget.cells[1])
+			widget:HookScript("OnEnter", AttendanceTip)
+			widget:HookScript("OnLeave", function(own) if GameTooltip:IsOwned(own) then GameTooltip:Hide() end end)
+		end,
+		updateRow = function(widget, row) widget.attendance = row end,
+		empty = { L["No attendance recorded"], L["Turn on recording in Attendance options to start keeping raid nights."] },
+	})
+	frame.list:SetPoint("TOPLEFT", frame.summary, "BOTTOMLEFT", -4, -4)
+	frame.list:SetPoint("BOTTOMRIGHT")
+	return frame
+end
+
+RefreshAttendance = function(frame)
+	M.window:UpdateFooter()
+	local history = M:AttendanceHistory()
+	local nights = history and history.nights or {}
+	local found
+	for _, night in ipairs(nights) do if night == frame.night then found = true; break end end
+	if not found then frame.night, frame.snapshot = nights[#nights], nil end
+	local night, snapshot = frame.night, frame.snapshot
+	frame.pick:SetText(night and date("%Y-%m-%d", night.at) or L["Raid nights"])
+	frame.pick:SetEnabled(#nights > 0)
+	frame.snapshots:SetText(snapshot and L["Snapshots"] or L["Whole night"])
+	frame.snapshots:SetEnabled(night ~= nil)
+	frame.bench:SetEnabled(night ~= nil and night == M:CurrentAttendanceNight())
+	frame.take:SetEnabled(M:CanTakeAttendanceSnapshot())
+	local rows, bosses, count = M:AttendanceSummary(night)
+	if snapshot then
+		rows = {}
+		for _, entry in ipairs(snapshot.roster) do
+			local status = L[M:AttendanceStatus(entry)]
+			if entry.online == true then
+				if entry.inside == true then status = L["In instance"] elseif entry.inside == false then status = L["Outside"] end
+			end
+			rows[#rows + 1] = { name = entry.name, class = entry.class, status = status, latest = entry }
+		end
+		for _, name in ipairs(snapshot.bench) do rows[#rows + 1] = { name = name, status = L["Bench"], bench = 1 } end
+	end
+	frame.list:SetData(rows)
+	local totals = L["Snapshots %d · Bosses %d"]:format(count, bosses)
+	if not M.db.recordAttendance then totals = L["Recording off"] .. "  ·  " .. totals end
+	if night and night.omitted and night.omitted > 0 then
+		totals = totals .. "  ·  " .. L["Earlier snapshots omitted (%d)"]:format(night.omitted)
+	end
+	local heading = snapshot and M:AttendanceSampleName(snapshot) or night and night.instance
+	frame.summary:SetText(heading and (heading .. "\n" .. totals) or totals)
+	frame.summary:SetHeight(math.max(22, math.ceil(frame.summary:GetStringHeight())))
+end
+
+function M:RefreshAttendanceWindow()
+	if self.window and self.window:Current() == "attendance" then self.window:Refresh() end
+end
+
 function M:CreateWindow()
 	if self.window then return self.window end
 	local win = Kit.CreateTabbedWindow({
@@ -630,9 +832,12 @@ function M:CreateWindow()
 				create = BuildReserves, show = RefreshReserves, refresh = RefreshReserves },
 			{ key = "ledger", title = L["GDKP ledger"], desc = L["Sales, the pot, cuts and the payout per player."],
 				create = BuildLedger, show = RefreshLedger, refresh = RefreshLedger },
+			{ key = "attendance", title = E.Key("Attendance"), desc = E.Key("Raid nights, snapshots, bench and attendance exports."),
+				create = BuildAttendance, show = RefreshAttendance, refresh = RefreshAttendance },
 		},
 		help = { text = L["Import reserve lists to see them on tooltips and loot rolls. The ledger only keeps numbers: you roll, trade and pay out yourself."] },
 		footer = function()
+			if M.window and M.window:Current() == "attendance" then return "" end
 			local ledger = M:Ledger()
 			if not ledger then return L["No ledger yet."] end
 			local totals = M:Totals(ledger)

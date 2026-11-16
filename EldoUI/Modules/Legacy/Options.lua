@@ -20,7 +20,7 @@ M.options = {
 	{ type = "header", label = L["Planner"] },
 	{ type = "execute", label = L["Open the Legacy Planner"], desc = L["Shows the planner window (also /eui legacy)."], testSafe = true,
 		func = function() M:OpenPlanner() end },
-	{ type = "range", key = "rowHeight", label = L["Row height"], min = 18, max = 28, step = 1, desc = L["Height of a node or profile row; challenge rows grow with it."] },
+	{ type = "range", unit = "px", key = "rowHeight", label = L["Row height"], min = 18, max = 28, step = 1, desc = L["Height of a node or profile row; challenge rows grow with it."] },
 	{ type = "toggle", key = "showIcons", label = L["Node icons"], desc = L["Shows each Legacy node's icon in front of its name on the Build page."] },
 	{ type = "toggle", key = "transparent", label = L["See-through window"], desc = L["The planner lets the game show through a little. How much: General > Panel opacity."] },
 	{ type = "select", key = "challengeStatus", label = L["Challenges shown"], desc = L["Which Legacy Challenges the Challenges page lists when it opens; its filter chips change this too."],

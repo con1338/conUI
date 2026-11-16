@@ -51,6 +51,35 @@ local L = E.L
 
 local issecret = issecretvalue or function() return false end
 
+-- Shared feedback pulses never change the player's controller settings.
+local pulseTimer, pulseDeadline
+local PULSE_SECONDS = { Low = 0.25, High = 0.6 }
+
+function E:PulseGamepad(kind, strength)
+	local pad = C_GamePad
+	local duration = PULSE_SECONDS[kind]
+	strength = E.Plain(strength)
+	if not duration or type(strength) ~= "number" or strength ~= strength then return false end
+	if not (pad and type(pad.SetVibration) == "function") then return false end
+	if pad.IsEnabled and E.PlainCall(pad.IsEnabled) ~= true then return false end
+	if pad.GetActiveDeviceID then
+		local device = E.PlainCall(pad.GetActiveDeviceID)
+		if type(device) ~= "number" or not (device >= 0 and device < math.huge) then return false end
+	end
+	local ok, result = pcall(pad.SetVibration, kind, math.max(0.1, math.min(1, strength)))
+	if not ok or E.Secret(result) or result == false then return false end
+	if type(pad.StopVibration) == "function" then
+		local now = GetTime()
+		pulseDeadline = math.max(pulseDeadline or now, now + duration)
+		if pulseTimer then pulseTimer:Cancel() end
+		pulseTimer = C_Timer.NewTimer(pulseDeadline - now, function()
+			pulseTimer, pulseDeadline = nil, nil
+			pcall(pad.StopVibration)
+		end)
+	end
+	return kind
+end
+
 E:RegisterPrivate("gamepadMode", { never = false })
 
 local function Prefs()

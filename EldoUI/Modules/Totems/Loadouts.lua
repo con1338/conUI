@@ -218,7 +218,7 @@ end
 ---------------------------------------------------------------------------
 local function AskName(text, accept)
 	E:ShowConfirm({ key = "ELDOUI_TOTEM_LOADOUT", title = L["Totem loadout"], text = L["Name of the loadout:"],
-		accept = ACCEPT or L["Accept"], edit = { text = text or "", maxLetters = NAME_MAX },
+		accept = E:GameText(ACCEPT, L["Accept"]), edit = { text = text or "", maxLetters = NAME_MAX },
 		onAccept = function(_, typed) accept(typed or "") end })
 end
 
@@ -263,7 +263,7 @@ function M:OpenLoadoutMenu(owner)
 			root:CreateButton(L["Counter totems for your target"], function() M:ApplyLoadout(counterSet) end)
 		end
 		root:CreateDivider()
-		local save = root:CreateButton(L["Save my picks"])
+		local save = root:CreateButton(L["Save your picks"])
 		save:CreateButton(L["As a new loadout"], function()
 			AskName("", function(name)
 				if not M:SaveLoadout(nil, name) then E:Print(L["Every loadout slot is full. Delete one first."]) end

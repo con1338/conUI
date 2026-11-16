@@ -264,8 +264,8 @@ local function UpdateActive()
 end
 M.UpdateCueSlots = UpdateActive
 
--- The cues on this button's current slot (for the test kit and the
--- options preview): { [unit] = container }, or nil.
+-- The cues on this button's current slot (for the options preview):
+-- { [unit] = container }, or nil.
 function M:CueContainers(button)
 	local entry = built[button]
 	local current = button and CurrentSlot(button)

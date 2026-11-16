@@ -83,6 +83,7 @@ local M = E:NewModule("QoL", {
 		keepAudioSynced = false,
 		muteSounds = "",
 		noScreenEffects = false,
+		noDrunkenHaze = true,
 		weather = "game",       -- game, 0, 1, 2, 3
 		volumePanel = false,    -- keep the volume panel on screen
 		volumeChannels = false, -- also effects, music, ambience and dialog
@@ -132,6 +133,12 @@ local function Store()
 	return EldoUIDB.qol
 end
 M.Store = Store
+
+-- Forget drops the character's quest tracker fold.
+E:RegisterCharacterForget(function(_, key)
+	local tracker = Store().tracker
+	if type(tracker) == "table" then tracker[key] = nil end
+end)
 
 -- Flat EldoUI button with the accent on hover (read when drawn).
 -- The shared kit's button (E.UIKit.Button: hover and press look); `tip`
@@ -208,9 +215,9 @@ function M:CreatePrompt()
 	prompt.timer:SetPoint("BOTTOMLEFT", 8, 40)
 	prompt.timer:SetPoint("BOTTOMRIGHT", -8, 40)
 	prompt.timer:SetHeight(4)
-	prompt.accept = E.UIKit.Button(prompt, ACCEPT or L["Accept"], { width = 140, large = true, kind = "primary" })
+	prompt.accept = E.UIKit.Button(prompt, E:GameText(ACCEPT, L["Accept"]), { width = 140, large = true, kind = "primary" })
 	prompt.accept:SetPoint("BOTTOMLEFT", 8, 8)
-	prompt.decline = E.UIKit.Button(prompt, DECLINE or L["Decline"], { width = 140, large = true })
+	prompt.decline = E.UIKit.Button(prompt, E:GameText(DECLINE, L["Decline"]), { width = 140, large = true })
 	prompt.decline:SetPoint("BOTTOMRIGHT", -8, 8)
 	prompt:SetScript("OnUpdate", function(dialog, elapsed)
 		if dialog.stillValid then
@@ -313,7 +320,7 @@ function M:OnResurrect(offerer)
 	if not self.db.resPrompt or Secret(offerer) then return end
 	if not self.prompt then self:CreatePrompt() end
 	self.prompt.sawPopup = false
-	self:ShowPrompt(RESURRECT or L["Resurrection"], L["%s wants to resurrect you."]:format(offerer or L["Someone"]),
+	self:ShowPrompt(E:GameText(RESURRECT, L["Resurrection"]), L["%s wants to resurrect you."]:format(offerer or L["Someone"]),
 		nil, -- resurrections have no countdown API: ResOfferValid closes it
 		function()
 			AcceptResurrect()
@@ -483,35 +490,57 @@ local function TrackerAllowed()
 	return M.active and E:BlizzardAllowed(TRACKER, "improve")
 end
 
--- Folding the tracker runs Blizzard's layout. Called from addon code that
--- layout is tainted, which would break quest item buttons in combat, so it
--- only runs out of combat; the Quest Tracker module is asked first.
+-- Blizzard's own fold (SetCollapsed) runs the tracker's layout; called from
+-- addon code that layout and every later update of the tracker would run
+-- tainted. So EldoUI never calls it: the Quest Tracker module parks the
+-- tracker off screen, and without that module the tracker is faded out.
+local fallbackFold
+local fallbackMouse = setmetatable({}, { __mode = "k" })
+
+local function ApplyFallbackMouse(tracker)
+	local mouse = fallbackMouse[tracker]
+	if not mouse then
+		mouse = {}
+		fallbackMouse[tracker] = mouse
+	end
+	-- Keep the native mouse flag until an open state can actually restore
+	-- it. An open and refold in combat share this frame's pending update.
+	E:RunOutOfCombat(function()
+		if fallbackMouse[tracker] ~= mouse then return end
+		if fallbackFold and fallbackFold.tracker == tracker and Tracker() == tracker then
+			if mouse.enabled == nil then mouse.enabled = E.FrameMouse(tracker, "IsMouseEnabled") end
+			if mouse.enabled ~= nil then tracker:EnableMouse(false) end
+		else
+			if mouse.enabled ~= nil and E.FrameMouse(tracker, "IsMouseEnabled") == false then
+				tracker:EnableMouse(mouse.enabled)
+			end
+			fallbackMouse[tracker] = nil
+		end
+	end, mouse)
+end
+
+local function RestoreFallbackFold()
+	local old = fallbackFold
+	if not old then return end
+	fallbackFold = nil
+	if old.alpha ~= nil and E.PlainCall(old.tracker.GetAlpha, old.tracker) == 0 then old.tracker:SetAlpha(old.alpha) end
+	ApplyFallbackMouse(old.tracker)
+end
+
 local function SetTrackerCollapsed(collapsed)
 	local tracker = Tracker()
-	if not tracker then return end
 	local owner = E:GetModule("ObjectiveTracker")
-	if owner and owner.active and owner.SetUserCollapsed then
+	if owner and owner.active and owner.SetUserCollapsed and tracker == _G.ObjectiveTrackerFrame then
+		RestoreFallbackFold()
 		owner:SetUserCollapsed(collapsed)
 		return
 	end
-	if InCombatLockdown() then
-		E:RunOutOfCombat(function() SetTrackerCollapsed(collapsed) end)
-		return
-	end
-	if tracker.SetCollapsed then
-		tracker:SetCollapsed(collapsed)
-	elseif collapsed and _G.ObjectiveTracker_Collapse then
-		_G.ObjectiveTracker_Collapse()
-	elseif not collapsed and _G.ObjectiveTracker_Expand then
-		_G.ObjectiveTracker_Expand()
-	else
-		-- No collapse API: fade it out; the frame itself is never hidden.
-		tracker:SetAlpha(collapsed and 0 or 1)
-		if not InCombatLockdown() then tracker:EnableMouse(not collapsed) end
-	end
+	if not collapsed or not tracker or (fallbackFold and fallbackFold.tracker ~= tracker) then RestoreFallbackFold() end
+	if not (tracker and collapsed) then return end
+	if not fallbackFold then fallbackFold = { tracker = tracker, alpha = E.PlainCall(tracker.GetAlpha, tracker) } end
+	if fallbackFold.alpha ~= nil then tracker:SetAlpha(0) end
+	ApplyFallbackMouse(tracker)
 end
-
-local trackerChanged = false
 
 -- The button sits on the tracker's own top row, left of Blizzard's fold
 -- button (and of its filter button while that shows), so it never reaches
@@ -519,6 +548,14 @@ local trackerChanged = false
 -- minimap).
 local filterHooked = false
 local function PlaceTrackerButton(button, tracker)
+	-- A folded tracker is off screen: the button stays where its corner was.
+	local owner = E:GetModule("ObjectiveTracker")
+	local spot = owner and owner.FoldSpot and owner:FoldSpot()
+	if spot then
+		button:ClearAllPoints()
+		button:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", spot[1] - 24, spot[2])
+		return
+	end
 	local header = tracker.Header
 	local fold = header and header.MinimizeButton
 	local filter = header and header.FilterButton
@@ -544,13 +581,7 @@ end
 function M:ApplyTracker()
 	local collapsed = Store().tracker[E.charKey] and true or false
 	local allowed = TrackerAllowed()
-	if allowed then
-		if collapsed or trackerChanged then SetTrackerCollapsed(collapsed) end
-		trackerChanged = collapsed
-	elseif trackerChanged then
-		SetTrackerCollapsed(false)
-		trackerChanged = false
-	end
+	SetTrackerCollapsed(allowed and collapsed)
 	local tracker = Tracker()
 	if allowed and self.db.trackerButton and tracker and not self.trackerButton then
 		local button = FlatButton(UIParent, 18, 18, "")
@@ -1051,6 +1082,32 @@ function M:ApplySounds()
 	end
 end
 
+local HAZE_CVAR = "ffxGlow"
+
+local function HazeWritable()
+	local cvar = C_CVar
+	if not (cvar and cvar.GetCVar and cvar.SetCVar) then return false end
+	local value = E.PlainCall(cvar.GetCVar, HAZE_CVAR)
+	if type(value) ~= "string" then return false end
+	if not cvar.GetCVarInfo then return true end
+	local info, _, _, _, locked, secure, readOnly = E.PlainCallAll(cvar.GetCVarInfo, HAZE_CVAR)
+	return type(info) == "string" and locked == false and secure == false and readOnly == false
+end
+
+local function ApplyHaze()
+	E:RunOutOfCombat(function()
+		if not HazeWritable() then return end
+		local owner = E.CVarOwner and E:CVarOwner(HAZE_CVAR)
+		if M.active and M.db.noScreenEffects and M.db.noDrunkenHaze then
+			if not owner or owner == CVAR_OWNER then
+				E:SetCVar(HAZE_CVAR, 0, CVAR_OWNER, function(current) return tonumber(current) ~= nil end)
+			end
+		elseif owner == CVAR_OWNER then
+			RestoreCVar(HAZE_CVAR)
+		end
+	end, "QoL:drunken-haze")
+end
+
 function M:ApplyGraphics()
 	local db = self.db
 	if self.active and db.noScreenEffects then
@@ -1060,6 +1117,7 @@ function M:ApplyGraphics()
 		RestoreCVar("ffxDeath")
 		RestoreCVar("ffxNether")
 	end
+	ApplyHaze()
 	if self.active and db.weather ~= "game" and Mine("weather") then SetCVarOwned("weatherDensity", db.weather) else RestoreCVar("weatherDensity") end
 end
 
@@ -1512,22 +1570,22 @@ M:AddOptions("Social", {
 -- recommended (whether to decline strangers is the player's call).
 E:RegisterConvenience({ id = "blockDuels", module = "QoL", setting = "blockDuels", order = 90,
 	label = "Decline duels",
-	desc = "Acts for you: declines duel requests from people who aren't your friends, out of combat. Change it later under Quality of Life.",
+	desc = "Acts for you: declines duel requests from people who aren't your friends, out of combat.",
 	blocked = HandledBy("duels") })
 E:RegisterConvenience({ id = "blockInvites", module = "QoL", setting = "blockInvites", order = 100,
 	label = "Decline group invites from strangers",
-	desc = "Acts for you: declines group invites from people who aren't your friends, out of combat. Change it later under Quality of Life.",
+	desc = "Acts for you: declines group invites from people who aren't your friends, out of combat.",
 	blocked = HandledBy("invites") })
 E:RegisterConvenience({ id = "blockRequestedInvites", module = "QoL", setting = "blockRequestedInvites", order = 110,
 	label = "Decline requests to join your group",
-	desc = "Acts for you: declines requests to join your group from people who aren't your friends, out of combat. Change it later under Quality of Life.",
+	desc = "Acts for you: declines requests to join your group from people who aren't your friends, out of combat.",
 	blocked = HandledBy("invites") })
 E:RegisterConvenience({ id = "blockGuildInvites", module = "QoL", setting = "blockGuildInvites", order = 120,
 	label = "Decline guild invites",
-	desc = "Acts for you: declines guild invites from anyone but your friends, out of combat. Change it later under Quality of Life." })
+	desc = "Acts for you: declines guild invites from anyone but your friends, out of combat." })
 E:RegisterConvenience({ id = "blockSharedQuests", module = "QoL", setting = "blockSharedQuests", order = 130,
 	label = "Decline quests shared by strangers",
-	desc = "Acts for you: declines quests shared by people who aren't your friends, out of combat. Change it later under Quality of Life.",
+	desc = "Acts for you: declines quests shared by people who aren't your friends, out of combat.",
 	blocked = HandledBy("sharedquests") })
 
 M:AddOptions("Quests", {
@@ -1546,7 +1604,7 @@ M:AddOptions("Travel", {
 	{ type = "toggle", key = "flightFade", label = "Fade in and out", desc = "The route fades in at take-off and out on landing. Off shows and hides it at once.", dependsOn = "flightTimer" },
 	{ type = "toggle", key = "flightArrival", label = "Arrival time", desc = "The clock time you land, after the time left.", dependsOn = "flightTimer" },
 	{ type = "toggle", key = "flightStops", label = "Next stop", desc = "The name of the next stop on the way, above the track.", dependsOn = "flightTimer" },
-	{ type = "range", key = "flightWidth", label = "Width", desc = "Width of the route in pixels. Move it with /eui move (\"Flight Timer\").", min = 200, max = 600, step = 10, dependsOn = "flightTimer" },
+	{ type = "range", unit = "px", key = "flightWidth", label = "Width", desc = "Width of the route in pixels. Move it with /eui move (\"Flight Timer\").", min = 200, max = 600, step = 10, dependsOn = "flightTimer" },
 	{ type = "description", label = "A new route shows the time so far with \"learning\"; the next flight on it shows the full time. Times come from your flights only." },
 })
 
@@ -1560,7 +1618,10 @@ M:AddOptions(E.Key("Sound and misc"), {
 	{ type = "toggle", key = "keepAudioSynced", disabled = HandledBy("audiosync"), label = "Follow a new audio device", desc = "Restarts the game's sound when Windows switches the output device (headset plugged in)." },
 	{ type = "input", key = "muteSounds", disabled = HandledBy("mutesounds"), label = "Mute sound file IDs", desc = "Sound file IDs separated by commas. They stay muted while this module is on." },
 	{ type = "header", label = "Graphics" },
-	{ type = "toggle", key = "noScreenEffects", label = "No death and nether screen effects", desc = "Turns off the gray screen while dead and the nether effect (game settings; off puts your own values back)." },
+	{ type = "toggle", key = "noScreenEffects", label = "Disable screen effects", desc = "Turns off the gray screen while dead, the nether effect, and drunken haze. Off puts your own game settings back.",
+		cog = { { type = "toggle", key = "noDrunkenHaze", label = "Suppress drunken haze", dependsOn = "noScreenEffects",
+			desc = "Also turns off the game's full-screen glow setting. On by default when Disable screen effects is on.",
+			disabled = function() return not HazeWritable() end } } },
 	{ type = "select", key = "weather", disabled = HandledBy("weather"), label = "Weather density", desc = "How thick rain and snow are. \"Game setting\" puts your own value back.",
 		values = { game = "Game setting", ["0"] = "Off", ["1"] = "Low", ["2"] = "Medium", ["3"] = "High" } },
 })
@@ -1580,7 +1641,7 @@ E:RegisterStyles("QoL", {
 		settings = { xpBarText = true, rewardValue = true, trackerButton = true, zoneTracking = true, flightTimer = true } },
 	{ acts = true, mode = true, key = "FastQuesting", title = "Fast questing", desc = "Acts for you. Accept and turn in quests (never picks a reward) and skip plain vendor chat. Hold Shift to pause.",
 		settings = { autoAccept = true, autoTurnIn = true, skipGossip = true, pauseKey = "SHIFT", rewardValue = true } },
-	{ mode = true, key = "Clean", title = "Clean screen", desc = "No death and nether effects, light weather, +/- Combat text.",
+	{ mode = true, key = "Clean", title = "Clean screen", desc = "Fewer screen effects, light weather, and combat alerts.",
 		settings = { noScreenEffects = true, weather = "1", combatAlert = true } },
 	{ key = "Framed", title = "Framed screen", desc = "Thin see-through panels across the top and bottom edge with an accent line, and the volume panel.",
 		settings = { edgeTop = true, edgeBottom = true, edgeHeight = 22, edgeTransparent = true, edgeAccent = true, volumePanel = true } },

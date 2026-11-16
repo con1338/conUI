@@ -102,7 +102,7 @@ local function OwnerTitle(owner)
 	if module then return L[module.title] end
 	local element = E.blizzardElements and E.blizzardElements[owner]
 	if element and element.title then return L[element.title] end
-	if owner == "installer" then return L["Installer"] end
+	if owner == "installer" then return L["Setup"] end
 	return tostring(owner)
 end
 M.CVarOwnerTitle = OwnerTitle
@@ -497,7 +497,7 @@ function M:CVarBrowser()
 	return win
 end
 
-E:AddCommand("cvars", "  [name] open the browser of every game setting (CVar), optionally at one setting", function(rest)
+E:AddCommand("cvars", "[name]  open the browser of every game setting (CVar), optionally at one setting", function(rest)
 	local name = rest and strtrim(rest) or ""
 	M:ShowCVarBrowser(nil, name ~= "" and name or nil)
 end, "Tools")

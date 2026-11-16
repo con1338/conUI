@@ -30,8 +30,9 @@
 -- Whether a raid entry counts is not settled for Forever, so raids count
 -- only with "Count raids" on, and the player can set the limit.
 --
--- Rules (Midnight / Forever): presentation only. No combat log, nothing is
--- sent to chat or to other players without a click (Reset.lua sends the
+-- Rules (Midnight / Forever): presentation only. Optional logging runs the
+-- game's own combat log without reading it. Nothing is sent to other
+-- players without a click (Reset.lua sends the
 -- leader's reset notice as an addon message, never in a PvP match). Every
 -- GUID, unit and chat text read is checked with issecretvalue; a secret
 -- value is skipped, never stored. The other files reach this module as
@@ -60,8 +61,10 @@ local M = E:NewModule("Instances", {
 		countRaids = false,
 		detectSameRun = true,
 		keepRuns = 250,
+		combatLogging = "off",
 		-- Notices (own chat only)
 		noticeEnter = true,
+		noticeArgentDawn = true,
 		noticeRaid = false,
 		noticePvP = true,
 		noticeMerge = true,
@@ -314,6 +317,8 @@ end
 -- leaveXP, enterMoney, leaveMoney, and the stats Stats.lua collects
 -- (xp, kills, money, rep, currency, group, honor, ...). zoneUID is the
 -- instance part of GUIDs seen inside; merged counts the entries folded in.
+-- bossEncounters maps confirmed encounter IDs to public names, or false
+-- if only the ID was available.
 -- group = { [name] = { level, class, guild, role, realm, key, first, last,
 -- me } }: everyone the roster snapshots saw (dungeons and raids; nobody in
 -- battlegrounds), keyed "Name" or "Name-Realm"; role only when the game
@@ -706,11 +711,193 @@ local function Money()
 	return type(money) == "number" and money or nil
 end
 
+-- The broad instance type is enough for combat logging. False is a known
+-- outdoor zone and nil means the client did not supply a readable answer.
+local function InstanceKind()
+	local inside, kind = E.PlainCallAll(IsInInstance)
+	if inside == false then return false end
+	if inside == true and type(kind) == "string" then return kind end
+end
+
+local ADVANCED_LOG, COMBAT_LOG_OWNER = "advancedCombatLogging", "instances-combat-log"
+local STOP_LOG_DELAY = 30
+local combatLog, stopRetryOwner = {}, {}
+
+local function LoggingStatus()
+	return E.PlainCall(C_ChatInfo and C_ChatInfo.IsLoggingCombat)
+end
+
+local function AdvancedLogValue()
+	return E.PlainCall(C_CVar and C_CVar.GetCVar, ADVANCED_LOG)
+end
+
+local function OwnsAdvancedLog()
+	local snapshot = E:GetCVarSnapshot()
+	local saved = snapshot and snapshot[ADVANCED_LOG]
+	return not IsSecret(saved) and type(saved) == "table" and Plain(saved.owner) == COMBAT_LOG_OWNER
+end
+
+local function ReleaseAdvancedLog()
+	if not OwnsAdvancedLog() then return end
+	local value = AdvancedLogValue()
+	if type(value) ~= "string" then return end
+	if value == "1" then
+		E:ReleaseCVar(ADVANCED_LOG, COMBAT_LOG_OWNER)
+	else
+		E:ForgetCVar(ADVANCED_LOG, COMBAT_LOG_OWNER)
+	end
+end
+
+local function EnableAdvancedLog()
+	local value = AdvancedLogValue()
+	if value == "1" then return true end
+	if type(value) ~= "string" then return false end
+	local snapshot, root = E:GetCVarSnapshot()
+	if not root then return false end
+	local saved = snapshot and snapshot[ADVANCED_LOG]
+	if IsSecret(saved) or (saved ~= nil and (type(saved) ~= "table"
+		or Plain(saved.owner) ~= COMBAT_LOG_OWNER)) then return false end
+	E:SetCVar(ADVANCED_LOG, "1", COMBAT_LOG_OWNER, function(current) return current == value end)
+	return AdvancedLogValue() == "1"
+end
+
+local function CancelCombatLogStop()
+	if combatLog.retry then
+		combatLog.retry = nil
+		E:UnregisterEvent("ADDON_RESTRICTION_STATE_CHANGED", stopRetryOwner)
+		E:UnregisterEvent("PLAYER_REGEN_ENABLED", stopRetryOwner)
+	end
+	if combatLog.stop then
+		combatLog.stop:Cancel()
+		combatLog.stop = nil
+	end
+end
+
+local function SetCombatLogging(enabled)
+	if type(LoggingCombat) ~= "function" then return false end
+	combatLog.writing = true
+	local ok = pcall(LoggingCombat, enabled)
+	combatLog.writing = nil
+	return ok and LoggingStatus() == enabled
+end
+
+local function StopOwnedCombatLog()
+	if not combatLog.owned then return end
+	local logging = LoggingStatus()
+	local stopped = logging == true and SetCombatLogging(false)
+	if logging ~= false and not stopped then return end
+	combatLog.owned = nil
+	CancelCombatLogStop()
+	ReleaseAdvancedLog()
+	if stopped then M:Notice(L["Automatic combat logging stopped."]) end
+end
+
+local function OnCombatLogChanged(enabled)
+	-- A query has no argument. A different writer takes over the log and
+	-- the outstanding stop for the previous owner expires immediately.
+	if combatLog.writing or not combatLog.owned or type(enabled) == "nil" then return end
+	combatLog.owned, combatLog.manual = nil, true
+	CancelCombatLogStop()
+	E:RunOutOfCombat(function()
+		if not combatLog.owned then ReleaseAdvancedLog() end
+	end, COMBAT_LOG_OWNER .. ":release")
+end
+
+local function AutoLogMode()
+	local mode = M.active and M.db.combatLogging
+	if mode == "raids" or mode == "all" then return mode end
+end
+
+local function InLoggingInstance(mode)
+	local kind = InstanceKind()
+	if kind == nil then return nil end
+	return kind == "raid" or (mode == "all" and kind == "party")
+end
+
+local function RetryCombatLogStop()
+	if not combatLog.retry then return end
+	E:RunOutOfCombat(function()
+		if not combatLog.retry then return end
+		local mode = AutoLogMode()
+		local inside = mode and InLoggingInstance(mode)
+		if inside == true then
+			CancelCombatLogStop()
+		elseif not mode or inside == false then
+			StopOwnedCombatLog()
+		end
+	end, COMBAT_LOG_OWNER .. ":retry")
+end
+
+local function RequestCombatLogStop()
+	if not combatLog.retry then
+		CancelCombatLogStop()
+		combatLog.retry = true
+		-- These listeners only live while the client's answer remains unknown
+		-- or it declines to stop. They can finish after the module switches off.
+		E:RegisterEvent("PLAYER_REGEN_ENABLED", RetryCombatLogStop, stopRetryOwner)
+		E:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED", function(_, _, _, state)
+			E:AfterRestrictionEnds(state, RetryCombatLogStop)
+		end, stopRetryOwner)
+	end
+	RetryCombatLogStop()
+end
+
+local function RefreshCombatLog()
+	local mode = AutoLogMode()
+	if not mode then
+		if combatLog.owned then RequestCombatLogStop() else ReleaseAdvancedLog() end
+		combatLog.manual = nil
+		return
+	end
+	local inside = InLoggingInstance(mode)
+	if inside == nil then return end
+	if inside then
+		CancelCombatLogStop()
+		-- An already active log belongs to the player or another addon.
+		if combatLog.owned or combatLog.manual or type(LoggingCombat) ~= "function" then return end
+		local logging = LoggingStatus()
+		if logging == true then combatLog.manual = true end
+		if logging ~= false then return end
+		if not combatLog.hooked then
+			combatLog.hooked = pcall(hooksecurefunc, "LoggingCombat", OnCombatLogChanged)
+			if not combatLog.hooked then return end
+		end
+		if EnableAdvancedLog() and LoggingStatus() == false and SetCombatLogging(true) then
+			combatLog.owned = true
+			M:Notice(L["Automatic combat logging started."])
+		else
+			ReleaseAdvancedLog()
+		end
+	else
+		combatLog.manual = nil
+		if not combatLog.owned or combatLog.stop then return end
+		if combatLog.retry then
+			RetryCombatLogStop()
+			return
+		end
+		-- A corpse run or the next eligible instance can keep one continuous log.
+		local timer
+		timer = C_Timer.NewTimer(STOP_LOG_DELAY, function()
+			E:RunOutOfCombat(function()
+				if combatLog.stop ~= timer then return end
+				combatLog.stop = nil
+				local current = AutoLogMode()
+				if not current or InLoggingInstance(current) ~= true then RequestCombatLogStop() end
+			end, COMBAT_LOG_OWNER .. ":stop")
+		end)
+		combatLog.stop = timer
+	end
+end
+
+local function ApplyCombatLog()
+	if not AutoLogMode() and not combatLog.owned and not combatLog.manual and not OwnsAdvancedLog() then return end
+	E:RunOutOfCombat(RefreshCombatLog, COMBAT_LOG_OWNER)
+end
+
 -- The instance you stand in: { instance, instanceID, kind, difficulty,
 -- difficultyName, maxPlayers }, or nil outside (or when it is secret).
 function M:Here()
-	local inside, kind = IsInInstance()
-	if IsSecret(inside) or IsSecret(kind) or not inside then return nil end
+	local kind = InstanceKind()
 	if kind == "arena" then kind = "pvp" end
 	if kind ~= "party" and kind ~= "raid" and kind ~= "pvp" then return nil end
 	local name, _, difficulty, difficultyName, maxPlayers, _, _, instanceID = GetInstanceInfo()
@@ -762,6 +949,7 @@ function M:StampLeave(run)
 end
 
 function M:SetCurrent(run)
+	self.bossRunLeaving = nil
 	self.current = run
 	if self.OnCurrentChanged then self:OnCurrentChanged(run) end
 	self:WatchZoneUID()
@@ -838,6 +1026,14 @@ function M:Merge(newer, older)
 	AddTable(older.rep, newer.rep)
 	older.currency = older.currency or {}
 	AddTable(older.currency, newer.currency)
+	if type(newer.bossEncounters) == "table" then
+		if type(older.bossEncounters) ~= "table" then older.bossEncounters = {} end
+		for id, name in pairs(newer.bossEncounters) do
+			local previous = older.bossEncounters[id]
+			if previous == nil then older.bosses = (older.bosses or 0) + 1 end
+			if not previous then older.bossEncounters[id] = name end
+		end
+	end
 	if newer.group then
 		older.group = older.group or {}
 		for name, info in pairs(newer.group) do
@@ -966,6 +1162,7 @@ function M:GhostZoning()
 end
 
 function M:OnEnteringWorld(isLogin, isReload)
+	ApplyCombatLog()
 	local here = self:Here()
 	local open = self:OpenRun()
 	local ghost = self:GhostZoning()
@@ -999,6 +1196,55 @@ function M:OnEnteringWorld(isLogin, isReload)
 	end
 end
 
+-- Scholomance and Stratholme use the same Argent Dawn trinkets. Check
+-- every upgrade for equipment first, then choose one carried item to link.
+local ARGENT_DAWN_DUNGEONS = { [289] = true, [329] = true }
+local ARGENT_DAWN_TRINKETS = { 23206, 23207, 19812, 13209, 12846 }
+local ARGENT_DAWN_FACTION, EXALTED = 529, 8
+
+local function ReadableTable(value)
+	return not IsSecret(value) and type(value) == "table" and (not canaccesstable or canaccesstable(value))
+end
+
+local function IsItemLink(link, id)
+	if IsSecret(link) or type(link) ~= "string" then return false end
+	local linkedID = link:match("|Hitem:(%d+)[:|]")
+	return tonumber(linkedID) == id
+end
+
+local function ArgentDawnLink(run)
+	if run.kind ~= "party" or not ARGENT_DAWN_DUNGEONS[run.instanceID] or not (C_Reputation and C_Item) then return nil end
+	local faction = E.PlainCall(C_Reputation.GetFactionDataByID, ARGENT_DAWN_FACTION)
+	local reaction = ReadableTable(faction) and Plain(faction.reaction)
+	if type(reaction) ~= "number" or reaction < 1 or reaction >= EXALTED or reaction % 1 ~= 0 then return nil end
+
+	for _, id in ipairs(ARGENT_DAWN_TRINKETS) do
+		if E.PlainCall(C_Item.IsEquippedItem, id) ~= false then return nil end
+	end
+
+	local carried
+	for _, id in ipairs(ARGENT_DAWN_TRINKETS) do
+		local count = E.PlainCall(C_Item.GetItemCount, id, false, false, false, false)
+		if type(count) == "number" and count > 0 and count < math.huge then
+			local _, link = E.PlainCallEach(C_Item.GetItemInfo, id)
+			if IsItemLink(link, id) then return link end
+			carried = carried or {}
+			carried[id] = true
+		end
+	end
+	-- An actual bag slot can still have a link when the item lookup is cold.
+	if carried and E.BagCache then
+		for bag, slot, info in E.BagCache:Items() do
+			local id = ReadableTable(info) and Plain(info.itemID)
+			if type(id) == "number" and carried[id] then
+				local link = Plain(info.hyperlink)
+				if not IsItemLink(link, id) then link = E.BagCache:Link(bag, slot) end
+				if IsItemLink(link, id) then return link end
+			end
+		end
+	end
+end
+
 function M:EnteredNotice(run)
 	if not self.active then return end
 	local db = self.db
@@ -1021,6 +1267,10 @@ function M:EnteredNotice(run)
 		text = (L["Entered %s: %s."]):format(self:RunTitle(run), self:CountLine())
 	end
 	self:Notice(text .. " " .. table.concat(links, " "))
+	if db.noticeArgentDawn then
+		local trinket = ArgentDawnLink(run)
+		if trinket then self:Notice(L["Equip %s to collect Scourgestones."]:format(trinket)) end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1215,7 +1465,7 @@ function M:AskDelete(id)
 	if not run then return end
 	E:ShowConfirm({ key = "ELDOUI_INSTANCES_DELETE", title = L["Instances"],
 		text = L["Remove this run from the log (%s)? It no longer counts toward the limit."]:format(self:RunTitle(run)),
-		accept = YES or L["Yes"], cancel = NO or L["No"], danger = true, data = run.id,
+		accept = E:GameText(YES, L["Yes"]), cancel = E:GameText(NO, L["No"]), danger = true, data = run.id,
 		onAccept = function(runID) M:DeleteRun(runID) end })
 end
 
@@ -1304,11 +1554,13 @@ E:AddCommand("instances", "[log | add | count | stats | pvp | options | on | off
 -- Module
 ---------------------------------------------------------------------------
 local function OnEnteringWorld(_, isLogin, isReload)
+	M.bossRunLeaving = nil
 	M:OnEnteringWorld(isLogin == true, isReload == true)
 	M:RequestLockouts()
 end
 
 local function OnLeavingWorld()
+	M.bossRunLeaving = true
 	local ghost = UnitIsGhost("player")
 	if not IsSecret(ghost) and ghost then M.ghostUntil = GetTime() + GHOST_LEAVE_WINDOW end
 end
@@ -1318,6 +1570,11 @@ local function OnUnghost()
 end
 
 local function OnLogout()
+	if combatLog.owned then
+		CancelCombatLogStop()
+		combatLog.owned, combatLog.manual = nil, nil
+		ReleaseAdvancedLog()
+	end
 	local open = M:OpenRun()
 	if open then M:CloseRun(open, "logout") end
 end
@@ -1328,18 +1585,44 @@ M:Listen("PLAYER_UNGHOST", "zone", OnUnghost)
 M:Listen("PLAYER_LOGOUT", "zone", OnLogout)
 M:Listen("UPDATE_INSTANCE_INFO", "lockouts", function() M:ReadLockouts() end)
 
--- Bosses killed in the open run: ENCOUNTER_END (success) or BOSS_KILL, one
--- count per encounter (the two events of one kill count once).
-local function OnBoss(event, encounterID, _, _, _, success)
-	local run = M.current
-	if not run or run.kind == "pvp" then return end
-	if event == "ENCOUNTER_END" and (IsSecret(success) or not (success == 1 or success == true)) then return end
-	encounterID = Plain(encounterID)
-	if type(encounterID) ~= "number" then return end
-	M.bossSeen = M.bossSeen and M.bossSeen.run == run and M.bossSeen or { run = run, ids = {} }
-	if M.bossSeen.ids[encounterID] then return end
-	M.bossSeen.ids[encounterID] = true
-	run.bosses = (run.bosses or 0) + 1
+-- Confirm the run still owns the live map, difficulty and character
+-- before recording. A zone can change before its entering-world event.
+local function CurrentBossRun(self)
+	local run = self.current
+	if not run or run.leave or self.bossRunLeaving or (run.kind ~= "party" and run.kind ~= "raid")
+		or run.char ~= self:CharKey() then return end
+	local inside, kind = E.PlainCallEach(IsInInstance)
+	if inside ~= true or kind ~= run.kind then return end
+	local _, _, difficulty, _, _, _, _, map = E.PlainCallEach(GetInstanceInfo)
+	if type(map) == "number" and map > 0 and map == run.instanceID
+		and type(difficulty) == "number" and difficulty == run.difficulty and self.current == run and not run.leave
+		and not self.bossRunLeaving and run.char == self:CharKey() then return run end
+end
+
+-- The Journal only uses the open run of this character on the shown map.
+function M:CurrentBossEncounters(mapID)
+	local run = self.current
+	if not run or run.instanceID ~= mapID or type(run.bossEncounters) ~= "table" then return end
+	if CurrentBossRun(self) == run then return run.bossEncounters end
+end
+
+-- ENCOUNTER_END (success) and BOSS_KILL count once per encounter.
+local function OnBoss(event, encounterID, name, difficultyID, _, success)
+	local run = CurrentBossRun(M)
+	if not run then return end
+	if event == "ENCOUNTER_END" then
+		success, difficultyID = Plain(success), Plain(difficultyID)
+		if (success ~= 1 and success ~= true) or difficultyID ~= run.difficulty then return end
+	end
+	encounterID, name = Plain(encounterID), Plain(name)
+	if type(encounterID) ~= "number" or encounterID <= 0 or encounterID >= math.huge or encounterID % 1 ~= 0 then return end
+	if type(run.bossEncounters) ~= "table" then run.bossEncounters = {} end
+	local previous = run.bossEncounters[encounterID]
+	if previous then return end
+	local knownName = type(name) == "string" and name ~= "" and name or false
+	if previous == false and not knownName then return end
+	run.bossEncounters[encounterID] = knownName
+	if previous == nil then run.bosses = (run.bosses or 0) + 1 end
 	M:Changed("runs")
 end
 M:Listen("ENCOUNTER_END", "bosses", OnBoss)
@@ -1370,6 +1653,7 @@ function M:OnEnable()
 			self:CloseRun(open, "left")
 		end
 		self:RequestLockouts()
+		ApplyCombatLog()
 	end
 	if self.OnEnableParts then self:OnEnableParts() end
 	self:ScheduleFree()
@@ -1377,6 +1661,7 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	ApplyCombatLog()
 	for event in pairs(eventHandlers) do self:UnregisterEvent(event) end
 	self.current = nil
 	self:WatchZoneUID()
@@ -1392,6 +1677,7 @@ end
 
 function M:OnProfileChanged()
 	if not self.active then return end
+	if IsLoggedIn and IsLoggedIn() then ApplyCombatLog() end
 	self:Trim()
 	self:ScheduleFree()
 	if self.ApplyLook then self:ApplyLook() end

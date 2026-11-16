@@ -369,9 +369,22 @@ local function ApplyOverlay(record)
 	return record
 end
 
+-- Published hotfixes can precede the client's exported item tables.
+local function ApplyItemHotfix(record, itemID)
+	local items = E.foreverData and E.foreverData.items
+	local hotfix = items and items[itemID]
+	if not hotfix then return record end
+	record = record or { id = itemID, stats = {} }
+	for _, field in ipairs({ "quality", "class", "subclass", "invType", "itemLevel", "reqLevel", "bind", "bagSlots" }) do
+		if hotfix[field] ~= nil then record[field] = hotfix[field] end
+	end
+	if hotfix.name then record.name = LG:DataName("item", itemID, hotfix.name) end
+	return record
+end
+
 local function BuildItem(itemID)
 	local packed = LD and LD.items and LD.items[itemID]
-	if type(packed) ~= "string" then return BuildPvPReward(itemID) end
+	if type(packed) ~= "string" then return ApplyItemHotfix(BuildPvPReward(itemID), itemID) end
 	-- An item the WoW: Forever client does not have is left out everywhere.
 	local overlay = E.ItemOverlay
 	if overlay and overlay.missing and overlay.missing[itemID] then return end
@@ -399,7 +412,7 @@ local function BuildItem(itemID)
 		if key then stats[key] = tonumber(value) end
 	end
 	record.stats = stats
-	return ApplyOverlay(record)
+	return ApplyItemHotfix(ApplyOverlay(record), itemID)
 end
 
 function LG:ItemRecord(itemID)
@@ -612,9 +625,38 @@ end
 -- Craft spell: { id, result, count, reagents = { { id, count } }, skill,
 -- rank, recipes = { itemID, ... }, trainer = { skill, value, cost, level,
 -- npcs = { npcID, ... } } or nil }. result 0 = an enchant.
+local function CraftNumber(value, minimum)
+	if type(value) == "number" and not Secret(value) and value == value
+		and value >= minimum and value <= 2147483647 and value % 1 == 0 then return value end
+end
+
+local CRAFT_FIELDS = { count = 0, skill = 1, rank = 0, numSkillUps = 1 }
+
+local function NewCraft(spellID, facts)
+	if type(facts) ~= "table" or type(facts.source) ~= "string" or facts.source == "" then return end
+	local craft = { id = spellID, result = CraftNumber(facts.result, 0), reagents = {}, recipes = {} }
+	if not craft.result or type(facts.reagents) ~= "table" then return end
+	for field, minimum in pairs(CRAFT_FIELDS) do
+		craft[field] = CraftNumber(facts[field], minimum)
+		if craft[field] == nil then return end
+	end
+	if craft.result ~= 0 and craft.count == 0 then return end
+	if craft.result == 0 and craft.count ~= 0 then return end
+	craft.yellow, craft.grey = CraftNumber(facts.yellow, 0), CraftNumber(facts.grey, 0)
+	if not (craft.yellow and craft.grey and craft.yellow < craft.grey) then return end
+	for item, count in pairs(facts.reagents) do
+		if not CraftNumber(item, 1) or not CraftNumber(count, 1) then return end
+		craft.reagents[#craft.reagents + 1] = { id = item, count = count }
+	end
+	if #craft.reagents == 0 and not (craft.result == 0 and craft.count == 0) then return end
+	table.sort(craft.reagents, function(a, b) return a.id < b.id end)
+	return craft
+end
+
 local function BuildCraft(spellID)
 	local packed = LD and LD.crafts and LD.crafts[spellID]
-	if type(packed) ~= "string" then return end
+	local hotfix = E.foreverData and E.foreverData.crafts and E.foreverData.crafts[spellID]
+	if type(packed) ~= "string" then return NewCraft(spellID, hotfix) end
 	local f = Split(packed, "|")
 	local result, count = (f[1] or ""):match("^(%d+):(%d+)$")
 	local craft = { id = spellID, result = tonumber(result) or 0, count = tonumber(count) or 1, reagents = {}, recipes = {} }
@@ -635,12 +677,37 @@ local function BuildCraft(spellID)
 		craft.skill = craft.skill or craft.trainer.skill
 		craft.rank = craft.rank or craft.trainer.value
 	end
+	if hotfix and hotfix.result == craft.result then
+		if hotfix.reagentsComplete == true then
+			local replacement = NewCraft(spellID, hotfix)
+			if not replacement then return craft end
+			replacement.recipes, replacement.trainer = craft.recipes, craft.trainer
+			return replacement
+		end
+		if type(hotfix.reagents) == "table" then
+			for _, reagent in ipairs(craft.reagents) do
+				reagent.count = CraftNumber(hotfix.reagents[reagent.id], 1) or reagent.count
+			end
+		end
+		for field, minimum in pairs(CRAFT_FIELDS) do
+			local value = CraftNumber(hotfix[field], minimum)
+			if field == "count" then
+				if value and ((craft.result == 0 and value == 0) or (craft.result ~= 0 and value > 0)) then craft.count = value end
+			else
+				craft[field] = value or craft[field]
+			end
+		end
+		local yellow, grey = CraftNumber(hotfix.yellow, 0), CraftNumber(hotfix.grey, 0)
+		if yellow and grey and yellow < grey then
+			craft.yellow, craft.grey = yellow, grey
+		end
+	end
 	return craft
 end
 
 function LG:Craft(spellID)
 	spellID = tonumber(spellID)
-	if not spellID or not LD then return end
+	if not spellID then return end
 	return Cached("craft", spellID, BuildCraft)
 end
 

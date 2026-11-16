@@ -186,7 +186,7 @@ function M:OpenEditor(uiMapID, x, y, noteID, title)
 	end
 	if InCombatLockdown and InCombatLockdown() then
 		E:Print(L["The note editor opens after combat."])
-		E:RunOutOfCombat(function() M:OpenEditor(uiMapID, x, y, noteID, title) end)
+		E:RunOutOfCombat(function() M:OpenEditor(uiMapID, x, y, noteID, title) end, "mapnotes:editor")
 		return
 	end
 	if not editor then Build() end

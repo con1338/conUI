@@ -907,6 +907,12 @@ local function BuildJourney(questID)
 	record.changed = record.changed or {}
 	if record.confirmed ~= false then record.confirmed = true end
 	record.title = record.title or LG:DataName("quest", questID, nil)
+	local LD = Data()
+	local base = LD and ((LD.quests and LD.quests[questID]) or (LD.journey and LD.journey[questID]))
+	record.closedBy = IdList(LD and LD.questClosedBy and LD.questClosedBy[questID])
+	record.eligibilityComplete = type(base) == "string" and LD.questEligibilityVersion == 1
+		and not (LD.questEligibilityUnknown and LD.questEligibilityUnknown[questID]) or false
+	record.eligibilityProvenance = type(base) == "string" and "classic" or nil
 	return record
 end
 

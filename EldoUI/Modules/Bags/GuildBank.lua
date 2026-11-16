@@ -34,6 +34,7 @@ local function G(name)
 	return rawget(_G, name)
 end
 
+-- Slot size and spacing come from the bag window's settings (Layout).
 local SLOT, GAP = 34, 4
 local COLUMNS, ROWS = 14, 7
 local SLOTS = COLUMNS * ROWS
@@ -97,9 +98,10 @@ local function Withdrawals(info)
 	return L["Withdrawals left today: %d"]:format(left)
 end
 
+-- Money in the Money style, as in the bag and bank windows.
 local function Money(copper)
 	if type(copper) ~= "number" then return "" end
-	return GetMoneyString and GetMoneyString(copper, true) or tostring(copper)
+	return M.Money(copper)
 end
 
 ---------------------------------------------------------------------------
@@ -182,6 +184,7 @@ end
 function M:PaintGuildSlots()
 	if not (win and win:IsShown() and mode == "bank") then return end
 	local query = win.query
+	local found = 0
 	for slot, button in pairs(win.slots) do
 		local record = Record(slot)
 		button.eldoRecord = record
@@ -192,9 +195,25 @@ function M:PaintGuildSlots()
 		else
 			icon:SetTexture(record.icon)
 			local alpha = 1
-			if query and not M.Matches(query, record) then alpha = 0.2 end
+			if query and not M.Matches(query, record) then alpha = 0.2 elseif query then found = found + 1 end
 			M.PaintSlotItem(button, record, alpha)
 			icon:SetDesaturated(record.locked and true or false)
+		end
+	end
+	-- "No matches" while a search finds nothing in this tab; typed text
+	-- stops before it.
+	local line, search = win.noMatch, win.search
+	if line then
+		local base = search.eldoInsets or {}
+		local left, right, top, bottom = base[1] or 0, base[2] or 0, base[3] or 0, base[4] or 0
+		if query and found == 0 then
+			line:SetText(L["No matches"])
+			line:Show()
+			local width = line.GetUnboundedStringWidth and line:GetUnboundedStringWidth() or line:GetStringWidth() or 0
+			search:SetTextInsets(left, math.max(right, width + 24), top, bottom)
+		else
+			line:Hide()
+			search:SetTextInsets(left, right, top, bottom)
 		end
 	end
 end
@@ -466,11 +485,46 @@ end
 ---------------------------------------------------------------------------
 -- The window
 ---------------------------------------------------------------------------
+local function Clamp(value, low, high, fallback)
+	value = tonumber(value) or fallback
+	return math.min(math.max(value, low), high)
+end
+
+-- The window's size for the bag window's Slot size and Spacing.
+local function Measure()
+	local db = M.db or {}
+	SLOT, GAP = Clamp(db.size, 24, 52, 34), Clamp(db.spacing, 0, 10, 4)
+	local inner = COLUMNS * (SLOT + GAP) - GAP
+	local width = Kit.TOOL_PAD * 2 + TAB_SIZE + 10 + inner + 10 + E.tokens.rail.width
+	local height = Kit.TOOL_HEADER + Kit.TOOL_PAD * 2 + TOP + ROWS * (SLOT + GAP) - GAP + Kit.TOOL_FOOTER
+	return width, height, inner
+end
+
+-- Slot size, spacing and window size follow the bag window's settings.
+local function Layout()
+	if not win then return end
+	local width, height, inner = Measure()
+	win:SetSize(width, height)
+	win:SetScale(Clamp(M.db and M.db.scale, 0.5, 1.5, 1))
+	for x = 1, COLUMNS do
+		for y = 1, ROWS do
+			local button = win.slots[SlotAt(x, y)]
+			button:SetSize(SLOT, SLOT)
+			button:ClearAllPoints()
+			button:SetPoint("TOPLEFT", (x - 1) * (SLOT + GAP), -((y - 1) * (SLOT + GAP)))
+		end
+	end
+	for index, button in pairs(win.tabButtons) do
+		button:ClearAllPoints()
+		button:SetPoint("TOP", win.tabColumn, "TOP", 0, -((index - 1) * (TAB_SIZE + GAP)))
+	end
+	if win.infoEdit then win.infoEdit:SetWidth(inner - 40) end
+end
+M.LayoutGuildBank = Layout
+
 local function Build()
 	local railWidth = E.tokens.rail.width
-	local inner = COLUMNS * (SLOT + GAP) - GAP
-	local width = Kit.TOOL_PAD * 2 + TAB_SIZE + 10 + inner + 10 + railWidth
-	local height = Kit.TOOL_HEADER + Kit.TOOL_PAD * 2 + TOP + ROWS * (SLOT + GAP) - GAP + Kit.TOOL_FOOTER
+	local width, height, inner = Measure()
 	win = Kit.CreateToolWindow("EldoUI_GuildBankWindow", { title = G("GUILD_BANK") or L["Guild bank"], width = width, height = height,
 		footer = Kit.TOOL_FOOTER, resizable = false, movable = false })
 	E:BindOptionsLink(win, { page = "module:Bags", key = "guildBank" })
@@ -495,6 +549,15 @@ local function Build()
 		win.query = text ~= "" and M.ParseQuery(text) or nil
 		M:PaintGuildSlots()
 	end)
+	-- "No matches", as in the bag window.
+	win.noMatch = Kit.Text(win.search, E.tokens.size.small, "RIGHT", "secondary")
+	if win.search.clearButton then
+		win.noMatch:SetPoint("RIGHT", win.search.clearButton, "LEFT", -4, 0)
+	else
+		win.noMatch:SetPoint("RIGHT", win.search, "RIGHT", -20, 0)
+	end
+	win.noMatch:Hide()
+	win.search.eldoInsets = { win.search:GetTextInsets() }
 	win.tabText = Kit.Text(main, E.tokens.size.label, "RIGHT", "secondary")
 	win.tabText:SetPoint("TOPRIGHT", 0, -6)
 	win.tabText:SetPoint("TOPLEFT", win.search, "TOPRIGHT", 10, -6)
@@ -547,7 +610,7 @@ local function Build()
 		box:Update()
 	end)
 	box:EnableMouse(true)
-	box:SetScript("OnMouseDown", function() if edit:IsMouseEnabled() then edit:SetFocus() end end)
+	box:SetScript("OnMouseDown", function() if edit:IsMouseEnabled() then edit:SetFocus() end end) -- EldoUI's own edit box
 	win.infoEdit = edit
 	win.infoSave = Kit.Button(info, G("SAVE_CHANGES") or L["Save"], { kind = "primary", onClick = function() M:SaveGuildInfo() end })
 	win.infoSave:SetPoint("BOTTOMRIGHT")
@@ -574,7 +637,7 @@ local function Build()
 		mark:SetPoint("TOPLEFT", -3, 0)
 		mark:SetPoint("BOTTOMLEFT", -3, 0)
 		mark:SetWidth(2)
-		mark:SetColorTexture(unpack(E.media.accentColor))
+		E:AccentTexture(mark)
 		mark:Hide()
 		button.activeMark = mark
 	end
@@ -607,6 +670,7 @@ local function Build()
 
 	win:HookScript("OnHide", function()
 		if win.info.dirty then M:SaveGuildInfo() end
+		if M.db and M.db.clearSearch and (win.search:GetText() or "") ~= "" then win.search:SetText("") end
 		StaticPopup_Hide("GUILDBANK_WITHDRAW")
 		StaticPopup_Hide("GUILDBANK_DEPOSIT")
 		StaticPopup_Hide("CONFIRM_BUY_GUILDBANK_TAB")
@@ -627,6 +691,7 @@ function M:OpenGuildBank()
 	tab = Call(GetCurrentGuildBankTab) or 1
 	local count = Call(GetNumGuildBankTabs) or 0
 	if tab > count then tab = math.max(count, 1) end
+	Layout()
 	win:Place()
 	win:Open()
 	self:SelectGuildTab(tab)

@@ -39,6 +39,8 @@
 -- Written from scratch for EldoUI; no code, text or media from other addons.
 local _, E = ...
 local L = E.L
+local DEFAULT_TREND_THRESHOLD = 15
+local Deals = {}
 
 local M = E:NewModule("Auction", {
 	title = "Auction House",
@@ -56,9 +58,20 @@ local M = E:NewModule("Auction", {
 		undercutPercent = 0,        -- percent below the lowest price
 		undercutFixed = 1,          -- copper below the lowest price
 		duration = 2,               -- 1 short, 2 medium, 3 long
+		dealPercent = 20,
+		dealGold = 0,
+		dealQuality = "any",
+		dealClass = "any",
+		dealUsable = false,
+		watchAlert = "chat",
+		underprice = 40,
 		rememberPrice = true,       -- use your last posted price when nobody else sells the item
 		defaultTab = "none",        -- open on this EldoUI tab, stored as: none, Shopping, Selling, Cancelling (spelling: ok)
 		tooltip = true,
+		tooltipUsual = true,
+		tooltipTrend = true,
+		tooltipVendorNote = true,
+		trendThreshold = DEFAULT_TREND_THRESHOLD,
 		tooltipVendor = true,
 		tooltipDisenchant = true,
 		knownTint = true,           -- tint recipes, mounts, pets and toys you already have
@@ -77,7 +90,8 @@ local M = E:NewModule("Auction", {
 local floor, max, min = math.floor, math.max, math.min
 local AH = C_AuctionHouse
 local RECENT_MAX = 30
-local HISTORY_DAYS = 14
+local HISTORY_DAYS, WEEK_DAYS = 14, 7
+local MIN_USUAL_DAYS = 3
 local POST_HISTORY_MAX = 100
 local IS_FOREVER = (function()
 	local build = select(4, GetBuildInfo())
@@ -196,13 +210,17 @@ end
 local function DBKeyFromLink(link, itemID)
 	local species = type(link) == "string" and link:match("battlepet:(%d+)")
 	if species then return "p" .. species end
-	return itemID or (link and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(link))
+	return itemID or (link and Get(C_Item.GetItemInfoInstant, link))
+end
+
+local function IsPrice(price)
+	return not IsSecret(price) and type(price) == "number" and price > 0 and price < math.huge
 end
 
 local function VendorPrice(item)
-	if not item then return 0 end
-	local price = select(11, C_Item.GetItemInfo(item))
-	return price or 0
+	if IsSecret(item) or not item then return 0 end
+	local price = select(11, Get(C_Item.GetItemInfo, item))
+	return IsPrice(price) and price or 0
 end
 
 -- Money in the Money style (Fonts and text page), or the window's own choice.
@@ -241,7 +259,7 @@ end
 -- replaces one that is there.
 ---------------------------------------------------------------------------
 E:RegisterStore("auction", { owner = "Auction",
-	shape = "prices, posted and history per realm (other auction houses packed); lists, recent searches, favorites, recipes; chars per character" })
+	shape = "prices, posted and history per realm (other auction houses packed); lists, recent searches, favorites, recipes and watch targets; chars per character" })
 
 local function Store()
 	EldoUIDB.auction = EldoUIDB.auction or {}
@@ -252,6 +270,7 @@ local function Store()
 	store.lists = store.lists or {}
 	store.recent = store.recent or {}
 	store.favourites = store.favourites or {}
+	store.watch = store.watch or {}
 	store.chars = store.chars or {}
 	store.packed = store.packed or {}
 	return store
@@ -420,9 +439,9 @@ local function PackOthers(now)
 	Step()
 end
 
-local function PriceDB()
+local function PriceDB(key)
 	local prices = Store().prices
-	local key = RealmKey()
+	key = key or RealmKey()
 	UnpackHouse(key)
 	prices[key] = prices[key] or {}
 	return prices[key]
@@ -477,24 +496,71 @@ function M.SavedPricesText()
 		math.floor(plain / 1024 + 0.5), math.floor(packed / 1024 + 0.5))
 end
 
-local function SavePrice(key, price)
-	if not key or not price or price <= 0 then return end
-	local db = PriceDB()
+-- Store this only in memory. Old records can be packed, cleared or replaced
+-- without keeping their summaries alive.
+local priceHistory = setmetatable({}, { __mode = "k" })
+
+local function PriceHistory(record)
+	if IsSecret(record) or type(record) ~= "table" or (canaccesstable and not canaccesstable(record)) then return end
+	local day = Today()
+	local saved = priceHistory[record]
+	if saved and saved.day == day then return saved end
+	local lows = record.d
+	if IsSecret(lows) or type(lows) ~= "table" or (canaccesstable and not canaccesstable(lows)) then return end
+
+	local prices, daily = {}, {}
+	for ago = 0, HISTORY_DAYS - 1 do
+		local price = lows[day - ago]
+		if IsPrice(price) then
+			prices[#prices + 1] = price
+			if ago < WEEK_DAYS then daily[ago + 1] = price end
+		end
+	end
+	saved = { day = day, count = #prices, daily = daily }
+	if saved.count >= MIN_USUAL_DAYS then
+		table.sort(prices)
+		local low = prices[floor((saved.count + 1) / 2)]
+		local high = prices[floor(saved.count / 2) + 1]
+		saved.usual = floor(low + (high - low) / 2 + 0.5)
+	end
+	if daily[1] and daily[2] and daily[3] then
+		saved.recentLow = min(daily[1], daily[2], daily[3])
+		saved.recentHigh = max(daily[1], daily[2], daily[3])
+	end
+	priceHistory[record] = saved
+	return saved
+end
+
+M.priceListeners = setmetatable({}, { __mode = "k" })
+
+function M:RegisterPriceListener(owner, callback)
+	if owner ~= nil then self.priceListeners[owner] = type(callback) == "function" and callback or nil end
+end
+
+local function SavePrice(key, price, market)
+	if not key or not IsPrice(price) then return end
+	local db = PriceDB(market)
 	local record = db[key] or {}
 	db[key] = record
 	local today = Today()
 	record.l, record.t = price, time()
-	record.d = record.d or {}
-	if not record.d[today] or price < record.d[today] then record.d[today] = price end
+	if type(record.d) ~= "table" then record.d = {} end
+	local current = record.d[today]
+	if not IsPrice(current) or price < current then record.d[today] = price end
 	local lowest
 	for day, value in pairs(record.d) do
-		if day <= today - HISTORY_DAYS then
+		if type(day) == "number" and day <= today - HISTORY_DAYS then
 			record.d[day] = nil
-		elseif not lowest or value < lowest then
+		elseif type(day) == "number" and day <= today and IsPrice(value) and (not lowest or value < lowest) then
 			lowest = value
 		end
 	end
 	record.m = lowest or price
+	priceHistory[record] = nil
+	for _, callback in pairs(M.priceListeners) do
+		local ok, err = pcall(callback, key)
+		if not ok then geterrorhandler()(err) end
+	end
 end
 
 -- Lowest price per key seen in one search, saved together.
@@ -512,14 +578,14 @@ local saveQueue, saveKey = {}, nil
 local saveNext = false               -- a step is scheduled
 local function SaveSome(limit)
 	while limit > 0 do
-		local batch = saveQueue[1]
-		if not batch then return true end
-		local key, price = next(batch, saveKey)
+		local queued = saveQueue[1]
+		if not queued then return true end
+		local key, price = next(queued.batch, saveKey)
 		if key == nil then
 			table.remove(saveQueue, 1)
 			saveKey = nil
 		else
-			SavePrice(key, price)
+			SavePrice(key, price, queued.market)
 			saveKey = key
 			limit = limit - 1
 		end
@@ -536,9 +602,9 @@ local function SaveStep()
 end
 
 -- Takes the table over: nothing may change it afterwards.
-local function QueueBatch(batch)
+local function QueueBatch(batch, market)
 	if not next(batch) then return end
-	saveQueue[#saveQueue + 1] = batch
+	saveQueue[#saveQueue + 1] = { batch = batch, market = market }
 	if not saveNext then
 		saveNext = true
 		C_Timer.After(0, SaveStep)
@@ -558,6 +624,17 @@ end
 function M:GetPrice(key)
 	local record = key and PriceDB()[key]
 	return record and record.l, record
+end
+
+-- Unit value from the current market's saved daily lows.
+function M:GetUsualPrice(link, itemID)
+	if IsSecret(link) or IsSecret(itemID) then return end
+	if itemID ~= nil and type(itemID) ~= "number" then return end
+	local key = DBKeyFromLink(type(link) == "string" and link or nil, itemID)
+	if IsSecret(key) then return end
+	if type(key) ~= "string" and (type(key) ~= "number" or not (key > 0 and key < math.huge) or key % 1 ~= 0) then return end
+	local history = PriceHistory(PriceDB()[key])
+	return history and history.usual
 end
 
 ---------------------------------------------------------------------------
@@ -687,8 +764,8 @@ local function ReagentCost(itemID)
 end
 
 -- Cost of one crafted item, whether every reagent had a price, the recipe.
-function M:GetCraftingCost(itemID)
-	local recipe = itemID and Recipes()[itemID]
+function M:GetCraftingCost(itemID, selectedRecipe)
+	local recipe = selectedRecipe or (itemID and Recipes()[itemID])
 	if not recipe then return nil end
 	local cost, complete = 0, true
 	for reagent, amount in pairs(recipe.r or {}) do
@@ -924,7 +1001,10 @@ local function CreateListView(parent, spec)
 	view.headerHeight = spec.header and 20 or 0
 	view:EnableMouseWheel(true)
 	view:SetScript("OnMouseWheel", function(self, delta) self:ScrollBy(-delta * 3) end)
-	view:SetScript("OnSizeChanged", function(self) self:Layout() end)
+	-- These views get their size from anchors. A view opened from a hidden
+	-- page needs its row geometry as soon as the parent is visible.
+	view:SetScript("OnShow", ListView.Layout)
+	view:SetScript("OnSizeChanged", ListView.Layout)
 
 	if spec.header then
 		view.header = CreateFrame("Frame", nil, view)
@@ -1036,8 +1116,8 @@ function ListView:CreateRow()
 end
 
 function ListView:Layout()
-	local width, height = self:GetWidth(), self:GetHeight()
-	if width < 10 or height < 10 then return end
+	local width, height = E.Plain(self:GetWidth()), E.Plain(self:GetHeight())
+	if type(width) ~= "number" or type(height) ~= "number" or width < 10 or height < 10 then return end
 	local rowHeight = M.db.rowHeight
 	local count = max(1, floor((height - self.headerHeight) / rowHeight))
 	local columns = self:ColumnLayout(width - 8)
@@ -1120,7 +1200,7 @@ function ListView:ApplySort()
 	self.shown = list
 	if self.headers then
 		for index, button in ipairs(self.headers) do
-			local title = self.spec.columns[index].title or ""
+			local title = L[self.spec.columns[index].title or ""]
 			if index == self.sortIndex then title = title .. (self.sortDesc and "  v" or "  ^") end
 			button.text:SetText(title)
 		end
@@ -1265,13 +1345,13 @@ end
 -- Searches in the game's own Buy tab are remembered too: EldoUI reads the
 -- results the game already sent and asks the auction house for nothing.
 local function SaveBrowsePrices(results)
-	if type(results) ~= "table" then return end
+	if not Deals.ReadableTable(results) then return end
 	local batch = {}
 	for _, result in ipairs(results) do
-		local itemKey, price = type(result) == "table" and result.itemKey, type(result) == "table" and result.minPrice
-		if type(itemKey) == "table" and not IsSecret(price) and type(price) == "number" and price > 0 then
-			local key = DBKeyFromItemKey(itemKey)
-			if key and (not batch[key] or price < batch[key]) then batch[key] = price end
+		if Deals.ReadableTable(result) and IsPrice(result.minPrice) then
+			local itemKey = Deals.ItemKey(result.itemKey)
+			local key = itemKey and DBKeyFromItemKey(itemKey)
+			if key and (not batch[key] or result.minPrice < batch[key]) then batch[key] = result.minPrice end
 		end
 	end
 	SaveBatch(batch)
@@ -1337,6 +1417,7 @@ end
 -- Panel on top of Blizzard's auction window
 ---------------------------------------------------------------------------
 local Shopping, Selling, Cancelling = {}, {}, {}
+Shopping.deals = Deals
 local pages = { Shopping = Shopping, Selling = Selling, Cancelling = Cancelling }
 M.pages = pages
 local HEADER, FOOTER, PAD = 28, 26, 8
@@ -1702,6 +1783,7 @@ function M:HidePanel(blizzardShown)
 		self.current = nil
 		self:UpdateTabStates()
 	end
+	Deals:UpdateNativeSell(AuctionHouseFrame)
 end
 
 local function Allowed(action)
@@ -1726,6 +1808,65 @@ end
 
 -- EldoUI's tabs and panel ("Improve"). The hooks stay once made and check
 -- the switch each time they run.
+do
+	local native = setmetatable({}, { __mode = "k" })
+
+	local function UpdateWarning(frame, warning)
+		local ahf = AuctionHouseFrame
+		local message
+		if ahf and (frame == ahf.ItemSellFrame or frame == ahf.CommoditiesSellFrame)
+			and Allowed("improve") and Additions() and not E:StandsBack(M, "tabs")
+			and not M.current and E.PlainCall(frame.IsVisible, frame) == true then
+			local location = E.PlainCall(frame.GetItem, frame)
+			if Deals.ReadableTable(location) then
+				local key = Deals.ItemKey(E.PlainCall(AH.GetItemKeyFromItem, location))
+				local price
+				if frame == ahf.ItemSellFrame then
+					local bid, buyout = E.PlainCallAll(frame.GetPrice, frame)
+					price = IsPrice(buyout) and buyout or bid
+				else
+					price = E.PlainCall(frame.GetUnitPrice, frame)
+				end
+				if key then message = Deals:Warning(DBKeyFromItemKey(key), price) end
+			end
+		end
+		warning:SetText(message or "")
+	end
+
+	function Deals:UpdateNativeSell(ahf)
+		if not ahf then return end
+		for _, field in ipairs({ "ItemSellFrame", "CommoditiesSellFrame" }) do
+			local frame = ahf[field]
+			local warning = frame and native[frame]
+			if warning then UpdateWarning(frame, warning) end
+		end
+	end
+
+	function Deals:HookNativeSell(ahf)
+		if InCombatLockdown() then
+			E:RunOutOfCombat(function()
+				if ahf == AuctionHouseFrame and Allowed("improve") then Deals:HookNativeSell(ahf) end
+			end)
+			return
+		end
+		for _, field in ipairs({ "ItemSellFrame", "CommoditiesSellFrame" }) do
+			local frame = ahf[field]
+			if E:SkinUsable(frame) and not native[frame] and type(frame.UpdatePostState) == "function"
+				and E:SkinUsable(frame.PostButton) and not E.FrameCheck(frame, "IsProtected") and not E.FrameCheck(frame.PostButton, "IsProtected") then
+				local warning = Text(frame, 11, "CENTER")
+				warning:SetPoint("TOP", frame.PostButton, "BOTTOM", 0, -5)
+				warning:SetWidth(320)
+				warning:SetTextColor(E:TokenColor("warn"))
+				native[frame] = warning
+				hooksecurefunc(frame, "UpdatePostState", function() UpdateWarning(frame, warning) end)
+				frame:HookScript("OnShow", function() UpdateWarning(frame, warning) end)
+				frame:HookScript("OnHide", function() warning:SetText("") end)
+				UpdateWarning(frame, warning)
+			end
+		end
+	end
+end
+
 function M:SetupAuctionHouse()
 	if self.attached or not AuctionHouseFrame or not Allowed("improve") then return end
 	self.attached = true
@@ -1753,11 +1894,21 @@ function M:SetupAuctionHouse()
 			end
 		end)
 	end
+	if type(AuctionHouseFrame.SendBrowseQuery) == "function" then
+		hooksecurefunc(AuctionHouseFrame, "SendBrowseQuery", function(frame)
+			if frame == AuctionHouseFrame and Allowed("improve") and Additions() and frame:IsVisible() and not Deals.shoppingSearch then
+				Deals.nativePending = Deals:NewResults()
+				Deals.nativeSearch = nil
+			end
+		end)
+	end
+	Deals:HookNativeSell(AuctionHouseFrame)
 	AuctionHouseFrame:HookScript("OnHide", function() M:HidePanel(); M.lastPage = nil end)
 	-- On every show the tabs fit the window again (its first show places
 	-- them), and tabs left unpainted while it was away are painted.
 	AuctionHouseFrame:HookScript("OnShow", function()
 		if not M.active then return end
+		Deals:UpdateNativeSell(AuctionHouseFrame)
 		M:FitTabs()
 		if not paintedTabs then M:UpdateTabStates() end
 	end)
@@ -1775,8 +1926,12 @@ function M:UpdateShown()
 	if not self.tabs then return end
 	local on = Allowed("improve") and Additions() and not E:StandsBack(self, "tabs")
 	for _, tab in pairs(self.tabs) do tab:SetShown(on) end
-	if not on then self:HidePanel() end
+	if not on then
+		Deals.nativePending, Deals.nativeSearch = nil, nil
+		self:HidePanel()
+	end
 	self:LayoutRail()
+	Deals:UpdateNativeSell(AuctionHouseFrame)
 end
 
 -- Tour help: EldoUI's tabs beside Blizzard's, shown once per account.
@@ -1837,6 +1992,181 @@ E:RegisterBlizzardHandler("auction-house", {
 })
 
 ---------------------------------------------------------------------------
+-- Deals and watch targets share the price database's item identity.
+---------------------------------------------------------------------------
+do
+	local function ReadableTable(value)
+		return not IsSecret(value) and type(value) == "table" and (not canaccesstable or canaccesstable(value))
+	end
+	Deals.ReadableTable = ReadableTable
+
+	local function Whole(value, lowest)
+		return not IsSecret(value) and type(value) == "number" and value >= lowest and value < math.huge and floor(value) == value
+	end
+	Deals.Whole = Whole
+
+	function Deals.ItemKey(key)
+		if not ReadableTable(key) or not Whole(key.itemID, 1) then return end
+		local level, suffix, species = E.Plain(key.itemLevel), E.Plain(key.itemSuffix), E.Plain(key.battlePetSpeciesID)
+		if IsSecret(key.itemLevel) or IsSecret(key.itemSuffix) or IsSecret(key.battlePetSpeciesID) then return end
+		if (level ~= nil and not Whole(level, 0)) or (suffix ~= nil and not Whole(suffix, -math.huge))
+			or (species ~= nil and not Whole(species, 0)) then return end
+		return { itemID = key.itemID, itemLevel = level or 0, itemSuffix = suffix or 0, battlePetSpeciesID = species or 0 }
+	end
+
+	function Deals:Usual(key, db)
+		local history = key and PriceHistory((db or PriceDB())[key])
+		return history and history.usual
+	end
+
+	function Deals:Warning(key, price)
+		local threshold = M.db.underprice
+		if not Whole(threshold, 1) or threshold > 99 or not IsPrice(price) then return end
+		local usual = self:Usual(key)
+		if usual and price <= usual * (100 - threshold) / 100 then
+			return L["Well below the usual price (%s)"]:format(Money(usual))
+		end
+	end
+
+	function Deals:WatchTargets()
+		local targets = Store().watch
+		if ReadableTable(targets) then return targets end
+	end
+
+	function Deals:Target(key)
+		local targets = self:WatchTargets()
+		local target = targets and targets[key]
+		return Whole(target, 1) and target or nil
+	end
+
+	function Deals:NewResults()
+		return { market = RealmKey(), rows = {}, hits = {} }
+	end
+
+	local function ScanKey(itemID, link)
+		local species = link and (link:match("^battlepet:(%d+)") or link:match("|Hbattlepet:(%d+)"))
+		if species then
+			local number = tonumber(species)
+			if Whole(number, 1) then return { itemID = itemID, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = number } end
+		end
+		if itemID == 82800 then return end
+		local class = E.Plain(select(6, Get(C_Item.GetItemInfoInstant, link or itemID)))
+		if not Whole(class, 0) then return end
+		-- The replicate row's level is the required level on Forever. Read
+		-- the actual variant from the optional link for armor and weapons.
+		local level, suffix = 0, 0
+		local payload = link and (link:match("|Hitem:([^|]+)") or link:match("^item:(.+)$"))
+		local classes = Enum.ItemClass or {}
+		if class == classes.Weapon or class == classes.Armor then
+			if not payload then return end
+			level = E.PlainCall(C_Item.GetDetailedItemLevelInfo, link)
+			if not Whole(level, 1) then return end
+		end
+		if payload then
+			local field = payload:match("^%d+:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:([^:]*)")
+			if field == "" then field = "0" end
+			if field then
+				suffix = tonumber(field)
+				if not Whole(suffix, -math.huge) then return end
+			elseif level > 0 then
+				return
+			end
+		end
+		return { itemID = itemID, itemLevel = level, itemSuffix = suffix, battlePetSpeciesID = 0 }
+	end
+
+	function Deals:ScanRow(key, id, name, icon, quality, usable, count, buyout, link, usual)
+		name, icon, usable = E.Plain(name), E.Plain(icon), E.Plain(usable)
+		return {
+			key = key, itemID = id, name = type(name) == "string" and name or nil,
+			link = link, icon = icon, quality = Whole(quality, 0) and quality or nil,
+			usable = usable == true, quantity = count, buyout = buyout, price = buyout / count, usual = usual,
+		}
+	end
+
+	function Deals:BrowseRow(results, result, entry)
+		if not ReadableTable(result) then return end
+		local key, price = Deals.ItemKey(result.itemKey), result.minPrice
+		if not key or not IsPrice(price) then return end
+		local id = DBKeyFromItemKey(key)
+		local old = results.rows[id]
+		if old and old.price <= price then return end
+		local link = E.Plain(result.appearanceLink)
+		results.rows[id] = {
+			key = id, itemID = key.itemID, itemKey = key, price = price,
+			quantity = Whole(result.totalQuantity, 0) and result.totalQuantity or nil,
+			link = type(link) == "string" and link or nil,
+			name = entry and E.Plain(entry.name), quality = entry and E.Plain(entry.quality), icon = entry and E.Plain(entry.icon),
+		}
+	end
+
+	function Deals:Describe(row)
+		if row.buyout and not row.itemKey then row.itemKey = ScanKey(row.itemID, row.link) end
+		if row.name and row.icon and Whole(row.quality, 0) then return end
+		local item = row.itemKey and E.PlainCall(AH.GetItemKeyInfo, row.itemKey)
+		if ReadableTable(item) then
+			local name, quality, icon = E.Plain(item.itemName), E.Plain(item.quality), E.Plain(item.iconFileID)
+			row.name = row.name or (type(name) == "string" and name or nil)
+			row.icon = row.icon or icon
+			row.quality = row.quality or (Whole(quality, 0) and quality or nil)
+		end
+		if not row.name or not row.icon or not row.quality then
+			local name, _, quality, _, _, _, _, _, _, icon = E.PlainCallEach(C_Item.GetItemInfo, row.link or row.itemID)
+			row.name = row.name or (type(name) == "string" and name or nil)
+			row.icon = row.icon or icon
+			row.quality = row.quality or (Whole(quality, 0) and quality or nil)
+		end
+	end
+
+	function Deals:Name(row)
+		return row.name or L["Item %s"]:format(row.itemID)
+	end
+
+	function Deals:Notify(results, row)
+		local mode = E.Plain(M.db.watchAlert)
+		if mode ~= "chat" and mode ~= "toast" then return end
+		if results.hits[row.key] then return end
+		local target = self:Target(row.key)
+		if not target or row.price > target then return end
+		results.hits[row.key] = true
+		self:Describe(row)
+		local text = L["%s is at or below your target."]:format(self:Name(row))
+		if mode == "toast" then
+			M:PushAlert({ title = L["Auction watch list"], text = text, icon = row.icon, options = { page = "module:Auction", key = "watchAlert" } })
+		else
+			M:Print(text)
+		end
+	end
+
+	function Deals:FinishResults(results, field)
+		if not results or results.market ~= RealmKey() then return end
+		self.completions = (self.completions or 0) + 1
+		results.order = self.completions
+		self[field] = results
+		if not Allowed("improve") or not Additions() or E:StandsBack(M, "tabs") then return end
+		local targets = self:WatchTargets()
+		for key in pairs(targets or {}) do
+			local row = results.rows[key]
+			if row then self:Notify(results, row) end
+		end
+		if self:Live() then self:Refresh() end
+	end
+
+	function Deals:OnNativeBrowse(added, results)
+		if not self.nativePending and not (added and self.nativeSearch) then return end
+		local search = self.nativePending or self.nativeSearch
+		if not ReadableTable(results) or search.market ~= RealmKey() then return end
+		if not added then wipe(search.rows) end
+		for _, result in ipairs(results) do self:BrowseRow(search, result) end
+		if not added then
+			self.nativePending = nil
+			self.nativeSearch = search
+		end
+		self:FinishResults(search, "search")
+	end
+end
+
+---------------------------------------------------------------------------
 -- Full scan: one click = one C_AuctionHouse.ReplicateItems() request,
 -- which Blizzard allows once every 15 minutes. The answer is read in
 -- small steps so the game doesn't stall, and the lowest unit buyout of
@@ -1868,17 +2198,18 @@ function M:FullScan()
 		self:SetStatus(L["A full scan is possible again in %d min."]:format(math.ceil(wait / 60)))
 		return
 	end
-	fullScan = { requested = true }
+	local requested = { requested = true, market = RealmKey() }
+	fullScan = requested
 	WhenReady(function()
-		if not fullScan or not fullScan.requested then return end
+		if fullScan ~= requested then return end
 		if Call(AH.ReplicateItems) then
 			local store = Store()
 			store.fullScan = store.fullScan or {}
-			store.fullScan[RealmKey()] = time()
+			store.fullScan[requested.market] = time()
 			M:SetStatus(L["Full scan requested. The auction house sends every listing; this can take a moment."])
 			-- No answer: give the button back.
 			C_Timer.After(120, function()
-				if fullScan and fullScan.requested then
+				if fullScan == requested then
 					fullScan = nil
 					M:SetStatus(L["The full scan got no answer."])
 					M:UpdateScanButton()
@@ -1903,10 +2234,11 @@ end
 -- Saves what a scan read (all of it, or the part read so far).
 local function FinishScan(scan, partial)
 	local items = scan.items or 0
-	QueueBatch(scan.batch)
+	QueueBatch(scan.batch, scan.results.market)
 	local store = Store()
 	store.fullScanInfo = store.fullScanInfo or {}
-	store.fullScanInfo[RealmKey()] = { at = time(), items = items, partial = partial or nil }
+	store.fullScanInfo[scan.results.market] = { at = time(), items = items, partial = partial or nil }
+	if not partial then Deals:FinishResults(scan.results, "scan") end
 	return items
 end
 
@@ -1915,18 +2247,28 @@ local function ReadReplicate()
 	if not scan then return end
 	local last = min(scan.count - 1, scan.index + 499)
 	for index = scan.index, last do
-		local _, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = Get(AH.GetReplicateItemInfo, index)
-		if itemID and buyout and buyout > 0 and count and count > 0 then
-			local key = itemID
-			if itemID == 82800 then
-				-- Caged battle pets: the species is in the link.
-				key = DBKeyFromLink(Get(AH.GetReplicateItemLink, index), itemID)
-			end
+		local name, icon, count, quality, usable, _, _, _, _, buyout, _, _, _, _, _, _, itemID =
+			Get(AH.GetReplicateItemInfo, index)
+		if Deals.Whole(itemID, 1) and Deals.Whole(buyout, 1) and Deals.Whole(count, 1) then
+			local link
+			if itemID == 82800 then link = E.PlainCall(AH.GetReplicateItemLink, index) end
+			local key = DBKeyFromLink(type(link) == "string" and link or nil, itemID)
 			local unit = floor(buyout / count)
 			local known = scan.batch[key]
 			if unit > 0 and (not known or unit < known) then
 				if not known then scan.items = scan.items + 1 end
 				scan.batch[key] = unit
+			end
+			-- Neither the deal list nor the watch alert needs items that
+			-- haven't been priced before or added to the watch list.
+			local previous = scan.results.rows[key]
+			if not previous or previous.price > buyout / count then
+				local usual = Deals:Usual(key, scan.baseline)
+				if (usual and usual > buyout / count) or scan.targets[key] then
+					if itemID ~= 82800 then link = E.PlainCall(AH.GetReplicateItemLink, index) end
+					scan.results.rows[key] = Deals:ScanRow(key, itemID, name, icon, quality, usable, count, buyout,
+						type(link) == "string" and link or nil, usual)
+				end
 			end
 		end
 	end
@@ -1939,15 +2281,20 @@ local function ReadReplicate()
 		return
 	end
 	M:SetStatus(L["Reading the full scan: %d%%"]:format(floor(scan.index / scan.count * 100)))
-	C_Timer.After(0, ReadReplicate)
+	C_Timer.After(0, function() if fullScan == scan then ReadReplicate() end end)
 end
 
 function M:OnReplicateList()
 	if not fullScan or not fullScan.requested then return end
-	local count = Get(AH.GetNumReplicateItems) or 0
-	fullScan = { index = 0, count = count, batch = {}, items = 0 }
+	local count = E.PlainCall(AH.GetNumReplicateItems)
+	if not Deals.Whole(count, 0) then count = 0 end
+	local results = Deals:NewResults()
+	results.market = fullScan.market
+	fullScan = { index = 0, count = count, batch = {}, items = 0, results = results,
+		baseline = PriceDB(results.market), targets = Deals:WatchTargets() or {} }
 	if count == 0 then
 		fullScan = nil
+		Deals:FinishResults(results, "scan")
 		self:SetStatus(L["The full scan returned no listings."])
 		self:UpdateScanButton()
 		return
@@ -1998,13 +2345,14 @@ local function AddRecent(term)
 end
 
 local function ResolveEntry(entry)
-	local info = Get(AH.GetItemKeyInfo, entry.itemKey)
-	if info and info.itemName then
-		entry.name, entry.quality, entry.icon, entry.commodity = info.itemName, info.quality, info.iconFileID, info.isCommodity
+	local info = E.PlainCall(AH.GetItemKeyInfo, entry.itemKey)
+	local name = Deals.ReadableTable(info) and E.Plain(info.itemName)
+	if type(name) == "string" then
+		entry.name, entry.quality, entry.icon, entry.commodity = name, E.Plain(info.quality), E.Plain(info.iconFileID), E.Plain(info.isCommodity)
 		entry.pending = nil
 	else
-		local name, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(entry.itemKey.itemID)
-		entry.name = name or entry.name or L["Item %s"]:format(entry.itemKey.itemID)
+		local itemName, _, quality, _, _, _, _, _, _, icon = E.PlainCallEach(C_Item.GetItemInfo, entry.itemKey.itemID)
+		entry.name = itemName or entry.name or L["Item %s"]:format(entry.itemKey.itemID)
 		entry.quality = quality or entry.quality
 		entry.icon = icon or entry.icon or (C_Item.GetItemIconByID and C_Item.GetItemIconByID(entry.itemKey.itemID))
 		entry.pending = true
@@ -2044,13 +2392,14 @@ function Shopping:Rebuild()
 	else
 		self.results:SetEmptyText(nil)
 	end
-	self.more:SetShown(shop.single and shop.done and not Get(AH.HasFullBrowseResults) and #shop.results > 0)
+	self.more:SetShown(Deals.view and Deals.view.selected == "results" and shop.single and shop.done
+		and not Get(AH.HasFullBrowseResults) and #shop.results > 0)
 end
 
 function Shopping:AddBrowseResults(results, exact)
 	local batch = {}
-	for _, result in ipairs(results or {}) do
-		local itemKey = result.itemKey
+	for _, result in ipairs(Deals.ReadableTable(results) and results or {}) do
+		local itemKey = Deals.ReadableTable(result) and Deals.ItemKey(result.itemKey)
 		if itemKey then
 			local id = KeyString(itemKey)
 			local entry = shop.byKey[id]
@@ -2060,26 +2409,40 @@ function Shopping:AddBrowseResults(results, exact)
 				shop.results[#shop.results + 1] = entry
 			end
 			entry.browse = result
-			entry.price = result.minPrice
-			entry.available = result.totalQuantity
-			entry.own = result.containsOwnerItem
+			entry.price = IsPrice(result.minPrice) and result.minPrice or nil
+			entry.available = Deals.Whole(result.totalQuantity, 0) and result.totalQuantity or nil
+			entry.own = E.Plain(result.containsOwnerItem) == true
 			ResolveEntry(entry)
 			local key = DBKeyFromItemKey(itemKey)
-			if entry.price and entry.price > 0 and (not batch[key] or entry.price < batch[key]) then batch[key] = entry.price end
+			if entry.price and (not batch[key] or entry.price < batch[key]) then batch[key] = entry.price end
 		end
 	end
 	SaveBatch(batch)
 	self:Rebuild()
 end
 
+function Deals:FinishShopping()
+	local results = shop.dealResults
+	if not results then return end
+	-- Exact names can be unresolved just after the browse event. Wait for
+	-- the item data before including or announcing those rows.
+	wipe(results.rows)
+	for _, entry in ipairs(shop.results) do
+		if (not entry.exact or not entry.pending) and MatchesTerm(entry) then self:BrowseRow(results, entry.browse, entry) end
+	end
+	self:FinishResults(results, "search")
+end
+
 local function SendNextTerm()
 	local term = table.remove(shop.queue, 1)
 	if not term then
 		shop.searching = false
+		Deals.shoppingSearch = nil
 		shop.done = true
 		Shopping.searchButton:Enable()
 		M:SetStatus(L["%d results."]:format(#Shopping.results.shown))
 		Shopping:Rebuild()
+		Deals:FinishShopping()
 		return
 	end
 	WhenReady(function()
@@ -2108,10 +2471,15 @@ function Shopping:Search(terms, single)
 	if #clean == 0 then return end
 	wipe(shop.results)
 	wipe(shop.byKey)
+	Deals.selected = nil
+	if Deals.quickAdd then Deals.quickAdd:Disable() end
+	shop.dealResults = Deals:NewResults()
+	Deals.nativePending, Deals.nativeSearch = nil, nil
 	shop.queue = clean
 	shop.total = #clean
 	shop.single = single
 	shop.searching = true
+	Deals.shoppingSearch = true
 	shop.done = false
 	if single then
 		AddRecent(clean[1])
@@ -2135,6 +2503,7 @@ function Shopping:OnBrowseResults(added)
 		shop.last, shop.current = shop.current, nil
 		M:SetStatus(L["%d results."]:format(#self.results.shown))
 		self:Rebuild()
+		Deals:FinishShopping()
 	end
 end
 
@@ -2147,12 +2516,342 @@ end
 
 -- Opens Blizzard's own buy screen for the item.
 local function OpenBuy(entry)
-	if not entry.browse or not AuctionHouseFrame or not AuctionHouseFrame.SelectBrowseResult then
+	local result = entry.browse
+	if not Deals.ReadableTable(result) or not IsPrice(result.minPrice) then return end
+	local key = Deals.ItemKey(result.itemKey)
+	if not key or not AuctionHouseFrame or not AuctionHouseFrame.SelectBrowseResult then
 		M:Print(L["Use Blizzard's Buy tab for this item."])
 		return
 	end
-	local ok, err = pcall(AuctionHouseFrame.SelectBrowseResult, AuctionHouseFrame, entry.browse)
-	if not ok then E:Debug("Auction buy screen:", err) end
+	-- The native mode setter returns early for the already-selected Buy
+	-- mode. Restore its frames before it runs so they also show in that case.
+	M:HidePanel()
+	if not Call(AuctionHouseFrame.SelectBrowseResult, AuctionHouseFrame, { itemKey = key, minPrice = result.minPrice }) then
+		M:Print(L["Use Blizzard's Buy tab for this item."])
+	end
+end
+
+do
+	local function ResultKey(entry)
+		local key = entry.key or (entry.itemKey and DBKeyFromItemKey(entry.itemKey))
+		if key ~= 82800 then return key end
+	end
+
+	function Deals.IsWatchHit(entry)
+		local target = Deals:Target(ResultKey(entry))
+		return target and IsPrice(entry.price) and entry.price <= target
+	end
+
+	local function WatchHit(entry)
+		if Deals.IsWatchHit(entry) then
+			return L["Target met"], E:TokenColor("good")
+		end
+		return ""
+	end
+
+	local function SetItemTip(row, entry)
+		GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+		if entry.link and GameTooltip.SetHyperlink then
+			Call(GameTooltip.SetHyperlink, GameTooltip, entry.link)
+		elseif entry.itemKey then
+			SetItemKeyTooltip(GameTooltip, entry.itemKey)
+		elseif entry.itemID then
+			GameTooltip:SetItemByID(entry.itemID)
+		else
+			GameTooltip:AddLine(Deals:Name(entry))
+		end
+	end
+
+	local function ResultTip(entry, row)
+		SetItemTip(row, entry)
+		if entry.buyout then
+			GameTooltip:AddLine(L["Stack buyout: %s"]:format(Money(entry.buyout)), E:TokenColor("secondary"))
+		else
+			GameTooltip:AddLine(L["Available counts the whole group, including listings above the shown price."], E:TokenColor("secondary", true))
+		end
+		GameTooltip:Show()
+	end
+
+	local function ItemColumn()
+		return { key = "name", title = "Name", flex = true, icon = function(row) return row.icon end,
+			text = function(row) return Deals:Name(row), QualityColor(row.quality) end,
+			sort = function(row) return Deals:Name(row):lower() end }
+	end
+
+	local function PriceColumn(key, label)
+		return { key = key, title = label, width = 118, justify = "RIGHT",
+			text = function(row) return IsPrice(row[key]) and Money(row[key]) or "" end,
+			sort = function(row) return row[key] end }
+	end
+
+	local function DealMatches(row, usual)
+		if not usual or row.price >= usual then return end
+		local saved = usual - row.price
+		local percent, gold = M.db.dealPercent, M.db.dealGold
+		if not Deals.Whole(percent, 0) then percent = 20 end
+		if not Deals.Whole(gold, 0) then gold = 0 end
+		if saved * 100 < usual * percent or saved < gold * 10000 then return end
+		if Deals.Whole(M.db.dealQuality, 0) then
+			Deals:Describe(row)
+			if row.quality ~= M.db.dealQuality then return end
+		end
+		if Deals.Whole(M.db.dealClass, 0) then
+			local item = row.link or row.itemID
+			local _, _, _, _, _, class = E.PlainCallEach(C_Item.GetItemInfoInstant, item)
+			if class ~= M.db.dealClass then return end
+		end
+		if E.Plain(M.db.dealUsable) == true then
+			local usable = row.usable
+			if usable == nil then usable = E.PlainCall(C_Item.IsUsableItem, row.link or row.itemID) end
+			if usable ~= true then return end
+		end
+		return saved * 100 / usual
+	end
+
+	function Deals:RebuildDeals()
+		local results = self.search
+		if self.source.selected == "scan" then results = self.scan end
+		local display = {}
+		if results and results.market == RealmKey() then
+			local prices = PriceDB(results.market)
+			for key, row in pairs(results.rows) do
+				local usual = row.usual
+				if self.source.selected ~= "scan" then usual = self:Usual(key, prices) end
+				local saving = DealMatches(row, usual)
+				if saving then
+					self:Describe(row)
+					row.usual, row.saving = usual, saving
+					display[#display + 1] = row
+				end
+			end
+		end
+		self.dealList:SetItems(display)
+	end
+
+	function Deals:RebuildWatch()
+		local display = {}
+		local market = RealmKey()
+		local search = self.search and self.search.market == market and self.search
+		local scan = self.scan and self.scan.market == market and self.scan
+		if search and scan and scan.order > search.order then search, scan = scan, search end
+		for key, target in pairs(self:WatchTargets() or {}) do
+			if self.Whole(target, 1) then
+				local itemID = self.Whole(key, 1) and key
+				local species = not IsSecret(key) and type(key) == "string" and tonumber(key:match("^p(%d+)$"))
+				if not itemID and self.Whole(species, 1) then itemID = 82800 end
+				if itemID then
+					local recent = search and search.rows[key] or scan and scan.rows[key]
+					local row = {
+						key = key, itemID = itemID, target = target, price = recent and recent.price,
+						itemKey = recent and recent.itemKey or (species and { itemID = itemID, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = species }),
+						link = recent and recent.link, name = recent and recent.name,
+						icon = recent and recent.icon, quality = recent and recent.quality,
+					}
+					self:Describe(row)
+					display[#display + 1] = row
+				end
+			end
+		end
+		self.watchList:SetItems(display)
+	end
+
+	function Deals:Refresh()
+		if not self.view then return end
+		local key = self.view.selected
+		Shopping.sideFrame:SetShown(key == "results")
+		Shopping.results:SetShown(key == "results")
+		self.quickAdd:SetShown(key == "results")
+		self.quickAdd:SetEnabled(self.selected ~= nil)
+		self.dealPage:SetShown(key == "deals")
+		self.watchPage:SetShown(key == "watch")
+		if key ~= "results" then Shopping.box:ClearFocus() end
+		if key == "deals" then self:RebuildDeals() end
+		if key == "watch" then self:RebuildWatch() end
+		Shopping:Rebuild()
+	end
+
+	function Deals:Live()
+		return Allowed("improve") and Additions() and M.current == "Shopping"
+			and M.panel and M.panel:IsVisible() and not E:StandsBack(M, "tabs")
+	end
+
+	function Deals:Edit(entry)
+		if not self:Live() then return end
+		local key = ResultKey(entry)
+		if not key then return end
+		local editor = self.editor
+		editor.key, editor.targets = key, self:WatchTargets()
+		if not editor.targets then return end
+		if not entry.itemID then entry.itemID = entry.itemKey.itemID end
+		self:Describe(entry)
+		editor.title:SetText(L["Target for %s"]:format(self:Name(entry)))
+		editor.amount:SetValue(self:Target(key) or 0)
+		editor:Show()
+		editor.amount.boxes[1]:SetFocus()
+		editor.amount.boxes[1]:HighlightText()
+	end
+
+	function Deals:SaveTarget()
+		local editor = self.editor
+		if not editor:IsVisible() or not self:Live() or editor.targets ~= self:WatchTargets() then return end
+		local price = editor.amount:GetValue()
+		if not self.Whole(price, 1) then return end
+		editor.targets[editor.key] = price
+		editor:Hide()
+		self.view:Select("watch")
+	end
+
+	function Deals:RemoveTarget(row)
+		if not self:Live() then return end
+		local targets = self:WatchTargets()
+		if not targets then return end
+		targets[row.key] = nil
+		self:Refresh()
+	end
+
+	function Deals:WatchCursor()
+		if not self:Live() then return end
+		local kind, id, link = E.PlainCallEach(GetCursorInfo)
+		if kind ~= "item" or not self.Whole(id, 1) then return end
+		link = type(link) == "string" and link or nil
+		local key = DBKeyFromLink(link, id)
+		if id == 82800 and key == id then return end
+		self:Edit({ key = key, itemID = id, link = link })
+	end
+
+	function Deals:ClickResult(entry, mouse, row)
+		if mouse ~= "RightButton" then return end
+		self.selected = entry
+		self.quickAdd:Enable()
+		Shopping.results:Refresh()
+		Kit.ContextMenu(row, function(_, menu)
+			menu:CreateButton(L["Set watch price"], function()
+				if row.item == entry then Deals:Edit(entry) end
+			end)
+			menu:CreateButton(L["Open in Buy"], function()
+				if row.item == entry then Deals:Open(entry) end
+			end)
+		end)
+		return true
+	end
+
+	function Deals:Open(row)
+		if not Deals:Live() then return end
+		if row.browse then OpenBuy(row); return end
+		self:Describe(row)
+		local info = row.itemKey and E.PlainCall(AH.GetItemKeyInfo, row.itemKey)
+		if not IsPrice(row.price) or not Deals.ReadableTable(info) or type(E.Plain(info.isCommodity)) ~= "boolean" then
+			M:Print(L["Use Blizzard's Buy tab for this item."])
+			return
+		end
+		OpenBuy({ browse = { itemKey = row.itemKey, minPrice = floor(row.price + 0.5) } })
+	end
+
+	local function CreateEditor(frame)
+		local editor = CreateFrame("Frame", nil, frame)
+		editor:SetSize(345, 94)
+		editor:SetPoint("TOPRIGHT", 0, -32)
+		editor:SetFrameLevel(frame:GetFrameLevel() + 12)
+		editor:EnableMouse(true)
+		E:SetPanelTemplate(editor)
+		editor.title = Text(editor, 13, "LEFT", true)
+		editor.title:SetPoint("TOPLEFT", 10, -8)
+		editor.title:SetPoint("TOPRIGHT", -10, -8)
+		editor.amount = Deals.MoneyInput(editor, function() end)
+		editor.amount:SetPoint("TOPLEFT", 10, -34)
+		local save = Button(editor, L["Save target"], 130, false, "primary")
+		save:SetPoint("BOTTOMLEFT", 10, 8)
+		save:SetScript("OnClick", function() Deals:SaveTarget() end)
+		local cancel = Button(editor, L["Cancel"], 110)
+		cancel:SetPoint("LEFT", save, "RIGHT", 6, 0)
+		cancel:SetScript("OnClick", function() editor:Hide() end)
+		for _, box in ipairs(editor.amount.boxes) do
+			box:SetScript("OnEnterPressed", function() Deals:SaveTarget() end)
+			box:SetScript("OnEscapePressed", function() editor:Hide() end)
+		end
+		editor:SetScript("OnHide", function()
+			for _, box in ipairs(editor.amount.boxes) do box:ClearFocus() end
+			editor.key, editor.targets = nil, nil
+		end)
+		editor:Hide()
+		Deals.editor, editor.save = editor, save
+	end
+
+	function Deals:Create(frame)
+		self.view = TabStrip(frame, { { key = "results", label = "Results" }, { key = "deals", label = "Deals" },
+			{ key = "watch", label = "Auction watch list" } }, function() Deals:Refresh() end)
+		self.view.tabs[1]:SetPoint("TOPLEFT", 0, -30)
+		local dealPage = CreateFrame("Frame", nil, frame)
+		dealPage:Hide()
+		dealPage:SetPoint("TOPLEFT", 0, -60)
+		dealPage:SetPoint("BOTTOMRIGHT")
+		self.dealPage = dealPage
+		self.source = TabStrip(dealPage, { { key = "search", label = "Last search" }, { key = "scan", label = "Last full scan" } },
+			function() Deals:RebuildDeals() end)
+		self.source.tabs[1]:SetPoint("TOPLEFT")
+		self.source:Select("search", true)
+		self.dealList = CreateListView(dealPage, {
+			header = true,
+			columns = {
+				ItemColumn(),
+				PriceColumn("usual", E.Key("Usual price")),
+				PriceColumn("price", "Unit price"),
+				{ title = "Quantity", width = 65, justify = "RIGHT",
+					text = function(row) return row.quantity and Abbreviate(row.quantity) or "?" end,
+					sort = function(row) return row.quantity end },
+				{ title = "Savings", width = 80, justify = "RIGHT",
+					text = function(row) return ("%d%%"):format(floor(row.saving)) end,
+					sort = function(row) return row.saving end },
+				{ width = 122, text = WatchHit },
+			},
+			onClick = function(row, mouse, button)
+				if not Deals:ClickResult(row, mouse, button) then Deals:Open(row) end
+			end,
+			onEnter = ResultTip,
+			empty = L["No deals match this view."],
+		})
+		self.dealList:SetPoint("TOPLEFT", 0, -30)
+		self.dealList:SetPoint("BOTTOMRIGHT")
+		self.dealList.sortIndex, self.dealList.sortDesc = 5, true
+
+		local watchPage = CreateFrame("Frame", nil, frame)
+		watchPage:Hide()
+		watchPage:SetPoint("TOPLEFT", 0, -60)
+		watchPage:SetPoint("BOTTOMRIGHT")
+		self.watchPage = watchPage
+		local add = Button(watchPage, L["Drop an item to watch"], 218)
+		add:SetPoint("TOPLEFT")
+		add:SetScript("OnClick", function() Deals:WatchCursor() end)
+		add:SetScript("OnReceiveDrag", function() Deals:WatchCursor() end)
+		self.add = add
+		self.watchList = CreateListView(watchPage, {
+			header = true,
+			columns = { ItemColumn(), PriceColumn("target", E.Key("Target price")), PriceColumn("price", "Last seen"),
+				{ width = 122, text = WatchHit }, { width = 30 } },
+			setupRow = function(row)
+				row.remove = Glyph(row, "x", 16)
+				row.remove.tip = L["Remove from watch list"]
+				row.remove:SetPoint("RIGHT", -6, 0)
+				row.remove:SetScript("OnClick", function() if row.item then Deals:RemoveTarget(row.item) end end)
+			end,
+			onClick = function(row) Deals:Edit(row) end,
+			onEnter = function(entry, row) SetItemTip(row, entry); GameTooltip:Show() end,
+			empty = L["No auction targets yet."],
+		})
+		self.watchList:SetPoint("TOPLEFT", 0, -30)
+		self.watchList:SetPoint("BOTTOMRIGHT")
+		self.watchList.sortIndex = 1
+
+		self.quickAdd = Button(frame, L["Watch item"], 168)
+		self.quickAdd:SetPoint("BOTTOMLEFT", Shopping.results, "BOTTOMLEFT", 0, -26)
+		self.quickAdd:SetScript("OnClick", function()
+			if Deals.selected then Deals:Edit(Deals.selected) end
+		end)
+		Tooltip(self.quickAdd, L["Watch item"], L["Right-click a result to select it or to set its target price."])
+		CreateEditor(frame)
+		frame:HookScript("OnHide", function() Deals.editor:Hide() end)
+		self.view:Select("results")
+	end
 end
 
 -- Shopping lists side panel: lists (with their terms when selected) or recent searches.
@@ -2338,9 +3037,10 @@ function Shopping:Create(frame)
 
 	-- Side: lists / recent
 	local side = CreateFrame("Frame", nil, frame)
-	side:SetPoint("TOPLEFT", 0, -32)
+	side:SetPoint("TOPLEFT", 0, -60)
 	side:SetPoint("BOTTOMLEFT", 0, 0)
 	side:SetWidth(SIDE)
+	self.sideFrame = side
 	self.side = TabStrip(side, { { key = "lists", label = "Lists" }, { key = "recent", label = "Recent" }, { key = "crafting", label = "Crafting" } },
 		function() Shopping:RefreshSide() end)
 	self.side.tabs[1]:SetPoint("TOPLEFT", 0, 0)
@@ -2405,7 +3105,7 @@ function Shopping:Create(frame)
 				-- A whole list asks first; the question names it and its size.
 				local list = item.list
 				local count = #list.terms
-				E:ShowConfirm({ title = L["Delete list"], accept = DELETE or L["Delete"], danger = true,
+				E:ShowConfirm({ title = L["Delete list"], accept = E:GameText(DELETE, L["Delete"]), danger = true,
 					text = E:Plural(count, "Delete the shopping list %s and its %d search?", "Delete the shopping list %s and its %d searches?"):format(list.name, count)
 						.. " " .. L["This can't be undone."],
 					onAccept = function()
@@ -2544,6 +3244,7 @@ function Shopping:Create(frame)
 						local levelText = e.shownRequired and L["(req. level %d)"]:format(level) or ("(%d)"):format(level)
 						name = name .. " " .. E:TextHex("secondary") .. levelText .. "|r"
 					end
+					if Deals.IsWatchHit(e) then name = E:TextHex("good") .. L["Target met"] .. "|r · " .. name end
 					if e.own then name = name .. " " .. E:TextHex("good") .. "*|r" end
 					local r, g, b = QualityColor(e.quality)
 					return name, r, g, b
@@ -2553,7 +3254,9 @@ function Shopping:Create(frame)
 				text = function(e) return e.available and Abbreviate(e.available) or "?" end,
 				sort = function(e) return e.available or 0 end },
 		},
-		onClick = function(entry, mouse)
+		isSelected = function(entry) return entry == Deals.selected end,
+		onClick = function(entry, mouse, row)
+			if Deals:ClickResult(entry, mouse, row) then return end
 			if mouse == "LeftButton" and IsModifiedClick("CHATLINK") then
 				local link = select(2, C_Item.GetItemInfo(entry.itemKey.itemID))
 				if link then E:InsertLink(link) end
@@ -2566,6 +3269,7 @@ function Shopping:Create(frame)
 			SetItemKeyTooltip(GameTooltip, entry.itemKey)
 			GameTooltip:AddLine(" ")
 			E:TooltipHint(GameTooltip, { L["Click"], L["open it in Blizzard's buy screen"] })
+			E:TooltipHint(GameTooltip, { L["Right-click"], L["Set watch price"] })
 			GameTooltip:Show()
 		end,
 		empty = L["Type a search term, or pick a shopping list."],
@@ -2589,6 +3293,7 @@ function Shopping:Create(frame)
 	more:Hide()
 	self.more = more
 
+	Deals:Create(frame)
 	self.side:Select("lists")
 end
 
@@ -2630,8 +3335,8 @@ end
 
 function Shopping:OnShow()
 	self:RefreshSide()
-	self:Rebuild()
-	self.box:SetFocus()
+	Deals:Refresh()
+	if Deals.view.selected == "results" then self.box:SetFocus() end
 end
 
 ---------------------------------------------------------------------------
@@ -2690,7 +3395,7 @@ end
 
 local function ClassName(classID)
 	local name = Get(C_Item.GetItemClassInfo, classID) or (GetItemClassInfo and Get(GetItemClassInfo, classID))
-	return name or MISCELLANEOUS or L["Other"]
+	return name or E:GameText(MISCELLANEOUS, L["Other"])
 end
 
 function Selling:RebuildGrid()
@@ -2938,8 +3643,14 @@ function Selling:SelectEntry(entry)
 			self.price:SetValue(lowest.own and lowest.price or Undercut(lowest.price, entry.itemID))
 			Status(L["%d listings. Lowest %s."]:format(#list, Money(lowest.price)))
 		else
-			local remembered = M.db.rememberPrice and PostedDB()[sell.dbKey]
-			if remembered then self.price:SetValue(remembered) end
+			local suggestion = M.db.rememberPrice and PostedDB()[sell.dbKey]
+			-- A new suggestion should only replace the price this search supplied.
+			if not suggestion and self.price:GetValue() == (start or 0) then
+				local _, record = M:GetPrice(sell.dbKey)
+				local history = PriceHistory(record)
+				suggestion = history and history.usual
+			end
+			if suggestion then self.price:SetValue(suggestion) end
 			Status(L["Nobody sells this item right now."])
 		end
 		self:UpdateDetails()
@@ -2994,7 +3705,10 @@ function Selling:UpdateDetails()
 		self.total:SetText("")
 	end
 	local vendor = entry and VendorPrice(entry.itemID) or 0
-	self.warning:SetText(entry and price > 0 and receive < vendor and (E:TextHex("bad") .. L["Below the vendor price"] .. "|r") or "")
+	local vendorWarning = entry and price > 0 and receive < vendor and L["Below the vendor price"]
+	local usualWarning = entry and Deals:Warning(DBKeyFromLink(entry.link, entry.itemID), price)
+	self.warning:SetText(vendorWarning and E:TextHex("bad") .. vendorWarning .. "|r" or "")
+	self.usualWarning:SetText(usualWarning or "")
 	for index, button in ipairs(self.durations) do
 		local on = index == self:Duration()
 		button.on = on
@@ -3086,7 +3800,7 @@ function Selling:RefreshRight()
 	view:SetItems(sell.entry and items or {})
 end
 
-local function MoneyInput(parent, onChange)
+function Deals.MoneyInput(parent, onChange)
 	local holder = CreateFrame("Frame", nil, parent)
 	holder:SetSize(196, 22)
 	local boxes = {}
@@ -3136,12 +3850,12 @@ function M.PriceColumns()
 	if not UsesRequiredLevel() then
 		columns[#columns + 1] = { title = "Item level", width = 80, justify = "RIGHT", text = function(e) return e.itemLevel and e.itemLevel > 0 and e.itemLevel or "" end, sort = function(e) return e.itemLevel or 0 end }
 	end
-	columns[#columns + 1] = { title = "Yours", flex = true, justify = "CENTER", text = function(e) if e.own then return YES or L["Yes"], 0.4, 0.87, 0.4 end return "" end }
+	columns[#columns + 1] = { title = "Yours", flex = true, justify = "CENTER", text = function(e) if e.own then return E:GameText(YES, L["Yes"]), 0.4, 0.87, 0.4 end return "" end }
 	return columns
 end
 
 function Selling:Create(frame)
-	local TOP = 96
+	local TOP = 132
 	-- Sell slot and name
 	local slot = CreateFrame("Button", nil, frame)
 	slot:SetSize(48, 48)
@@ -3180,10 +3894,13 @@ function Selling:Create(frame)
 	local pLabel = Text(frame, 13, "RIGHT")
 	pLabel:SetPoint("LEFT", self.maxButton, "RIGHT", 12, 0)
 	pLabel:SetText(L["Unit price"])
-	self.price = MoneyInput(frame, onChange)
+	self.price = Deals.MoneyInput(frame, onChange)
 	self.price:SetPoint("LEFT", pLabel, "RIGHT", 8, 0)
 	self.warning = Text(frame, 11, "LEFT")
 	self.warning:SetPoint("TOPLEFT", self.price, "BOTTOMLEFT", 0, -3)
+	self.usualWarning = Text(frame, 11, "LEFT")
+	self.usualWarning:SetPoint("TOPLEFT", self.warning, "BOTTOMLEFT", 0, -2)
+	self.usualWarning:SetTextColor(E:TokenColor("warn"))
 
 	-- Duration
 	local dLabel = Text(frame, 13, "LEFT")
@@ -3499,7 +4216,13 @@ local function RefreshNames()
 	itemInfoQueued = true
 	C_Timer.After(0.2, function()
 		itemInfoQueued = false
-		for _, entry in ipairs(shop.results) do if entry.pending then ResolveEntry(entry) end end
+		local pending = false
+		for _, entry in ipairs(shop.results) do
+			if entry.pending then ResolveEntry(entry); pending = true end
+		end
+		if pending and shop.done and not Deals.nativePending and Deals.search == shop.dealResults then
+			Deals:FinishShopping()
+		end
 		for _, entry in ipairs(owned.list) do if entry.pending then ResolveEntry(entry) end end
 		if M.current == "Shopping" then Shopping:Rebuild() end
 		if M.current == "Cancelling" then Cancelling:Refresh() end
@@ -3512,6 +4235,12 @@ end
 -- come back without drawing or asking the server anything, instead of
 -- refreshing all at once while the window closes.
 function M:OnAuctionHouseClosed()
+	self:StopFullScan()
+	Deals.search, Deals.nativePending, Deals.nativeSearch, Deals.shoppingSearch, Deals.selected = nil, nil, nil, nil, nil
+	shop.dealResults = nil
+	wipe(shop.results)
+	wipe(shop.byKey)
+	shop.done, shop.last = nil, nil
 	if house then
 		-- Back to your faction's prices; the neutral house is packed.
 		house = nil
@@ -3522,7 +4251,6 @@ function M:OnAuctionHouseClosed()
 	shop.searching, shop.queue, shop.current = false, {}, nil
 	if Shopping.searchButton then Shopping.searchButton:Enable() end
 	if Cancelling.scanButton then Cancelling.scanButton:Enable() end
-	self:StopFullScan()
 	local ahf = AuctionHouseFrame
 	if not (self.attached and ahf and ahf:IsShown()) then
 		self:HidePanel()
@@ -3569,13 +4297,23 @@ local AH_EVENTS = {
 	-- are remembered for the tooltips as well).
 	AUCTION_HOUSE_BROWSE_RESULTS_UPDATED = function()
 		if Shopping.results and shop.current then Shopping:OnBrowseResults()
-		else SaveBrowsePrices(Get(AH.GetBrowseResults)) end
+		else
+			local results = Get(AH.GetBrowseResults)
+			SaveBrowsePrices(results)
+			Deals:OnNativeBrowse(false, results)
+		end
 	end,
 	AUCTION_HOUSE_BROWSE_RESULTS_ADDED = function(added)
 		if Shopping.results and shop.current and type(added) == "table" then Shopping:OnBrowseResults(added)
-		else SaveBrowsePrices(added) end
+		else
+			SaveBrowsePrices(added)
+			Deals:OnNativeBrowse(true, added)
+		end
 	end,
-	AUCTION_HOUSE_BROWSE_FAILURE = function() Shopping:OnBrowseFailure() end,
+	AUCTION_HOUSE_BROWSE_FAILURE = function()
+		Shopping:OnBrowseFailure()
+		Deals.nativePending = nil
+	end,
 	COMMODITY_SEARCH_RESULTS_UPDATED = function(itemID)
 		if itemSearch and itemSearch.sent and itemSearch.itemID == itemID then
 			FinishItemSearch(CollectCommodity(itemID))
@@ -3625,17 +4363,59 @@ M.ItemKeyLevel = ItemKeyLevel
 M.SetItemKeyTooltip = SetItemKeyTooltip
 M.UsesRequiredLevel = UsesRequiredLevel
 
--- The price and its age ("3g (seen 2 days ago)"); AuctionValueText adds
--- "AH" for the shared Value row.
-local function AuctionPriceText(link, id)
-	if not M.active or not M.db.tooltip or IsSecret(id) or E:StandsBack(M, "tooltip") then return nil end
-	local price, record = M:GetPrice(DBKeyFromLink(link, id))
-	if not price then return nil end
-	return Money(price) .. PriceAge(record)
+-- Tooltip prices use the tooltips' shared money format, like every other
+-- info row; "Prices as" is for the auction window's own lists.
+local function TipMoney(copper, count)
+	if not copper then return "" end
+	return E:TooltipMoney(floor(copper + 0.5), count)
 end
 
-local function AuctionValueText(link, id)
-	local text = AuctionPriceText(link, id)
+local function TooltipPrice(link, id)
+	if not M.active or not M.db.tooltip or IsSecret(id) or IsSecret(link) or E:StandsBack(M, "tooltip") then return end
+	return M:GetPrice(DBKeyFromLink(link, id))
+end
+
+local function PriceTrend(history)
+	if not history.recentLow then return "" end
+	local threshold = M.db.trendThreshold
+	if not IsPrice(threshold) or threshold > 100 then threshold = DEFAULT_TREND_THRESHOLD end
+	local margin = history.usual * threshold / 100
+	if history.recentLow - history.usual > margin then return " ↑" end
+	if history.usual - history.recentHigh > margin then return " ↓" end
+	return ""
+end
+
+-- The last price, its age and the usual price share one tooltip row.
+local function AuctionPriceText(link, id, count)
+	local price, record = TooltipPrice(link, id)
+	if not IsPrice(price) then return end
+	local text = TipMoney(price, count) .. PriceAge(record)
+	local history = M.db.tooltipUsual and PriceHistory(record)
+	if not history or not history.usual then return text end
+	text = text .. " · " .. E:Plural(history.count, "usual %s over %d day", "usual %s over %d days"):format(TipMoney(history.usual), history.count)
+	if M.db.tooltipTrend then text = text .. PriceTrend(history) end
+	if M.db.tooltipVendorNote and VendorPrice(link or id) > floor(history.usual * (1 - M.HouseCut())) then
+		text = text .. " · " .. L["Sell to a vendor"]
+	end
+	return text
+end
+
+local function WeeklyPrices(link, id)
+	if not M.db.tooltipUsual then return end
+	local price, record = TooltipPrice(link, id)
+	local history = IsPrice(price) and PriceHistory(record)
+	if not history then return end
+	local prices, any = {}, false
+	for index = WEEK_DAYS, 1, -1 do
+		local low = history.daily[index]
+		prices[#prices + 1] = low and E:FormatMoney(low, "letters") or "-"
+		any = any or low ~= nil
+	end
+	if any then return table.concat(prices, " · ") end
+end
+
+local function AuctionValueText(link, id, count)
+	local text = AuctionPriceText(link, id, count)
 	return text and L["AH %s"]:format(text)
 end
 
@@ -3651,11 +4431,11 @@ local function CraftingText(link, id)
 	if not M.active or not M.db.tooltipCrafting or not M.db.craftingPrices or IsSecret(id) or type(id) ~= "number" then return nil end
 	local cost, complete = M:GetCraftingCost(id)
 	if not cost or cost <= 0 then return nil end
-	local text = Money(cost) .. (complete and "" or " " .. E:TextHex("secondary") .. "+?|r")
+	local text = TipMoney(cost) .. (complete and "" or " " .. E:TextHex("secondary") .. "+?|r")
 	local value = complete and M:GetPrice(DBKeyFromLink(link, id))
 	if value then
 		local profit = value - cost
-		text = text .. (profit >= 0 and "  " .. E:TextHex("good") .. "+" or "  " .. E:TextHex("bad") .. "-") .. Money(math.abs(profit)) .. "|r"
+		text = text .. (profit >= 0 and "  " .. E:TextHex("good") .. "+" or "  " .. E:TextHex("bad") .. "-") .. TipMoney(math.abs(profit)) .. "|r"
 	end
 	return text
 end
@@ -3675,21 +4455,25 @@ local function HookTooltips()
 	-- One route, whatever the Tooltip module does: the auction price
 	-- joins the shared Value row, the rest is the "Auction" section. Both
 	-- show as plain rows while the Tooltip module is off.
-	E:RegisterTooltipValue("auction", { order = 20, item = function(_, link, id) return AuctionValueText(link, id) end })
+	E:RegisterTooltipValue("auction", { order = 20, item = function(_, link, id, count) return AuctionValueText(link, id, count) end })
 	E:RegisterTooltipSection("auction", { order = 31, title = "Auction",
 		desc = "Auction price (when the Value row is off), vendor price where the tooltip has none, disenchant value and crafting cost from EldoUI's Auction House module.",
-		item = function(tooltip, link, id, add)
+		item = function(tooltip, link, id, add, info)
 			if not M.active then return end
 			if not E:TooltipSectionShown("value") then
 				local text = AuctionPriceText(link, id)
 				if text then add(L["Auction"], text) end
 			end
+			if info and E.Plain(info.shift) then
+				local week = WeeklyPrices(link, id)
+				if week then add(L["Last 7 days"], week) end
+			end
 			if M.db.tooltipVendor and not TooltipShowsVendor(tooltip) then
 				local vendor = VendorPrice(link or id)
-				if vendor > 0 then add(L["Vendor"], Money(vendor)) end
+				if vendor > 0 then add(L["Vendor"], TipMoney(vendor)) end
 			end
 			local value = DisenchantValue(link, id)
-			if value then add(L["Disenchant"], Money(value)) end
+			if value then add(L["Disenchant"], TipMoney(value)) end
 			local craft = CraftingText(link, id)
 			if craft then add(L["Craft"], craft) end
 		end })
@@ -3729,7 +4513,10 @@ end
 function M:OnDisable()
 	ClearWaiter()
 	self:StopFullScan()
+	Deals.search, Deals.scan, Deals.nativePending, Deals.nativeSearch, Deals.shoppingSearch = nil, nil, nil, nil, nil
+	shop.searching, shop.queue, shop.current, shop.dealResults = false, {}, nil, nil
 	itemSearch = nil
+	if Shopping.searchButton then Shopping.searchButton:Enable() end
 	self:RestoreBlizzard()
 end
 
@@ -3743,6 +4530,7 @@ function M:OnProfileChanged()
 		self:UpdateTabStates(true)
 	end
 	Shopping:LayoutListButtons()
+	if Deals:Live() then Deals:Refresh() end
 	for _, view in ipairs(views) do view:Layout() end
 	if self.current == "Selling" then
 		Selling:LayoutGrid()
@@ -3756,6 +4544,24 @@ end
 ---------------------------------------------------------------------------
 -- Options and style presets
 ---------------------------------------------------------------------------
+function Deals.Qualities()
+	local values = { any = L["Any quality"] }
+	for quality = 0, 8 do
+		local label = _G["ITEM_QUALITY" .. quality .. "_DESC"]
+		if not IsSecret(label) and type(label) == "string" then values[quality] = label end
+	end
+	return values
+end
+
+function Deals.Classes()
+	local values = { any = L["Any item type"] }
+	for _, class in pairs(Enum.ItemClass or {}) do
+		local label = E.PlainCall(C_Item.GetItemClassInfo, class)
+		if type(label) == "string" and label ~= "" then values[class] = label end
+	end
+	return values
+end
+
 M.options = {
 	{ type = "description", label = "Adds Shopping List, Quick Sell and Cancel Undercut tabs to the auction house. Every post, purchase, cancel and search is one click of yours." },
 	{ type = "execute", label = "Open Blizzard UI switches", desc = "Choose here whether EldoUI skins, moves or extends Blizzard's auction window (element \"Auction house\").",
@@ -3769,15 +4575,38 @@ M.options = {
 		desc = "How much below the cheapest current price the Quick Sell tab starts. 100 copper = 1 silver.", hidden = function() return M.db.undercutMode ~= "fixed" end },
 	{ type = "select", key = "duration", label = "Default duration", desc = "The duration the Quick Sell tab starts with.",
 		values = { [1] = ("Short (%dh)"):format(DURATION_HOURS[1]), [2] = ("Medium (%dh)"):format(DURATION_HOURS[2]), [3] = ("Long (%dh)"):format(DURATION_HOURS[3]) } },
-	{ type = "toggle", key = "rememberPrice", label = "Remember my last price", desc = "Starts from the price you last posted the item at, and uses it when nobody else sells the item." },
+	{ type = "toggle", key = "rememberPrice", label = "Remember your last price", desc = "Starts from the price you last posted the item at, and uses it when nobody else sells the item." },
+	{ type = "range", key = "underprice", label = "Low price warning", unit = "%", min = 0, max = 99, step = 1, zeroText = "Off",
+		desc = "Warns in Quick Sell and the game's Sell tab when your unit price is this far below the usual price." },
 	{ type = "select", key = "defaultTab", label = "Open the auction house on", desc = "Which tab is shown when you talk to an auctioneer.",
 		values = { none = "Blizzard's Buy tab", Shopping = "EldoUI Shopping List", Selling = "EldoUI Quick Sell", Cancelling = "EldoUI Cancel Undercut" } },
+	{ type = "header", label = "Deals and watch list" },
+	{ type = "range", key = "dealPercent", label = "Minimum percentage saved", unit = "%", min = 0, max = 99, step = 1,
+		desc = "How far below the usual price an item must be for Deals to show it." },
+	{ type = "range", key = "dealGold", label = "Minimum gold saved", min = 0, max = 1000, step = 1,
+		desc = "How much gold a deal must save per item. The percentage minimum also applies." },
+	{ type = "select", key = "dealQuality", label = "Deal quality", values = Deals.Qualities,
+		desc = "Show deals of a chosen item quality." },
+	{ type = "select", key = "dealClass", label = "Deal item type", values = Deals.Classes,
+		desc = "Show deals of a chosen item type." },
+	{ type = "toggle", key = "dealUsable", label = "Only deals I can use",
+		desc = "Show a deal only when the game says you can use the item." },
+	{ type = "select", key = "watchAlert", label = "Auction watch alerts", values = { chat = "Chat", toast = "Toast", off = "Off" },
+		desc = "How to notify you when a search or scan you started finds a watched item at your target price or lower." },
 	{ type = "header", label = "Tooltip" },
 	{ type = "toggle", key = "tooltip", label = "Auction price line",
 		disabled = function()
 			local standing, _, title = E:StandsBack(M, "tooltip")
 			return standing and L["Handled by %s. Type %s to choose."]:format(title, E:Highlight("/eui addons")) or nil
 		end, desc = "The last price seen on this realm and faction: from your searches in EldoUI's tabs or the game's Buy tab, and from full scans." },
+	{ type = "toggle", key = "tooltipUsual", label = "Usual auction price", dependsOn = "tooltip",
+		desc = "Shows the middle price of up to 14 daily lows when at least 3 days have prices. Hold Shift for the last 7 days, oldest first. A dash means no saved price." },
+	{ type = "toggle", key = "tooltipTrend", label = "Auction price trend", dependsOn = "tooltipUsual",
+		desc = "Shows an arrow when all of the last 3 days are above or below the usual price by more than the chosen percentage." },
+	{ type = "range", key = "trendThreshold", label = "Auction trend threshold", dependsOn = "tooltipTrend", unit = "%", min = 1, max = 100, step = 1,
+		desc = "How far prices must move above or below the usual price before an arrow appears." },
+	{ type = "toggle", key = "tooltipVendorNote", label = "Vendor pays more", dependsOn = "tooltipUsual",
+		desc = "Adds a note when a vendor pays more than the usual auction price after the auction house takes its share." },
 	{ type = "toggle", key = "tooltipVendor", label = "Vendor price line", desc = "Only when the game or EldoUI's tooltip doesn't show it already." },
 	{ type = "toggle", key = "tooltipDisenchant", label = "Disenchant value line", desc = "Expected worth of the materials from disenchanting a green, blue or purple item, at your saved auction prices. Shows only once you have prices for those materials." },
 	{ type = "toggle", key = "knownTint", label = "Tint items you already know",
@@ -3789,12 +4618,12 @@ M.options = {
 	{ type = "execute", confirm = true, label = "Forget recipes", desc = "Clears every remembered recipe.", func = function() wipe(Recipes()); M:Print(L["Recipes forgotten."]) end },
 	{ type = "description", label = "Full scan (Shopping List tab) asks the auction house for every listing at once. The game allows it once every 15 minutes." },
 	{ type = "header", label = "Look" },
-	{ type = "range", key = "rowHeight", label = "Row height", min = 16, max = 28, step = 1, desc = "Height of every list row." },
-	{ type = "range", key = "iconSize", label = "Bag icon size (Quick Sell)", min = 26, max = 48, step = 1, desc = "Size of the item icons in the Quick Sell tab." },
+	{ type = "range", unit = "px", key = "rowHeight", label = "Row height", min = 16, max = 28, step = 1, desc = "Height of every list row." },
+	{ type = "range", unit = "px", key = "iconSize", label = "Bag icon size (Quick Sell)", min = 26, max = 48, step = 1, desc = "Size of the item icons in the Quick Sell tab." },
 	{ type = "range", key = "fontSize", label = "List text size", min = 10, max = 16, step = 1, desc = "Text size in the lists." },
 	{ type = "toggle", key = "zebra", label = "Striped rows", desc = "A faint tint on every other row." },
 	{ less = true, type = "toggle", key = "headerAccent", label = "Accent-tinted column headers", desc = "Column and group headers in a dark tint of the accent color." },
-	{ type = "select", key = "moneyStyle", label = "Prices as", desc = "How prices are written. \"Use general setting\" follows Fonts and text > Money.",
+	{ type = "select", key = "moneyStyle", label = "Prices as", desc = "How prices are written in the auction window. \"Use general setting\" follows Fonts and text > Money; tooltips always do.",
 		values = function() return E:MoneyStyleValues(true) end },
 	{ type = "header", label = "Window" },
 	{ type = "execute", label = "Open Windows", testSafe = true,
@@ -3807,8 +4636,8 @@ M.options = {
 }
 
 E:RegisterStyles("Auction", {
-	{ key = "Standard", title = "Standard", desc = "Balanced rows, coin icons and accent headers.",
-		settings = { rowHeight = 20, iconSize = 36, fontSize = 13, zebra = true, headerAccent = true } },
+	{ key = "Standard", title = "Standard", desc = "Balanced rows and accent headers, with prices in your general money style.",
+		settings = { rowHeight = 20, iconSize = 36, fontSize = 13, zebra = true, headerAccent = true, moneyStyle = "general" } },
 	{ key = "Compact", title = "Compact", desc = "Short rows and small icons: more results on screen.",
 		settings = { rowHeight = 16, iconSize = 30, fontSize = 12, zebra = true, headerAccent = true } },
 	{ key = "Large", title = "Large", desc = "Tall rows, big icons and larger text.",
@@ -3816,7 +4645,7 @@ E:RegisterStyles("Auction", {
 	{ key = "Clean", title = "Clean", desc = "No stripes, neutral headers, quiet look.",
 		settings = { rowHeight = 20, iconSize = 34, fontSize = 13, zebra = false, headerAccent = false } },
 	{ key = "Ledger", title = "Ledger", desc = "Trader's ledger: striped rows with prices as colored text.",
-		settings = { rowHeight = 18, iconSize = 32, fontSize = 13, zebra = true, headerAccent = false } },
+		settings = { rowHeight = 18, iconSize = 32, fontSize = 13, zebra = true, headerAccent = false, moneyStyle = "letters" } },
 	{ key = "Overview", title = "Overview", desc = "The smallest rows and icons: the most results on screen.",
 		settings = { rowHeight = 16, iconSize = 28, fontSize = 12, zebra = true, headerAccent = true } },
 })

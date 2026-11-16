@@ -470,7 +470,7 @@ E:RegisterFinderProvider("setting", function()
 	end
 	local tweaks = E.modules.QoL
 	if tweaks and tweaks.ShowCVarBrowser then
-		list[#list + 1] = { id = "setting:cvars", text = L["Game settings browser"], sub = L["Every game setting (CVar)"], icon = "Interface\\Icons\\Trade_Engineering",
+		list[#list + 1] = { id = "setting:cvars", text = L["Game settings browser"], sub = L["Every setting the game keeps"], icon = "Interface\\Icons\\Trade_Engineering",
 			keywords = "cvar console", combat = false, open = function() tweaks:ShowCVarBrowser() end }
 	end
 	return list

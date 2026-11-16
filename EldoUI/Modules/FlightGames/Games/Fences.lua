@@ -1,5 +1,5 @@
 -- EldoUI Flight Games: Fence the Pens. Posts stand in a grid; you and the
--- Horde take turns setting one fence between two neighboring posts. The
+-- opponent take turns setting one fence between two neighboring posts. The
 -- side that closes the fourth fence round a pen claims it and sets another
 -- fence. When every pen is claimed, the side with more pens wins.
 -- Written from scratch for EldoUI.
@@ -177,7 +177,7 @@ function Fences:Play(e, side)
 			if not before[pen] then
 				local r, c = math.floor((pen - 1) / n), (pen - 1) % n
 				local x, y = LEFT + (c + 0.5) * SPACE, TOP + (r + 0.5) * SPACE
-				self.fx:Burst(x, y, owner == 1 and self.host.Palette()[7] or self.host.Palette()[6], SPACE * 1.2, 0.45)
+				self.fx:Burst(x, y, self.host.FactionColor(owner), SPACE * 1.2, 0.45)
 				self.fx:Sparks(x, y, self.host.Color("gold"), 6, 70)
 			end
 		end
@@ -199,7 +199,7 @@ function Fences:Play(e, side)
 	return true
 end
 
--- The Horde's fence: a pen to close if there is one, else a fence that
+-- The opponent's fence: a pen to close if there is one, else a fence that
 -- gives nothing away, else (on the hard level) the one that gives least.
 function Fences:Choose()
 	local shape, lines, pens, random = self.shape, self.lines, self.pens, self.host.Random
@@ -274,7 +274,7 @@ end
 
 function Fences:Summary()
 	if not self.mine then return nil end
-	return L["Alliance %d, Horde %d"]:format(self.mine, self.theirs)
+	return L["%s %d, %s %d"]:format(self.host.FactionName(1), self.mine, self.host.FactionName(-1), self.theirs)
 end
 
 function Fences:Draw()
@@ -282,10 +282,10 @@ function Fences:Draw()
 	local bronze = E.tokens.palette.bronze
 	for pen, view in ipairs(self.penViews) do
 		local owner = self.pens[pen]
-		B.Tile(view.tex, owner == 1 and palette[7] or owner == -1 and palette[6] or palette[3], owner and 0.5 or 0.16)
+		B.Tile(view.tex, owner == 1 and self.host.FactionColor(1, palette) or owner == -1 and self.host.FactionColor(-1, palette) or palette[3], owner and 0.5 or 0.16)
 		view.mark:SetShown(owner ~= nil)
 		if owner then
-			E:SetClientFile(view.mark, owner == 1 and "Interface\\Icons\\INV_BannerPVP_02" or "Interface\\Icons\\INV_BannerPVP_01",
+			E:SetClientFile(view.mark, self.host.FactionIcon(owner),
 				"Interface\\Icons\\INV_Misc_QuestionMark")
 			E:TrimIcon(view.mark)
 		end
@@ -301,18 +301,18 @@ function Fences:Draw()
 	end
 	local post = color("body")
 	for _, dot in ipairs(self.posts) do dot:SetVertexColor(post[1], post[2], post[3], 0.9) end
-	self.tally:SetText(L["Alliance %d, Horde %d"]:format(self.mine, self.theirs))
+	self.tally:SetText(L["%s %d, %s %d"]:format(self.host.FactionName(1), self.mine, self.host.FactionName(-1), self.theirs))
 	local text
 	if self.result == "won" then
 		text = L["You win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde wins."]
+		text = L["The %s wins."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["A draw."]
 	elseif self.turn == 1 then
 		text = L["Click between two posts to set a fence."]
 	else
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end

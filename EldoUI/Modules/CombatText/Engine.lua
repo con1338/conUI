@@ -141,7 +141,12 @@ function M:DeleteCustomArea(key)
 	if not (type(key) == "string" and key:match("^custom%d$")) then return false end
 	self:ReleaseArea(key)
 	self.db.areas[key] = nil
-	E.db.movers[MoverName(key)] = nil
+	-- The drag goes from both stores: the normal one and Gamepad Mode UI's,
+	-- so the next custom area (the same key) starts at its default place.
+	local name = MoverName(key)
+	E.db.movers[name] = nil
+	local gamepad = type(E.db.gamepadUI) == "table" and E.db.gamepadUI.movers
+	if type(gamepad) == "table" then gamepad[name] = nil end
 	for eventKey, ev in pairs(self.db.events) do
 		if ev.area == key then ev.area = self.eventInfo[eventKey] and self.eventInfo[eventKey].area or "notify" end
 	end
@@ -158,6 +163,7 @@ local function NewLine()
 	frame:SetSize(10, 10)
 	frame:Hide()
 	local text = frame:CreateFontString(nil, "OVERLAY")
+	E:UseNameFont(text)
 	text:SetWordWrap(false)
 	local icon = frame:CreateTexture(nil, "OVERLAY")
 	E:TrimIcon(icon)
@@ -175,7 +181,7 @@ local function Release(index)
 	line.icon:Hide()
 	local rt = runtime[line.area]
 	if rt and rt.lastLine == line then rt.lastLine = nil end
-	line.args, line.payload, line.anim = nil, nil, nil
+	line.args, line.payload, line.anim, line.sound = nil, nil, nil, nil
 	line.shownScale, line.shownAlpha, line.shownX, line.shownY, line.visible = nil, nil, nil, nil, nil
 	line.flash, line.color = nil, nil
 	pool[#pool + 1] = line
@@ -377,6 +383,18 @@ end
 ---------------------------------------------------------------------------
 -- The updater
 ---------------------------------------------------------------------------
+-- Event sounds: lines that arrive together (a burst of loot or heals)
+-- with the same sound get it once, on the first of them; it plays when
+-- that line shows, which can be a moment after it arrived.
+local SOUND_GAP = 0.5
+local soundAt = {}
+local function WantsSound(sound)
+	local now = GetTime()
+	if soundAt[sound] and now - soundAt[sound] < SOUND_GAP then return false end
+	soundAt[sound] = now
+	return true
+end
+
 -- Each frame sets only what changed on a line since the last one (E3):
 -- a line that stands still, keeps its size or is fully shown costs no
 -- widget call for it. The line's one point is always CENTER on its area's
@@ -424,6 +442,11 @@ local function Update()
 				if not line.visible then
 					frame:Show()
 					line.visible = true
+				end
+				-- The event's sound comes with its line, once the line shows.
+				if line.sound then
+					E:PlayMedia(line.sound)
+					line.sound = nil
 				end
 			end
 		end
@@ -547,7 +570,7 @@ local function Place(spec)
 	line.visible = false
 	driver:Show()
 	M.engineStats.shown = M.engineStats.shown + 1
-	if spec.sound and spec.sound ~= "none" and scroll.sounds then E:PlayMedia(spec.sound) end
+	line.sound = (spec.sound and spec.sound ~= "none" and scroll.sounds and WantsSound(spec.sound)) and spec.sound or nil
 	return line
 end
 

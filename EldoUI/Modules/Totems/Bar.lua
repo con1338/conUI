@@ -57,12 +57,7 @@ function M.NewButton(parent, name, templates, masqueGroup)
 	button.hotkey:SetPoint("TOPRIGHT", -2, -2)
 	button.count = E:CreateText(button, E.tokens.size.small, "RIGHT")
 	button.count:SetPoint("BOTTOMRIGHT", -2, 2)
-	local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-	highlight:SetAllPoints(button.icon)
-	highlight:SetColorTexture(1, 1, 1, E.tokens.hover.hud)
-	button.pushed = button:CreateTexture(nil, "OVERLAY")
-	button.pushed:SetAllPoints(button.icon)
-	button:SetPushedTexture(button.pushed)
+	E:SkinHudButton(button, button.icon)
 	-- The element's (or state's) thin edge along the bottom.
 	button.edge = button:CreateTexture(nil, "OVERLAY", nil, 2)
 	button.edge:SetPoint("BOTTOMLEFT", button.icon, "BOTTOMLEFT")
@@ -70,18 +65,17 @@ function M.NewButton(parent, name, templates, masqueGroup)
 	button.edge:SetHeight(2)
 	button.edge:SetTexture(E.media.flat)
 	button.edge:Hide()
-	-- The pressed look stays EldoUI's (PaintButton keeps it in the accent).
+	-- The pressed look stays EldoUI's (E:SkinHudButton's accent texture);
+	-- Masque gets the hover.
 	if masqueGroup and M.db.masque then
 		E:MasqueButton(masqueGroup, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count,
-			HotKey = button.hotkey, Highlight = highlight }, "Action")
+			HotKey = button.hotkey, Highlight = button.hover }, "Action")
 	end
 	return button
 end
 
 -- Accent and fonts follow the theme (called from every Apply).
 function M.PaintButton(button)
-	local r, g, b = unpack(E.media.accentColor)
-	button.pushed:SetColorTexture(r, g, b, E.tokens.pressed)
 	E:SetFont(button.hotkey, E.tokens.size.tiny)
 	E:SetFont(button.count, E.tokens.size.small)
 	E:SetTemplate(button)

@@ -508,14 +508,9 @@ end
 
 -- A frame the game hides from addons (its mouse state reads as a secret
 -- value) counts as not taking the mouse, so it is left alone.
-local function Plain(value)
-	if issecret(value) then return nil end
-	return value
-end
-
 local function MuteMouse(entry, frame, depth)
 	if depth > 12 or not OwnFrame(frame, entry.frame) then return end
-	if frame.IsMouseEnabled and Plain(frame:IsMouseEnabled()) and not E.FrameCheck(frame, "IsProtected") then
+	if E.FrameMouse(frame, "IsMouseEnabled") and not E.FrameCheck(frame, "IsProtected") then
 		frame:EnableMouse(false)
 		entry.muted = entry.muted or {}
 		entry.muted[frame] = true

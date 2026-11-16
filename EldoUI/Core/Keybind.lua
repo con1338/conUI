@@ -96,8 +96,19 @@ local function Bind(key)
 		for _, old in ipairs({ GetBindingKey(command) }) do SetBinding(old) end
 		ShowStatus(L["Cleared %s."]:format(CommandName(command)))
 	else
-		SetBinding(key, command)
-		ShowStatus(L["%s bound to %s."]:format(E:Highlight(GetBindingText(key, "KEY_") or key), CommandName(command)))
+		local keyText = E:Highlight(GetBindingText(key, "KEY_") or key)
+		-- The action the key held before, named so the player knows it moved.
+		local old = GetBindingAction and GetBindingAction(key) or ""
+		if SetBinding(key, command) == false then
+			ShowStatus(L["%s could not be bound to %s."]:format(keyText, CommandName(command)))
+			ShowTooltip()
+			return
+		end
+		local text = L["%s bound to %s."]:format(keyText, CommandName(command))
+		if type(old) == "string" and old ~= "" and old ~= command then
+			text = text .. " " .. L["(was: %s)"]:format(CommandName(old))
+		end
+		ShowStatus(text)
 	end
 	changed = true
 	ShowTooltip()
@@ -137,6 +148,7 @@ end
 -- Banner with Save and Discard
 ---------------------------------------------------------------------------
 local characterSet   -- save to the character's own binding set
+local session, pendingScope
 -- The game's binding sets (account-wide 1, character 2).
 local BINDING_SET = Enum and Enum.BindingSet
 local ACCOUNT_SET = BINDING_SET and BINDING_SET.Account or 1
@@ -184,11 +196,33 @@ local function CreateBanner()
 	label:SetPoint("LEFT", check, "RIGHT", 2, 0)
 	label:SetText(L["Character specific keybinds"])
 	banner.label = label
-	check:SetScript("OnClick", function(self) characterSet = self:GetChecked() and true or false end)
+	check:SetScript("OnClick", function(self)
+		local requested = self:GetChecked() and true or false
+		pendingScope = nil
+		E:CancelConfirm("keybind-scope")
+		-- Character keys to account keys writes this character's keys over
+		-- every character's: asked first, like the game's own window.
+		if not requested and GetCurrentBindingSet() == CHARACTER_SET then
+			local owner, choice = session, {}
+			pendingScope = choice
+			self:SetChecked(characterSet)
+			local function Answer(accepted)
+				if not active or session ~= owner or pendingScope ~= choice then return end
+				pendingScope = nil
+				if accepted and not InCombatLockdown() then characterSet = false end
+				self:SetChecked(characterSet)
+			end
+			E:ShowConfirm({ key = "keybind-scope", title = L["Keybind mode"],
+				text = L["Save this character's keys for your whole account? Every character that uses the account keys gets them when you leave keybind mode."],
+				accept = OKAY, onAccept = function() Answer(true) end, onCancel = function() Answer(false) end })
+		else
+			characterSet = requested
+		end
+	end)
 	check:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:AddLine(L["Character specific keybinds"], E:TokenColor("accent"))
-		GameTooltip:AddLine(L["Save these keys for this character only, like the game's Key Bindings window."], E:TokenColor("body", true))
+		GameTooltip:AddLine(L["Checked, these keys are saved for this character only, like the game's Key Bindings window. Unchecked, they are saved for every character on the account."], E:TokenColor("body", true))
 		GameTooltip:Show()
 	end)
 	check:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -282,6 +316,7 @@ function E:ToggleKeybindMode(state, save)
 	if state == active then return end
 	active = state
 	if state then
+		session = {}
 		changed = false
 		if not banner then CreateBanner() end
 		characterSet = GetCurrentBindingSet() == CHARACTER_SET
@@ -298,6 +333,8 @@ function E:ToggleKeybindMode(state, save)
 			_G.EldoUIConfig:Hide()
 		end
 	else
+		session, pendingScope = nil, nil
+		self:CancelConfirm("keybind-scope")
 		current = nil
 		bind:Hide()
 		GameTooltip:Hide()

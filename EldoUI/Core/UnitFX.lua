@@ -199,11 +199,12 @@ end
 -- table per distinct value, never changed after, with its signature worked
 -- out once, so a health event builds no tables or strings.
 local fixedSigs = setmetatable({}, { __mode = "k" })
-local function Fixed(store, key, a, av, b, bv)
+local function Fixed(store, key, a, av, b, bv, c, cv)
 	local spec = store[key]
 	if not spec then
 		spec = { [a] = av }
 		if b then spec[b] = bv end
+		if c then spec[c] = cv end
 		fixedSigs[spec] = SpecSig(spec)
 		store[key] = spec
 	end
@@ -213,7 +214,8 @@ local function Sig(spec) return fixedSigs[spec] or SpecSig(spec) end
 fixedSigs[EMPTY] = ""
 -- A fixed spec -> curve key -> cache key, so its cache key is made once.
 local cacheKeys = setmetatable({}, { __mode = "k" })
-local SPECS = { lowHealth = {}, lowPower = {}, execute = {}, execute2 = {}, warnLook = {}, executeLook = {}, upperLook = {} }
+local SPECS = { lowHealth = {}, lowPower = {}, execute = {}, execute2 = {}, warnLook = {}, executeLook = {}, upperLook = {},
+	threat = {}, threatPulse = {} }
 
 -- Color points become alpha points for spec.output = "alpha".
 local function ToAlpha(points)
@@ -751,12 +753,21 @@ end
 
 function Gate:Glow(key, on, overrides)
 	if on and key then
+		if self.lookGlow and self.glowKey == key and type(overrides) == "nil"
+			and type(self.glowOverrides) == "nil" and E:IsGlowShown(self.inner) then
+			self:UpdatePause()
+			return
+		end
 		self.glowKey = key
-		E:ShowUserGlow(self.inner, key, overrides)
+		self.glowOverrides = overrides
+		-- A callback during the show may clear the gate.
 		self.lookGlow = true
+		E:ShowUserGlow(self.inner, key, overrides)
+		if not self.lookGlow then E:HideGlow(self.inner) end
 	elseif self.lookGlow then
 		E:HideGlow(self.inner)
 		self.lookGlow = nil
+		self.glowOverrides = nil
 	end
 	self:UpdatePause()
 end
@@ -766,6 +777,7 @@ function Gate:Clear()
 	if self.lookGlow then
 		E:HideGlow(self.inner)
 		self.lookGlow = nil
+		self.glowOverrides = nil
 		-- The look is drawn again by the next SetLook.
 		self.look = nil
 	end
@@ -810,10 +822,10 @@ local GLOW_USERS = {
 		desc = "The threat glow on unit frames and nameplates (Effects, Threat border with the Glow style). The game's threat state turns it on.",
 		default = { style = "pulse", colorMode = "custom", color = { 1, 0.1, 0.1 }, speed = 0.2, thickness = 2 } },
 	unitLowHealth = { title = "Danger: low health", order = 43,
-		desc = "The low-health glow (Effects, Low health warning with the Glow style). The game evaluates the health; EldoUI never reads it.",
+		desc = "The glow of the low health warning on the Effects page (Glow style).",
 		default = { style = "pulse", colorMode = "custom", color = { 0.9, 0.1, 0.1 }, speed = 0.2, thickness = 2 } },
 	unitExecute = { title = "Danger: execute range", order = 44,
-		desc = "The execute glow (Effects, Execute shade with the Glow style). The game evaluates the health; EldoUI never reads it.",
+		desc = "The glow of the execute shade on the Effects page (Glow style).",
 		default = { style = "pixel", colorMode = "custom", color = { 1, 0.55, 0.2 }, speed = 0.25, thickness = 2 } },
 }
 FX.GLOW_USERS = GLOW_USERS
@@ -838,6 +850,41 @@ local function PulseGate(gate)
 end
 
 local THREAT_LOOKS = { BORDER = "BORDER", GLOW = "GLOW", TINT = "TINT" }
+
+-- Snapshot the four settings colors so callers can rebuild the outer
+-- table or edit a color in place. Equal settings reuse a fixed spec,
+-- and a changed channel gets a new one.
+local function ThreatSpec(gate, role, colors)
+	if type(colors) ~= "table" then return Fixed(SPECS.threat, role, "role", role) end
+	local previous = gate.threatColors
+	local changed = type(previous) ~= "table"
+	if not changed then
+		for status = 0, 3 do
+			local color, old = colors[status], previous[status]
+			if type(color) == "table" and type(old) == "table" then
+				for component = 1, 4 do
+					if color[component] ~= old[component] then
+						changed = true
+						break
+					end
+				end
+			elseif color ~= old then
+				changed = true
+			end
+			if changed then break end
+		end
+	end
+	if changed then
+		local snapshot = {}
+		for status = 0, 3 do
+			local color = colors[status]
+			snapshot[status] = type(color) == "table" and { color[1], color[2], color[3], color[4] } or color
+		end
+		gate.threatColors = snapshot
+		gate.threatSpecs = {}
+	end
+	return Fixed(gate.threatSpecs, role, "role", role, "colors", gate.threatColors)
+end
 
 -- The danger mark (DESIGN.md "Never color alone"): the warning mark ("!")
 -- in the threat color at the top right, shown only at the dangerous
@@ -874,7 +921,7 @@ local function ThreatMark(self, gate, status, color, role, opts)
 		local c = self.tokens.text.bad
 		mark.text:SetTextColor(c[1], c[2], c[3])
 	end
-	mark:FromAlpha(self:UnitCurveEval("threatPulse", status, { role = role }))
+	mark:FromAlpha(self:UnitCurveEval("threatPulse", status, Fixed(SPECS.threatPulse, role, "role", role)))
 end
 
 function E:UnitFXThreat(gate, unit, settings, opts)
@@ -885,7 +932,8 @@ function E:UnitFXThreat(gate, unit, settings, opts)
 		return false
 	end
 	local status, role = self:ThreatStatusFor(unit, opts.other, opts.role == "tank")
-	local curve = self:UnitCurve("threat", { role = role, colors = opts.colors })
+	local spec = ThreatSpec(gate, role, opts.colors)
+	local curve = self:UnitCurve("threat", spec)
 	if not curve then
 		gate:Clear()
 		return false
@@ -897,8 +945,12 @@ function E:UnitFXThreat(gate, unit, settings, opts)
 	end
 	local look = THREAT_LOOKS[settings.style] or "BORDER"
 	if look == "GLOW" then UseGlowUser("unitThreat") end
-	local lookOpts = { glow = "unitThreat", thickness = opts.thickness, alpha = opts.tint }
-	local color = self:UnitCurveEval("threat", status, { role = role, colors = opts.colors })
+	local lookOpts = gate.threatLook
+	if lookOpts and (lookOpts.thickness ~= opts.thickness or lookOpts.alpha ~= opts.tint) then
+		gate.threatLook = nil
+	end
+	lookOpts = Fixed(gate, "threatLook", "glow", "unitThreat", "thickness", opts.thickness, "alpha", opts.tint)
+	local color = self:UnitCurveEval("threat", status, spec)
 	gate:SetLook(look, lookOpts)
 	gate:Paint(color)
 	ThreatMark(self, gate, status, color, role, opts)
@@ -908,7 +960,7 @@ function E:UnitFXThreat(gate, unit, settings, opts)
 		local pulse = opts.pulseGate or PulseGate(gate)
 		pulse:SetLook(look, lookOpts)
 		if look ~= "GLOW" then pulse:FromColor(color) end
-		pulse:FromAlpha(self:UnitCurveEval("threatPulse", status, { role = role }))
+		pulse:FromAlpha(self:UnitCurveEval("threatPulse", status, Fixed(SPECS.threatPulse, role, "role", role)))
 		pulse:Pulse(true, opts.hz or 1)
 	elseif gate.pulseGate then
 		gate.pulseGate:Clear()
@@ -963,7 +1015,7 @@ end
 
 local EXECUTE_LOOKS = { LINE = "LINE", ZONE = "ZONE", GLOW = "GLOW" }
 
--- "Use my execute spell": the spells that work below a health percent, by
+-- "Use your execute spell": the spells that work below a health percent, by
 -- every Forever rank (Execute, Hammer of Wrath), and that percent. Read from
 -- the player's spellbook when it changes; nothing is cast.
 local EXECUTE_SPELLS = {
@@ -1277,17 +1329,18 @@ E.UNITFX_EFFECTS = {
 		defaults = { enabled = true },
 		presets = { off = OFF, subtle = ON(), standard = ON(), vivid = ON() } },
 	{ key = "auraExpiring", group = "animations", label = "Aura expiring",
-		desc = "In the last seconds of an aura its icon pulses or its time turns red. The game times the aura; EldoUI never reads the time.",
+		desc = "In the last seconds of an aura its icon pulses or its time turns red.",
 		defaults = { enabled = false, style = "PULSE", seconds = 5 },
 		rows = {
 			{ type = "select", field = "style", label = "Style", values = STYLE_EXPIRING,
-				desc = "Pulse: the icon breathes. Red time text: the time turns red. Or both." },
+				desc = "How an aura that is about to run out shows.",
+				valueDescs = { PULSE = E.Key("The icon breathes."), TEXT = E.Key("The time turns red."), BOTH = E.Key("The icon breathes and the time turns red.") } },
 			{ type = "range", unit = "s", field = "seconds", label = "Seconds left", min = 1, max = 10, step = 1,
 				desc = "The red time text starts at this many seconds left." },
 		},
 		presets = { off = OFF, subtle = OFF, standard = OFF, vivid = ON({ style = "PULSE" }) } },
 	{ key = "statusPulse", group = "animations", label = "Resurrection and summon pulse",
-		desc = "The status icon breathes while a resurrection or summon is on its way, as the game reports it.",
+		desc = "The status icon breathes while a resurrection or summon is on its way.",
 		defaults = { enabled = true },
 		presets = { off = OFF, subtle = ON(), standard = ON(), vivid = ON() } },
 	-- Danger -------------------------------------------------------------
@@ -1307,44 +1360,46 @@ E.UNITFX_EFFECTS = {
 		presets = { off = OFF, subtle = OFF, standard = OFF, vivid = OFF } },
 	{ key = "lowHealth", group = "danger", label = "Low health warning",
 		requiresAPI = { "UnitHealthPercent", "C_CurveUtil.CreateColorCurve" },
-		desc = "A red edge, tint or glow under the health you set. The game evaluates the health through a curve; EldoUI never reads it. Blizzard's own red screen edge is in its Options (Combat).",
+		desc = "Warns you when a frame's health drops below the value you set, with a red edge, tint or glow. The game's own red screen edge is a separate setting in Options > Combat.",
 		defaults = { enabled = false, threshold = 30, style = "EDGE", pulse = false, hz = 1 },
 		rows = {
-			{ type = "range", field = "threshold", label = "Below health", min = 10, max = 50, step = 5,
+			{ type = "range", field = "threshold", label = "Below health", unit = "%", min = 10, max = 50, step = 5,
 				desc = "The warning shows while the unit's health is under this percent." },
 			{ type = "select", field = "style", label = "Style", values = STYLE_WARNING,
-				desc = "Inner edge: a red band inside the frame. Tint: the frame takes the color. Glow: the look from the Glows page (Danger: low health)." },
+				desc = "How the warning shows on the frame.",
+				valueDescs = { EDGE = E.Key("A red band inside the frame."), TINT = E.Key("The frame takes the color."), GLOW = E.Key("The look from the Glows page (Danger: low health).") } },
 			{ type = "toggle", field = "pulse", label = "Pulse",
 				desc = "The warning pulses slowly. Static with animations off." },
-			{ type = "range", field = "hz", label = "Pulse speed", min = 0.5, max = 2, step = 0.25,
+			{ type = "range", field = "hz", label = "Pulse speed", unit = "/s", min = 0.5, max = 2, step = 0.25,
 				desc = "Pulses per second, at most two." },
 		},
 		presets = { off = OFF, subtle = ON({ style = "EDGE", pulse = false }), standard = ON({ style = "EDGE", pulse = false }),
 			vivid = ON({ style = "EDGE", pulse = true }) } },
 	{ key = "lowPower", group = "danger", label = "Low power tint",
 		requiresAPI = { "UnitPowerPercent", "C_CurveUtil.CreateColorCurve" },
-		desc = "The power bar takes the low power color (Colors page) under the percent you set, useful for healers' mana. The game evaluates the power; EldoUI never reads it.",
+		desc = "The power bar turns the low power color (Colors page) when it drops below the value you set. Handy for keeping an eye on a healer's mana.",
 		defaults = { enabled = false, threshold = 20 },
-		rows = { { type = "range", field = "threshold", label = "Below power", min = 5, max = 50, step = 5,
+		rows = { { type = "range", field = "threshold", label = "Below power", unit = "%", min = 5, max = 50, step = 5,
 			desc = "The tint shows while power is under this percent." } },
 		presets = { off = OFF, subtle = OFF, standard = OFF, vivid = OFF } },
 	{ key = "execute", group = "danger", label = "Execute shade", optIn = true,
 		requiresAPI = { "UnitHealthPercent", "C_CurveUtil.CreateColorCurve" },
-		desc = "Shades the part of the bar below the percent you set and lights the frame while the unit is in it. The game evaluates the health; EldoUI never reads it. Off by default; no preset turns it on.",
+		desc = "Shades the bottom of the health bar and highlights the frame once a target is low enough for your execute spell. Turn it on yourself; no preset does.",
 		defaults = { enabled = false, fromSpell = false, lower = 20, upper = 0, style = "ZONE" },
 		rows = {
-			{ type = "toggle", field = "fromSpell", label = "Use my execute spell",
+			{ type = "toggle", field = "fromSpell", label = "Use your execute spell",
 				desc = "The lower range comes from your own spell: 20 % with Execute or Hammer of Wrath. Without such a spell, no shade shows." },
-			{ type = "range", field = "lower", label = "Below health", min = 5, max = 50, step = 1,
+			{ type = "range", field = "lower", label = "Below health", unit = "%", min = 5, max = 50, step = 1,
 				disabledWhen = "fromSpell", disabledReason = E.Key("Taken from your execute spell."),
-				desc = "The lower execute range, in percent of health." },
-			{ type = "range", field = "upper", label = "Above health", min = 0, max = 95, step = 1,
-				desc = "An optional upper range for abilities that work on healthy units, in percent. 0 turns it off." },
+				desc = "The shade starts once health is under this percent." },
+			{ type = "range", field = "upper", label = "Above health", unit = "%", zeroText = "Off", min = 0, max = 95, step = 1,
+				desc = "A second shade above this percent, for abilities that work on healthy units." },
 			{ type = "select", field = "style", label = "Style", values = STYLE_EXECUTE,
-				desc = "Divider line: a mark at the percent. Shaded zone: the range is tinted. Glow: the look from the Glows page (Danger: execute range)." },
+				desc = "How the execute range shows on the health bar.",
+				valueDescs = { LINE = E.Key("A mark at the percent."), ZONE = E.Key("The range is tinted."), GLOW = E.Key("The look from the Glows page (Danger: execute range).") } },
 		} },
 	{ key = "absorb", group = "danger", label = "Absorb shield", requiresAPI = "CreateUnitHealPredictionCalculator",
-		desc = "The unit's absorb shield over the health bar, as the game reports it. Color on the Colors page.",
+		desc = "The unit's absorb shield over the health bar. Color on the Colors page.",
 		defaults = { enabled = false },
 		presets = { off = OFF, subtle = OFF, standard = ON(), vivid = ON() } },
 	{ key = "range", group = "danger", label = "Out-of-range fade", requiresAPI = "UnitInRange",
@@ -1365,7 +1420,7 @@ E.UNITFX_EFFECTS = {
 			desc = "The glow also pulses slowly. Static with animations off." } },
 		presets = { off = ON({ pulse = false }), subtle = ON({ pulse = false }), standard = ON({ pulse = false }), vivid = ON({ pulse = true }) } },
 	{ key = "interrupter", group = "casts", label = "Interrupter's name",
-		desc = "Shows who interrupted a cast, as the game reports it (Blizzard's own cast bar does the same).",
+		desc = "Shows who interrupted a cast, like the game's own cast bar.",
 		defaults = { enabled = true },
 		presets = { off = OFF, subtle = ON(), standard = ON(), vivid = ON() } },
 	{ key = "importantSound", group = "casts", label = "Important cast sound", optIn = true,
@@ -1617,6 +1672,12 @@ function E:UnitFXOptions(path, opts)
 					local option = { type = row.type, key = p .. key .. "." .. row.field, label = row.label, desc = row.desc,
 						cog = true, min = row.min, max = row.max, step = row.step, unit = row.unit, percent = row.percent,
 						zeroText = row.zeroText, values = row.values,
+						-- A choice's own line in the dropdown, in the player's language.
+						valueDescs = row.valueDescs and function()
+							local descs = {}
+							for value, text in pairs(row.valueDescs) do descs[value] = E:Translate(text) end
+							return descs
+						end,
 						mediaKind = row.mediaKind, requiresAPI = effect.requiresAPI, hidden = hidden }
 					if row.disabledWhen then
 						local field, reason = row.disabledWhen, row.disabledReason

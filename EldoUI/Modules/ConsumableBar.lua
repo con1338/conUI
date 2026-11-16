@@ -97,7 +97,7 @@ local MANA_GEMS = { 5514, 5513, 8007, 8008 }
 M.MANA_GEMS = MANA_GEMS
 
 -- The mage's conjured food and water, by item so every game language
--- reads them (client tables of build 1.60.1.70862): Muffin, Bread, Rye,
+-- reads them (client tables of build 1.60.1.70938): Muffin, Bread, Rye,
 -- Pumpernickel, Sourdough, Sweet Roll and Cinnamon Roll, then Water,
 -- Fresh, Purified, Spring, Mineral, Sparkling and Crystal Water.
 local CONJURED = {}
@@ -124,7 +124,7 @@ local BUFF_FOOD_SPELLS = {
 M.BUFF_FOOD_SPELLS = BUFF_FOOD_SPELLS
 
 -- Use spells named after the item, not "Food" or "Drink", from the client
--- tables of build 1.60.1.70862. Rations and biscuits restore health and
+-- tables of build 1.60.1.70938. Rations and biscuits restore health and
 -- mana (both buttons): manna biscuits, Essence Mango, the battleground and
 -- the Darkspear Islands rations.
 local RATION_SPELLS = {
@@ -566,15 +566,12 @@ function M:CreateButton(category, index)
 	button.cooldown:SetAllPoints(button.icon)
 	button.count = E:CreateText(button, E.tokens.size.small, "RIGHT")
 	button.count:SetPoint("BOTTOMRIGHT", -2, 2)
-	local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-	highlight:SetAllPoints(button.icon)
-	local r, g, b = unpack(E.media.accentColor)
-	highlight:SetColorTexture(r, g, b, 0.2)
+	E:SkinHudButton(button, button.icon)
 	button:HookScript("PostClick", function(btn, mouse, down) if mouse == "RightButton" and not down then M:TogglePicker(btn) end end)
 	button:SetScript("OnEnter", ShowTooltip)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	if self.db.masque then
-		E:MasqueButton(MASQUE_GROUP, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count, Highlight = highlight }, "Item")
+		E:MasqueButton(MASQUE_GROUP, button, { Icon = button.icon, Cooldown = button.cooldown, Count = button.count, Highlight = button.hover }, "Item")
 	end
 	return button
 end
@@ -596,7 +593,7 @@ function M:BuildBar()
 	for index, category in ipairs(self.CATEGORIES) do
 		self.buttons[index] = self:CreateButton(category, index)
 	end
-	E:CreateMover(bar, "EldoUI_ConsumableBar", "Consumable Bar", { "BOTTOM", "UIParent", "BOTTOM", 330, 240 })
+	E:CreateMover(bar, "EldoUI_ConsumableBar", L["Consumable Bar"], { "BOTTOM", "UIParent", "BOTTOM", 330, 240 })
 end
 
 -- True while hidden buttons are kept invisible (/eui keys hidden invisible):
@@ -857,8 +854,8 @@ M.options = {
 		M:Update()
 	end },
 	{ type = "header", label = "Look", fold = true },
-	{ type = "range", key = "buttonSize", label = "Button size", min = 20, max = 48, step = 1, desc = "Size of each button." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between buttons." },
+	{ type = "range", unit = "px", key = "buttonSize", label = "Button size", min = 20, max = 48, step = 1, desc = "Width and height of each potion, food or flask button." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between buttons." },
 	{ type = "toggle", key = "vertical", label = "Vertical", desc = "Stack the buttons top to bottom." },
 	{ type = "toggle", key = "showCount", label = "Counts", desc = "Show how many you carry." },
 	{ type = "toggle", key = "masque", label = "Use Masque", reload = true, desc = E.MASQUE_OPTION_DESC,

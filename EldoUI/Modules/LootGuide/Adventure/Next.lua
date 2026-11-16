@@ -1540,8 +1540,11 @@ A:AddPart("next", {
 			if changed.data then
 				citySide, entranceZone = nil, nil
 			end
-			if changed.data or changed.quests or changed.attune or changed.journey or changed.player or changed.rank or changed.settings
-				or changed.gear then
+			-- Gear reaches the ranking only through the Loot Guide's upgrade
+			-- ranking, so a gear change waits for its "rank" message instead of
+			-- ranking twice.
+			if changed.data or changed.quests or changed.attune or changed.journey or changed.player or changed.rank
+				or changed.settings then
 				Changed()
 			end
 		end)

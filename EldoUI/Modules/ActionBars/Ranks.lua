@@ -733,10 +733,10 @@ if type(MultiActionBar_Update) == "function" then
 	hooksecurefunc("MultiActionBar_Update", function() M:BlizzardBarsDrawn() end)
 end
 
-E:AddCommand("ranks", "  move lower spell ranks on your action bars to the highest rank you know (undo: put back the last automatic upgrade)", function(args)
+E:AddCommand("ranks", "[undo]  move lower spell ranks on your action bars to the highest rank you know (undo: put back the last automatic upgrade)", function(args)
 	if type(args) == "string" and strtrim(args):lower() == "undo" then
 		E:RunOutOfCombat(function() M:UndoRankUpgrade() end, "ActionBars:rankUndo")
 		return
 	end
 	M:UpgradeRanks()
-end, "Tools")
+end, "Keys and spells")

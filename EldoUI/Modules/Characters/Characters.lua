@@ -85,6 +85,11 @@ local M = E:NewModule("Characters", {
 	},
 })
 
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "groups", "bankMarks" }
+M.keepOnResetNote = E.Key("Your groups and bank marks are kept too.")
+
 M.tabs = {}
 
 ---------------------------------------------------------------------------
@@ -227,6 +232,20 @@ E:RegisterCharacterKeyMove(function(db, oldKey, newKey)
 			for _, members in pairs(settings.groups) do
 				E.MoveCharacterEntry(members, oldKey, newKey)
 				if type(members) == "table" then members[oldKey] = nil end
+			end
+		end
+	end
+end)
+
+-- Forget takes the character out of every profile's groups, bank marks
+-- and hidden list.
+E:RegisterCharacterForget(function(db, key)
+	for _, settings in ipairs(E.EachProfileModule(db, "Characters")) do
+		if type(settings.bankMarks) == "table" then settings.bankMarks[key] = nil end
+		if type(settings.skip) == "table" then settings.skip[key] = nil end
+		if type(settings.groups) == "table" then
+			for _, members in pairs(settings.groups) do
+				if type(members) == "table" then members[key] = nil end
 			end
 		end
 	end
@@ -535,13 +554,13 @@ function M:ConfirmForget(key)
 		-- The shared dialog shell (E.UIKit.CreateDialog), with the tick.
 		box = E.UIKit.CreateDialog("EldoUI_AltsForget", { width = 380,
 			check = { label = L["Also forget its EldoUI settings"],
-				desc = L["Removes the character's profile choice, its own settings, installer state, profile rules and key binding backup too. Leave it off when you may play the character again."] } })
+				desc = L["Removes the character's profile choice, its own settings, setup state, profile rules and key binding backup too. Leave it off when you may play the character again."] } })
 		box:SetButtons({
 			{ L["Forget"], function(own)
 				M.db.forgetSettings = own.tick:GetChecked() and true or false
 				M:Forget(own.key, M.db.forgetSettings)
 			end, kind = "danger" },
-			{ CANCEL or L["Cancel"] },
+			{ E:GameText(CANCEL, L["Cancel"]) },
 		})
 		box.tick = box.check
 		box.ok, box.cancel = box.buttons[1], box.buttons[2]

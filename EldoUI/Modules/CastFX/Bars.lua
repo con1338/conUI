@@ -293,7 +293,7 @@ local function TestUpdate(bar, elapsed)
 	bar:SetScript("OnUpdate", nil)
 	local deco = Engine.Get(bar)
 	if deco then Engine.Finish(deco, bar.outcome) end
-	bar.text:SetText(bar.outcome == "fail" and (_G.INTERRUPTED or L["Interrupted"]) or L["Done"])
+	bar.text:SetText(bar.outcome == "fail" and (E:GameText(_G.INTERRUPTED, L["Interrupted"])) or L["Done"])
 	local token = {}
 	bar.token = token
 	C_Timer.After(0.8, function()
@@ -374,7 +374,7 @@ E:RegisterEvent("PLAYER_REGEN_DISABLED", function() M:StopTests() end, testBars)
 function M:DumpSpellbook()
 	local book = C_SpellBook
 	if not (book and book.GetNumSpellBookSkillLines and book.GetSpellBookSkillLineInfo and book.GetSpellBookItemInfo) then
-		E:Print(L["This client has no spellbook API to list."])
+		E:Print(L["This version of the game can't list the spellbook."])
 		return
 	end
 	local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0

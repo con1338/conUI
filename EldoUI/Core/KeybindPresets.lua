@@ -211,6 +211,10 @@ function E:KeybindPresetKey(id)
 	if type(id) ~= "string" then return nil end
 	id = id:lower()
 	if self.keybindPresets[id] then return id end
+	-- A set's title as the page shows it ("classic movement", "a/d strafe").
+	for key, preset in pairs(self.keybindPresets) do
+		if id == preset.title:lower() or id == L[preset.title]:lower() then return key end
+	end
 	local alias = self.keybindPresetAliases[id]
 	return alias and self.keybindPresets[alias] and alias or nil
 end
@@ -392,7 +396,7 @@ function E:KeymapStandsDown()
 		return "gamepad", L["The gamepad UI is on, so the key sets stand down: your controller keeps its own buttons."]
 	end
 	if Settings().preset == "none" then
-		return "none", L["You manage your own keys, so EldoUI writes no key. Choose a key set on the Keybinds page to use one."]
+		return "none", L["You manage your own keys, so EldoUI writes no key. Untick \"I manage my own keys\" on the Keybinds page to use a key set."]
 	end
 	return nil
 end
@@ -652,7 +656,13 @@ local function Backup(applied, plan)
 	-- preview only ever restores the backup its own Apply made.
 	local stamp = ("%d.%d"):format(time(), math.floor((GetTime() or 0) * 1000))
 	local private = E:GetPrivate("keymap")
-	local backup = { bindings = saved, applied = applied, time = time(), template = plan and plan.id, version = plan and plan.version, stamp = stamp,
+	-- written: what the set put on each key ("" for a key it cleared), so
+	-- Undo leaves a key alone that the player changed since.
+	local written = {}
+	for _, write in ipairs(plan and plan.writes or {}) do
+		if write.key then written[write.key] = write.command or "" end
+	end
+	local backup = { bindings = saved, applied = applied, written = written, time = time(), template = plan and plan.id, version = plan and plan.version, stamp = stamp,
 		-- The key map choice before this Apply, put back by Undo.
 		keymap = { preset = Settings().preset, applied = private and CopyTable2(private.applied) or nil } }
 	-- Earlier backups stay behind this one, so each set can be undone in turn.
@@ -841,10 +851,32 @@ function E:RestoreKeybinds(report)
 		Report(L["Keybinds can't change in combat."], true)
 		return false
 	end
-	for _, keyName in ipairs(backup.applied or {}) do SetBinding(keyName) end
-	for _, entry in ipairs(backup.bindings or {}) do
-		SetBinding(entry[2], entry[1])
-		if entry[3] then SetBinding(entry[3], entry[1]) end
+	local kept = 0
+	local written = type(backup.written) == "table" and backup.written
+	if written then
+		-- Only the keys that still hold what the set wrote go back; a key
+		-- changed by hand since stays the player's.
+		local before = {}
+		for _, entry in ipairs(backup.bindings or {}) do
+			if entry[2] then before[entry[2]] = entry[1] end
+			if entry[3] then before[entry[3]] = entry[1] end
+		end
+		for _, keyName in ipairs(backup.applied or {}) do
+			local now = GetBindingAction and GetBindingAction(keyName) or ""
+			if (now or "") == (written[keyName] or "") then
+				SetBinding(keyName)
+				if before[keyName] then SetBinding(keyName, before[keyName]) end
+			else
+				kept = kept + 1
+			end
+		end
+	else
+		-- A backup from an older version: every key from its snapshot.
+		for _, keyName in ipairs(backup.applied or {}) do SetBinding(keyName) end
+		for _, entry in ipairs(backup.bindings or {}) do
+			SetBinding(entry[2], entry[1])
+			if entry[3] then SetBinding(entry[3], entry[1]) end
+		end
 	end
 	SaveBindings(GetCurrentBindingSet())
 	-- The key map choice goes back to what it was before that Apply.
@@ -857,7 +889,9 @@ function E:RestoreKeybinds(report)
 	-- The backup before this one is next in line.
 	EldoUIDB.keybindBackup[self.charKey] = backup.previous
 	Notify("restored", backup)
-	Report(L["Keybinds restored to how they were on %s."]:format(E:ShortDate(backup.time)))
+	local text = L["Keybinds restored to how they were on %s."]:format(E:ShortDate(backup.time))
+	if kept > 0 then text = text .. " " .. E:Plural(kept, "%d key you changed since stays yours.", "%d keys you changed since stay yours."):format(kept) end
+	Report(text)
 	if self.KeybindPreviewChanged then self:KeybindPreviewChanged() end
 	return true
 end
@@ -888,9 +922,11 @@ function E:ConfirmKeybindPreset(id, plan, spells)
 			E:Highlight(L[plan.title]), table.concat(parts, ", "))
 	else
 		spells = nil
-		text = L["Apply the %s keys?\n\n%s.\n\nOnly keys change: spells and bars stay as they are. Your current keys are saved first, and Restore puts them back."]:format(
+		text = L["Apply the %s keys?\n\n%s.\n\nOnly keys change: spells and bars stay as they are. Your current keys are saved first, and Undo last key set puts them back."]:format(
 			E:Highlight(L[plan.title]), table.concat(parts, ", "))
 	end
+	local scope = self.KeySetScopeText and self:KeySetScopeText()
+	if scope then text = text .. "\n\n" .. scope end
 	self:ShowConfirm({ title = L["Key sets"], text = text, accept = OKAY, data = plan,
 		onAccept = function(data) E:ApplyKeybindPlan(data, spells) end })
 end
@@ -1037,12 +1073,16 @@ E:RegisterGlobal("keymap", { keyboard = "", checked = false, names = {}, sets = 
 E:RegisterPrivate("keymap", { applied = {}, overrides = {}, never = false })
 
 -- Rows of the Keybinds page that read their value through a small proxy
--- (a tick for "I manage my own keys", the keyboard list with a guess).
+-- (a tick for "I manage my own keys", the keyboard list with a guess, the
+-- keys on bars 1 to 3, which redraws the bars, and the answer for the
+-- other characters).
 local proxy = setmetatable({}, {
 	__index = function(_, key)
 		local db = Settings()
 		if key == "own" then return db.preset == "none" end
 		if key == "pageKeysOff" then return db.pageKeys ~= "keep" end
+		if key == "showKeys" then return E:KeymapSetting("showKeys") and true or false end
+		if key == "alts" then return E:KeymapSetting("alts") end
 		if key == "keyboard" then
 			local store = E:GetGlobal("keymap")
 			local chosen = store and store.keyboard
@@ -1061,6 +1101,10 @@ local proxy = setmetatable({}, {
 			end
 		elseif key == "pageKeysOff" and type(db) == "table" then
 			db.pageKeys = value and "off" or "keep"
+		elseif key == "showKeys" then
+			E:SetKeymap({ showKeys = value and true or false })
+		elseif key == "alts" then
+			E:SetKeymap({ alts = value })
 		elseif key == "keyboard" then
 			local store = E:GetGlobal("keymap")
 			if store then
@@ -1094,7 +1138,7 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 	table.insert(options, { type = "toggle", key = "own", root = function() return proxy end, label = "I manage my own keys",
 		desc = "EldoUI then never writes a key. The preview, the game keys and keybind mode still work." })
 	table.insert(options, { type = "header", label = "Keyboard" })
-	table.insert(options, { type = "select", key = "keyboard", root = function() return proxy end, label = "Keyboard layout",
+	table.insert(options, { type = "select", key = "keyboard", root = function() return proxy end, label = "Keyboard layout", wide = true,
 		desc = "The key sets use the keys in the same places on every keyboard. Pick yours, or let EldoUI guess from the game language.",
 		values = KeyboardValues, order = function()
 			local order = { "auto" }
@@ -1108,12 +1152,23 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 		desc = "A/D strafe only: Mouse 4 and Mouse 5 press buttons 6 and 7 of bars 1 to 3, with Shift and Ctrl for bars 2 and 3." })
 	table.insert(options, { type = "toggle", key = "pageKeysOff", root = function() return proxy end, label = "Turn off the bar page keys",
 		desc = "Shift + mouse wheel and Shift + arrow keys would swap bar 1's spells in a fight. With this on, a key set takes them off." })
+	table.insert(options, { type = "select", key = "alts", root = function() return proxy end, label = "Your other characters",
+		values = { offer = "Ask me", auto = "Automatic", off = "Off" }, order = { "offer", "auto", "off" },
+		desc = "What happens on a character whose keys differ from this key set. Ask me shows one alert with a preview; Automatic sets its keys out of combat, with a backup and Undo." })
+	table.insert(options, { type = "toggle", key = "showKeys", root = function() return proxy end, label = "Show the keys on bars 1 to 3",
+		desc = "Shows the keys on bars 1 to 3 even when the action bar text style hides them. Off, those bars follow Action Bars > Show keybind like the others." })
 	table.insert(options, { type = "header", label = "Your own keys" })
 	table.insert(options, { type = "execute", label = "Show the game keys",
 		desc = "Lists in the chat where bags, map and the other game shortcuts are, and where a key set moves them.", func = function() E:PrintGameKeys() end })
-	table.insert(options, { type = "execute", label = "Restore my old keys",
-		desc = "Put back the keys you had before the last key set.",
-		func = function() E:RestoreKeybinds(function(text, warn) E:ConfigNotice(text, warn) end) end })
+	table.insert(options, { type = "execute", label = "Undo last key set",
+		desc = "Put back the keys you had before the last key set. A key you changed since stays yours.",
+		disabled = function() return not E:HasKeybindBackup() end,
+		func = function()
+			E:ShowConfirm({ title = L["Key sets"], text = L["Put back the keys you had before the last key set? A key you changed since stays yours."],
+				accept = L["Undo last key set"], onAccept = function()
+					E:RunOutOfCombat(function() E:RestoreKeybinds(function(text, warn) E:ConfigNotice(text, warn) end) end, "Keybinds:undo")
+				end })
+		end })
 	table.insert(options, { type = "execute", label = "Keybind mode (hover and press)",
 		desc = "Hover any EldoUI button (action, pet, stance, extra, vehicle exit) and press a key to bind it.", func = function() E:ToggleKeybindMode() end })
 	E:RegisterConfigPage("keybinds", "Keybinds", options, function() return E.db end, function() if E.KeybindPreviewChanged then E:KeybindPreviewChanged() end end, 4)

@@ -128,10 +128,12 @@ local function Pin(frame, anchor, spec)
 	E:PinBlizzardFrame(frame, spec)
 end
 
-local function Unpin(frame)
+-- restore: put the frame back on the points it had before the pin (the
+-- fold opening again); otherwise Blizzard's next layout places it.
+local function Unpin(frame, restore)
 	if not frame or not pinned[frame] then return end
 	pinned[frame] = nil
-	E:UnpinBlizzardFrame(frame, true)
+	E:UnpinBlizzardFrame(frame, not restore)
 end
 
 ---------------------------------------------------------------------------
@@ -277,24 +279,30 @@ end
 function M:ApplyFonts()
 	local line, header = FontObjects()
 	if not (line and header and line.GetFont) then return end
-	if not Can("skin") or not self.db.font then
-		if self.fontsSet and blizzardFonts then
-			line:SetFont(unpack(blizzardFonts.line))
-			header:SetFont(unpack(blizzardFonts.header))
-			self.fontsSet = false
-		end
+	local previousFont, previousSize, previousFlags = E.PlainCallAll(header.GetFont, header)
+	if Can("skin") and self.db.font then
+		if not blizzardFonts then SaveBlizzardFonts() end
+		local outline = E.db.general.fontOutline or ""
+		local size = (self.db.fontSize or 0) > 0 and self.db.fontSize or math.floor((blizzardFonts.line[2] or 12) + 0.5)
+		local headerSize = (self.db.headerSize or 0) > 0 and self.db.headerSize or size + 2
+		-- Game font objects shared by every tracker line: set directly (with
+		-- Large text, as E:SetFont would), restored when the skin turns off.
+		local scale = E:TextScale()
+		line:SetFont(E.media.font, size * scale, outline)
+		header:SetFont(E.media.font, headerSize * scale, outline)
+		self.fontsSet = true
+	elseif self.fontsSet and blizzardFonts then
+		line:SetFont(unpack(blizzardFonts.line))
+		header:SetFont(unpack(blizzardFonts.header))
+		self.fontsSet = false
+	else
 		return
 	end
-	if not blizzardFonts then SaveBlizzardFonts() end
-	local outline = E.db.general.fontOutline or ""
-	local size = (self.db.fontSize or 0) > 0 and self.db.fontSize or math.floor((blizzardFonts.line[2] or 12) + 0.5)
-	local headerSize = (self.db.headerSize or 0) > 0 and self.db.headerSize or size + 2
-	-- Game font objects shared by every tracker line: set directly (with
-	-- Large text, as E:SetFont would), restored above.
-	local scale = E:TextScale()
-	line:SetFont(E.media.font, size * scale, outline)
-	header:SetFont(E.media.font, headerSize * scale, outline)
-	self.fontsSet = true
+	local font, size, flags = E.PlainCallAll(header.GetFont, header)
+	if font == previousFont and size == previousSize and flags == previousFlags then return end
+	-- The title overlay owns its own font and does not follow this object.
+	local marks = E:GetModule("QuestTint")
+	if marks and marks.active and marks.UpdateTracker then marks:UpdateTracker() end
 end
 
 ---------------------------------------------------------------------------
@@ -456,6 +464,40 @@ end
 
 -- Another module's control on the top row (nil: none): the header lines
 -- make room for it.
+-- The per-character fold (Quality of Life's button and /eui tracker). Like
+-- Hide, the tracker is parked off screen and invisible; Blizzard's own
+-- SetCollapsed is never called from EldoUI (see the taint notes above). The
+-- spot where the tracker's top right corner was is kept for the button.
+function M:SetUserCollapsed(collapsed)
+	collapsed = collapsed and true or false
+	if (self.userCollapsed or false) == collapsed then return end
+	local tracker = Tracker()
+	if collapsed and tracker and not self.userCollapsed then
+		local right, top = E.PlainCall(tracker.GetRight, tracker), E.PlainCall(tracker.GetTop, tracker)
+		local scale = E.PlainCall(tracker.GetEffectiveScale, tracker)
+		local parent = UIParent:GetEffectiveScale()
+		if type(right) == "number" and type(top) == "number" and type(scale) == "number" and parent > 0 then
+			self.foldSpot = { right * scale / parent, top * scale / parent }
+		else
+			self.foldSpot = nil
+		end
+	end
+	self.userCollapsed = collapsed or nil
+	if not collapsed then self.foldSpot = nil end
+	if tracker then
+		if not collapsed and not Can("move") and not Can("hide") and not Can("replace") and not BoxHidden() then
+			Unpin(tracker, true)
+		end
+		self:ApplyPosition()
+		self:UpdateAlpha()
+	end
+end
+
+-- Where the folded tracker's top right corner was (UIParent units), or nil.
+function M:FoldSpot()
+	return self.active and self.userCollapsed and self.foldSpot or nil
+end
+
 function M:SetHeaderControl(control)
 	if headerControl == control then return end
 	headerControl = control
@@ -737,7 +779,7 @@ function M:UpdateAlpha()
 	local tracker = Tracker()
 	if not tracker then return end
 	self:MigrateVisibility()
-	local hidden = self.active and (E:BlizzardHidden(ELEMENT) or BoxHidden())
+	local hidden = self.active and (E:BlizzardHidden(ELEMENT) or BoxHidden() or self.userCollapsed)
 	if self.active and not hidden and Allowed("improve") then
 		if type(self.db.visibility) ~= "table" then self.db.visibility = E:VisibilityDefaults() end
 		E:AttachVisibility(tracker, self.db.visibility, { inInstance = InTrackedInstance })
@@ -760,7 +802,7 @@ end
 function M:ApplyPosition()
 	local tracker = Tracker()
 	local boxHidden = BoxHidden()
-	local hidden = Can("hide") or Can("replace") or boxHidden
+	local hidden = Can("hide") or Can("replace") or boxHidden or (self.active and self.userCollapsed)
 	local move = Can("move")
 	if move then
 		self:CreateHolder()
@@ -790,7 +832,7 @@ function M:ApplyPosition()
 end
 
 ---------------------------------------------------------------------------
--- Questie (G-36e): Questie draws its own tracker (Questie_BaseFrame). EldoUI
+-- Questie: Questie draws its own tracker (Questie_BaseFrame). EldoUI
 -- gives it the EldoUI backdrop and puts it on the EldoUI_Quests mover.
 -- Questie's own drag is overridden while "Put Questie's tracker on the
 -- mover" is on. Questie's frames belong to an addon, so taint is no concern.
@@ -807,6 +849,9 @@ end
 function M:QuestieLoaded()
 	return C_AddOns.IsAddOnLoaded("Questie")
 end
+
+-- The Questie rows show only while Questie is loaded.
+local function NoQuestie() return not M:QuestieLoaded() end
 
 local function ClearQuestieBackdrop(frame)
 	if questieBusy or not frame.SetBackdropColor then return end
@@ -932,14 +977,12 @@ end
 function M:FindQuestItem()
 	local db = self.db.questItem
 	if db.source == "super" and C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
-		local found = ItemOfQuest(C_SuperTrack.GetSuperTrackedQuestID(), db.complete)
+		local found = ItemOfQuest(E.PlainCall(C_SuperTrack.GetSuperTrackedQuestID), db.complete)
 		if found then return found end
 	end
-	if C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex then
-		for index = 1, C_QuestLog.GetNumQuestWatches() do
-			local found = ItemOfQuest(C_QuestLog.GetQuestIDForQuestWatchIndex(index), db.complete)
-			if found then return found end
-		end
+	for _, questID in ipairs(self:WatchedQuests()) do
+		local found = ItemOfQuest(questID, db.complete)
+		if found then return found end
 	end
 end
 
@@ -1156,6 +1199,11 @@ local QUEST_ITEM_EVENTS = { "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "SUP
 -- Re-reads every setting and switch. With the element switched off (or the
 -- module off) each step puts back what it changed, so this is also the undo.
 -- Moves Blizzard only redoes on its next layout ask for a /reload.
+local function ApplyFoldOwner()
+	local qol = E:GetModule("QoL")
+	if qol and qol.active and qol.ApplyTracker then qol:ApplyTracker() end
+end
+
 function M:Refresh()
 	if not Tracker() then
 		if self.active then
@@ -1164,6 +1212,7 @@ function M:Refresh()
 		return
 	end
 	if Can() then self:HookTracker() end
+	if self.active then ApplyFoldOwner() end
 	self:ApplyPosition()
 	self:ApplySkin()
 	self:UpdateAlpha()
@@ -1223,7 +1272,9 @@ function M:OnEnable()
 	self:RegisterEvent("BAG_UPDATE_COOLDOWN", function() M:UpdateQuestItemState() end)
 	self:QueueQuestItem()
 	E:OnBlizzardAddOn("Questie", function() M:WatchQuestie() end)
-	E:RunOutOfCombat(function() M:Refresh() end)
+	E:RunOutOfCombat(function()
+		if M.active then M:Refresh() end
+	end, "objectiveTracker:foldOwner")
 end
 
 function M:OnDisable()
@@ -1236,8 +1287,16 @@ function M:OnDisable()
 	self:UnregisterEvent("BAG_UPDATE_COOLDOWN")
 	self:ApplyQuestItem()
 	self:UpdateAlpha() -- alpha is safe in combat: full again at once
-	-- active is false now, so Refresh puts everything back.
-	E:RunOutOfCombat(function() M:Refresh() end)
+	-- Give QoL the frame back on its last native points before it fades it.
+	E:RunOutOfCombat(function()
+		if M.active then return end
+		if M.userCollapsed then
+			Unpin(Tracker(), true)
+			M.userCollapsed, M.foldSpot = nil, nil
+		end
+		M:Refresh()
+		ApplyFoldOwner()
+	end, "objectiveTracker:foldOwner")
 end
 
 function M:OnProfileChanged()
@@ -1247,22 +1306,53 @@ function M:OnProfileChanged()
 end
 
 ---------------------------------------------------------------------------
--- Untrack all quests: only from the player's click on the options page,
--- after a question, and out of combat. Quests stay in the log.
+-- Watched quests in the game's watch-list order
 ---------------------------------------------------------------------------
+local function IsQuestID(value)
+	return type(value) == "number" and value > 0 and value < math.huge and value % 1 == 0
+end
+
 function M:WatchedQuests()
 	local list = {}
 	local log = C_QuestLog
-	if not (log and log.GetNumQuestWatches and log.GetQuestIDForQuestWatchIndex) then return list end
-	local ok, count = pcall(log.GetNumQuestWatches)
-	count = ok and tonumber(count) or 0
+	if not log then return list end
+	local watchConsts = Constants and Constants.QuestWatchConsts
+	local limit = watchConsts and watchConsts.MAX_QUEST_WATCHES or 25
+	local count = E.PlainCall(log.GetNumQuestWatches)
+	if type(count) ~= "number" or count < 0 or count > limit or count % 1 ~= 0 then return list end
+	local seen = {}
 	for index = 1, count do
-		local got, questID = pcall(log.GetQuestIDForQuestWatchIndex, index)
-		if got and type(questID) == "number" and questID > 0 then list[#list + 1] = questID end
+		local questID = E.PlainCall(log.GetQuestIDForQuestWatchIndex, index)
+		if IsQuestID(questID) and not seen[questID] then
+			list[#list + 1] = questID
+			seen[questID] = true
+		end
 	end
 	return list
 end
 
+-- Only a binding calls this. Selecting the native focus also refreshes the
+-- quest item through SUPER_TRACKING_CHANGED, as when the player uses the map.
+function M:CycleWatchedQuest(direction)
+	local tracking = C_SuperTrack
+	if not (tracking and tracking.GetSuperTrackedQuestID and tracking.SetSuperTrackedQuestID) then return end
+	local quests = self:WatchedQuests()
+	if #quests == 0 then return end
+	local ok, current = pcall(tracking.GetSuperTrackedQuestID)
+	if not ok or E.Secret(current) or (current ~= nil and current ~= 0 and not IsQuestID(current)) then return end
+	local nextIndex = direction > 0 and 1 or #quests
+	for index, questID in ipairs(quests) do
+		if questID == current then
+			nextIndex = (index + direction - 1) % #quests + 1
+			break
+		end
+	end
+	local nextQuest = quests[nextIndex]
+	if nextQuest ~= current then pcall(tracking.SetSuperTrackedQuestID, nextQuest) end
+end
+
+-- Only from the player's click on the options page, after a question, and
+-- out of combat. Quests stay in the log.
 function M:UntrackAllQuests()
 	local log = C_QuestLog
 	if not (log and log.RemoveQuestWatch) then return false end
@@ -1281,7 +1371,7 @@ function M:ConfirmUntrackAll()
 	end
 	E:ShowConfirm({ key = "ELDOUI_TRACKER_UNTRACK", title = L["Untrack all quests"],
 		text = E:Plural(count, "Stop tracking %d quest? It stays in your quest log.", "Stop tracking all %d quests? They stay in your quest log."):format(count),
-		accept = L["Untrack"], cancel = CANCEL or L["Cancel"], onAccept = function() M:UntrackAllQuests() end })
+		accept = L["Untrack"], cancel = E:GameText(CANCEL, L["Cancel"]), onAccept = function() M:UntrackAllQuests() end })
 	return true
 end
 
@@ -1317,7 +1407,7 @@ M.options = {
 		func = function() E:ToggleConfig("blizzard") end },
 	{ type = "header", label = "Size and place (Move and scale)" },
 	{ type = "description", label = "Needs Move and scale on the Blizzard UI page. The tracker then sits on the \"Quest tracker\" mover, and Edit Mode no longer moves it.", hidden = function() return Allowed("move") end },
-	{ type = "range", key = "height", label = "Height", desc = "How tall the tracker may grow. Quests that don't fit are cut off, as in Blizzard's tracker.", min = 160, max = 900, step = 10, hidden = Off("move") },
+	{ type = "range", unit = "px", key = "height", label = "Height", desc = "How tall the tracker may grow. Quests that don't fit are cut off, as in Blizzard's tracker.", min = 160, max = 900, step = 10, hidden = Off("move") },
 	{ type = "range", percent = true, key = "scale", label = "Scale", desc = "Size of the whole tracker.", min = 0.6, max = 1.5, step = 0.05, hidden = Off("move") },
 	{ type = "header", label = "Collapse" },
 	{ type = "description", label = "Blizzard's -/+ buttons fold the tracker and its sections. Quality of Life adds a button and /eui tracker that remember it per character." },
@@ -1356,7 +1446,7 @@ end
 -- Instance types, by the kind IsInInstance() returns (read in
 -- InTrackedInstance through instanceTypes[kind]).
 table.insert(M.options, { type = "header", label = "Instances", hidden = NoInstanceRule })
-table.insert(M.options, { type = "description", label = "Which instances count for the instance settings in the gear of Show.", hidden = NoInstanceRule })
+table.insert(M.options, { type = "description", label = "Which instances count for the instance settings (the gear button next to Show).", hidden = NoInstanceRule })
 for _, kind in ipairs({
 	{ "party", "Dungeons", E.Key("Five-player dungeons.") },
 	{ "raid", "Raids", E.Key("Raid instances.") },
@@ -1385,10 +1475,10 @@ for _, row in ipairs({
 		{ type = "toggle", key = "questItem.complete", label = "Finished quests too", desc = "Also offer the item of a quest that is ready to turn in." },
 	} },
 
-	{ type = "tab", label = "Questie" },
-	{ type = "description", label = "When Questie is loaded, its tracker can share the EldoUI look and the Quest tracker mover. Without Questie these settings do nothing." },
-	{ type = "toggle", key = "questie.skin", label = "EldoUI background on Questie's tracker", desc = "Questie's tracker gets the EldoUI panel instead of its own background. Needs the tracker's Skin switch." },
-	{ type = "toggle", key = "questie.move", label = "Put Questie's tracker on the mover", desc = "Questie's tracker sits on the Quest tracker mover; drag that mover instead of Questie's frame. Needs the tracker's Move and scale switch. Turn on Hide for Blizzard's tracker if both show." },
+	{ type = "tab", label = "Questie", empty = E.Key("These settings show when Questie is loaded.") },
+	{ type = "description", label = "Questie's tracker can share the EldoUI look and the Quest tracker mover.", hidden = NoQuestie },
+	{ type = "toggle", key = "questie.skin", hidden = NoQuestie, label = "EldoUI background on Questie's tracker", desc = "Questie's tracker gets the EldoUI panel instead of its own background. Needs the tracker's Skin switch." },
+	{ type = "toggle", key = "questie.move", hidden = NoQuestie, label = "Put Questie's tracker on the mover", desc = "Questie's tracker sits on the Quest tracker mover; drag that mover instead of Questie's frame. Needs the tracker's Move and scale switch. Turn on Hide for Blizzard's tracker if both show." },
 }) do
 	table.insert(M.options, row)
 end

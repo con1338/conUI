@@ -76,6 +76,8 @@ local M = E:NewModule("Notifications", {
 		cinematics = { escSkip = true, skipSeen = false, tutorials = true, helpTips = true },
 		-- Battleground messages as big text under the raid warnings.
 		bgMessages = { enabled = false, fontSize = 22, duration = 5 },
+		-- A profession at its rank cap (Professions.lua).
+		professionCap = { enabled = true, early = false },
 		-- Pings: EldoUI's own extras, each off until ticked.
 		pings = {
 			feed = false,
@@ -542,7 +544,12 @@ do
 				or not Same(mover.module, "Notifications") or not Same(E.modules and E.modules.Notifications, self) then return unavailable end
 			local ticket, toast = rawget(_G, "TicketStatusFrame"), rawget(_G, "BNToastFrame")
 			if type(ticket) == "nil" and type(toast) == "nil" then
-				for _, pin in pairs(pins) do if pin.holder == holder then return unavailable end end
+				-- The layer-move countdown box shares the spot only for a few
+				-- seconds before a move, so it is not one of the spot's parts.
+				local shard = rawget(_G, "ShardTransferImminentFrame")
+				for frame, pin in pairs(pins) do
+					if pin.holder == holder and not (shard ~= nil and Same(frame, shard)) then return unavailable end
+				end
 				return { kind = "nominal", frame = holder }
 			end
 			local rows, parts = {}, {}

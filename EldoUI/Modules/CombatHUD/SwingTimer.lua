@@ -198,9 +198,9 @@ F.switches = {
 F.note = L["Blizzard's own swing timer shows when Interface > Combat > Swing Timer is on. Its Edit Mode visibility still applies."]
 F.options = {
 	{ type = "header", label = "Size", hidden = Shared("move") },
-	{ type = "range", key = "swing.width", label = "Width", min = 80, max = 500, step = 1, hidden = Shared("move"),
+	{ type = "range", unit = "px", key = "swing.width", label = "Width", min = 80, max = 500, step = 1, hidden = Shared("move"),
 		desc = "Width of every swing bar (also EldoUI's own bars)." },
-	{ type = "range", key = "swing.height", label = "Height", min = 4, max = 40, step = 1, hidden = Shared("move"),
+	{ type = "range", unit = "px", key = "swing.height", label = "Height", min = 4, max = 40, step = 1, hidden = Shared("move"),
 		desc = "Height of every swing bar (also EldoUI's own bars)." },
 	{ type = "header", label = "Look", hidden = Shared("skin") },
 	{ type = "select", key = "swing.colorMode", label = "Bar color", values = COLOR_MODES, hidden = Shared("skin"),

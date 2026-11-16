@@ -629,15 +629,22 @@ end)
 
 -- Battleground / arena ready: a countdown on Blizzard's dialog when the
 -- client tells the time left (GetBattlefieldPortExpiration, feature-checked).
+-- The sound and flash come once per pop, whatever the bar does: the game
+-- sends the status again and again while the dialog is up.
+local pvpAlerted = {}
 U.On("UPDATE_BATTLEFIELD_STATUS", function(_, index)
 	if not (U.Allowed(ID, "improve") and index and GetBattlefieldStatus) then return end
 	local status = GetBattlefieldStatus(index)
 	if status ~= "confirm" then
+		pvpAlerted[index] = nil
 		if pvpBar and pvpBar.index == index then pvpBar:Hide() end
 		return
 	end
+	if not pvpAlerted[index] then
+		pvpAlerted[index] = true
+		Alert()
+	end
 	if pvpBar and pvpBar:IsShown() and pvpBar.index == index then return end
-	Alert()
 	if not (M.db.popups.timers and PVPReadyDialog and GetBattlefieldPortExpiration) then return end
 	local seconds = U.Safe(GetBattlefieldPortExpiration(index))
 	if not seconds then return end
@@ -670,8 +677,10 @@ local function ProposalBar()
 end
 
 U.On("LFG_PROPOSAL_SHOW", function()
-	if not (U.Allowed(ID, "improve") and M.db.popups.queueTimer) then return end
+	if not U.Allowed(ID, "improve") then return end
+	-- The sound and flash follow the pop-up sound; the timer only the bar.
 	Alert()
+	if not M.db.popups.queueTimer then return end
 	local bar = ProposalBar()
 	bar:ClearAllPoints()
 	bar:SetPoint("TOP", ReadyAnchor(), "BOTTOM", 0, -6)

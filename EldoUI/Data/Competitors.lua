@@ -90,6 +90,15 @@ for module, read in pairs(ELVUI) do
 		note = "ElvUI's part for the same frames is switched on in ElvUI." }) -- no-L (maintainer note, never shown)
 end
 
+-- Its enhanced minimap owns the map and header unless ElvUI owns them.
+local leatrixMinimap, elvMinimap = Leatrix("MinimapModder", false), Elv(ELVUI.Minimap)
+Add({ addon = "Leatrix_Plus", module = "Minimap", scope = "replace", covers = "part",
+	active = function()
+		if not leatrixMinimap() then return false end
+		return not (C_AddOns.IsAddOnLoaded("ElvUI") and E.PlainCall(elvMinimap) == true)
+	end,
+	note = "Leatrix Plus MinimapModder owns the map and header unless the ElvUI minimap locks it." }) -- no-L (maintainer note, never shown)
+
 -- The loaded player component owns its frame until reload. Its enable
 -- option controls Blizzard's duplicate, not the component's own frame.
 Add({ addon = "TPerl_Player", module = "UnitFrames", feature = "player", scope = "overlap", exclusive = true, covers = "part",
@@ -480,6 +489,14 @@ Add({ addon = "ConsolePort", feature = "controller", scope = "alongside", covers
 	note = "Binds the controller's buttons and adds its own cursor and menus; Gamepad Mode UI only places frames." }) -- no-L (maintainer note, never shown)
 Add({ addon = "ConsolePort_Bar", module = "ActionBars", scope = "replace", covers = "part",
 	note = "Its own controller action bars in place of Blizzard's bars." }) -- no-L (maintainer note, never shown)
+
+-- Rival records are independent and each addon keeps its own history.
+Add({ addon = "KillOnSight", module = "Nemesis", scope = "alongside", covers = "part",
+	note = "Keeps its own opposing-player list and encounter statistics." }) -- no-L (maintainer note, never shown)
+Add({ addon = "WarStats", module = "Nemesis", scope = "alongside", covers = "part",
+	note = "Tracks its own rivals, encounters, and combat history." }) -- no-L (maintainer note, never shown)
+Add({ addon = "WarlordsForever", module = "Nemesis", scope = "alongside", covers = "part",
+	note = "Keeps its own opposing-player lists and kill records." }) -- no-L (maintainer note, never shown)
 
 -- Games on a flight path: both boxes can show; each keeps its own games.
 Add({ addon = "FojjiCore_Games", module = "FlightGames", scope = "alongside", covers = "part",

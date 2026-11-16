@@ -3,8 +3,9 @@
 -- Hand-written from public game knowledge of the original zones (level
 -- ranges, faction territory, the herbs and ore veins that grow there, the
 -- fishing skill a zone asks for and the dungeons and raids whose entrance
--- lies in it). No other addon's data is used. These are Classic values;
--- WoW: Forever may differ, so the module always prefers what the game itself
+-- lies in it). No other addon's data is used. Original zones use Classic
+-- reference values; Forever dungeon names and map IDs follow client 70938,
+-- with level ranges from Blizzard's dungeon overview. The module prefers what the game
 -- says (C_Map.GetMapLevels, C_EncounterJournal.GetDungeonEntrancesForMap,
 -- your own Gathering finds) and falls back to this table.
 --
@@ -68,8 +69,7 @@ Z.ore = {
 	richthorium = { name = "Rich Thorium Vein", skill = 275 },
 }
 
--- Dungeons and raids of the original game. `map` is the instance's map ID
--- (GetInstanceInfo), the same on every client.
+-- Dungeons and raids. `map` is the instance's map ID from GetInstanceInfo.
 Z.instances = {
 	ragefire = { name = "Ragefire Chasm", kind = "dungeon", min = 13, max = 18, map = 389 },
 	wailing = { name = "Wailing Caverns", kind = "dungeon", min = 17, max = 24, map = 43 },
@@ -97,6 +97,14 @@ Z.instances = {
 	aq20 = { name = "Ruins of Ahn'Qiraj", kind = "raid", min = 60, max = 60, map = 509 },
 	aq40 = { name = "Temple of Ahn'Qiraj", kind = "raid", min = 60, max = 60, map = 531 },
 	naxx = { name = "Naxxramas", kind = "raid", min = 60, max = 60, map = 533 },
+	thanes = { name = E.Key("The Hall of Thanes"), kind = "dungeon", min = 13, max = 18, map = 3065, new = true },
+	lordaeron = { name = E.Key("Ruins of Lordaeron"), kind = "dungeon", min = 15, max = 20, map = 2999, new = true },
+	excavation = { name = E.Key("Excavation Site: Wetlands"), kind = "dungeon", min = 24, max = 29, map = 2998, new = true },
+	dalaran = { name = E.Key("City of Dalaran"), kind = "dungeon", min = 28, max = 33, map = 2959, new = true },
+	drownedcity = { name = E.Key("The Drowned City"), kind = "dungeon", min = 35, max = 40, map = 2970, new = true },
+	alcaz = { name = E.Key("Alcaz Prison"), kind = "dungeon", min = 48, max = 53, map = 2994, new = true },
+	blackmaw = { name = E.Key("Blackmaw Hold"), kind = "dungeon", min = 55, max = 60, map = 2974, new = true },
+	shapersterrace = { name = E.Key("The Shaper's Terrace"), kind = "dungeon", min = 58, max = 60, map = 3001, new = true },
 }
 
 local STARTER_HERBS = { "peacebloom", "silverleaf", "earthroot" }
@@ -105,18 +113,18 @@ local BLACKROCK = { "brd", "brs", "mc", "bwl" }
 Z.zones = {
 	-- Eastern Kingdoms
 	[1429] = { min = 1, max = 10, faction = "Alliance", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25 }, -- Elwynn Forest
-	[1426] = { min = 1, max = 10, faction = "Alliance", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25, instances = { "gnomeregan" } }, -- Dun Morogh
-	[1420] = { min = 1, max = 10, faction = "Horde", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25, instances = { "scarlet" } }, -- Tirisfal Glades
+	[1426] = { min = 1, max = 10, faction = "Alliance", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25, instances = { "gnomeregan", "thanes" } }, -- Dun Morogh
+	[1420] = { min = 1, max = 10, faction = "Horde", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25, instances = { "scarlet", "lordaeron" } }, -- Tirisfal Glades
 	[1436] = { min = 10, max = 20, faction = "Alliance", herbs = { "peacebloom", "silverleaf", "earthroot", "mageroyal", "briarthorn" }, ore = { "copper", "tin", "silver" }, fish = 75, instances = { "deadmines" } }, -- Westfall
 	[1432] = { min = 10, max = 20, faction = "Alliance", herbs = { "peacebloom", "silverleaf", "earthroot", "mageroyal", "briarthorn" }, ore = { "copper", "tin", "silver" }, fish = 75 }, -- Loch Modan
 	[1421] = { min = 10, max = 20, faction = "Horde", herbs = { "peacebloom", "silverleaf", "earthroot", "mageroyal", "briarthorn", "stranglekelp" }, ore = { "copper", "tin", "silver" }, fish = 75, instances = { "shadowfang" } }, -- Silverpine Forest
 	[1433] = { min = 15, max = 25, faction = "contested", herbs = { "peacebloom", "silverleaf", "earthroot", "mageroyal", "briarthorn", "stranglekelp", "bruiseweed" }, ore = { "copper", "tin", "silver" }, fish = 150 }, -- Redridge Mountains
 	[1431] = { min = 18, max = 30, faction = "contested", herbs = { "mageroyal", "briarthorn", "bruiseweed", "gravemoss", "kingsblood" }, ore = { "copper", "tin", "silver", "iron", "gold" }, fish = 150 }, -- Duskwood
-	[1437] = { min = 20, max = 30, faction = "contested", herbs = { "briarthorn", "stranglekelp", "bruiseweed", "steelbloom", "gravemoss", "kingsblood" }, ore = { "copper", "tin", "silver", "iron", "gold" }, fish = 150 }, -- Wetlands
+	[1437] = { min = 20, max = 30, faction = "contested", herbs = { "briarthorn", "stranglekelp", "bruiseweed", "steelbloom", "gravemoss", "kingsblood" }, ore = { "copper", "tin", "silver", "iron", "gold" }, fish = 150, instances = { "excavation" } }, -- Wetlands
 	[1424] = { min = 20, max = 30, faction = "contested", herbs = { "briarthorn", "stranglekelp", "bruiseweed", "steelbloom", "kingsblood", "liferoot", "fadeleaf" }, ore = { "tin", "silver", "iron", "gold" }, fish = 150 }, -- Hillsbrad Foothills
-	[1416] = { min = 30, max = 40, faction = "contested", herbs = { "bruiseweed", "steelbloom", "kingsblood", "liferoot", "fadeleaf", "khadgar", "wintersbite" }, ore = { "silver", "iron", "gold", "mithril" }, fish = 225 }, -- Alterac Mountains
+	[1416] = { min = 30, max = 40, faction = "contested", herbs = { "bruiseweed", "steelbloom", "kingsblood", "liferoot", "fadeleaf", "khadgar", "wintersbite" }, ore = { "silver", "iron", "gold", "mithril" }, fish = 225, instances = { "dalaran" } }, -- Alterac Mountains
 	[1417] = { min = 30, max = 40, faction = "contested", herbs = { "bruiseweed", "steelbloom", "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar" }, ore = { "tin", "silver", "iron", "gold", "mithril" }, fish = 225 }, -- Arathi Highlands
-	[1434] = { min = 30, max = 45, faction = "contested", herbs = { "steelbloom", "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar", "purplelotus" }, ore = { "tin", "silver", "iron", "gold", "mithril", "truesilver" }, fish = 225, instances = { "zg" } }, -- Stranglethorn Vale
+	[1434] = { min = 30, max = 45, faction = "contested", herbs = { "steelbloom", "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar", "purplelotus" }, ore = { "tin", "silver", "iron", "gold", "mithril", "truesilver" }, fish = 225, instances = { "zg", "drownedcity" } }, -- Stranglethorn Vale
 	[1418] = { min = 35, max = 45, faction = "contested", herbs = { "steelbloom", "kingsblood", "fadeleaf", "goldthorn", "khadgar", "firebloom" }, ore = { "iron", "gold", "mithril", "truesilver" }, instances = { "uldaman" } }, -- Badlands
 	[1435] = { min = 35, max = 45, faction = "contested", herbs = { "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar", "blindweed" }, ore = { "iron", "gold", "mithril" }, fish = 225, instances = { "sunken" } }, -- Swamp of Sorrows
 	[1425] = { min = 40, max = 50, faction = "contested", herbs = { "liferoot", "fadeleaf", "goldthorn", "khadgar", "purplelotus", "sungrass" }, ore = { "iron", "gold", "mithril", "truesilver" }, fish = 300 }, -- The Hinterlands
@@ -127,8 +135,8 @@ Z.zones = {
 	[1423] = { min = 53, max = 60, faction = "contested", herbs = { "arthas", "sansam", "dreamfoil", "silversage", "plaguebloom", "blacklotus" }, ore = { "mithril", "truesilver", "thorium", "richthorium" }, fish = 425, instances = { "stratholme", "naxx" } }, -- Eastern Plaguelands
 	[1430] = { min = 55, max = 60, faction = "contested", herbs = { "sansam", "dreamfoil", "silversage" }, ore = { "thorium" } }, -- Deadwind Pass
 	[1453] = { faction = "Alliance", fish = 25, instances = { "stockade" } }, -- Stormwind City
-	[1455] = { faction = "Alliance" }, -- Ironforge
-	[1458] = { faction = "Horde", fish = 25 }, -- Undercity
+	[1455] = { faction = "Alliance", instances = { "thanes" } }, -- Ironforge
+	[1458] = { faction = "Horde", fish = 25, instances = { "lordaeron" } }, -- Undercity
 
 	-- Kalimdor
 	[1411] = { min = 1, max = 10, faction = "Horde", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25 }, -- Durotar
@@ -140,12 +148,12 @@ Z.zones = {
 	[1440] = { min = 18, max = 30, faction = "contested", herbs = { "mageroyal", "briarthorn", "stranglekelp", "bruiseweed", "steelbloom", "kingsblood", "liferoot" }, ore = { "copper", "tin", "silver", "iron", "gold" }, fish = 150, instances = { "blackfathom" } }, -- Ashenvale
 	[1441] = { min = 25, max = 35, faction = "contested", herbs = { "bruiseweed", "steelbloom", "kingsblood", "liferoot", "fadeleaf" }, ore = { "tin", "silver", "iron", "gold" }, fish = 225 }, -- Thousand Needles
 	[1443] = { min = 30, max = 40, faction = "contested", herbs = { "steelbloom", "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar" }, ore = { "tin", "silver", "iron", "gold", "mithril" }, fish = 225, instances = { "maraudon" } }, -- Desolace
-	[1445] = { min = 35, max = 45, faction = "contested", herbs = { "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar" }, ore = { "silver", "iron", "gold", "mithril" }, fish = 225, instances = { "onyxia" } }, -- Dustwallow Marsh
+	[1445] = { min = 35, max = 45, faction = "contested", herbs = { "kingsblood", "liferoot", "fadeleaf", "goldthorn", "khadgar" }, ore = { "silver", "iron", "gold", "mithril" }, fish = 225, instances = { "onyxia", "alcaz" } }, -- Dustwallow Marsh
 	[1444] = { min = 40, max = 50, faction = "contested", herbs = { "liferoot", "fadeleaf", "goldthorn", "khadgar", "purplelotus", "sungrass" }, ore = { "iron", "gold", "mithril", "truesilver" }, fish = 300, instances = { "diremaul" } }, -- Feralas
 	[1446] = { min = 40, max = 50, faction = "contested", herbs = { "goldthorn", "firebloom", "purplelotus", "sungrass" }, ore = { "silver", "iron", "gold", "mithril", "truesilver" }, fish = 300, instances = { "zulfarrak" } }, -- Tanaris
-	[1447] = { min = 45, max = 55, faction = "contested", herbs = { "goldthorn", "purplelotus", "sungrass", "sansam", "dreamfoil", "silversage" }, ore = { "gold", "mithril", "truesilver", "thorium" }, fish = 300 }, -- Azshara
+	[1447] = { min = 45, max = 55, faction = "contested", herbs = { "goldthorn", "purplelotus", "sungrass", "sansam", "dreamfoil", "silversage" }, ore = { "gold", "mithril", "truesilver", "thorium" }, fish = 300, instances = { "blackmaw" } }, -- Azshara
 	[1448] = { min = 48, max = 55, faction = "contested", herbs = { "arthas", "sungrass", "gromsblood", "sansam", "dreamfoil", "plaguebloom" }, ore = { "gold", "mithril", "truesilver", "thorium" }, fish = 300 }, -- Felwood
-	[1449] = { min = 48, max = 55, faction = "contested", herbs = { "sungrass", "blindweed", "gromsblood", "sansam", "dreamfoil", "silversage" }, ore = { "mithril", "truesilver", "thorium", "richthorium" }, fish = 300 }, -- Un'Goro Crater
+	[1449] = { min = 48, max = 55, faction = "contested", herbs = { "sungrass", "blindweed", "gromsblood", "sansam", "dreamfoil", "silversage" }, ore = { "mithril", "truesilver", "thorium", "richthorium" }, fish = 300, instances = { "shapersterrace" } }, -- Un'Goro Crater
 	[1452] = { min = 55, max = 60, faction = "contested", herbs = { "sansam", "dreamfoil", "silversage", "icecap", "blacklotus" }, ore = { "mithril", "truesilver", "thorium", "richthorium" }, fish = 425 }, -- Winterspring
 	[1451] = { min = 55, max = 60, faction = "contested", herbs = { "sansam", "dreamfoil", "silversage", "blacklotus" }, ore = { "truesilver", "thorium", "richthorium" }, instances = { "aq20", "aq40" } }, -- Silithus
 	[1450] = { faction = "contested", fish = 300 }, -- Moonglade
@@ -163,8 +171,10 @@ local function Fold(text)
 end
 Z.Fold = Fold
 for _, inst in pairs(Z.instances) do
-	Z.originalInstanceMaps[inst.map] = true
-	Z.originalInstanceNames[Fold(inst.name)] = true
+	if not inst.new then
+		Z.originalInstanceMaps[inst.map] = true
+		Z.originalInstanceNames[Fold(inst.name)] = true
+	end
 end
 -- Wings and parts the game may list as their own entrance.
 for _, name in ipairs({ "Lower Blackrock Spire", "Upper Blackrock Spire", "Dire Maul East", "Dire Maul North", "Dire Maul West",

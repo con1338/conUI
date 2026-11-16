@@ -133,7 +133,7 @@ function M:BuildTracker()
 	frame.lines = {}
 	frame:Hide()
 	self.tracker = frame
-	E:CreateMover(frame, "EldoUI_ShoppingList", "Shopping List", { "TOP", "UIParent", "TOP", 277, -516 })
+	E:CreateMover(frame, "EldoUI_ShoppingList", L["Shopping List"], { "TOP", "UIParent", "TOP", 277, -516 })
 	E:RegisterHideable(frame.header, "EldoUI_ShoppingList", { mouse = true })
 	-- Whatever shows the tracker (a box shown again, move mode ending), it
 	-- only stays on screen while the one rule below wants it.

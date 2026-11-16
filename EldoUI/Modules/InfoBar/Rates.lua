@@ -129,8 +129,8 @@ E:RegisterDataText("GoldRate", {
 			Counting(tooltip)
 		end
 		tooltip:AddLine(" ")
-		E.UIKit.TipPair(tooltip, L["Session earned"], E:FormatMoney(s.earned), 0.27, 0.87, 0.27)
-		E.UIKit.TipPair(tooltip, L["Session spent"], E:FormatMoney(s.spent), 1, 0.27, 0.27)
+		E.UIKit.TipPair(tooltip, L["Session earned"], E:FormatMoney(s.earned), E:TokenColor("good"))
+		E.UIKit.TipPair(tooltip, L["Session spent"], E:FormatMoney(s.spent), E:TokenColor("bad"))
 		E.UIKit.TipPair(tooltip, L["Session net"], (s.earned >= s.spent and "+" or "") .. MoneyText(s.earned - s.spent))
 		local best = Rates:BestHour()
 		if best then E.UIKit.TipPair(tooltip, L["Best hour"], MoneyText(best)) end

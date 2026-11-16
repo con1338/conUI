@@ -7,7 +7,7 @@
 -- gives the same fight and two gear sets can be compared on the same dice.
 --
 -- Input is a character sheet (from Reader.lua, or any table of this shape):
---   class, level, ap, rap, crit, rangedCrit, hit, spellHit, spellCrit
+--   class, level, ap, rap, crit, rangedCrit, hit, rangedHit, spellHit, spellCrit
 --   (number or per school), spellPower (number or per school), mh / oh /
 --   ranged = { min, max, speed, kind, skill, twoHand }, power, maxPower,
 --   regen = { idle, casting } (mana per second), spells = { key = values
@@ -424,12 +424,6 @@ local function WeaponProcs(self, hand, yellow)
 			for _, each in ipairs(enchant) do EnchantProc(self, hand, weapon, each, proc) end
 		end
 	end
-	local sword = self:Special("swordSpec")
-	if sword and weapon.kind == "sword" and not self.inExtra and proc:Chance(sword) then
-		self.inExtra = true
-		Swing(self, "mh", true)
-		self.inExtra = nil
-	end
 	-- Paladin seals.
 	local seal = self:Aura("seal")
 	if seal and hand == "mh" then
@@ -574,6 +568,11 @@ end
 ---------------------------------------------------------------------------
 function Fight:SpellHits(spell)
 	local hit = C.SpellHitChance(self.targetLevel - self.level, self.sheet.spellHit or 0)
+	if spell.hitType == "ranged" then
+		local weapon = self.sheet.ranged
+		local skill = weapon and weapon.skill or self.level * 5
+		hit = 100 - C.MissChance(C.SkillDiff(self.targetLevel, skill), self.sheet.rangedHit or self.sheet.hit or 0, false)
+	end
 	return self.dice.spell:Random() * 100 < hit
 end
 
@@ -629,26 +628,10 @@ function Fight:DotLeft(key)
 	return expires and max(0, expires - self.t) or 0
 end
 
--- A spell with rangedHit (Judgement) rolls a ranged attack's miss chance
--- instead of spell hit: WoW: Forever hotfix of 11 November 2026, Judgement
--- "now considered a Ranged Attack" that "uses the Paladin's Ranged Hit
--- chance". Damage, crit and resists stay a spell's; the hotfix names only
--- the hit chance. Judgement of Command counts as melee since 13 November;
--- the sim never judges Command (Classes/Melee.lua).
-function Fight:SpellLands(spell)
-	if spell.rangedHit then
-		if self.dice.spell:Random() * 100 < self:YellowTable(spell, true).miss then return false, "miss" end
-		return true
-	end
-	if not self:SpellHits(spell) then return false, "resist" end
-	return true
-end
-
 function Fight:SpellDamage(spell, base, castTime)
-	local lands, outcome = self:SpellLands(spell)
-	if not lands then
-		self:Deal(spell.key, 0, outcome)
-		return outcome
+	if not self:SpellHits(spell) then
+		self:Deal(spell.key, 0, "resist")
+		return "resist"
 	end
 	local amount = (base + SpellPower(self.sheet, spell.school) * Coefficient(spell, castTime)) * self:DamageMult(spell, "spell")
 	local critChance = SpellCrit(self.sheet, spell.school) + self:CritBonusChance(spell, "spell")

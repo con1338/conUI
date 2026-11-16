@@ -68,7 +68,7 @@ function B.Problems(path)
 	if type(path.key) ~= "string" or path.key == "" then Problem("no key") end
 	if not ROLE_ORDER[path.role] then Problem("role " .. tostring(path.role) .. " is not tank, healer or damage") end
 	if not SITUATION_ORDER[path.situation] then Problem("unknown situation " .. tostring(path.situation)) end
-	if type(path.checked) ~= "string" or path.checked == "" then Problem("no game build it was checked on") end
+	if type(path.checked) ~= "string" or path.checked == "" then Problem("no game version it was checked on") end
 	if type(path.title) ~= "string" or path.title == "" then Problem("no title") end
 	if type(path.note) ~= "string" or path.note == "" then Problem("no note") end
 	if type(path.order) ~= "table" or #path.order == 0 then

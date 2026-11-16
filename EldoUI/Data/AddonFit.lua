@@ -79,7 +79,7 @@ local ADDONS = {
 	bagWindows = { folder = "BetterBags", name = "BetterBags", version = "2026-10-25",
 		bags = "BetterBagsBagBackpack", bank = "BetterBagsBagBank",
 		addon = "BetterBags", events = "Events", bagKinds = { bags = "Backpack", bank = "Bank" } },
-	bagViews = { folder = "Baganator", name = "Baganator", version = "839",
+	bagViews = { folder = "Baganator", name = "Baganator", version = "856",
 		addon = "Baganator", config = "BAGANATOR_CONFIG", profile = "BAGANATOR_CURRENT_PROFILE",
 		window = "Baganator_%s%sViewFrame%s" },
 	minimapButtons = { folder = "MinimapButtonButton", name = "MinimapButtonButton", version = "1.24.14",
@@ -881,63 +881,118 @@ end
 ---------------------------------------------------------------------------
 do
 	local N = ADDONS.bagViews
+	local adapter, callbacks
+	local frames = {}
+	local owner = {}
+
+	local function ReadableTable(value)
+		return type(value) == "table" and not E:IsSecret(value) and (not canaccesstable or canaccesstable(value))
+	end
 
 	local function Profile()
 		local config = Global(N.config)
 		local current = Global(N.profile)
-		local profiles = type(config) == "table" and type(config.Profiles) == "table" and config.Profiles
-		local profile = profiles and (profiles[current or "DEFAULT"] or profiles.DEFAULT)
-		return type(profile) == "table" and profile or nil
-	end
-
-	local function Window(kind)
-		return function()
-			if not Loaded(N.folder) then return nil end
-			local profile = Profile()
-			local skin = profile and type(profile.skin) == "string" and profile.skin or "blizzard"
-			local view = profile and profile[kind == "Backpack" and "bag_view_type" or "bank_view_type"] == "category" and "CategoryView" or "SingleView"
-			local frame = Global(N.window:format(view, kind, skin))
-			return frame and Fit.Usable(frame) and frame or nil
+		if not ReadableTable(config) or not ReadableTable(config.Profiles) or E:IsSecret(current) then return end
+		local profiles = config.Profiles
+		local selected = type(current) == "string" and profiles[current]
+		if E:IsSecret(selected) then return end
+		if type(selected) == "table" then
+			if ReadableTable(selected) then return selected, current end
+			return
 		end
+		if ReadableTable(profiles.DEFAULT) then return profiles.DEFAULT, "DEFAULT" end
 	end
 
-	local function Change(slot, kind, key, title)
-		local Frame = Window(kind)
+	local function Window(profile, kind, viewKey)
+		if not profile then return nil end
+		local skin, view = profile.current_skin, profile[viewKey]
+		if E:IsSecret(skin) or E:IsSecret(view) then return nil end
+		if type(skin) ~= "string" or skin == "" then skin = "blizzard" end
+		view = view == "category" and "CategoryView" or "SingleView"
+		local frame = Global(N.window:format(view, kind, skin))
+		return not E:IsSecret(frame) and Fit.Usable(frame) and frame or nil
+	end
+
+	local function Observe(on)
+		local addon = on and Global(N.addon)
+		local registry = ReadableTable(addon) and addon.CallbackRegistry or nil
+		if not ReadableTable(registry) or type(E:Readable(registry.RegisterCallback)) ~= "function"
+			or type(E:Readable(registry.UnregisterCallback)) ~= "function" then
+			registry = nil
+		end
+		if not E:SafeEquals(callbacks, registry) then
+			local previous = callbacks
+			callbacks = registry
+			if ReadableTable(previous) then
+				local unregister = E:Readable(previous.UnregisterCallback)
+				E.PlainCall(unregister, previous, "FrameGroupSwapped", owner)
+				E.PlainCall(unregister, previous, "SettingChanged", owner)
+			end
+			if registry then
+				-- A new skin group signals before its frames are built.
+				local function Schedule() if E:SafeEquals(callbacks, registry) then Fit:Schedule(0) end end
+				E.PlainCall(registry.RegisterCallback, registry, "FrameGroupSwapped", Schedule, owner)
+				E.PlainCall(registry.RegisterCallback, registry, "SettingChanged", function(_, key)
+					if not E:IsSecret(key) and (key == "bag_view_type" or key == "bank_view_type") then Schedule() end
+				end, owner)
+			end
+		end
+		if not on then return true end
+
+		local profile = Profile()
+		local bags = Window(profile, "Backpack", "bag_view_type")
+		local bank = Window(profile, "Bank", "bank_view_type")
+		if bags ~= frames.bags or bank ~= frames.bank then
+			-- Release while each row still points at the frame whose original
+			-- position and scale the fit saved.
+			if adapter.state.base then Fit:Release(adapter) end
+			frames.bags, frames.bank = bags, bank
+		end
+		return true
+	end
+
+	local function Change(slot, kind, viewKey, key, title)
+		local function PlacedWindow()
+			local frame = Window(Profile(), kind, viewKey)
+			return frame and frames[slot] == frame and Fit.placed[slot] == "bagViews" and frame or nil
+		end
 		return {
 			title = title,
-			On = function() return Frame() ~= nil and Fit.placed[slot] == "bagViews" end,
+			On = function() return PlacedWindow() ~= nil end,
 			Target = function()
-				local profile = Profile()
+				local profile, name = Profile()
 				local spot = profile and profile[key]
-				if type(spot) ~= "table" then return nil end
-				return spot, Global(N.profile) or "DEFAULT", 0
+				if not ReadableTable(spot) then return nil end
+				return spot, name, 0
 			end,
 			-- At the window's own scale: the addon shows it at 1 without EldoUI.
 			Wanted = function()
-				local point, x, y = CornerSpot(Frame(), 1)
+				local frame = PlacedWindow()
+				if not frame then return nil end
+				local point, x, y = CornerSpot(frame, 1)
 				if not point then return nil end
 				return { [1] = point, [2] = x, [3] = y }
 			end,
 			labels = { [1] = Key("Window corner"), [2] = Key("Window across"), [3] = Key("Window up and down") },
 			Refresh = function()
 				local addon = Global(N.addon)
-				local callbacks = type(addon) == "table" and addon.CallbackRegistry
-				if type(callbacks) == "table" and type(callbacks.TriggerEvent) == "function" then
-					callbacks:TriggerEvent("SettingChanged", key)
+				local registry = ReadableTable(addon) and addon.CallbackRegistry
+				if ReadableTable(registry) then
+					E.PlainCall(E:Readable(registry.TriggerEvent), registry, "SettingChanged", key)
 				end
 			end,
 		}
 	end
 
-	Register("bagViews", {
-		job = "Bags",
+	adapter = Register("bagViews", {
+		job = "Bags", observe = Observe,
 		frames = {
-			{ slot = "bags", frame = Window("Backpack") },
-			{ slot = "bank", frame = Window("Bank") },
+			{ slot = "bags", frame = function() return frames.bags end },
+			{ slot = "bank", frame = function() return frames.bank end },
 		},
 		changes = {
-			bags = Change("bags", "Backpack", "bag_view_position", Key("Bags on the layout's bag corner")),
-			bank = Change("bank", "Bank", "bank_view_position", Key("Bank on the layout's bank corner")),
+			bags = Change("bags", "Backpack", "bag_view_type", "bag_view_position", Key("Bags on the layout's bag corner")),
+			bank = Change("bank", "Bank", "bank_view_type", "bank_view_position", Key("Bank on the layout's bank corner")),
 		},
 	})
 end

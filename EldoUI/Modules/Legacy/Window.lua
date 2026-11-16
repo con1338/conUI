@@ -885,7 +885,7 @@ end
 local function PageEmpty(key)
 	if not M:PageAvailable(key) then
 		if key == "challenges" then
-			return L["No challenge data"], L["This client has no achievement API, so EldoUI can't list Legacy Challenges."]
+			return L["No challenge data"], L["This version of the game can't list achievements, so EldoUI can't show Legacy Challenges."]
 		end
 		return L["Legacy isn't on this client"], L["The game has no Legacy trees here (Constants.LegacyConsts or C_Traits is missing). Type /eui legacy probe to see what it answers."]
 	end

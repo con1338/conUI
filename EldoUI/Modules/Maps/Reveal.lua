@@ -12,10 +12,9 @@
 -- characters explore still wins over that list. Without the list, areas
 -- none of your characters has seen stay dark until one of them goes there.
 --
--- Drawn as EldoUI's own textures on the world map canvas, at the frame
--- level of the game's own exploration overlays, so pins stay on top.
--- Explored areas are left exactly as the game draws them. Follows the
--- world map's Improve switch (Blizzard UI page), like the coordinates.
+-- Each map canvas has its own textures at the frame level of the game's
+-- exploration overlays, so pins stay on top. The battlefield map follows
+-- the same setting when EldoUI is allowed to change that map.
 --
 -- Written from the documented UiMapExplorationInfo and
 -- UiMapLayerInfo structures (tiles of tileWidth x tileHeight, row by row).
@@ -25,7 +24,7 @@ local L = E.L
 local M = E:GetModule("Maps")
 if not M then return end
 
-local WORLD = "world-map-quest-log"
+local WORLD, BATTLEFIELD = "world-map-quest-log", "battlefield-map"
 local R = {}
 M.reveal = R
 
@@ -45,6 +44,10 @@ local function On()
 	return M.active and E:BlizzardAllowed(WORLD, "improve") and M.db.worldMap.reveal and true or false
 end
 
+local function ReadableTable(value)
+	return not E.Secret(value) and type(value) == "table" and (not canaccesstable or canaccesstable(value))
+end
+
 ---------------------------------------------------------------------------
 -- What your characters have explored, per map (account-wide)
 --   E.global.MapReveal.maps[uiMapID][key] = { w, h, x, y, top, "id,id,..." }
@@ -61,37 +64,50 @@ end
 local function Explored(uiMapID)
 	local out = {}
 	local api = C_MapExplorationInfo
-	local list = api and api.GetExploredMapTextures and Try(api.GetExploredMapTextures, uiMapID)
-	for _, info in ipairs(type(list) == "table" and list or {}) do
-		local ids = type(info) == "table" and info.fileDataIDs
-		local first = type(ids) == "table" and Clean(ids[1])
-		local w, h = Clean(info.textureWidth), Clean(info.textureHeight)
-		local x, y = Clean(info.offsetX), Clean(info.offsetY)
-		if type(first) == "number" and type(w) == "number" and type(h) == "number" and type(x) == "number" and type(y) == "number" then
-			local parts = {}
-			for index, id in ipairs(ids) do
-				id = Clean(id)
-				if type(id) ~= "number" then parts = nil break end
-				parts[index] = id
+	if not api or type(api.GetExploredMapTextures) ~= "function" then return out, false end
+	local ok, list = pcall(api.GetExploredMapTextures, uiMapID)
+	if not ok or E.Secret(list) then return out, false end
+	if list == nil then return out, true end
+	if not ReadableTable(list) then return out, false end
+
+	local complete = true
+	for _, info in ipairs(list) do
+		local ids = ReadableTable(info) and info.fileDataIDs
+		if ReadableTable(ids) then
+			local first = Clean(ids[1])
+			local w, h = Clean(info.textureWidth), Clean(info.textureHeight)
+			local x, y = Clean(info.offsetX), Clean(info.offsetY)
+			local mouseOver, top = info.isShownByMouseOver, info.isDrawOnTopLayer
+			if type(first) == "number" and type(w) == "number" and type(h) == "number"
+				and type(x) == "number" and type(y) == "number" and not E.Secret(mouseOver) and not E.Secret(top) then
+				local parts = {}
+				for index, id in ipairs(ids) do
+					id = Clean(id)
+					if type(id) ~= "number" then parts = nil break end
+					parts[index] = id
+				end
+				if parts then
+					out[first] = { w = w, h = h, x = x, y = y, ids = parts, top = top == true, mouseOver = mouseOver == true }
+				else
+					complete = false
+				end
+			else
+				complete = false
 			end
-			if parts then
-				out[first] = {
-					w = w, h = h, x = x, y = y, ids = parts,
-					top = Clean(info.isDrawOnTopLayer) == true, mouseOver = Clean(info.isShownByMouseOver) == true,
-				}
-			end
+		else
+			complete = false
 		end
 	end
-	return out
+	return out, complete
 end
 R.Explored = Explored
 
 -- Remember what this character has explored on a map. Returns the explored set.
 function R:Learn(uiMapID)
-	if type(uiMapID) ~= "number" then return {} end
-	local explored = Explored(uiMapID)
+	if type(uiMapID) ~= "number" then return {}, false end
+	local explored, complete = Explored(uiMapID)
 	local maps = Store()
-	if not maps then return explored end
+	if not maps then return explored, complete end
 	for key, info in pairs(explored) do
 		-- Mouse-over highlights (cities on continent maps) are not fog.
 		if not info.mouseOver then
@@ -101,7 +117,7 @@ function R:Learn(uiMapID)
 			end
 		end
 	end
-	return explored
+	return explored, complete
 end
 
 -- The shipped overlay list of a map (Data/MapOverlays.lua), when there is one.
@@ -145,8 +161,9 @@ end
 
 -- Overlays known for a map that this character has not explored.
 function R:Missing(uiMapID)
-	local explored = self:Learn(uiMapID)
+	local explored, complete = self:Learn(uiMapID)
 	local out = {}
+	if not complete then return out end
 	for key, row in pairs(Known(uiMapID, explored)) do
 		if not explored[key] then
 			local ids = {}
@@ -209,15 +226,17 @@ function R.Tiles(overlay, tileWidth, tileHeight)
 end
 
 ---------------------------------------------------------------------------
--- Drawing on the world map canvas
+-- Drawing on each map canvas
 ---------------------------------------------------------------------------
-local frame
-local textures = {}
-R.textures = textures
+local world = { name = "WorldMapFrame", addon = "Blizzard_WorldMap", textures = {} }
+local battlefield = { name = "BattlefieldMapFrame", addon = "Blizzard_BattlefieldMap", textures = {} }
+local views = { world, battlefield }
+R.textures = world.textures
 
-local function WorldMap()
-	local map = _G.WorldMapFrame
-	return (type(map) == "table" and map.GetCanvas and E:SkinUsable(map)) and map or nil
+local function MapFrame(view)
+	local map = _G[view.name]
+	if E.Secret(map) or not E:SkinUsable(map) or type(map.GetCanvas) ~= "function" then return end
+	return map
 end
 
 -- The frame level of the game's own exploration overlays, so ours sit
@@ -234,49 +253,69 @@ local function OverlayLevel(map, canvas)
 	return canvas:GetFrameLevel() + 1
 end
 
-function R:Hide()
-	for _, texture in ipairs(textures) do texture:Hide() end
-	self.drawn = 0
-	if frame then frame:Hide() end
+local function HideView(view)
+	for _, texture in ipairs(view.textures) do texture:Hide() end
+	if view.frame then view.frame:Hide() end
+	if view == world then R.drawn = 0 end
 end
 
-function R:Refresh()
-	self:Hide()
-	local map = WorldMap()
-	if not (map and map.IsShown and map:IsShown()) then return end
-	local uiMapID = map.GetMapID and Clean(map:GetMapID())
+local function SetViewAlpha(view, map)
+	if view.frame then
+		local alpha = Clean(Try(map.GetGlobalAlpha, map))
+		view.frame:SetAlpha(type(alpha) == "number" and alpha >= 0 and alpha <= 1 and alpha or 1)
+	end
+end
+
+local function ViewLayer(map)
+	local container = Clean(Try(map.GetCanvasContainer, map))
+	local index = E:SkinUsable(container) and Clean(Try(container.GetCurrentLayerIndex, container))
+	return type(index) == "number" and index or 1
+end
+
+local function RefreshView(view, map)
+	HideView(view)
+	-- The game retains the provider while the module is off. The same
+	-- check also rejects a callback from a map instance that was replaced.
+	if not (R.enabled and M.active and map and map == MapFrame(view) and map:IsShown()) then return end
+	if view == battlefield and not E:BlizzardAllowed(BATTLEFIELD) then return end
+	local uiMapID = Clean(Try(map.GetMapID, map))
 	if type(uiMapID) ~= "number" then return end
 	if not On() then
-		self:Learn(uiMapID) -- remember even while the option is off
+		if view == world then R:Learn(uiMapID) end
 		return
 	end
-	local canvas = map:GetCanvas()
-	if not canvas then return end
-	local layers = C_Map and C_Map.GetMapArtLayers and Try(C_Map.GetMapArtLayers, uiMapID)
-	local layer = type(layers) == "table" and layers[1]
+	local canvas = Clean(Try(map.GetCanvas, map))
+	if not E:SkinUsable(canvas) then return end
+	local layers = C_Map and Try(C_Map.GetMapArtLayers, uiMapID)
+	layers = ReadableTable(layers) and layers
+	view.layer = ViewLayer(map)
+	local layer = layers and layers[view.layer]
+	layer = ReadableTable(layer) and layer
 	local layerWidth = layer and Clean(layer.layerWidth)
-	local width, height = canvas:GetSize()
-	if not (width and width > 0 and height and height > 0) then return end
+	local width, height = E.PlainCallEach(canvas.GetSize, canvas)
+	if not (type(width) == "number" and width > 0 and type(height) == "number" and height > 0) then return end
 	local scale = (type(layerWidth) == "number" and layerWidth > 0) and width / layerWidth or 1
 	local tileWidth = layer and Clean(layer.tileWidth) or 256
 	local tileHeight = layer and Clean(layer.tileHeight) or 256
-	frame = frame or CreateFrame("Frame", nil, canvas)
+	local frame = view.frame or CreateFrame("Frame", nil, canvas)
+	view.frame = frame
 	frame:SetParent(canvas)
 	frame:ClearAllPoints()
 	frame:SetAllPoints(canvas)
 	frame:SetFrameLevel(OverlayLevel(map, canvas))
+	SetViewAlpha(view, map)
 	frame:Show()
 	local db = M.db.worldMap
 	local alpha = math.min(1, math.max(0.1, tonumber(db.revealAlpha) or 0.5))
 	local tint = db.revealTint == "natural" and { 1, 1, 1 } or E.tokens.map.unexplored
 	local count = 0
-	for _, overlay in ipairs(self:Missing(uiMapID)) do
+	for _, overlay in ipairs(R:Missing(uiMapID)) do
 		for _, tile in ipairs(R.Tiles(overlay, tileWidth, tileHeight)) do
 			count = count + 1
-			local texture = textures[count]
+			local texture = view.textures[count]
 			if not texture then
 				texture = frame:CreateTexture(nil, "ARTWORK")
-				textures[count] = texture
+				view.textures[count] = texture
 			end
 			texture:SetDrawLayer(overlay.top and "OVERLAY" or "ARTWORK")
 			texture:SetTexture(tile.id, nil, nil, "TRILINEAR")
@@ -289,44 +328,70 @@ function R:Refresh()
 			texture:Show()
 		end
 	end
-	self.drawn = count
+	if view == world then R.drawn = count end
 end
 
-local provider
-local function CreateProvider()
-	local base = _G.MapCanvasDataProviderMixin
-	local p = base and CreateFromMixins and CreateFromMixins(base) or {}
-	function p:OnAdded(owningMap) self.owningMap = owningMap end
-	function p:OnRemoved() self.owningMap = nil end
-	function p:RemoveAllData() R:Hide() end
-	function p:RefreshAllData() R:Refresh() end
-	function p:OnMapChanged() R:Refresh() end
-	function p:OnCanvasSizeChanged() R:Refresh() end
-	function p:OnShow() R:Refresh() end
-	function p:OnHide() R:Hide() end
+function R:Hide()
+	for _, view in ipairs(views) do HideView(view) end
+end
+
+function R:Refresh()
+	for _, view in ipairs(views) do RefreshView(view, MapFrame(view)) end
+end
+
+local function CreateProvider(view)
+	local p = {}
+	function p:RemoveAllData()
+		if self.owningMap == view.map then HideView(view) end
+	end
+	function p:RefreshAllData()
+		if self.owningMap == view.map then RefreshView(view, self.owningMap) end
+	end
+	p.OnMapChanged = p.RefreshAllData
+	p.OnCanvasSizeChanged = p.RefreshAllData
+	p.OnShow = p.RefreshAllData
+	p.OnHide = p.RemoveAllData
+	function p:OnCanvasScaleChanged()
+		local map = self.owningMap
+		if map and map == view.map and view.frame and view.frame:IsShown() and view.layer ~= ViewLayer(map) then
+			RefreshView(view, map)
+		end
+	end
+	function p:OnGlobalAlphaChanged()
+		if self.owningMap and self.owningMap == view.map then SetViewAlpha(view, self.owningMap) end
+	end
 	return p
 end
 
-function R:Hook()
-	local map = WorldMap()
+local function HookView(view)
+	if not (R.enabled and M.active) then return end
+	local map = MapFrame(view)
 	if not map then
-		if not self.waiting and E.OnBlizzardAddOn then
-			self.waiting = true
-			E:OnBlizzardAddOn("Blizzard_WorldMap", function() R.waiting = nil R:Hook() end)
+		if not view.waiting and not C_AddOns.IsAddOnLoaded(view.addon) then
+			view.waiting = true
+			E:OnBlizzardAddOn(view.addon, function()
+				view.waiting = nil
+				E:RunOutOfCombat(function() HookView(view) end, view)
+			end)
 		end
 		return
 	end
-	if not self.hooked and map.AddDataProvider then
-		self.hooked = true
-		provider = provider or CreateProvider()
-		map:AddDataProvider(provider)
+	if view.map ~= map then
+		view.map = map
+		E:FollowMap(map, CreateProvider(view))
 	end
-	self:Refresh()
+	RefreshView(view, map)
+end
+
+function R:Hook()
+	for _, view in ipairs(views) do
+		E:RunOutOfCombat(function() HookView(view) end, view)
+	end
 end
 
 -- Remember the zone you stand in as you explore it, map open or not.
 local function LearnHere()
-	local uiMapID = C_Map and C_Map.GetBestMapForUnit and Clean(Try(C_Map.GetBestMapForUnit, "player"))
+	local uiMapID = C_Map and Clean(Try(C_Map.GetBestMapForUnit, "player"))
 	if type(uiMapID) == "number" then R:Learn(uiMapID) end
 	if R.drawn and R.drawn > 0 or On() then R:Refresh() end
 end
@@ -340,11 +405,14 @@ function R:Initialize()
 end
 
 function R:Enable()
+	self.enabled = true
 	for _, event in ipairs(EVENTS) do E:RegisterEvent(event, LearnHere, R) end
 	self:Hook()
 end
 
 function R:Disable()
+	self.enabled = nil
+	for _, view in ipairs(views) do E:CancelOutOfCombat(view) end
 	for _, event in ipairs(EVENTS) do E:UnregisterEvent(event, R) end
 	self:Hide()
 end
@@ -356,7 +424,7 @@ local function NoImprove() return not E:BlizzardAllowed(WORLD, "improve") end
 local rows = {
 	{ type = "header", label = "Unexplored areas (Improve)" },
 	{ type = "toggle", key = "worldMap.reveal", label = "Show unexplored areas",
-		desc = "Parts of a zone you haven't found yet show dimmed instead of dark, in every zone from your first login. The game's own art for what your characters explore is remembered too and always wins.",
+		desc = "Unexplored areas show dimmed, in every zone from your first login. Also works on the battlefield map when you let EldoUI change that map.",
 		hidden = NoImprove },
 	{ type = "range", percent = true, key = "worldMap.revealAlpha", label = "Dimness", min = 0.1, max = 1, step = 0.05,
 		desc = "How strongly the unexplored areas show: low values are faint.", dependsOn = "worldMap.reveal", hidden = NoImprove },

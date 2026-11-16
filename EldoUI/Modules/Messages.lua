@@ -27,6 +27,7 @@
 -- Written from scratch for EldoUI; no code or media from other addons.
 local _, E = ...
 local L = E.L
+local MAX_HISTORY_DAYS = 365
 
 local M = E:NewModule("Messages", {
 	title = "Instant Messages",
@@ -49,6 +50,7 @@ local M = E:NewModule("Messages", {
 		width = 340,
 		height = 220,
 		history = 50,           -- lines kept per contact, per character
+		historyDays = 0,        -- age limit for saved conversations (0: off)
 		fontSize = 14,
 		contactInfo = true,     -- the info line under a whisper window's title
 		contactButtons = true,  -- invite, add friend, who, ignore and history in a whisper window's title bar
@@ -59,6 +61,10 @@ local M = E:NewModule("Messages", {
 		groupHistory = false,
 	},
 })
+
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "lastPoint" }
 
 -- Presets that look best with a particular theme. Other presets use Eldo.
 local PRESET_THEMES = {
@@ -75,12 +81,12 @@ local THEMES = {
 
 -- Group conversations: window key -> chat events, send type and title.
 local GROUPS = {
-	guild = { key = "CH:GUILD", title = GUILD or L["Guild"], chatType = "GUILD", events = { "CHAT_MSG_GUILD" } },
-	officer = { key = "CH:OFFICER", title = OFFICER or L["Officer"], chatType = "OFFICER", events = { "CHAT_MSG_OFFICER" } },
-	party = { key = "CH:PARTY", title = PARTY or L["Party"], chatType = "PARTY", events = { "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" } },
-	raid = { key = "CH:RAID", title = RAID or L["Raid"], chatType = "RAID",
+	guild = { key = "CH:GUILD", title = E:GameText(GUILD, L["Guild"]), chatType = "GUILD", events = { "CHAT_MSG_GUILD" } },
+	officer = { key = "CH:OFFICER", title = E:GameText(OFFICER, L["Officer"]), chatType = "OFFICER", events = { "CHAT_MSG_OFFICER" } },
+	party = { key = "CH:PARTY", title = E:GameText(PARTY, L["Party"]), chatType = "PARTY", events = { "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" } },
+	raid = { key = "CH:RAID", title = E:GameText(RAID, L["Raid"]), chatType = "RAID",
 		events = { "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING" } },
-	instance = { key = "CH:INSTANCE", title = INSTANCE_CHAT or L["Instance"], chatType = "INSTANCE_CHAT",
+	instance = { key = "CH:INSTANCE", title = E:GameText(INSTANCE_CHAT, L["Instance"]), chatType = "INSTANCE_CHAT",
 		events = { "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER" } },
 }
 local GROUP_ORDER = { "guild", "officer", "party", "raid", "instance" }
@@ -395,7 +401,7 @@ local function AddLine(window, who, text, incoming, colorHex, store)
 	local secretName = IsSecret(who)
 	local name
 	if type(who) == "nil" then
-		name = E:TextHex("secondary") .. (YOU or L["You"]) .. "|r: "
+		name = E:TextHex("secondary") .. (E:GameText(YOU, L["You"])) .. "|r: "
 	elseif not secretName then
 		name = ("|cff%s%s|r: "):format(colorHex or "ff80ff", who)
 	end
@@ -549,7 +555,7 @@ local CONTACT_ACTIONS = {
 			local party = C_PartyInfo
 			if not (name and party and party.InviteUnit) then return end
 			local ok = pcall(party.InviteUnit, name)
-			Notice(window, ok and L["Group invite sent to %s."]:format(name) or L["The game did not invite %s."]:format(name), not ok)
+			if not ok then Notice(window, L["The game did not invite %s."]:format(name), true) end
 		end },
 	{ key = "friend", art = "Interface\\Buttons\\UI-PlusButton-Up", mono = true, tipTitle = Key("Add friend"),
 		tip = Key("Adds this player to your WoW friends list."),
@@ -561,7 +567,7 @@ local CONTACT_ACTIONS = {
 				return
 			end
 			local ok = pcall(C_FriendList.AddFriend, name)
-			Notice(window, ok and L["%s is on your friends list now."]:format(name) or L["The game did not add %s."]:format(name), not ok)
+			if not ok then Notice(window, L["The game did not add %s."]:format(name), true) end
 			M:UpdateInfo(window)
 		end },
 	{ key = "who", art = "Interface\\Common\\UI-Searchbox-Icon", mono = true, tipTitle = Key("Who is this?"),
@@ -835,10 +841,26 @@ local function ChatWhisperSound()
 end
 M.ChatWhisperSound = ChatWhisperSound
 
+-- The same rules as the chat's whisper sound: "No alert sounds in combat"
+-- (Chat, Alerts and filters) and at most one sound every 2 seconds.
+local lastWhisperSound = 0
+local function WhisperSoundAllowed()
+	local chat = E.modules and E.modules.Chat
+	local saved = E.db and E.db.modules and E.db.modules.Chat
+	local quiet = chat and chat.db and chat.db.quietInCombat
+	if quiet == nil and type(saved) == "table" then quiet = saved.quietInCombat end
+	if quiet == nil then quiet = true end
+	if quiet and InCombatLockdown() then return false end
+	local now = GetTime()
+	if now - lastWhisperSound < 2 then return false end
+	lastWhisperSound = now
+	return true
+end
+
 local function Notify(window, incoming)
 	if incoming then
 		local sound = WhisperSound()
-		if not window.group and sound ~= "none" and not ChatWhisperSound() then
+		if not window.group and sound ~= "none" and not ChatWhisperSound() and WhisperSoundAllowed() then
 			E:PlayMedia(sound)
 		end
 		-- Windows never pop up in combat: the dock shows the unread count,
@@ -1133,6 +1155,55 @@ function M:OnDisable()
 	if self.browser then self.browser:Hide() end
 end
 
+local function SavedTable(value)
+	return type(value) == "table" and not IsSecret(value) and (not canaccesstable or canaccesstable(value))
+end
+
+local function ForgetOldLines(history, cutoff)
+	if not SavedTable(history) then return end
+	-- Only compact a list. An unfamiliar saved shape may hold extra data.
+	local length, entries = #history, 0
+	for index in pairs(history) do
+		if IsSecret(index) or type(index) ~= "number" or index < 1 or index > length or index % 1 ~= 0 then return end
+		entries = entries + 1
+	end
+	if entries ~= length then return end
+
+	local kept = 0
+	for index = 1, length do
+		local line = history[index]
+		local stamp = SavedTable(line) and Readable(line[1])
+		-- Unknown dates stay, including lines from a damaged saved file.
+		if not (type(stamp) == "number" and stamp > 0 and stamp < cutoff) then
+			kept = kept + 1
+			if kept ~= index then history[kept] = line end
+		end
+	end
+	for index = kept + 1, length do history[index] = nil end
+	return kept
+end
+
+E:RegisterEvent("PLAYER_LOGIN", function(self)
+	if not self.active then return end
+	local days = Readable(self.db.historyDays)
+	if not (type(days) == "number" and days >= 1 and days <= MAX_HISTORY_DAYS and days % 1 == 0) then return end
+	local now = E.PlainCall(time)
+	local age = days * 86400
+	if not (type(now) == "number" and now > age and now < math.huge) then return end
+	local cutoff = now - age
+
+	local store = E:GetMessagesDB()
+	local contacts, meta = store.contacts, store.meta
+	if not SavedTable(contacts) then return end
+	if not SavedTable(meta) then meta = nil end
+	for key, history in pairs(contacts) do
+		if type(key) == "string" and not IsSecret(key) and ForgetOldLines(history, cutoff) == 0 then
+			contacts[key] = nil
+			if meta then meta[key] = nil end
+		end
+	end
+end, M)
+
 -- Lowering "Lines kept per contact" drops the oldest lines of every saved
 -- conversation. At 0 nothing new is saved and what is saved stays (Clear
 -- all history deletes it). Only a change on the page trims, a moment after
@@ -1316,14 +1387,14 @@ function M:CreateBrowser()
 	-- The conversation count sits in the footer's status line.
 	browser.count = browser.footerText
 
-	local delete = Kit.Button(browser.footer, { text = DELETE or L["Delete"], large = true, kind = "danger" })
+	local delete = Kit.Button(browser.footer, { text = E:GameText(DELETE, L["Delete"]), large = true, kind = "danger" })
 	delete:SetPoint("RIGHT", -Kit.TOOL_PAD, 0)
 	-- Asks first on the shared dialog shell (E:ShowConfirm).
 	delete:SetScript("OnClick", function()
 		local key = browser.selected
 		if not key then return end
 		E:ShowConfirm({ title = L["Message history"], text = L["Delete the history with %s? This can't be undone."]:format(key),
-			accept = DELETE or L["Delete"], danger = true, data = key,
+			accept = E:GameText(DELETE, L["Delete"]), danger = true, data = key,
 			onAccept = function(chosen)
 				Store().contacts[chosen] = nil
 				Store().meta[chosen] = nil
@@ -1456,8 +1527,8 @@ M.options = {
 		desc = "Automatic picks the theme that fits your layout preset, in its accent color. Panel draws the windows like every other EldoUI window, in your art style.",
 		values = { auto = "Automatic (follows preset)", Eldo = "Eldo (flat, accent border)", Glass = "Glass (see-through)", Blizzard = "Panel (follows the art style)" } },
 	{ type = "range", key = "fontSize", label = "Text size", min = 10, max = 20, step = 1, desc = "Text size in the conversation windows." },
-	{ type = "range", key = "width", label = "New window width", min = 240, max = 800, step = 10, desc = "Width of a newly opened window. Drag the corner to resize one." },
-	{ type = "range", key = "height", label = "New window height", min = 140, max = 600, step = 10, desc = "Height of a newly opened window." },
+	{ type = "range", unit = "px", key = "width", label = "New window width", min = 240, max = 800, step = 10, desc = "Width of a newly opened window. Drag the corner to resize one." },
+	{ type = "range", unit = "px", key = "height", label = "New window height", min = 140, max = 600, step = 10, desc = "Height of a newly opened window." },
 	{ type = "toggle", key = "timestamps", label = "Show timestamps", desc = "The time before each line." },
 	{ type = "toggle", key = "contactButtons", label = "Contact buttons",
 		desc = "Buttons in a whisper window's title bar: invite, add friend, who is this, ignore and the saved conversation. Each one does its task once, on your click." },
@@ -1468,7 +1539,7 @@ M.options = {
 	{ type = "toggle", key = "hideFromChat", label = "Show whispers only in the messenger", desc = "Off shows them in the main chat as well. Reply, the whisper sound and the taskbar flash work either way. Needs the Blizzard UI switch Improve for chat." },
 	{ type = "select", key = "openOnReceive", label = "New whisper", desc = "Open the window straight away (in a fight it opens when the fight ends) or just count it in the dock.",
 		values = { window = "Open the window", dock = "Show in the dock" } },
-	{ type = "toggle", key = "openOnSend", label = "Open the window when I whisper someone", desc = "A whisper you send from the main chat opens that conversation's window." },
+	{ type = "toggle", key = "openOnSend", label = "Open when you send a whisper", desc = "A whisper you send from the main chat opens that conversation's window." },
 	{ type = "execute", label = "Whisper sound", keywords = "sound whisper alert",
 		desc = "One extra sound on top of the game's own when a whisper arrives, set in Chat (Alerts and filters). It plays for the messenger too.",
 		func = function() E:ToggleConfig("module:Chat") end },
@@ -1485,7 +1556,9 @@ M.options = {
 
 	{ type = "header", label = "History" },
 	{ type = "range", key = "history", label = "Lines kept per contact", min = 0, max = 500, step = 10, zeroText = "Off",
-		desc = "Saved per character. Lowering it drops the oldest lines of every saved conversation. Off saves nothing new and what is saved stays until you clear it." },
+		desc = "Saved per character. Lowering it drops the oldest lines of every saved conversation. Off stops saving new lines." },
+	{ type = "range", key = "historyDays", label = "Forget conversations after (days)", min = 0, max = MAX_HISTORY_DAYS, step = 1, zeroText = "Off",
+		desc = "At login, deletes saved messages older than this many days and removes empty conversations. Off keeps messages of any age." },
 	{ type = "execute", label = "History browser", desc = "Every saved conversation, with search and delete. Also /eui eim.", func = function() M:ToggleBrowser() end },
 	{ type = "execute", confirm = true, label = "Clear all history", desc = "Deletes every saved conversation of this character.", func = function()
 		local store = Store()

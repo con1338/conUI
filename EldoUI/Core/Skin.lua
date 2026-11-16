@@ -44,9 +44,23 @@ local boxHooks = setmetatable({}, { __mode = "k" })    -- ScrollBox -> { [fn] = 
 local owner = {}                                       -- callback owner token
 local fonts = {}                                       -- key -> { font, size, color }
 
+local function TextureState(region)
+	local atlas, readable = E.FrameAtlas(region)
+	if not readable then return nil, false end
+	local ok, file = pcall(region.GetTexture, region)
+	if not ok or E.Secret(file) or (type(file) ~= "nil" and type(file) ~= "string" and type(file) ~= "number") then
+		return nil, false
+	end
+	return { atlas = atlas ~= "" and atlas or false, file = file or false }, true
+end
+
 local function UsableRaw(frame)
 	if type(frame) ~= "table" or type(frame.GetObjectType) ~= "function" then return false end
 	if E.FrameCheck(frame, "IsForbidden") then return false end
+	if frame:GetObjectType() == "Texture" then
+		local _, readable = TextureState(frame)
+		if not readable then return false end
+	end
 	return true
 end
 
@@ -64,7 +78,7 @@ end
 --   E:SkinRecordOff(key)    every recorded value back, every added piece hidden
 --   E:SkinRecordOn(key)     the recorded look again (after Off)
 --   E:SkinRecordState(key)  nil (nothing recorded yet), "on" or "off"
---   E:SkinRecordReport(key) { on, objects, values, added } for diagnostics
+--   E:SkinRecordReport(key) { on, pending, objects, values, added } for diagnostics
 --   E:SkinRecordIsOff(obj)  the object belongs to a record that is off
 --   E:SkinRecordKey()       the key of the pass running now (for hooks)
 --   E:SkinCapture(...)      note objects before changing them (inside a
@@ -131,7 +145,7 @@ end
 -- whether an object has the value, `get` reads it and `set` writes it.
 local PROPS = {
 	{ key = "texture", test = IsTexture,
-		get = function(o) return { atlas = (o.GetAtlas and o:GetAtlas()) or false, file = o:GetTexture() or false } end,
+		get = TextureState,
 		set = function(o, v)
 			if v.color and v.color.accent then
 				E:AccentTexture(o, v.color.accent)
@@ -220,6 +234,7 @@ local PROPS = {
 -- are left out).
 local function ReadState(o)
 	local state = {}
+	if not UsableRaw(o) then return state end
 	for _, prop in ipairs(PROPS) do
 		local okTest, has = pcall(prop.test, o)
 		if okTest and has then
@@ -363,40 +378,54 @@ function E:SkinRecord(key, roots, fn, ...)
 end
 
 local function Put(rec, from, to)
+	local pending = false
 	for o, values in pairs(rec.values) do
-		for _, prop in ipairs(PROPS) do
-			local entry = values[prop.key]
-			if entry then
-				local okNow, now = pcall(prop.get, o)
-				local okSame, same = pcall(Same, now, entry[from])
-				if okNow and okSame and same then
-					local ok, err = pcall(prop.set, o, entry[to])
-					if not ok and E.errors and E.errors.Add then E.errors:Add("warning", "EldoUI skin record: " .. tostring(err)) end
+		if not UsableRaw(o) then
+			pending = true
+		else
+			for _, prop in ipairs(PROPS) do
+				local entry = values[prop.key]
+				if entry then
+					local okNow, now, readable = pcall(prop.get, o)
+					local okSame, same = pcall(Same, now, entry[from])
+					if readable == false then
+						pending = true
+						break
+					elseif okNow and okSame and same then
+						local ok, err = pcall(prop.set, o, entry[to])
+						if not ok and E.errors and E.errors.Add then E.errors:Add("warning", "EldoUI skin record: " .. tostring(err)) end
+					end
 				end
 			end
 		end
 	end
+	return pending
 end
 
 local function TurnOff(rec)
-	Put(rec, "new", "old")
+	rec.pending = Put(rec, "new", "old")
+	if not rec.hiddenCaptured then
+		rec.hidden = setmetatable({}, { __mode = "k" })
+		rec.hiddenCaptured = true
+	end
 	for o in pairs(rec.added) do
-		rec.hidden[o] = not o:IsShown() or nil
+		if rec.hidden[o] == nil then rec.hidden[o] = not o:IsShown() end
 		o:Hide()
 	end
 end
 
 local function TurnOn(rec)
 	for o in pairs(rec.added) do
-		if not rec.hidden[o] then o:Show() end
+		if rec.hidden[o] == false then o:Show() end
 	end
-	Put(rec, "old", "new")
+	rec.hiddenCaptured = false
+	rec.pending = Put(rec, "old", "new")
 	E:UpdateTabs()
 end
 
 function E:SkinRecordOff(key)
 	local rec = records[key]
-	if not rec or not rec.on then return false end
+	if not rec or (not rec.on and not rec.pending) then return false end
 	rec.on = false
 	self:RunOutOfCombat(function()
 		if not rec.on then TurnOff(rec) end
@@ -406,7 +435,7 @@ end
 
 function E:SkinRecordOn(key)
 	local rec = records[key]
-	if not rec or rec.on then return false end
+	if not rec or (rec.on and not rec.pending) then return false end
 	rec.on = true
 	self:RunOutOfCombat(function()
 		if rec.on then TurnOn(rec) end
@@ -434,7 +463,7 @@ end
 function E:SkinRecordReport(key)
 	local rec = records[key]
 	if not rec then return nil end
-	local report = { on = rec.on, objects = 0, values = 0, added = 0 }
+	local report = { on = rec.on, pending = rec.pending and true or false, objects = 0, values = 0, added = 0 }
 	for _, values in pairs(rec.values) do
 		report.objects = report.objects + 1
 		for _ in pairs(values) do report.values = report.values + 1 end
@@ -687,6 +716,24 @@ local function AddHoverPress(button, area, border)
 end
 E.SkinHoverPress = function(_, button, area, border) return AddHoverPress(button, area, border) end
 
+-- The small HUD buttons (class bar, totems, consumables, travel, pet
+-- feeding, fishing) share one look: white at the HUD hover token while the
+-- mouse is over the icon, and the accent at the pressed token while the
+-- button is down, by mouse or by key. Returns the hover and pressed
+-- textures; the pressed one follows the accent.
+function E:SkinHudButton(button, area)
+	area = area or button.icon or button
+	local hover = button:CreateTexture(nil, "HIGHLIGHT")
+	hover:SetAllPoints(area)
+	hover:SetColorTexture(1, 1, 1, E.tokens.hover.hud)
+	local pressed = button:CreateTexture(nil, "OVERLAY")
+	pressed:SetAllPoints(area)
+	AccentTexture(pressed, E.tokens.pressed)
+	button:SetPushedTexture(pressed)
+	button.hover, button.pushed = hover, pressed
+	return hover, pressed
+end
+
 -- Small controls (< 20 px) get a hit rect a few pixels larger than what
 -- they draw, never larger than `limit` (the row they sit in). Only frames
 -- that are not protected and still have the default (zero) insets change.
@@ -717,7 +764,7 @@ E.SkinGlobal = Global
 local function AlphaZero(...)
 	for i = 1, select("#", ...) do
 		local region = select(i, ...)
-		if type(region) == "table" and region.SetAlpha and not E.FrameCheck(region, "IsForbidden") then
+		if UsableRaw(region) and region.SetAlpha then
 			Capture(region)
 			region:SetAlpha(0)
 		end
@@ -1853,7 +1900,7 @@ function E:CreateReloadButton(parent, label, width, height, work)
 	button.tint:SetPoint("BOTTOMRIGHT", -self.pixel, self.pixel)
 	button.text = self:CreateText(button, E.tokens.size.body)
 	button.text:SetPoint("CENTER")
-	button.text:SetText(label or RELOADUI or L["Reload UI"])
+	button.text:SetText(label or E:GameText(RELOADUI, L["Reload UI"]))
 	button.work = work
 	button:SetScript("OnEnter", function(own)
 		own.hover = true
@@ -1895,7 +1942,7 @@ local function UpdatePrompt()
 	local combat = InCombat()
 	prompt.combat:SetShown(combat)
 	prompt.reload:SetShown(not combat)
-	prompt.later:SetText(combat and (OKAY or L["OK"]) or L["Later"])
+	prompt.later:SetText(combat and (E:GameText(OKAY, L["OK"])) or L["Later"])
 	prompt:SetButtonFrames({ prompt.reload, prompt.later })
 	prompt:Layout()
 end
@@ -1914,7 +1961,7 @@ local function CreatePrompt()
 	frame.combat:SetText(L["Type /reload after combat to apply this."])
 
 	frame.works = {}
-	frame.reload = E:CreateReloadButton(frame, RELOADUI or L["Reload UI"], Kit.DIALOG_BUTTON, E.tokens.height.buttonLarge, function()
+	frame.reload = E:CreateReloadButton(frame, E:GameText(RELOADUI, L["Reload UI"]), Kit.DIALOG_BUTTON, E.tokens.height.buttonLarge, function()
 		local works = frame.works
 		frame.works = {}
 		frame:Hide()
@@ -2048,9 +2095,9 @@ local function CreateConfirm()
 	local frame = Kit.CreateDialog("EldoUIConfirm", { edit = {}, check = { label = "" } })
 	frame.edit:SetScript("OnEnterPressed", function() CloseConfirm(true) end)
 	frame:SetButtons({
-		{ OKAY or L["OK"], function() CloseConfirm(true) end, keepOpen = true, kind = "primary" },
+		{ E:GameText(OKAY, L["OK"]), function() CloseConfirm(true) end, keepOpen = true, kind = "primary" },
 		{ "", function() CloseConfirm("extra") end, keepOpen = true },
-		{ CANCEL or L["Cancel"], function() CloseConfirm(false) end, keepOpen = true },
+		{ E:GameText(CANCEL, L["Cancel"]), function() CloseConfirm(false) end, keepOpen = true },
 	})
 	frame.accept, frame.extra, frame.cancel = frame.buttons[1], frame.buttons[2], frame.buttons[3]
 	-- Escape hides the frame: that counts as cancel.
@@ -2074,8 +2121,8 @@ function E:ShowConfirm(info)
 	if confirm:IsShown() then CloseConfirm(false) end
 	confirm.title:SetText(info.title or L["Are you sure?"])
 	confirm.text:SetText(info.text or "")
-	confirm.accept:SetText(info.accept or (OKAY or L["OK"]))
-	confirm.cancel:SetText(info.cancel or (CANCEL or L["Cancel"]))
+	confirm.accept:SetText(info.accept or (E:GameText(OKAY, L["OK"])))
+	confirm.cancel:SetText(info.cancel or (E:GameText(CANCEL, L["Cancel"])))
 	E.UIKit.SetButtonKind(confirm.accept, info.danger and "danger" or "primary")
 	local extra = info.extra
 	confirm.extra:SetShown(extra ~= nil)
@@ -2422,6 +2469,7 @@ function Kit.Choice(parent, width, height, title, desc, onClick)
 		if self.selected then self:SetSelected(true) end
 		self:FitHeight()
 	end)
+	if E.UIKit and E.UIKit.CollectKeyControl then E.UIKit.CollectKeyControl(choice, true) end
 	return choice
 end
 

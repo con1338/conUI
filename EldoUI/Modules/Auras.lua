@@ -120,6 +120,12 @@ local M = E:NewModule("Auras", {
 ---------------------------------------------------------------------------
 -- Buff and debuff rows (game aura containers)
 ---------------------------------------------------------------------------
+-- The tooltip opens toward the free side: away from the edge the row
+-- grows from, and above a row that wraps upward.
+local function TooltipAnchor(growth, wrap)
+	return "ANCHOR_" .. (wrap == "UP" and "TOP" or "BOTTOM") .. (growth == "RIGHT" and "RIGHT" or "LEFT")
+end
+
 local function RowSettings(db, kind, max, extra)
 	local bars = db.style == "BARS"
 	local count = bars and math.min(db.barCount or 10, max) or math.min(db.perRow * db.rows, max)
@@ -129,7 +135,10 @@ local function RowSettings(db, kind, max, extra)
 	if type(db.filter) ~= "table" or db.filter.preset ~= "custom" then
 		for _, group in ipairs(groups) do group.sortMethod, group.sortDirection = nil, nil end
 	end
-	groups = Widget.SplitOwn(groups, db.ownFirst, db.desaturateOthers)
+	-- Nearly every debuff comes from someone else, so the split and the
+	-- gray are for buffs only.
+	local buffs = kind == "HELPFUL"
+	groups = Widget.SplitOwn(groups, buffs and db.ownFirst, buffs and db.desaturateOthers)
 	local settings = {
 		unit = "player",
 		groups = groups,
@@ -149,7 +158,7 @@ local function RowSettings(db, kind, max, extra)
 		timeColors = db.timeColors and true or false,
 		blink = (db.blink or 0) > 0 and db.blink or nil,
 		timeBar = (db.timeBar or 0) > 0 and db.timeBar or nil,
-		tooltipAnchor = "ANCHOR_BOTTOMLEFT",
+		tooltipAnchor = TooltipAnchor(db.growth, db.wrap),
 	}
 	if bars then
 		settings.bar = { width = db.barWidth or 200, height = db.barHeight or 20,
@@ -358,19 +367,35 @@ local function Readable(value, kind)
 end
 
 -- Temporary enchants only: permanent enchants are part of the item.
+local function SlotEnchants(slot)
+	if not (C_Item and C_Item.GetWeaponEnchantInfo) then return nil end
+	local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slot)
+	if not ok or type(list) ~= "table" then return nil end
+	return list
+end
+
+local function IsTemporary(enchant)
+	local has, kind = enchant.hasEnchant, enchant.enchantType
+	local permanent = Enum.ItemEnchantType and Enum.ItemEnchantType.Permanent
+	return Readable(has, "boolean") and has and not (permanent and Readable(kind, "number") and kind == permanent)
+end
+
 local function TemporaryEnchants(slot)
 	local result = {}
-	if not (C_Item and C_Item.GetWeaponEnchantInfo) then return result end
-	local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slot)
-	if not ok or type(list) ~= "table" then return result end
-	local permanent = Enum.ItemEnchantType and Enum.ItemEnchantType.Permanent
-	for _, enchant in ipairs(list) do
-		local has, kind = enchant.hasEnchant, enchant.enchantType
-		if Readable(has, "boolean") and has and not (permanent and Readable(kind, "number") and kind == permanent) then
-			result[#result + 1] = enchant
-		end
+	for _, enchant in ipairs(SlotEnchants(slot) or result) do
+		if IsTemporary(enchant) then result[#result + 1] = enchant end
 	end
 	return result
+end
+
+-- True when any weapon slot has a temporary enchant; builds no list.
+local function AnyTemporaryEnchant()
+	for _, slot in ipairs(WEAPON_SLOTS) do
+		for _, enchant in ipairs(SlotEnchants(slot) or {}) do
+			if IsTemporary(enchant) then return true end
+		end
+	end
+	return false
 end
 
 -- The container's enchant slots (main hand, off hand, ranged), or nil
@@ -416,7 +441,7 @@ local function EnchantSettings(db)
 		duration = db.duration, durationSize = db.durationSize or 11,
 		countSize = db.countSize or 12,
 		cancel = db.cancel and true or false,
-		tooltipAnchor = "ANCHOR_BOTTOMLEFT",
+		tooltipAnchor = TooltipAnchor(db.growth, "DOWN"),
 	}
 end
 
@@ -496,13 +521,7 @@ end
 function M:UpdateEnchantLink()
 	local link = self.enchantLink
 	if not link then return end
-	local any = false
-	if self.enchantContainer then
-		for _, slot in ipairs(WEAPON_SLOTS) do
-			if #TemporaryEnchants(slot) > 0 then any = true break end
-		end
-	end
-	link:SetShown(any)
+	link:SetShown(self.enchantContainer ~= nil and AnyTemporaryEnchant())
 end
 
 -- (Re)build the enchant container when its settings changed. Out of
@@ -639,6 +658,10 @@ local function RowSample(which, count)
 	return "icons", {
 		count = math.min(db.perRow or 8, count), size = db.size, spacing = db.spacing, pool = kind == "HELPFUL" and "buffs" or "debuffs",
 		timers = db.duration ~= "NONE", counts = true, fontSize = db.durationSize, edges = edges,
+		countSize = db.countSize, countPoint = db.countPoint, countX = db.countX, countY = db.countY,
+		timerPoint = db.durationPoint or (db.duration == "SWIPE" and "CENTER" or "BELOW"), timerX = db.durationX, timerY = db.durationY,
+		timeBar = db.duration ~= "NONE" and (db.timeBar or 0) > 0 and db.timeBar or nil,
+		grayOthers = kind == "HELPFUL" and db.desaturateOthers or nil,
 		align = vertical .. (db.growth == "RIGHT" and "LEFT" or "RIGHT"),
 	}
 end
@@ -670,53 +693,86 @@ function M:Build()
 		{ enabledPath = { "enchants", "enabled" }, options = ENCHANT_LINK })
 end
 
--- Weapon enchants count down without an event. While one shows, its time
--- text (every 0.25 s, readable in combat on Forever), the options link and
--- the icons (every 5 s) are kept current on the shared ticker; with no
--- enchant shown nothing runs, and the game's enchant events start it again.
+-- Weapon enchants count down without an event. The game's aura container
+-- draws its own times, so it needs no ticker: its options link follows the
+-- enchant events. Plain icons keep their time text current on the shared
+-- ticker (once a second, four times a second in the last minute; readable
+-- in combat on Forever) and their icons every 5 s. With no enchant shown
+-- nothing runs, and the game's enchant events start it again.
 local ENCHANT_TICK = "Auras:enchants"
 local ENCHANT_REFRESH = 5
+local ENCHANT_SLOW, ENCHANT_FAST, ENCHANT_LAST_MINUTE = 1, 0.25, 60
 local sinceRefresh = 0
+local enchantPeriod
 
 function M:EnchantsShown()
 	if not (self.enchantHolder and self.enchantHolder:IsShown()) then return false end
-	if self.enchantContainer then
-		for _, slot in ipairs(WEAPON_SLOTS) do
-			if #TemporaryEnchants(slot) > 0 then return true end
-		end
-		return false
-	end
+	if self.enchantContainer then return AnyTemporaryEnchant() end
 	for _, button in ipairs(self.enchantButtons or {}) do
 		if button:IsShown() then return true end
 	end
 	return false
 end
 
-local function EnchantTick(elapsed)
+-- The shortest time left on a shown icon, or nil when none counts down.
+local function ShortestLeft(now)
+	local shortest
+	for _, button in ipairs(M.enchantButtons or {}) do
+		if button.expires and button:IsShown() then
+			local left = math.max(button.expires - now, 0)
+			if not shortest or left < shortest then shortest = left end
+		end
+	end
+	return shortest
+end
+
+local EnchantTick
+
+local function SubscribeEnchants(period)
+	if enchantPeriod == period and E.Ticker:IsSubscribed(ENCHANT_TICK) then return end
+	enchantPeriod = period
+	E.Ticker:Subscribe(ENCHANT_TICK, period, EnchantTick, M)
+end
+
+local function StopEnchants()
+	enchantPeriod = nil
+	E.Ticker:Unsubscribe(ENCHANT_TICK)
+end
+
+EnchantTick = function(elapsed)
 	sinceRefresh = sinceRefresh + (elapsed or 0)
 	if sinceRefresh >= ENCHANT_REFRESH then
 		sinceRefresh = 0
 		M:UpdateEnchants()
 	end
-	M:UpdateEnchantLink()
 	local now = GetTime()
-	for _, button in ipairs(M.enchantButtons) do
-		if button.expires and button:IsShown() then
-			button.duration:SetText(FormatTime(math.max(button.expires - now, 0)))
+	local shown = false
+	for _, button in ipairs(M.enchantButtons or {}) do
+		if button:IsShown() then
+			shown = true
+			if button.expires then
+				button.duration:SetText(FormatTime(math.max(button.expires - now, 0)))
+			end
 		end
 	end
-	if not (M.active and M:EnchantsShown()) then E.Ticker:Unsubscribe(ENCHANT_TICK) end
+	if not (M.active and shown and not M.enchantContainer and M.enchantHolder and M.enchantHolder:IsShown()) then
+		StopEnchants()
+		return
+	end
+	local left = ShortestLeft(now)
+	SubscribeEnchants((left and left <= ENCHANT_LAST_MINUTE + ENCHANT_SLOW) and ENCHANT_FAST or ENCHANT_SLOW)
 end
 
--- Start the countdown while an enchant shows, end it when none does.
+-- Start the countdown while a plain enchant icon shows, end it otherwise.
 function M:WatchEnchants()
-	if self.active and self:EnchantsShown() then
+	if self.active and not self.enchantContainer and self:EnchantsShown() then
 		if not E.Ticker:IsSubscribed(ENCHANT_TICK) then
 			sinceRefresh = 0
-			E.Ticker:Subscribe(ENCHANT_TICK, 0.25, EnchantTick, self)
+			local left = ShortestLeft(GetTime())
+			SubscribeEnchants((left and left <= ENCHANT_LAST_MINUTE + ENCHANT_SLOW) and ENCHANT_FAST or ENCHANT_SLOW)
 		end
 	else
-		E.Ticker:Unsubscribe(ENCHANT_TICK)
+		StopEnchants()
 	end
 end
 
@@ -831,7 +887,7 @@ end
 
 function M:OnDisable()
 	eventFrame:UnregisterAllEvents()
-	E.Ticker:Unsubscribe(ENCHANT_TICK)
+	StopEnchants()
 	E:RunOutOfCombat(function()
 		for _, holder in ipairs({ self.buffHolder, self.debuffHolder, self.enchantHolder }) do
 			if holder then holder:Hide() end
@@ -897,8 +953,7 @@ local ROW_TEXTS = {
 		size = Key("Size of each debuff icon."), perRow = Key("How many debuffs fit in one row."),
 		rows = Key("Number of rows (up to %d debuffs in total)."), growth = Key("Direction new debuffs are added in a row."),
 		sort = Key("Order of the debuffs (the game sorts them, also in combat). Custom filter groups have their own sort."),
-		own = Key("Debuffs you cast first, then everyone else's (the game tells which are yours)."),
-		grey = Key("Show debuffs other people cast in gray (puts yours first too)."), which = Key("Which debuffs"),
+		which = Key("Which debuffs"),
 	},
 }
 
@@ -930,24 +985,24 @@ local function RowOptions(which, title, kind, maxIcons)
 		Add({ type = "toggle", key = "cancel", label = "Right-click to cancel", desc = "Right-click a buff to remove it, also in combat.", hidden = Off })
 	else
 		Add({ type = "toggle", key = "dispelBorder", label = "Color border by type",
-			desc = "Magic, curse, disease and poison colors on the border, as the game reports them.", hidden = Icons })
+			desc = "Magic, curse, disease and poison colors on the border.", hidden = Icons })
 	end
 	Add({ type = "select", key = "style", label = "Look", values = { ICONS = "Icons", BARS = "Timer bars" },
 		desc = "Icons in rows, or one timer bar per aura with its icon, name and time.", hidden = Off })
 
 	Add({ type = "header", label = "Size and layout", hidden = Off })
-	Add({ type = "range", key = "size", label = "Icon size", min = 16, max = 72, step = 1, desc = texts.size, hidden = Icons })
+	Add({ type = "range", unit = "px", key = "size", label = "Icon size", min = 16, max = 72, step = 1, desc = texts.size, hidden = Icons })
 	Add({ type = "range", key = "perRow", label = "Icons per row", min = 1, max = maxIcons, step = 1, desc = texts.perRow, hidden = Icons })
 	Add({ type = "range", key = "rows", label = "Rows", min = 1, max = kind == "HELPFUL" and 6 or 4, step = 1,
 		desc = texts.rows, descFill = maxIcons, hidden = Icons })
 	Add({ type = "range", key = "barCount", label = "Bars", min = 1, max = maxIcons, step = 1, desc = "How many timer bars at most.", hidden = Bars })
-	Add({ type = "range", key = "barWidth", label = "Bar width", min = 80, max = 400, step = 1, desc = "Width of each timer bar, icon included.", hidden = Bars })
-	Add({ type = "range", key = "barHeight", label = "Bar height", min = 10, max = 40, step = 1, desc = "Height of each timer bar.", hidden = Bars })
+	Add({ type = "range", unit = "px", key = "barWidth", label = "Bar width", min = 80, max = 400, step = 1, desc = "Width of each timer bar, icon included.", hidden = Bars })
+	Add({ type = "range", unit = "px", key = "barHeight", label = "Bar height", min = 10, max = 40, step = 1, desc = "Height of each timer bar.", hidden = Bars })
 	if kind == "HARMFUL" then
 		Add({ type = "select", key = "barColor", label = "Bar color", values = { DISPEL = "By debuff type", ACCENT = "Theme accent" },
 			desc = "Color the bars by magic, curse, disease, poison or bleed (the game picks the color), or use the accent color.", hidden = Bars })
 	end
-	Add({ type = "range", key = "spacing", label = "Spacing", min = 0, max = 16, step = 1, cog = true, desc = "Gap between icons or bars.", hidden = Off })
+	Add({ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 16, step = 1, cog = true, desc = "Gap between icons or bars.", hidden = Off })
 	Add({ type = "select", key = "growth", label = "Growth direction", values = GROWTH, desc = texts.growth, hidden = Icons })
 	Add({ type = "select", key = "wrap", label = "New rows", values = WRAP, desc = "Where the next row (or bar) goes.", hidden = Off })
 
@@ -955,24 +1010,26 @@ local function RowOptions(which, title, kind, maxIcons)
 	Add({ type = "select", key = "sort", label = "Sort by", values = { TIME = "Time left", NAME = "Name", INDEX = "Order gained" },
 		desc = texts.sort, hidden = Off })
 	Add({ type = "toggle", key = "sortReverse", label = "Reverse order", cog = true, desc = "Turn the sort order around.", hidden = Off })
-	Add({ type = "toggle", key = "ownFirst", label = "Yours first",
-		desc = texts.own, hidden = Off })
-	Add({ type = "toggle", key = "desaturateOthers", label = "Gray out others'",
-		desc = texts.grey, hidden = Off })
+	if texts.own then
+		Add({ type = "toggle", key = "ownFirst", label = "Yours first",
+			desc = texts.own, hidden = Off })
+		Add({ type = "toggle", key = "desaturateOthers", label = "Gray out others'",
+			desc = texts.grey, hidden = Off })
+	end
 
 	Add({ type = "header", label = "Time left", hidden = Off })
 	Add({ type = "select", key = "duration", label = "Show as", values = DURATION,
-		desc = "How the time left is shown. The game formats it; EldoUI never reads the time.", hidden = Off })
+		desc = "How the time left is shown.", hidden = Off })
 	Add({ type = "range", key = "durationSize", label = "Time text size", min = 8, max = 20, step = 1, desc = "Font size of the time left.", hidden = NoTime })
 	Add({ type = "select", key = "durationPoint", label = "Time position", values = TIME_POINTS, cog = true,
 		desc = "Where the time text sits: under or over the icon, or on it.", hidden = When(function(db) return db.style == "BARS" or db.duration == "NONE" end) })
-	Add({ type = "range", key = "durationX", label = "Time X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the time text.",
+	Add({ type = "range", unit = "px", key = "durationX", label = "Time X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the time text.",
 		hidden = When(function(db) return db.style == "BARS" or db.duration == "NONE" end) })
-	Add({ type = "range", key = "durationY", label = "Time Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the time text.",
+	Add({ type = "range", unit = "px", key = "durationY", label = "Time Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the time text.",
 		hidden = When(function(db) return db.style == "BARS" or db.duration == "NONE" end) })
 	Add({ type = "toggle", key = "timeColors", label = "Color by time left",
-		desc = "The time text in the shared cooldown colors (Fonts and text > Cooldown numbers): changes color as the aura runs out. Applies to Text and Swipe and text.",
-		hidden = NoTime })
+		desc = "The time text in the shared cooldown colors (Fonts and text > Cooldown numbers): changes color as the aura runs out. Swipe with numbers always uses them.",
+		hidden = When(function(db) return db.duration == "NONE" or db.duration == "SWIPE" end) })
 	Add({ type = "range", key = "blink", label = "Blink when expiring", min = 0, max = 30, step = 0.5,
 		zeroText = "Never", desc = "Seconds before an aura runs out that its time starts to blink. The game evaluates the blink from the aura's time.", hidden = NoTime })
 	Add({ type = "range", key = "timeBar", label = "Time bar under icons", min = 0, max = 8, step = 1,
@@ -981,8 +1038,8 @@ local function RowOptions(which, title, kind, maxIcons)
 	Add({ type = "header", label = "Stacks", hidden = Off })
 	Add({ type = "range", key = "countSize", label = "Stack text size", min = 8, max = 20, step = 1, desc = "Font size of the stack count.", hidden = Off })
 	Add({ type = "select", key = "countPoint", label = "Stack position", values = POINTS, cog = true, desc = "Where the stack count sits on the icon.", hidden = Icons })
-	Add({ type = "range", key = "countX", label = "Stack X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the stack count.", hidden = Icons })
-	Add({ type = "range", key = "countY", label = "Stack Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the stack count.", hidden = Icons })
+	Add({ type = "range", unit = "px", key = "countX", label = "Stack X offset", min = -30, max = 30, step = 1, cog = true, desc = "Horizontal shift of the stack count.", hidden = Icons })
+	Add({ type = "range", unit = "px", key = "countY", label = "Stack Y offset", min = -30, max = 30, step = 1, cog = true, desc = "Vertical shift of the stack count.", hidden = Icons })
 
 	for _, row in ipairs(E:AuraFilterOptions(which .. ".filter", { kind = kind, db = function() return M.db end, label = texts.which })) do
 		local hidden = row.hidden
@@ -1003,8 +1060,8 @@ for _, option in ipairs({
 	{ type = "toggle", key = "enchants.enabled", label = "Enable", desc = "Poisons, oils, stones and weapon imbues as icons (mover: Weapon Enchants)." },
 	{ type = "toggle", key = "enchants.cancel", label = "Right-click to remove", desc = "Right-click an enchant to remove it, as on Blizzard's buff frame.",
 		hidden = function() return EnchantsOff() or not EnchantContainerAvailable() end },
-	{ type = "range", key = "enchants.size", label = "Icon size", min = 16, max = 64, step = 1, desc = "Size of the enchant icons.", hidden = EnchantsOff },
-	{ type = "range", key = "enchants.spacing", label = "Spacing", min = 0, max = 16, step = 1, desc = "Gap between the icons.", hidden = EnchantsOff },
+	{ type = "range", unit = "px", key = "enchants.size", label = "Icon size", min = 16, max = 64, step = 1, desc = "Size of the enchant icons.", hidden = EnchantsOff },
+	{ type = "range", unit = "px", key = "enchants.spacing", label = "Spacing", min = 0, max = 16, step = 1, desc = "Gap between the icons.", hidden = EnchantsOff },
 	{ type = "select", key = "enchants.growth", label = "Growth direction", values = GROWTH, desc = "Direction the icons are added.", hidden = EnchantsOff },
 	{ type = "select", key = "enchants.duration", label = "Show as", values = DURATION, desc = "How the time left is shown.", hidden = EnchantsOff },
 	{ type = "range", key = "enchants.durationSize", label = "Time text size", min = 8, max = 20, step = 1, desc = "Font size of the time left under each enchant icon.",
@@ -1020,8 +1077,10 @@ for _, option in ipairs({
 
 	{ type = "tab", label = "Blizzard" },
 	{ type = "description", label = "For Player buffs and debuffs in Blizzard UI. Move puts Blizzard's frames on EldoUI's movers; Improve shows the time left." },
-	{ type = "range", percent = true, key = "blizzard.scale", label = "Scale", min = 0.5, max = 2, step = 0.05, desc = "Scale of Blizzard's buff and debuff frames while EldoUI moves them.", hidden = ElementOff },
-	{ type = "toggle", key = "blizzard.durations", label = "Time left under Blizzard's buffs", desc = "Improve: turn on the game's buff duration display.", hidden = ElementOff },
+	{ type = "range", percent = true, key = "blizzard.scale", label = "Scale", min = 0.5, max = 2, step = 0.05, desc = "Scale of Blizzard's buff and debuff frames while EldoUI moves them.", hidden = ElementOff,
+		disabled = function() return E:BlizzardNeedsReason(ID, "move") end },
+	{ type = "toggle", key = "blizzard.durations", label = "Time left under Blizzard's buffs", desc = "Improve: turn on the game's buff duration display.", hidden = ElementOff,
+		disabled = function() return E:BlizzardNeedsReason(ID, "improve") end },
 }) do M.options[#M.options + 1] = option end
 
 ---------------------------------------------------------------------------
@@ -1037,23 +1096,28 @@ end
 E:RegisterStyles("Auras", {
 	{ key = "Standard", title = "Standard", desc = "32 px buffs in rows of 12 with time under them, 40 px debuffs below.",
 		settings = { buffs = Look({ size = 32, perRow = 12, rows = 3, spacing = 4, duration = "TEXT", growth = "LEFT", wrap = "DOWN" }),
-			debuffs = Look({ size = 40, perRow = 8, rows = 2, duration = "TEXT", growth = "LEFT", wrap = "DOWN" }) } },
+			debuffs = Look({ size = 40, perRow = 8, rows = 2, duration = "TEXT", growth = "LEFT", wrap = "DOWN" }),
+			enchants = { size = 32, spacing = 4, duration = "TEXT", durationSize = 11 } } },
 	{ key = "Compact", title = "Compact", desc = "Small 26 px icons, 16 per row.",
 		settings = { buffs = Look({ size = 26, perRow = 16, rows = 3, spacing = 3, duration = "TEXT", durationSize = 10 }),
-			debuffs = Look({ size = 32, perRow = 10, rows = 2, spacing = 3, duration = "TEXT", durationSize = 11 }) } },
+			debuffs = Look({ size = 32, perRow = 10, rows = 2, spacing = 3, duration = "TEXT", durationSize = 11 }),
+			enchants = { size = 32, spacing = 3, duration = "TEXT", durationSize = 11 } } },
 	{ key = "Large", title = "Large", desc = "Big 40 px buffs and 52 px debuffs, your own buffs first, colored time that blinks in the last 5 seconds.",
 		settings = { buffs = Look({ size = 40, perRow = 10, rows = 3, spacing = 5, duration = "TEXT", durationSize = 13,
 				ownFirst = true, timeColors = true, blink = 5 }),
-			debuffs = Look({ size = 52, perRow = 6, rows = 2, spacing = 5, duration = "TEXT", durationSize = 14, timeColors = true, blink = 5 }) } },
+			debuffs = Look({ size = 52, perRow = 6, rows = 2, spacing = 5, duration = "TEXT", durationSize = 14, timeColors = true, blink = 5 }),
+			enchants = { size = 52, spacing = 5, duration = "TEXT", durationSize = 14 } } },
 	{ key = "Bars", title = "Timer bars", desc = "Buffs and debuffs as timer bars with name and time, yours first, debuffs colored by type.",
 		settings = { buffs = Look({ style = "BARS", barWidth = 220, barHeight = 20, barCount = 10, spacing = 2, duration = "TEXT", wrap = "DOWN", ownFirst = true, blink = 5 }),
 			debuffs = Look({ style = "BARS", barWidth = 220, barHeight = 22, barCount = 6, spacing = 2, duration = "TEXT", wrap = "DOWN", barColor = "DISPEL", blink = 5 }) } },
 	{ key = "Swipe", title = "Swipe", desc = "Cooldown swipe with numbers on the icon and a thin time bar under it.",
 		settings = { buffs = Look({ size = 32, perRow = 12, rows = 3, spacing = 3, duration = "SWIPE", timeBar = 3 }),
-			debuffs = Look({ size = 40, perRow = 8, rows = 2, spacing = 3, duration = "SWIPE", timeBar = 3 }) } },
+			debuffs = Look({ size = 40, perRow = 8, rows = 2, spacing = 3, duration = "SWIPE", timeBar = 3 }),
+			enchants = { size = 40, spacing = 3, duration = "SWIPE" } } },
 	{ key = "Minimal", title = "Minimal", desc = "Small icons without time left, sorted by order gained.",
 		settings = { buffs = Look({ size = 24, perRow = 20, rows = 2, spacing = 2, duration = "NONE", sort = "INDEX" }),
-			debuffs = Look({ size = 30, perRow = 10, rows = 1, spacing = 2, duration = "NONE" }) } },
+			debuffs = Look({ size = 30, perRow = 10, rows = 1, spacing = 2, duration = "NONE" }),
+			enchants = { size = 30, spacing = 2, duration = "NONE" } } },
 	{ key = "GrowRight", title = "Grows right", desc = "For buffs on the left side of the screen: rows fill to the right.",
 		settings = { buffs = { growth = "RIGHT", wrap = "DOWN" }, debuffs = { growth = "RIGHT", wrap = "DOWN" }, enchants = { growth = "RIGHT" } } },
 })

@@ -133,9 +133,12 @@ local function Draw(frame)
 		return items
 	end
 	local guide, record, steps = M:Current()
+	local retired, previous = M:RetiredGuides()
 	if guide then
 		frame.header:SetSentence(record.done and L["You finished %s."]:format(guide.title)
 			or L["%s, step %d of %d."]:format(guide.title, record.s, #steps))
+	elseif previous then
+		frame.header:SetSentence(L["Your previous guide changed. Choose a current guide to continue."])
 	else
 		frame.header:SetSentence(L["Community leveling guides, step by step in the Eldostar window."])
 	end
@@ -144,6 +147,12 @@ local function Draw(frame)
 	local facts = M.PlayerFacts()
 	local words = LP.Words(K.Query("eldostar"))
 	if #words == 0 then
+		if #retired > 0 then
+			local rows = {}
+			for _, replacement in ipairs(retired) do rows[#rows + 1] = GuideRow(replacement) end
+			LP.AddFold(items, "eldostar:updated", L["Updated guides"], nil, LP.Ledger(rows),
+				true, function() frame:Draw(true) end)
+		end
 		if guide then
 			LP.AddFold(items, "eldostar:current", L["In use"], nil, LP.Ledger({ GuideRow(guide, true) }),
 				true, function() frame:Draw(true) end)

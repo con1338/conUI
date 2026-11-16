@@ -1266,7 +1266,7 @@ M.options = {
 	{ type = "toggle", key = "showRoute", label = L["Route line"], desc = L["Join the pulls of the picked route with a line in each pull's color."] },
 	{ type = "toggle", key = "showNumbers", label = L["Pull numbers"], desc = L["A small numbered tag on every pull of the route."] },
 	{ type = "toggle", key = "dimOffRoute", label = L["Dim packs not in the route"], desc = L["Packs the route skips get a dark ring, so the route stands out."], dependsOn = "showPacks" },
-	{ type = "range", key = "lineWidth", label = L["Line width"], min = 1, max = 8, step = 0.5, desc = L["Thickness of the route line in pixels."], dependsOn = "showRoute" },
+	{ type = "range", unit = "px", key = "lineWidth", label = L["Line width"], min = 1, max = 8, step = 0.5, desc = L["Thickness of the route line in pixels."], dependsOn = "showRoute" },
 	{ type = "range", percent = true, key = "lineAlpha", label = L["Line opacity"], min = 0.2, max = 1, step = 0.05, desc = L["How see-through the route line and patrol paths are."] },
 	{ type = "toggle", key = "showNotes", label = L["Notes and drawings"], desc = L["Show the notes, arrows and free-hand lines of the route on the map. The editor always shows them."] },
 	{ type = "header", label = L["World map"] },

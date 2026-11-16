@@ -1,6 +1,6 @@
 -- EldoUI slash commands: everything starts with /eui (or /eldoui).
 --
---   /eui                      open the config
+--   /eui                      open the options
 --   /eui help [command]       the full command list in a window, or one command's usage
 --   /eui <module> on|off      switch any module on or off ("toggle" flips it);
 --                             /eui <module> alone opens its settings page
@@ -22,13 +22,14 @@ local Key = E.Key
 local commands = {}
 local helpList = {} -- { name, usage, group }
 local helpByName = {} -- name -> its helpList entry
-local GROUPS = { "General", "Layout & frames", "Profiles & sharing", "Tools" }
+local GROUPS = { "General", "Layout & frames", "Keys and spells", "Profiles & sharing", "Tools", "Troubleshooting" }
 -- The group names are keys modules pass to E:AddCommand; the help shows
 -- these titles, which spell out "and" (DESIGN.md §4).
 -- Token colors for the help and the module list.
 local function Tinted(kind, text) return E:TokenHex(E.tokens.text[kind]) .. tostring(text) .. "|r" end
 local GROUP_TITLES = { ["Layout & frames"] = "Layout and frames", ["Profiles & sharing"] = "Profiles and sharing" }
--- Shown translated: L["General"], L["Layout & frames"], L["Profiles & sharing"], L["Tools"]
+-- Shown translated: L["General"], L["Layout & frames"], L["Keys and spells"],
+-- L["Profiles & sharing"], L["Tools"], L["Troubleshooting"]
 
 -- Usage texts with a list that grows at runtime: the list fills the %s.
 local USAGE_FILL = {
@@ -39,8 +40,13 @@ local function Usage(entry)
 	local fill = entry.fill or USAGE_FILL[entry.name]
 	if type(fill) == "function" then fill = fill() end
 	if fill then text = text:format(L[fill]) end
-	return text
+	-- Syntax first, then two spaces and the text: a usage without syntax
+	-- starts with the text.
+	return (text:gsub("^%s+", ""))
 end
+
+-- Other words players type for a command.
+local COMMAND_WORDS = { keybind = "kb", keybinds = "kb", bind = "kb", binds = "kb" }
 
 local function Add(name, usage, fn, group, fill)
 	if not commands[name] then
@@ -238,25 +244,44 @@ local function Plain(text)
 	return (tostring(text):gsub("|", "||"))
 end
 
-local function BuildHelpText()
+-- Does a help row match the filter? The command word, its usage and its
+-- group title all count, in the language shown.
+local function Matches(filter, ...)
+	if filter == "" then return true end
+	for i = 1, select("#", ...) do
+		local text = select(i, ...)
+		if text and tostring(text):lower():find(filter, 1, true) then return true end
+	end
+	return false
+end
+
+local function BuildHelpText(filter)
+	filter = strtrim(filter or ""):lower()
 	local accent = Accent()
 	local lines = {}
 	for _, group in ipairs(GROUPS) do
 		local first = true
+		local title = L[GROUP_TITLES[group] or group]
 		for _, entry in ipairs(helpList) do
-			if entry.group == group then
+			local usage = entry.group == group and Usage(entry)
+			if usage and Matches(filter, entry.name, usage, title) then
 				if first then
-					table.insert(lines, (#lines > 0 and "\n" or "") .. "|cffffffff" .. E:CaptionText(L[GROUP_TITLES[group] or group]) .. "|r")
+					table.insert(lines, (#lines > 0 and "\n" or "") .. "|cffffffff" .. E:CaptionText(title) .. "|r")
 					first = false
 				end
-				table.insert(lines, ("%s/eui %s|r  %s"):format(accent, entry.name, Tinted("secondary", Plain(Usage(entry)))))
+				table.insert(lines, ("%s/eui %s|r  %s"):format(accent, entry.name, Tinted("secondary", Plain(usage))))
 			end
 		end
 	end
-	table.insert(lines, "\n|cffffffff" .. E:CaptionText(L["Modules"]) .. "|r  " .. Tinted("secondary", Plain(L["/eui <module> on | off | toggle, or /eui <module> for its settings"])))
 	local names = {}
-	for name in E:IterateModules() do table.insert(names, name) end
+	for name in E:IterateModules() do
+		if Matches(filter, name, L[E.modules[name].title], L["Modules"]) then table.insert(names, name) end
+	end
 	table.sort(names)
+	if #names > 0 then
+		table.insert(lines, (#lines > 0 and "\n" or "") .. "|cffffffff" .. E:CaptionText(L["Modules"]) .. "|r  "
+			.. Tinted("secondary", Plain(L["/eui <module> on | off | toggle, or /eui <module> for its settings"])))
+	end
 	for _, name in ipairs(names) do
 		local module = E.modules[name]
 		local _, conflict = E:GetModuleConflict(module)
@@ -264,6 +289,7 @@ local function BuildHelpText()
 			or (module:IsEnabled() and Tinted("good", L["on"]) or Tinted("bad", L["off"]))
 		table.insert(lines, ("%s/eui %s on||off|r  %s  %s"):format(accent, name:lower(), Plain(L[module.title]), state))
 	end
+	if #lines == 0 then return Tinted("secondary", L["No command matches the filter."]) end
 	return table.concat(lines, "\n")
 end
 
@@ -274,12 +300,24 @@ function E:ShowHelp()
 	if not help then
 		help = Kit.CreateToolWindow("EldoUIHelp", { title = L["EldoUI commands"], width = 640, height = 500,
 			strata = "DIALOG", resizable = { minWidth = 480, minHeight = 300 } })
+		local function Refresh()
+			help.text:SetText(BuildHelpText(help.filter:GetText()))
+			help.area:Update()
+			help.child:SetHeight(help.text:GetStringHeight() + 8)
+			help.area:ScrollToTop()
+		end
 		help.hint = Kit.Text(help.content, E.tokens.size.small, "LEFT", "secondary")
 		help.hint:SetPoint("TOPLEFT", 4, -2)
 		help.hint:SetPoint("TOPRIGHT", -4, -2)
 		help.hint:SetText(L["Type these in chat. Words in <> are yours to fill in. /eui help <command> shows one."])
+		-- A filter over the command words, their usage and the group titles.
+		help.filter = Kit.Input(help.content, { width = 220, hint = L["Filter commands"], onChange = Refresh, onEnter = Refresh })
+		help.filter:SetPoint("TOPLEFT", help.hint, "BOTTOMLEFT", 0, -6)
+		Kit.SearchEscape(help.filter)
+		help.filter:HookScript("OnEscapePressed", Refresh)
 		help.area = Kit.ScrollArea(help.content)
-		help.area:SetPoint("TOPLEFT", 4, -24)
+		help.area:SetPoint("TOP", help.filter, "BOTTOM", 0, -6)
+		help.area:SetPoint("LEFT", 4, 0)
 		help.area:SetPoint("BOTTOMRIGHT", -4, 12)
 		help.child = help.area.child
 		help.text = Kit.Text(help.child, E.tokens.size.body, "LEFT")
@@ -291,8 +329,9 @@ function E:ShowHelp()
 			help.child:SetHeight(help.text:GetStringHeight() + 8)
 		end)
 		-- The command words are in the accent: rebuild on a theme change.
-		E:RegisterThemed(help, function(window) if window:IsShown() then window.text:SetText(BuildHelpText()) end end)
+		E:RegisterThemed(help, function(window) if window:IsShown() then window.text:SetText(BuildHelpText(window.filter:GetText())) end end)
 	end
+	help.filter:SetText("")
 	help.text:SetText(BuildHelpText())
 	help:Show()
 	help:Raise()
@@ -326,11 +365,11 @@ end, "General")
 ---------------------------------------------------------------------------
 -- General
 ---------------------------------------------------------------------------
-Add("options", Key("open the config (same as plain /eui)"), function()
+Add("options", Key("open the options (same as plain /eui)"), function()
 	E:OpenOptions()
 end, "General")
 
-Add("search", Key("<words>  open the config with every setting that matches"), function(arg)
+Add("search", Key("<words>  open the options with every setting that matches"), function(arg)
 	E:SearchConfig(arg)
 end, "General")
 
@@ -425,7 +464,7 @@ Add("attach", Key("[<profile>]  put this character on a profile you already set 
 end, "General")
 
 Add("version", Key("show the EldoUI version"), function()
-	E:Print(L["Version %s, game build %s (Interface %s)."]:format(E.version, (GetBuildInfo()), select(4, GetBuildInfo())))
+	E:Print(L["Version %s, game version %s (Interface %s)."]:format(E.version, (GetBuildInfo()), select(4, GetBuildInfo())))
 end, "General")
 
 ---------------------------------------------------------------------------
@@ -436,8 +475,12 @@ Add("move", Key("on | off  drag frames around (no word flips it)"), function(arg
 	if switch == nil or switch == "toggle" then E:ToggleMoveMode() else E:ToggleMoveMode(switch) end
 end, "Layout & frames")
 
-Add("kb", Key("[movement | strafe | numbers | mouse | esdf | restore]  keybind mode, or the preview of a key set"), function(arg)
+-- Slash-command words for a key set, read before the set ids and the saved
+-- choices' older names: "classic" is the recommended Classic movement.
+local KB_WORDS = { classic = "movement" }
+Add("kb", Key("[movement | strafe | numbers | mouse | esdf | restore]  keybind mode, or the preview of a key set (its id or its name)"), function(arg)
 	arg = strtrim(arg or ""):lower()
+	arg = KB_WORDS[arg] or arg
 	if arg == "" then
 		E:ToggleKeybindMode()
 	elseif arg == "restore" then
@@ -450,7 +493,7 @@ Add("kb", Key("[movement | strafe | numbers | mouse | esdf | restore]  keybind m
 		E:Print(L["No key set %q. Use %s, %s, or %s alone for keybind mode."]:format(arg,
 			table.concat(names, ", "), E:Highlight("/eui kb restore"), E:Highlight("/eui kb")))
 	end
-end, "Layout & frames")
+end, "Keys and spells")
 
 -- The game keys card in the chat; "check" compares your keys with your
 -- key set, "keyboard" opens Check my keyboard, "hidden" shows or sets how
@@ -477,7 +520,7 @@ Add("keys", Key("[check | keyboard | hidden]  where bags, map and the other game
 	else
 		E:PrintGameKeys()
 	end
-end, "Layout & frames")
+end, "Keys and spells")
 
 -- The same question and the same setup change as the Layouts page
 -- (E:ConfirmApplyLayout). "undo" puts back the last setup change.
@@ -599,20 +642,29 @@ Add("profile", Key("list | use <name> | new <name> | copy <from> | reset | delet
 		elseif profile == E.profileName then
 			E:Print(L["That is the profile you use now; pick another one to copy from."])
 		else
-			ConfirmSlash(L["Copy every setting from %s into %s? Its current settings are lost."]:format(E:Highlight(profile), E:Highlight(E.profileName)), function()
+			local current = E.profileName
+			ConfirmSlash(E:ProfileConfirmText(L["Replace every setting of %s with a copy of %s?"]:format(E:Highlight(current), E:Highlight(profile)), current, "copy"), function()
 				OutOfCombat(function()
-					if E:CopyProfile(profile) then E:Print(L["Copied %s into %s."]:format(profile, E.profileName)) end
+					if E.profileName ~= current then return end
+					E:ChangeProfileWithUndo(current, "copy", function()
+						local ok = E:CopyProfile(profile)
+						if ok then E:Print(L["Copied %s into %s."]:format(profile, current)) end
+						return ok
+					end)
 				end)
 			end)
 		end
 	elseif action == "reset" then
 		local current = E.profileName
-		ConfirmSlash(L["Reset the profile %s to defaults? Every setting in it is lost."]:format(E:Highlight(current)), function()
+		ConfirmSlash(E:ProfileConfirmText(L["Reset the profile %s to defaults?"]:format(E:Highlight(current)), current, "reset"), function()
 			if E.profileName ~= current then return end -- switched meanwhile
 			OutOfCombat(function()
 				if E.profileName ~= current then return end
-				E:ResetProfile()
-				E:Print(L["Profile %s reset to defaults."]:format(current))
+				E:ChangeProfileWithUndo(current, "reset", function()
+					local ok = E:ResetProfile()
+					if ok then E:Print(L["Profile %s reset to defaults."]:format(current)) end
+					return ok
+				end)
 			end)
 		end)
 	elseif action == "delete" and name ~= "" then
@@ -620,8 +672,12 @@ Add("profile", Key("list | use <name> | new <name> | copy <from> | reset | delet
 		if not profile or profile == E.profileName then
 			E:Print(L["Can't delete that profile (it doesn't exist, or it's the one you're using)."])
 		else
-			ConfirmSlash(L["Delete the profile %s? This can't be undone."]:format(E:Highlight(profile)), function()
-				if E:DeleteProfile(profile) then E:Print(L["Deleted profile %s."]:format(profile)) end
+			ConfirmSlash(E:ProfileConfirmText(L["Delete the profile %s?"]:format(E:Highlight(profile)), profile, "delete"), function()
+				E:ChangeProfileWithUndo(profile, "delete", function()
+					local ok = E:DeleteProfile(profile)
+					if ok then E:Print(L["Deleted profile %s."]:format(profile)) end
+					return ok
+				end)
 			end)
 		end
 	else
@@ -643,8 +699,13 @@ Add("capture", Key("<addon>  save another addon's setup into EldoUI (%s)"), func
 	E:CaptureAddon(arg)
 end, "Profiles & sharing")
 
-Add("setup", Key("set up all supported addons from EldoUI's profiles"), function()
-	E:ApplyAddonSetups()
+-- "setup" is the EldoUI setup everywhere else, so it opens it too.
+Add("setup", Key("[<step>]  same as /eui install: run the EldoUI setup again"), function(arg)
+	E:ShowInstaller(arg)
+end, "General")
+
+Add("addonsetup", Key("set up the supported addons from EldoUI's profiles (asks first)"), function()
+	E:ConfirmAddonSetups()
 end, "Profiles & sharing")
 
 -- Saved data (Core/SavedData.lua): the copies kept before an update and
@@ -700,7 +761,7 @@ Add("debug", Key("on | off  debug messages in chat"), function(arg)
 	local switch = Switch(arg)
 	if switch == nil or switch == "toggle" then E.debug = not E.debug else E.debug = switch end
 	E:Print(E.debug and L["Debug on."] or L["Debug off."])
-end, "Tools")
+end, "Troubleshooting")
 
 ---------------------------------------------------------------------------
 -- Dispatch
@@ -762,6 +823,7 @@ local function Dispatch(msg)
 	end
 	-- Exact command, then exact module, then a unique start of either.
 	if commands[cmd] then return commands[cmd](arg) end
+	if COMMAND_WORDS[cmd] and commands[COMMAND_WORDS[cmd]] then return commands[COMMAND_WORDS[cmd]](arg) end
 	local module = E:FindModule(cmd)
 	if module and Simplify(module.name) == Simplify(cmd) then return RunModule(module, arg, cmd) end
 	local name = FindCommand(cmd)
@@ -784,7 +846,7 @@ end
 -- globals, and the entry shows the troll icon from ## IconTexture.
 -- The config window opens only from /eui (design decision), so a click
 -- does what the EldoUI data text does: move mode, or keybind mode on a
--- right-click. The tooltip says how to open the config.
+-- right-click. The tooltip says how to open the options.
 function EldoUI_OnAddonCompartmentClick(_, mouseButton)
 	if mouseButton == "RightButton" then E:ToggleKeybindMode() else E:ToggleMoveMode() end
 end
@@ -795,7 +857,7 @@ function EldoUI_OnAddonCompartmentEnter(_, button)
 	GameTooltip:AddLine("EldoUI " .. E.version, E:TokenColor("accent")) -- no-L: addon name and version
 	E:TooltipHint(GameTooltip, { L["Click"], L["move frames"] })
 	E:TooltipHint(GameTooltip, { L["Right-click"], L["keybind mode"] })
-	GameTooltip:AddLine(L["Type %s in chat to open the EldoUI config."]:format(E:Highlight("/eui")), secondary[1], secondary[2], secondary[3], true)
+	GameTooltip:AddLine(L["Type %s in chat or use the EldoUI button in the Game Menu to open the EldoUI options."]:format(E:Highlight("/eui")), secondary[1], secondary[2], secondary[3], true)
 	GameTooltip:Show()
 end
 

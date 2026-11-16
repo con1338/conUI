@@ -466,6 +466,7 @@ function M:SetStreaming(on)
 	if not self.db then return end
 	self.db.streaming = on and true or false
 	if not self.active and on then E:SetModuleEnabled("Streamer", true) end
+	self:WatchGroup()
 	self:ApplyOverhead()
 	self:Refresh()
 end
@@ -539,23 +540,39 @@ function M:OnInitialize()
 	E:RegisterGlobal("Streamer", { cvars = {} })
 end
 
+-- The group is watched only while streaming: with it off, nothing reads
+-- the tokens. A name update counts only for you and your group (it fires
+-- for every nameplate and passer-by too).
+local GROUP_EVENTS = { "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_ROLES_ASSIGNED" }
+local function Rescan()
+	if Streaming() then M:ScanGroup() end
+end
+local function OnNameUpdate(_, _, unit)
+	if type(unit) ~= "string" or E:IsSecret(unit) then return end
+	if unit == "player" or unit:match("^party%d") or unit:match("^raid%d") then Rescan() end
+end
+
+function M:WatchGroup()
+	local on = Streaming()
+	if on == (self.groupWatch or false) then return end
+	self.groupWatch = on
+	for _, event in ipairs(GROUP_EVENTS) do
+		if on then self:RegisterEvent(event, Rescan) else self:UnregisterEvent(event) end
+	end
+	if on then self:RegisterEvent("UNIT_NAME_UPDATE", OnNameUpdate) else self:UnregisterEvent("UNIT_NAME_UPDATE") end
+end
+
 function M:OnEnable()
 	E:SetNameAliasProvider(Provider)
 	HookChat()
 	HookTooltip()
-	for _, event in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "UNIT_NAME_UPDATE", "PLAYER_ROLES_ASSIGNED" }) do
-		self:RegisterEvent(event, function()
-			if M.active then M:ScanGroup() end
-		end)
-	end
+	self:WatchGroup()
 	self:ApplyOverhead()
 	self:Refresh()
 end
 
 function M:OnDisable()
-	for _, event in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "UNIT_NAME_UPDATE", "PLAYER_ROLES_ASSIGNED" }) do
-		self:UnregisterEvent(event)
-	end
+	self:WatchGroup()
 	E:SetNameAliasProvider(nil)
 	self:ApplyOverhead()
 	E:RefreshNames()
@@ -563,6 +580,7 @@ end
 
 function M:OnProfileChanged()
 	aliasSource = nil
+	self:WatchGroup()
 	self:ApplyOverhead()
 	self:Refresh()
 end

@@ -63,7 +63,8 @@ local function PlannedSpells(self)
 	local plan = self:ActivePlan()
 	local spells = {}
 	for _, spellID in pairs(plan and plan.spells or {}) do spells[spellID] = true end
-	return spells, plan ~= nil
+	-- An empty plan is no plan: nothing in it says which talents you take.
+	return spells, plan ~= nil and type(plan.order) == "table" and #plan.order > 0
 end
 
 local function TalentItem(self)
@@ -89,7 +90,9 @@ local function SpellsItem(self, level)
 	local planned, hasPlan = PlannedSpells(self)
 	local cost, skipped, shown = 0, 0, {}
 	for _, spell in ipairs(spells) do
-		if spell.talent and hasPlan and not planned[spell.talent] then
+		-- A talent rank shows when the player has the talent or the plan
+		-- takes it; the trainer will not teach it otherwise.
+		if spell.talent and not spell.talentKnown and not (hasPlan and planned[spell.talent]) then
 			skipped = skipped + 1
 		else
 			cost = cost + (spell.cost or 0)
@@ -100,8 +103,10 @@ local function SpellsItem(self, level)
 	if #shown > 0 then
 		lines[1] = E:Plural(#shown, "New at your trainer: %s, %s.", "New at your trainer: %s, %s in all."):format(Names(shown, "name"), E:FormatMoney(cost))
 	end
-	if skipped > 0 then
+	if skipped > 0 and hasPlan then
 		lines[#lines + 1] = E:Plural(skipped, "%d rank needs a talent your plan doesn't take.", "%d ranks need a talent your plan doesn't take."):format(skipped)
+	elseif skipped > 0 then
+		lines[#lines + 1] = E:Plural(skipped, "%d rank needs a talent you don't have.", "%d ranks need a talent you don't have."):format(skipped)
 	end
 	local item = { kind = "spells", icon = spells[1].icon, text = table.concat(lines, " ") }
 	-- Mage portals are taught by the portal trainers, not the class trainer.

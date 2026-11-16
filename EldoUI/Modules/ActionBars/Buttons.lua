@@ -181,6 +181,12 @@ local function Copy(color, fallback)
 	return { color[1] or 1, color[2] or 1, color[3] or 1 }
 end
 
+local function TextRow(anchor)
+	if anchor:find("^TOP") then return "TOP" end
+	if anchor:find("^BOTTOM") then return "BOTTOM" end
+	return ""
+end
+
 local function TextConfig(size, anchor, color)
 	local offset = TEXT_OFFSETS[anchor] or TEXT_OFFSETS.TOPRIGHT
 	local db = M.db
@@ -214,16 +220,30 @@ function M:BarText(barDB, styleOnly)
 		text = {
 			showHotkey = own.showHotkey ~= false, hotkeySize = own.hotkeySize, hotkeyPosition = own.hotkeyPosition,
 			showCount = own.showCount ~= false, countSize = own.countSize, countPosition = own.countPosition,
-			showMacro = own.showMacro and true or false, macroSize = own.macroSize,
+			showMacro = own.showMacro and true or false, macroSize = own.macroSize, macroPosition = own.macroPosition or "BOTTOM",
 		}
 	else
 		text = {
 			showHotkey = db.showHotkey ~= false, hotkeySize = db.fontSize, hotkeyPosition = db.hotkeyPosition,
 			showCount = db.showCount ~= false, countSize = db.countSize, countPosition = db.countPosition,
-			showMacro = db.showMacro and true or false, macroSize = db.macroSize,
+			showMacro = db.showMacro and true or false, macroSize = db.macroSize, macroPosition = db.macroPosition or "BOTTOM",
 		}
 	end
+	text.macroPosition = TEXT_OFFSETS[text.macroPosition] and text.macroPosition or "BOTTOM"
+	text.countPosition = TEXT_OFFSETS[text.countPosition] and text.countPosition or "BOTTOMRIGHT"
+	text.hotkeyPosition = TEXT_OFFSETS[text.hotkeyPosition] and text.hotkeyPosition or "TOPRIGHT"
 	if not styleOnly and KeysForced(barDB) then text.showHotkey = true end
+	if text.showMacro and text.showCount then
+		local macroRow, countRow = TextRow(text.macroPosition), TextRow(text.countPosition)
+		if macroRow == countRow then
+			local opposite = macroRow == "TOP" and "BOTTOM" or "TOP"
+			local column = text.countPosition:match("LEFT$") or text.countPosition:match("RIGHT$") or ""
+			text.countPosition = opposite .. column
+			if text.showHotkey and text.countPosition == text.hotkeyPosition then
+				text.countPosition = opposite .. (column == "LEFT" and "RIGHT" or "LEFT")
+			end
+		end
+	end
 	return text
 end
 
@@ -259,7 +279,7 @@ function M:ButtonConfig(binding, barDB, flyout)
 		text = {
 			hotkey = TextConfig(text.hotkeySize, text.hotkeyPosition, db.hotkeyColor),
 			count = TextConfig(text.countSize, text.countPosition, db.countColor),
-			macro = TextConfig(text.macroSize, "BOTTOM", db.macroColor),
+			macro = TextConfig(text.macroSize, text.macroPosition, db.macroColor),
 		},
 	}
 end
@@ -271,17 +291,17 @@ end
 ---------------------------------------------------------------------------
 local TEXT_PRESETS = {
 	standard = { title = "Standard", showHotkey = true, fontSize = 13, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11 },
+		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11, macroPosition = "BOTTOM" },
 	compact = { title = "Compact", showHotkey = true, fontSize = 10, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 11, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 9 },
+		showCount = true, countSize = 11, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 9, macroPosition = "BOTTOM" },
 	large = { title = "Large", showHotkey = true, fontSize = 16, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 17, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 13 },
+		showCount = true, countSize = 17, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 13, macroPosition = "BOTTOM" },
 	macros = { title = "With macro names", showHotkey = true, fontSize = 12, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 13, countPosition = "BOTTOMRIGHT", showMacro = true, macroSize = 10 },
+		showCount = true, countSize = 13, countPosition = "TOPLEFT", showMacro = true, macroSize = 10, macroPosition = "BOTTOM" },
 	clean = { title = "Clean (no keybinds)", showHotkey = false, fontSize = 13, hotkeyPosition = "TOPRIGHT",
-		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11 },
+		showCount = true, countSize = 14, countPosition = "BOTTOMRIGHT", showMacro = false, macroSize = 11, macroPosition = "BOTTOM" },
 }
-local TEXT_PRESET_KEYS = { "showHotkey", "fontSize", "hotkeyPosition", "showCount", "countSize", "countPosition", "showMacro", "macroSize" }
+local TEXT_PRESET_KEYS = { "showHotkey", "fontSize", "hotkeyPosition", "showCount", "countSize", "countPosition", "showMacro", "macroSize", "macroPosition" }
 M.TEXT_PRESETS = TEXT_PRESETS
 
 local function MatchesTextPreset(db, key)
@@ -385,12 +405,15 @@ M.SkinFrame = SkinFrame
 
 -- How far the icon sits inside the frame: the rim of the button art,
 -- measured in UI units at the size the frame is drawn.
-function M:SkinIconInset(m)
-	if not m then return E.pixel end
+-- button: the icon's own button, so a bar at another scale still insets by
+-- one whole screen pixel.
+function M:SkinIconInset(m, button)
+	local px = button and E.PixelFor and E:PixelFor(button) or E.pixel
+	if not m then return px end
 	local metrics = m.data.metrics
 	local slice = metrics.button and metrics.button.sliceMargin
 	local scale = (slice and slice.texels > 0) and slice.ui / slice.texels or 0.5
-	return math.max(E.pixel, math.floor((metrics.borderSize or 1) * scale + 0.5))
+	return math.max(px, math.floor((metrics.borderSize or 1) * scale + 0.5))
 end
 
 -- The mouse-over highlight in the skin's hover art: the skin's highlight
@@ -500,9 +523,11 @@ function M:StyleButton(button, width, height, barDB)
 		if button.SlotBackground then button.SlotBackground:SetAlpha(0) end
 		if button.SlotArt then button.SlotArt:SetAlpha(0) end
 		E:SetTemplate(parts.backdrop)
+		-- A bar at another scale keeps one whole screen pixel of border.
+		if E.SnapBorders then E:SnapBorders(parts.backdrop, true) end
 		local skin = SkinFrame(parts.backdrop)
 		parts.skinned = skin and true or nil
-		IconInset(button, db.buttonZoom, width, height, self:SkinIconInset(skin))
+		IconInset(button, db.buttonZoom, width, height, self:SkinIconInset(skin, button))
 		parts.equipped = nil
 		parts.backdrop:Show()
 		if skin then
@@ -511,7 +536,20 @@ function M:StyleButton(button, width, height, barDB)
 			StyleOverlay(button:GetHighlightTexture(), db.highlightStyle, E.tokens.hover.hud, button.icon)
 		end
 		StyleOverlay(button:GetPushedTexture(), db.pushedStyle, E.tokens.pressed, button.icon)
-		StyleOverlay(button:GetCheckedTexture(), "accent", E.tokens.pressed, button.icon)
+		StyleOverlay(button:GetCheckedTexture(), db.checkedStyle or "accent", E.tokens.pressed, button.icon)
+		-- The game's rounded overlays take the button's shape: the Auto
+		-- Attack and Auto Shot pulse, the glow on a newly placed spell and
+		-- the highlight while its spell is hovered in the spellbook.
+		local flash = button.Flash
+		if flash then
+			flash:ClearAllPoints()
+			flash:SetAllPoints(button.icon)
+			flash:SetColorTexture(E:TokenColor("bad", 0.35))
+		end
+		if E.AccentTexture then
+			StyleOverlay(button.NewActionTexture, "accent", E.tokens.pressed, button.icon)
+			StyleOverlay(button.SpellHighlightTexture, "accent", E.tokens.pressed, button.icon)
+		end
 	else
 		E:ReleaseSurface(parts.backdrop)
 		parts.skinned = nil
@@ -519,6 +557,8 @@ function M:StyleButton(button, width, height, barDB)
 	end
 	local text = self:BarText(barDB)
 	if button.Count then button.Count:SetAlpha(text.showCount and 1 or 0) end
+	-- The macro name gets the button's width, not the template's fixed one.
+	if button.Name and button.Name.SetWidth then button.Name:SetWidth(math.max(width - 4, 10)) end
 	if button.cooldown then E:StyleCooldownText(button.cooldown, self:CooldownOptions(math.min(width, height))) end
 	self:StyleChargeCooldown(button)
 	self:UpdateGlowSize(button, width)
@@ -824,6 +864,30 @@ end
 -- Blizzard's buttons
 ---------------------------------------------------------------------------
 local blizzardSkins = setmetatable({}, { __mode = "k" })   -- button -> parts
+local styledCooldowns = setmetatable({}, { __mode = "k" }) -- cooldown -> true while EldoUI formats it
+
+-- Icon zoom and the cooldown numbers of the bars on a skinned game button
+-- (pet, stance, possess and the game's own bars).
+local function BlizzardButtonLook(self, button)
+	local icon = button.icon or button.Icon
+	if icon and icon.SetTexCoord then
+		local width, height = button:GetSize()
+		icon:SetTexCoord(self:IconCoords(self.db.buttonZoom, width, height))
+	end
+	local cooldown = button.cooldown
+	if cooldown then
+		E:StyleCooldownText(cooldown, self:CooldownOptions(math.min(button:GetWidth(), button:GetHeight()), true))
+		styledCooldowns[cooldown] = true
+	end
+end
+
+-- Back to the game's own cooldown number format.
+local function ReleaseCooldownText(cooldown)
+	if not (cooldown and styledCooldowns[cooldown]) then return end
+	styledCooldowns[cooldown] = nil
+	E:StyleCooldownText(cooldown, { mode = "blizzard", keepShown = true })
+	if cooldown.SetMinimumCountdownDuration then pcall(cooldown.SetMinimumCountdownDuration, cooldown, 0) end
+end
 
 -- Flat EldoUI look on a Blizzard action-style button. Only alpha, texture
 -- coordinates, fonts and our own child frame; safe to call again.
@@ -839,7 +903,11 @@ function M:SkinBlizzardButton(button)
 	end
 	if parts.on then
 		E:SetTemplate(parts.backdrop)
+		if E.SnapBorders then E:SnapBorders(parts.backdrop, true) end
 		self:InsetBlizzardIcon(button, SkinFrame(parts.backdrop))
+		-- The Text and Buttons tabs apply on every pass, so a change shows at once.
+		BlizzardButtonLook(self, button)
+		self:StyleBlizzardText(button)
 		return
 	end
 	parts.on = true
@@ -852,9 +920,10 @@ function M:SkinBlizzardButton(button)
 	local icon = button.icon or button.Icon
 	if icon then
 		if button.IconMask and icon.RemoveMaskTexture then icon:RemoveMaskTexture(button.IconMask) end
-		E:TrimIcon(icon)
 	end
+	BlizzardButtonLook(self, button)
 	E:SetTemplate(parts.backdrop)
+	if E.SnapBorders then E:SnapBorders(parts.backdrop, true) end
 	self:InsetBlizzardIcon(button, SkinFrame(parts.backdrop))
 	parts.backdrop:Show()
 	self:StyleBlizzardText(button)
@@ -865,7 +934,7 @@ end
 function M:InsetBlizzardIcon(button, skin)
 	local icon = button.icon or button.Icon
 	if not icon then return end
-	local inset = self:SkinIconInset(skin)
+	local inset = self:SkinIconInset(skin, button)
 	icon:ClearAllPoints()
 	icon:SetPoint("TOPLEFT", button, "TOPLEFT", inset, -inset)
 	icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -inset, inset)
@@ -889,19 +958,42 @@ function M:UnskinBlizzardButton(button)
 		icon:SetAllPoints(button)
 		if button.IconMask and icon.AddMaskTexture then icon:AddMaskTexture(button.IconMask) end
 	end
+	ReleaseCooldownText(button.cooldown)
 	E:ReleaseSurface(parts.backdrop)
 	parts.backdrop:Hide()
 end
 
--- Theme font and abbreviated keybinds on a Blizzard button's text.
+-- The Text tab on a Blizzard button (pet, stance, possess, and Blizzard's
+-- own bars): font, size, outline, color, corner and whether each text
+-- shows, plus abbreviated keybinds. On a small button the keybind shrinks
+-- to fit (at most 40 % of the button's width).
+local function StyleBlizzardString(fontString, button, size, anchor, color, shown)
+	local cfg = TextConfig(size, anchor, color)
+	E:SetFont(fontString, cfg.font.size, cfg.font.flags)
+	fontString:SetTextColor(cfg.color[1], cfg.color[2], cfg.color[3])
+	fontString:ClearAllPoints()
+	fontString:SetPoint(cfg.position.anchor, button, cfg.position.relAnchor, cfg.position.offsetX, cfg.position.offsetY)
+	if fontString.SetJustifyH then fontString:SetJustifyH(cfg.justifyH) end
+	-- Alpha, not Hide: the game shows and hides these texts itself.
+	fontString:SetAlpha(shown and 1 or 0)
+end
+
 function M:StyleBlizzardText(button)
 	local db = self.db
+	local text = self:BarText(nil, true)
 	if button.HotKey then
-		E:SetFont(button.HotKey, db.fontSize)
+		local size = text.hotkeySize
+		local width = button.GetWidth and button:GetWidth()
+		if type(width) == "number" and width > 0 then size = math.min(size or 12, math.max(6, math.floor(width * 0.4))) end
+		StyleBlizzardString(button.HotKey, button, size, text.hotkeyPosition or "TOPRIGHT", db.hotkeyColor, text.showHotkey)
 		self:HookHotkey(button.HotKey)
 	end
-	if button.Count then E:SetFont(button.Count, db.countSize) end
-	if button.Name then E:SetFont(button.Name, db.macroSize) end
+	if button.Count then
+		StyleBlizzardString(button.Count, button, text.countSize, text.countPosition or "BOTTOMRIGHT", db.countColor, text.showCount)
+	end
+	if button.Name then
+		StyleBlizzardString(button.Name, button, text.macroSize, text.macroPosition or "BOTTOM", db.macroColor, text.showMacro)
+	end
 end
 
 local function BlizzardBarButtons(index, fn)
@@ -1154,8 +1246,6 @@ do
 	end)
 end
 
-local styledCooldowns = setmetatable({}, { __mode = "k" })
-
 function M:UpdateBlizzardButtonSkins()
 	local active = self.active
 	for index = 1, self.NUM_BARS do
@@ -1172,11 +1262,8 @@ function M:UpdateBlizzardButtonSkins()
 			if active and E:BlizzardAllowed(ELEMENT, "improve") and button.cooldown then
 				E:StyleCooldownText(button.cooldown, self:CooldownOptions(button:GetWidth(), true))
 				styledCooldowns[button.cooldown] = true
-			elseif button.cooldown and styledCooldowns[button.cooldown] then
-				-- Back to the game's own format.
-				styledCooldowns[button.cooldown] = nil
-				E:StyleCooldownText(button.cooldown, { mode = "blizzard", keepShown = true })
-				if button.cooldown.SetMinimumCountdownDuration then pcall(button.cooldown.SetMinimumCountdownDuration, button.cooldown, 0) end
+			else
+				ReleaseCooldownText(button.cooldown)
 			end
 		end)
 		if index == 1 then UpdateMainBarArt(skin) end
@@ -1230,11 +1317,10 @@ local PROC_DISPLAY, PROC_OPACITY = "displaySpellActivationOverlays", "spellActiv
 
 -- Put the player's own value of a CVar back when the EldoUI option that
 -- changed it goes off (E:SetCVar remembered it).
+-- Back on "Game setting": the player's own value once, and the record goes,
+-- so a later change in the game's own options stays.
 function M:RestoreOwnCVar(name, element)
-	local saved = EldoUIDB.cvarSnapshot and EldoUIDB.cvarSnapshot[name]
-	if saved and saved.owner == element and saved.value ~= nil and C_CVar.GetCVar(name) ~= saved.value then
-		C_CVar.SetCVar(name, saved.value)
-	end
+	E:RestoreCVar(name, element)
 end
 
 local function OverlayNumber(value)
@@ -1650,13 +1736,22 @@ end
 -- buttons always follow them, like Blizzard's.
 local PICKUP_KEYS = { SHIFT = true, CTRL = true, ALT = true }
 
+-- Older versions put the saved value back on every pass and never dropped
+-- it. A record still there at the first pass of a session on "Game
+-- setting" is such a leftover: it is dropped without writing, so the
+-- player's own later choice stays.
+local lockChecked
 local function UpdateLock()
 	local allowed = M.active and E:BlizzardAllowed(ELEMENT, "improve")
 	local lock = allowed and M.db.lockBars or "game"
+	local first = not lockChecked
+	lockChecked = true
 	if lock == "locked" then
 		E:SetCVar("lockActionBars", "1", ELEMENT)
 	elseif lock == "unlocked" then
 		E:SetCVar("lockActionBars", "0", ELEMENT)
+	elseif first then
+		E:ForgetCVar("lockActionBars", ELEMENT)
 	elseif E:BlizzardAllowed(ELEMENT) then
 		M:RestoreOwnCVar("lockActionBars", ELEMENT)
 	end

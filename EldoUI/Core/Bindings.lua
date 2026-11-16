@@ -9,13 +9,16 @@
 --   LOOTGUIDE_BIS  open the Loot Guide on Best in Slot
 --   ALTS           open or close the Characters (Alts) window
 --   MAPNOTES_TOGGLE  show or hide every EldoUI map pin (Map Notes)
+--   MINIMAP_OVERLAY  toggle the centered minimap overlay
 --   WHISPER_TARGET   open the chat box to whisper your target (/eui tt)
 --   ADVENTURE      open or close My Adventure in the Journal window
 --   ADVENTURE_NOTE write a quick journal note (the quick note card)
 --   ADVENTURE_TRACKER  show or hide the journal tracker
 --   ADVENTURE_NEXT open My Adventure on Next trips
+--   MOVEMODE       open or close move mode (/eui move); refused in combat
 --   ELDOUI_SHOW_HUD  hold to show every faded EldoUI frame (Core/Visibility.lua,
 --                  alpha only, so it works in combat)
+--   FOCUS_QUEST_NEXT / FOCUS_QUEST_PREVIOUS  cycle the native quest focus
 --   CLICK EldoUI_QuestItemButton   use the tracked quest's item
 --   CLICK EldoUI_Quickdraw1..16    hold for a Quickdraw menu (the same
 --                                  as the key set in the menu's editor)
@@ -28,6 +31,11 @@ local L = E.L
 local function Slash(text)
 	local handler = SlashCmdList and SlashCmdList.ELDOUI
 	if handler then handler(text) end
+end
+
+local function FocusQuest(direction)
+	local tracker = E:GetModule("ObjectiveTracker")
+	if tracker then tracker:CycleWatchedQuest(direction) end
 end
 
 local ACTIONS = {
@@ -58,6 +66,13 @@ local ACTIONS = {
 		local notes = E:GetModule("MapNotes")
 		if notes then notes:BindingToggle() end
 	end,
+	MOVEMODE = function() E:ToggleMoveMode() end,
+	MINIMAP_OVERLAY = function()
+		local minimap = E:GetModule("Minimap")
+		if minimap then minimap:ToggleMinimapOverlay() end
+	end,
+	FOCUS_QUEST_NEXT = function() FocusQuest(1) end,
+	FOCUS_QUEST_PREVIOUS = function() FocusQuest(-1) end,
 	WHISPER_TARGET = function()
 		local chat = E:GetModule("Chat")
 		if chat and chat.WhisperTarget then chat:WhisperTarget() end
@@ -94,11 +109,15 @@ function E:NameKeyBindings()
 	_G.BINDING_NAME_ELDOUI_LOOTGUIDE_BIS = L["Open the Loot Guide on Best in Slot"]
 	_G.BINDING_NAME_ELDOUI_ALTS = L["Open or close the Alts window"]
 	_G.BINDING_NAME_ELDOUI_MAPNOTES_TOGGLE = L["Show or hide all map notes"]
+	_G.BINDING_NAME_ELDOUI_MINIMAP_OVERLAY = L["Toggle minimap overlay"]
 	_G.BINDING_NAME_ELDOUI_ADVENTURE = L["Open or close My Adventure"]
 	_G.BINDING_NAME_ELDOUI_ADVENTURE_NOTE = L["Write a quick journal note"]
 	_G.BINDING_NAME_ELDOUI_ADVENTURE_TRACKER = L["Show or hide the journal tracker"]
 	_G.BINDING_NAME_ELDOUI_ADVENTURE_NEXT = L["Open Next trips"]
 	_G.BINDING_NAME_ELDOUI_SHOW_HUD = L["Show the HUD (hold)"]
+	_G.BINDING_NAME_ELDOUI_MOVEMODE = L["Open or close move mode"]
+	_G.BINDING_NAME_ELDOUI_FOCUS_QUEST_NEXT = L["Focus next tracked quest"]
+	_G.BINDING_NAME_ELDOUI_FOCUS_QUEST_PREVIOUS = L["Focus previous tracked quest"]
 	_G["BINDING_NAME_CLICK EldoUI_QuestItemButton:LeftButton"] = L["Use the quest item (Objective Tracker)"]
 	-- Consumable Bar buttons, in its category order.
 	_G.BINDING_HEADER_ELDOUICONSUMABLES = L["EldoUI Consumable Bar"]

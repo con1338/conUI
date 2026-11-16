@@ -334,6 +334,10 @@ function E:RefreshNames()
 	end
 end
 
+E:RegisterEvent("CVAR_UPDATE", function(_, _, name)
+	if name == "UnitSurnameOwn" and E.db then E:RefreshNames() end
+end, nameUsers)
+
 -- A name that came as text, not as a unit (friends list, other lists):
 -- "First<separator>Surname", maybe with "-Realm" after it. Only a name the
 -- separator splits cleanly is changed; anything else (and secret text)

@@ -259,6 +259,11 @@ E:RegisterCharacterKeyMove(function(db, oldKey, newKey)
 	E.MoveCharacterEntry(type(store) == "table" and store.byChar, oldKey, newKey)
 end)
 
+E:RegisterCharacterForget(function(db, key)
+	local store = type(db.global) == "table" and db.global.GatherNodes
+	if type(store) == "table" and type(store.byChar) == "table" then store.byChar[key] = nil end
+end)
+
 -- One of your own gathers, counted for this character.
 function M:CountGather(name)
 	if type(name) ~= "string" or name == "" or not E.charKey then return end

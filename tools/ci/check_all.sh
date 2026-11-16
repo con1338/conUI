@@ -52,71 +52,78 @@ check_luacheck() {
 }
 
 check_tests() {
-	step "Group board: parser"
+	# Every test runs; the ones that fail are named at the end.
+	local bad=() name
+	name="Group board: parser"; step "$name"
 	lua5.1 tools/groupboard/test_parse.lua | tail -n 1
-	[ "${PIPESTATUS[0]}" -eq 0 ] || return 1
-	step "Group board: plugin"
+	[ "${PIPESTATUS[0]}" -eq 0 ] || bad+=("$name")
+	name="Group board: plugin"; step "$name"
 	lua5.1 tools/groupboard/test_board.lua | tail -n 1
-	[ "${PIPESTATUS[0]}" -eq 0 ] || return 1
-	step "Share strings from other versions"
-	lua5.1 tools/share/test_import_versions.lua || return 1
-	step "Unpacked size before unpacking"
-	lua5.1 tools/share/test_inflate.lua || return 1
-	step "Profiles page: New profile, Rename and the picks reach the page"
-	lua5.1 tools/config/test_profile_page.lua || return 1
-	step "Hidden Blizzard action bars: the game's own update in combat"
-	lua5.1 tools/actionbars/test_hidden_blizzard_bars.lua || return 1
-	step "Click-cast keys on hover after a roster change"
-	lua5.1 tools/clickcast/test_hover_unit.lua || return 1
-	step "Click-cast bindings for compact frames made in combat"
-	lua5.1 tools/clickcast/test_compact_combat.lua || return 1
-	step "Nameplate driver hook after Blizzard_NamePlates loads"
-	lua5.1 tools/nameplates/test_driver_hook.lua || return 1
-	step "Info Bar blocks for other addons (LibDataBroker)"
-	lua5.1 tools/infobar/test_broker.lua || return 1
-	step "Info Bar memory block: rare readings, fresh on hover"
-	lua5.1 tools/infobar/test_memory_poll.lua || return 1
-	step "Masque on the Consumable Bar, totem bars and Quickdraw"
-	lua5.1 tools/masque/test_masque.lua || return 1
-	step "DKP and EPGP standings from the guild notes"
-	lua5.1 tools/raidloot/test_points.lua || return 1
-	step "Timing per module (/eui perf)"
-	lua5.1 tools/perf/test_perf.lua || return 1
-	step "Combat Text: the Punchy style and the leaner updater"
-	lua5.1 tools/combattext/test_punchy.lua || return 1
-	step "Cast bars on the party and raid frames"
-	lua5.1 tools/groupframes/test_cast.lua || return 1
-	step "World buffs"
-	lua5.1 tools/worldbuffs/test_world_buffs.lua || return 1
-	step "Fishing: soft interact reaches the bobber, catches from LOOT_READY"
-	lua5.1 tools/fishing/test_fishing.lua || return 1
-	step "RestedXP on a client in another language: target names, guide chain, group names"
-	lua5.1 tools/integrations/test_rxp_locale.lua || return 1
-	step "Quality of Life: Wowhead links in the game's language"
-	lua5.1 tools/qol/test_wowhead.lua || return 1
-	step "Quality of Life: XP after each title in the quest log"
-	lua5.1 tools/qol/test_quest_xp.lua || return 1
-	step "Quality of Life: a signal when eating and drinking are done"
-	lua5.1 tools/qol/test_meal_done.lua || return 1
-	step "Quality of Life: a hint when the bags are almost full"
-	lua5.1 tools/qol/test_bag_space.lua || return 1
-	step "Character: a gear set clicked in combat goes on after combat"
-	lua5.1 tools/character/test_gear_after_combat.lua || return 1
-	step "Quest Item Bar: the quest items you can use, out of combat only"
-	lua5.1 tools/questbar/test_quest_bar.lua || return 1
-	step "Consumable Bar: buttons work with Shift, Ctrl or Alt held"
-	lua5.1 tools/consumablebar/test_modifier_clicks.lua || return 1
-	step "Bar Snapshots: which action bars are on"
+	[ "${PIPESTATUS[0]}" -eq 0 ] || bad+=("$name")
+	name="Share strings from other versions"; step "$name"
+	lua5.1 tools/share/test_import_versions.lua || bad+=("$name")
+	name="Unpacked size before unpacking"; step "$name"
+	lua5.1 tools/share/test_inflate.lua || bad+=("$name")
+	name="Profiles page: New profile, Rename and the picks reach the page"; step "$name"
+	lua5.1 tools/config/test_profile_page.lua || bad+=("$name")
+	name="Hidden Blizzard action bars: the game's own update in combat"; step "$name"
+	lua5.1 tools/actionbars/test_hidden_blizzard_bars.lua || bad+=("$name")
+	name="Click-cast keys on hover after a roster change"; step "$name"
+	lua5.1 tools/clickcast/test_hover_unit.lua || bad+=("$name")
+	name="Click-cast bindings for compact frames made in combat"; step "$name"
+	lua5.1 tools/clickcast/test_compact_combat.lua || bad+=("$name")
+	name="Nameplate driver hook after Blizzard_NamePlates loads"; step "$name"
+	lua5.1 tools/nameplates/test_driver_hook.lua || bad+=("$name")
+	name="Info Bar blocks for other addons (LibDataBroker)"; step "$name"
+	lua5.1 tools/infobar/test_broker.lua || bad+=("$name")
+	name="Info Bar memory block: rare readings, fresh on hover"; step "$name"
+	lua5.1 tools/infobar/test_memory_poll.lua || bad+=("$name")
+	name="Masque on the Consumable Bar, totem bars and Quickdraw"; step "$name"
+	lua5.1 tools/masque/test_masque.lua || bad+=("$name")
+	name="DKP and EPGP standings from the guild notes"; step "$name"
+	lua5.1 tools/raidloot/test_points.lua || bad+=("$name")
+	name="Timing per module (/eui perf)"; step "$name"
+	lua5.1 tools/perf/test_perf.lua || bad+=("$name")
+	name="Combat Text: the Punchy style and the leaner updater"; step "$name"
+	lua5.1 tools/combattext/test_punchy.lua || bad+=("$name")
+	name="Cast bars on the party and raid frames"; step "$name"
+	lua5.1 tools/groupframes/test_cast.lua || bad+=("$name")
+	name="World buffs"; step "$name"
+	lua5.1 tools/worldbuffs/test_world_buffs.lua || bad+=("$name")
+	name="Fishing: soft interact reaches the bobber, catches from LOOT_READY"; step "$name"
+	lua5.1 tools/fishing/test_fishing.lua || bad+=("$name")
+	name="RestedXP on a client in another language: target names, guide chain, group names"; step "$name"
+	lua5.1 tools/integrations/test_rxp_locale.lua || bad+=("$name")
+	name="Quality of Life: Wowhead links in the game's language"; step "$name"
+	lua5.1 tools/qol/test_wowhead.lua || bad+=("$name")
+	name="Quality of Life: XP after each title in the quest log"; step "$name"
+	lua5.1 tools/qol/test_quest_xp.lua || bad+=("$name")
+	name="Quality of Life: a signal when eating and drinking are done"; step "$name"
+	lua5.1 tools/qol/test_meal_done.lua || bad+=("$name")
+	name="Quality of Life: a hint when the bags are almost full"; step "$name"
+	lua5.1 tools/qol/test_bag_space.lua || bad+=("$name")
+	name="Character: a gear set clicked in combat goes on after combat"; step "$name"
+	lua5.1 tools/character/test_gear_after_combat.lua || bad+=("$name")
+	name="Quest Item Bar: the quest items you can use, out of combat only"; step "$name"
+	lua5.1 tools/questbar/test_quest_bar.lua || bad+=("$name")
+	name="Consumable Bar: buttons work with Shift, Ctrl or Alt held"; step "$name"
+	lua5.1 tools/consumablebar/test_modifier_clicks.lua || bad+=("$name")
+	name="Bar Snapshots: which action bars are on"; step "$name"
 	lua5.1 tools/snapshots/test_bar_toggles.lua | tail -n 1
-	[ "${PIPESTATUS[0]}" -eq 0 ] || return 1
-	step "Loot Sim: Judgement rolls as a ranged attack"
-	lua5.1 tools/lootsim/test_judgement.lua || return 1
-	step "Auction House: Blizzard's screens come back under EldoUI's pages (F22)"
-	lua5.1 tools/auction/test_native_screens.lua || return 1
-	step "German pack: Fork.lua rules"
-	python3 tools/locale/test_fork.py || return 1
-	step "Version watcher (offline)"
-	python3 tools/ci/test_watch_versions.py
+	[ "${PIPESTATUS[0]}" -eq 0 ] || bad+=("$name")
+	name="Loot Sim: Judgement rolls as a ranged attack"; step "$name"
+	lua5.1 tools/lootsim/test_judgement.lua || bad+=("$name")
+	name="Auction House: Blizzard's screens come back under EldoUI's pages (F22)"; step "$name"
+	lua5.1 tools/auction/test_native_screens.lua || bad+=("$name")
+	name="German pack: Fork.lua rules"; step "$name"
+	python3 tools/locale/test_fork.py || bad+=("$name")
+	name="Version watcher (offline)"; step "$name"
+	python3 tools/ci/test_watch_versions.py || bad+=("$name")
+	if [ "${#bad[@]}" -gt 0 ]; then
+		printf '\nFailed tests:\n'
+		printf '  %s\n' "${bad[@]}"
+		return 1
+	fi
 }
 
 check_load() {

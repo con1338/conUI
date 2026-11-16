@@ -94,8 +94,8 @@ local options = {
 	{ type = "toggle", key = "emptyFade", label = "Fade empty elements", desc = "Dim an element with no totem down. Nothing fades while the game hides which totem is down." },
 	{ type = "toggle", key = "elementColors", label = "Element colors", desc = "A thin edge in the element's color under each button: green earth, orange fire, blue water, light blue air." },
 	{ type = "header", label = "Look" },
-	{ type = "range", key = "size", label = "Button size", min = 20, max = 48, step = 1, desc = "Size of each totem button." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between the buttons." },
+	{ type = "range", unit = "px", key = "size", label = "Button size", min = 20, max = 48, step = 1, desc = "Size of each totem button." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 12, step = 1, desc = "Space between the buttons." },
 	{ type = "toggle", key = "vertical", label = "Vertical", desc = "Stack the buttons top to bottom (both bars)." },
 	{ type = "toggle", key = "masque", label = "Use Masque", reload = true, desc = E.MASQUE_OPTION_DESC,
 		requires = function() return E:Masque() ~= nil end },
@@ -127,7 +127,7 @@ local options = {
 		values = { auto = "Automatic", healer = "Healer", melee = "Melee", caster = "Caster" }, order = { "auto", "healer", "melee", "caster" },
 		desc = "Which role's spells the bar starts with. Automatic follows the Role page, else your talents. Picking a set replaces your own ticks below." },
 	{ type = "execute", label = "Use the role set again", dependsOn = "cooldowns.enabled", noUndo = true,
-		disabled = function() return not M.Cooldowns:OwnTicks() and "The ticks already follow the role set." or false end,
+		disabled = function() return not M.Cooldowns:OwnTicks() and L["The ticks already follow the role set."] or false end,
 		desc = "Your own ticks below give way to the spells of the role set.",
 		func = function() M.Cooldowns:ResetRoleSet() end },
 }
@@ -147,12 +147,12 @@ for _, spell in ipairs(D.READY) do
 end
 for _, row in ipairs({
 	{ type = "header", label = "Look" },
-	{ type = "range", key = "cooldowns.size", label = "Icon size", min = 18, max = 48, step = 1, dependsOn = "cooldowns.enabled", desc = "Size of each icon." },
-	{ type = "range", key = "cooldowns.spacing", label = "Spacing", min = 0, max = 12, step = 1, dependsOn = "cooldowns.enabled", desc = "Space between the icons." },
+	{ type = "range", unit = "px", key = "cooldowns.size", label = "Icon size", min = 18, max = 48, step = 1, dependsOn = "cooldowns.enabled", desc = "Width and height of each totem cooldown icon." },
+	{ type = "range", unit = "px", key = "cooldowns.spacing", label = "Spacing", min = 0, max = 12, step = 1, dependsOn = "cooldowns.enabled", desc = "Space between the icons." },
 
 	{ type = "tab", label = "Loadouts" },
 	{ type = "description", label = "A loadout is a saved set of four totems. Right-click Drop All to switch, save, rename, share or delete. A switch waits for out of combat." },
-	{ type = "execute", label = "Save my picks as a loadout", hidden = NotShaman, noUndo = true,
+	{ type = "execute", label = "Save your picks as a loadout", hidden = NotShaman, noUndo = true,
 		desc = "Saves the four totems you picked now as a new loadout (up to 8).",
 		func = function()
 			if not M:SaveLoadout(nil) then E:Print(L["Every loadout slot is full. Delete one first."]) end
@@ -170,7 +170,7 @@ for _, row in ipairs({
 	{ type = "tab", label = "Group" },
 	{ type = "header", label = "Who your totems reach" },
 	{ type = "toggle", key = "squares", label = "Squares on party frames", desc = "A small square on party frames per running buff totem: filled when the member has it, hollow when not, ? in combat (the game hides it then)." },
-	{ type = "range", key = "squareSize", label = "Square size", min = 4, max = 12, step = 1, dependsOn = "squares", desc = "Size of each square." },
+	{ type = "range", key = "squareSize", label = "Square size", unit = "px", min = 4, max = 12, step = 1, dependsOn = "squares", desc = "Width and height of each square on the party frames." },
 	{ type = "toggle", key = "coverageTip", label = "On the totem tooltips", desc = "In a group, a totem button's tooltip names the members its buff doesn't reach (out of combat)." },
 	{ type = "toggle", key = "counterHint", label = "Counter totems on mob tooltips", desc = "On a mob's tooltip, Tremor, Poison Cleansing or Disease Cleansing Totem when the Mob Abilities log saw it cast fear, poison or disease. The loadout menu offers the swap. Out of combat." },
 	{ type = "header", label = "Group plan" },
@@ -203,7 +203,7 @@ M.options = options
 -- until ticked and never recommended (it needs loadouts picked first).
 E:RegisterConvenience({ id = "totemContentRule", module = "ShamanTotems", setting = "contentRule", order = 180,
 	label = "Switch totem loadout by content",
-	desc = "Acts for you: when you enter the world, a dungeon, a raid or a battleground, the totem bar switches to the loadout you picked for it, out of combat. Change it later under Shaman Totems.",
+	desc = "Acts for you: when you enter the world, a dungeon, a raid or a battleground, the totem bar switches to the loadout you picked for it, out of combat.",
 	available = E.ConvenienceRules.Class("SHAMAN") })
 
 E:RegisterStyles("ShamanTotems", {
@@ -241,7 +241,7 @@ if auraGroups and auraGroups.AddExample then
 	for _, id in ipairs(ids) do spells[#spells + 1] = tostring(id) end
 	auraGroups:AddExample("totemBuffs", {
 		title = "Totem buffs on you",
-		desc = "The totem buffs a shaman's totems give you. The group dims a step for each shaman in your party who is out of range, as the game reports it, and fully when all of them are.",
+		desc = "The totem buffs a shaman's totems give you. The group dims a step for each shaman in your party who is out of range, and fully when all of them are.",
 		name = "Totem buffs",
 		unit = "player", kind = "HELPFUL", mine = false,
 		spells = table.concat(spells, ", "),

@@ -386,7 +386,7 @@ function M:StatusLines()
 	return lines
 end
 
-E:AddCommand("cam", "  the camera situation, distance, the max distance and the camera settings EldoUI holds", function()
+E:AddCommand("cam", "the camera situation, distance, the max distance and the camera settings EldoUI holds", function()
 	for _, line in ipairs(M:StatusLines()) do E:Print(line) end
 end)
 
