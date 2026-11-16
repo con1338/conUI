@@ -226,6 +226,8 @@ Modules\Trade.lua
 Modules\QoL.lua
 Modules\QoL\Tweaks.lua
 Modules\QoL\FlightView.lua
+Modules\QoL\QuestXP.lua
+Modules\QoL\MealDone.lua
 Modules\Quickdraw.lua
 Modules\Messages.lua
 Modules\Loot.lua

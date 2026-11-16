@@ -16,6 +16,14 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (Forever hat Weltbuffs, laut Nutzer) | mittel | umgesetzt | `2b77920` |
+| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen | mittel | offen | |
+| B6 | Signal, wenn Essen und Trinken fertig sind (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
+| B7 | Taschen fast voll: früher Hinweis und Liste „Platz schaffen“ | klein–mittel | offen | |
+| B8 | Quest-EP hinter jedem Titel im Questlog (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
+| B9 | „Wer fehlt?“ für Gruppe und Raid (Herbeirufen) | mittel | abwarten | |
+| B10 | Wowhead-Links in der Spielsprache (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d` |
+| B11 | Absitzen und Aufstehen bei Fehlermeldung (einschaltbar) | klein | offen | |
+| B12 | Ausrüstungsset nach dem Kampf anlegen (einschaltbar) | klein | offen | |
 | C1 | Masque auch für Auren, Combat HUD, ConsumableBar, Totems, Quickdraw | klein–mittel | teilweise | `5753197` |
 | C2 | Info-Bar stellt ihre Blöcke als LDB-Objekte bereit | klein | umgesetzt | `98cb929` |
 | C3 | Doku veraltet: README, CHANGELOG, CONTRIBUTING | klein | umgesetzt | `7781b25` |
@@ -31,7 +39,12 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | `d83f389` |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): C1 (Rest), E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B5, B7, B11, B12, C1 (Rest), E1.
+**Stand 16.11.2026:** B5 bis B12 kommen aus einer Suche nach QoL-Lücken (Abschnitt B, „QoL-Vorschläge“). Der Nutzer
+hat B6, B8 und B10 gewählt. B9 wartet, bis er Stufe 60 erreicht und Gruppeninhalte spielt (seine Auskunft). Bei B11
+erst im Spiel prüfen, ob Forever schon von selbst absitzt. B6 und B8 sind neue Dateien in der `EldoUI.toc`: Nach dem
+Kopieren das Spiel ganz neu starten, denn `/reload` liest die Dateiliste nicht neu (wie bei C6). Ohne Neustart fehlen
+nur die beiden Funktionen, Fehler gibt es keine, weil nichts in `QoL.lua` sie aufruft.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
@@ -244,6 +257,178 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 - Im Spiel geprüft (15.11.2026): Seit dem Fix (PR #20) kein neuer „Blocked …“-Eintrag, in keiner Session bis
   Nr. 52, darunter mehrere mit Kampf. Ob sich dabei Gildenmitglieder im Kampf an- oder abgemeldet haben, ist
   nicht bekannt. Tooltip, Info-Bar-Block und Soft-Reserves sind noch nicht geprüft.
+
+**QoL-Vorschläge (16.11.2026):** Der Nutzer fragte nach weiteren QoL-Features. Geprüft wurden alle 100 Module und
+rund 45 übliche QoL-Funktionen per Codesuche. Das meiste gibt es schon: Auto-Reparatur, Grau verkaufen, „LÖSCHEN“
+vorausfüllen, schnelles Plündern, Rang-Upgrades auf den Leisten, Haltbarkeit je Platz, Itemlevel in Taschen, Quest-EP
+auf der EP-Leiste, Kartenaufdeckung, Screenshots bei Ereignissen, Ausrüstungssets, Fanfare-Hinweise bei vollen Taschen
+und fälliger Reparatur. Übrig blieben B5 bis B12. Alle halten EldoUIs Regeln ein: Nichts handelt ohne Klick, außer es
+ist eingeschaltet, und es werden keine geheimen Werte gelesen.
+
+| Nr. | Idee | Beleg (Suche) |
+|---|---|---|
+| B5 | Leiste mit allen benutzbaren Questgegenständen der Taschen, per Klick oder Taste | ein Knopf, nur für die verfolgte Quest (`EldoUI/Modules/ObjectiveTracker.lua:30`) |
+| B7 | Hinweis ab z. B. 3 freien Plätzen, dazu die fünf billigsten Gegenstände; ein Klick öffnet Blizzards Löschdialog | Fanfare meldet sich erst bei 0 freien Plätzen |
+| B9 | Liste der Mitglieder außerhalb Eurer Zone oder Instanz, offline oder AFK; ein Klick setzt das Ziel (Hexer) | `GetRaidRosterInfo` kommt im Code nicht vor |
+| B11 | Bei „beritten“ oder „Ihr müsst stehen“ (auch am Flugmeister) absitzen bzw. aufstehen | kein Modul wertet diese Fehlermeldungen aus |
+| B12 | Ein Setwechsel im Kampf wird gemerkt und danach ausgeführt | heute nur eine Meldung (`EldoUI/Modules/Character.lua:2064`) |
+
+Unsicher bei B11: Vielleicht sitzt Forever schon von selbst ab, und ob `Dismount()` ohne Klick erlaubt ist, zeigt nur
+das Spiel. B12 handelt nach dem Klick, deshalb einschaltbar und standardmäßig aus.
+
+Geprüft und verworfen:
+- „Alles lernen“ beim Lehrer: EldoUI lehnt das bewusst ab, viele Käufe auf einen Klick gelten als Automatisierung
+  (`EldoUI/Modules/Skins.lua:845`).
+- Energie-Ticker: Die eigene Energie kann im Kampf geheim sein (`EldoUI/Modules/ClassPower.lua:16`).
+- Unterbrechungs-Tracker mit Ansagen: Fremde Abklingzeiten sind geheim, und Chatzeilen schreibt EldoUI nur auf Klick.
+- Herbeirufen oder Wiederbeleben automatisch annehmen: gegen die Fair-Play-Regel. Die Abfragen gibt es schon.
+- Entfernung zum Ziel in Metern: Reichweiten-Abfragen sind im Kampf eingeschränkt. Das Fadenkreuz nutzt schon die
+  Reichweitenprüfung des Spiels.
+
+**B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
+- Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
+  und Trinken“), standardmäßig an.
+- Beim Essen oder Trinken: ein Sound und ein Blinken des Spiels in der Taskleiste, sobald voll ist, was die Mahlzeit
+  füllt. Bei Essen ist das die Gesundheit, bei Getränken das Mana und bei Rationen beides. Eine Klasse ohne Mana bekommt
+  das Signal beim Trinken sofort.
+- Essen, das „Satt“ gibt, wartet außerdem die 10 Sekunden, die der Buff braucht. Sie zählen ab dem Beginn dieses
+  Essens, auch wenn vorher schon getrunken wurde.
+- Nach dem Beginn oder einer Änderung der Mahlzeit wartet es eine Sekunde. So zählen Essen und Trinken aus einem
+  Tastendruck (Makro) als eine Mahlzeit.
+- Ein Signal pro Mahlzeit. Kommt zu einer fertigen Mahlzeit ein Getränk oder Essen mit „Satt“ dazu, gibt es ein
+  neues Signal, sobald auch das fertig ist.
+- Einstellungen: Schalter, Sound (Standard „Chime“, „Keiner“ für Stille), Blinken in der Taskleiste, Knopf „Test“.
+  „Minimal“ schaltet es aus.
+- Was als Mahlzeit zählt:
+  - Auren mit dem Namen, den der Client für Essen (433) und Trinken (430) liefert, in jeder Sprache. Alle Ränge
+    von normalem Essen und Wasser tragen diesen Namen.
+  - Die Benutzungs-Zauber, die die Verbrauchsleiste kennt (`USE_SPELLS`, `BUFF_FOOD_SPELLS` in
+    `Modules/ConsumableBar.lua`): Rationen, Kekse sowie die nahrhaften Speisen und Getränke von Forever. Die Leiste
+    leiht nur ihre Listen und darf aus sein.
+- Regeln: Im Kampf liest es nichts. Auren laufen über `C_UnitAuras` in pcall. Geheime Auren, Gesundheit oder Mana
+  zählen als „nicht lesbar“ und werden nie verglichen. Es hört auf `UNIT_AURA` nur für Euch und liest am Kampfende
+  einmal neu (`PLAYER_REGEN_ENABLED`, eigener Besitzer, weil Tweaks dieses Event schon für das Modul belegt). Nur
+  während einer Mahlzeit schaut es viermal pro Sekunde nach, am gemeinsamen Ticker.
+- Die Namen von Essen und Trinken liest es einmal pro Sitzung. Ohne Zauber-API nimmt es wie die Verbrauchsleiste die
+  englischen Namen.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+- Test: `tools/qol/test_meal_done.lua` (läuft in `tools/ci/check_all.sh tests`, 76 Prüfungen). Er lädt die Datei
+  ganz, mit deutschen Namen für Essen und Trinken. Geprüft werden:
+  - Welche Auren zählen, geheime nie, ohne die Listen der Verbrauchsleiste nur die Namen, ohne Zauber-API die
+    englischen. Die Namen werden einmal gelesen.
+  - Gesundheit, Mana, Rationen, eine Klasse ohne Mana, „Satt“ nach 10 Sekunden ab dem Essen, auch nach einem Getränk
+    und nach einer schon fertigen Mahlzeit.
+  - Essen und Trinken aus einem Tastendruck geben ein Signal.
+  - Ein Signal pro Mahlzeit, ein neues für ein dazukommendes Getränk.
+  - Eine Mahlzeit, die im Kampf endet: Am Kampfende ist sie weg, ohne spätes Signal, und die nächste Mahlzeit bekommt
+    ihres.
+  - Nichts im Kampf, nichts bei geheimen Werten, nichts nach frühem Aufstehen.
+  - Der Ticker läuft nur während einer Mahlzeit.
+  - Schalter, Sound, Blinken, Test-Knopf, Modul aus.
+- Grenze: Ist das Spiel im Hintergrund, spielt es Sounds nur mit seiner Einstellung „Sound im Hintergrund“. Das
+  Blinken in der Taskleiste kommt immer.
+- Im Spiel prüfen (nach einem Neustart des Spiels, siehe „Stand 16.11.2026“):
+  - Mit halber Gesundheit Brot essen. Erwartung: Ein Glockenton und das Blinken, sobald die Gesundheit voll ist,
+    und nur einmal.
+  - Als Klasse mit Mana Wasser trinken: das Signal bei vollem Mana. Essen und Trinken zusammen: ein Signal für das
+    Essen, ein zweites für das Mana.
+  - Essen, das „Satt“ gibt, bei voller Gesundheit: das Signal erst nach etwa 10 Sekunden, wenn „Satt“ da ist.
+  - Eine Ration oder nahrhaftes Essen von Forever: Signal, wenn beides voll ist.
+  - Vor dem Ende aufstehen: kein Signal.
+  - Erst trinken, dann Essen mit „Satt“ dazu: das Signal erst, wenn „Satt“ da ist.
+  - Beim Essen angegriffen werden, kämpfen, danach normal regenerieren: kein Signal.
+  - `/eui qol` → Sound und Sonstiges → „Essen und Trinken“ → „Test“: Ton und Blinken.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**B8 – Quest-EP im Questlog (umgesetzt):**
+- Neu: `Modules/QoL/QuestXP.lua`, ein Teil des Moduls Quality of Life (Reiter „Quests“, Abschnitt „Belohnungen“),
+  standardmäßig an. Questie zeigt die EP beim Nutzer nicht an, nur die EP-Leiste hat sie (gelb).
+- Hinter jedem Questtitel im Questlog stehen die EP fürs Abgeben: „[24] The Collector  +1.250 EP“, in der Farbe der
+  fertigen Quests auf der EP-Leiste (Erfahrungs- und Rufleisten › „Farbe für Quest-EP“, Standard gelb). Die Zahl
+  kommt vom Spiel (`GetQuestLogRewardXP`), wie bei der EP-Leiste (`Modules/StatusBars.lua:98`), mit dem
+  Tausendertrenner des Clients.
+- Keine EP: auf der Höchststufe, bei gesperrter EP (`IsXPUserDisabled`), bei Quests ohne EP, bei geheimer oder
+  fehlerhafter Antwort.
+- Der Questlog ist die Questliste der Weltkarte (`QuestScrollFrame`), wie bei Quest Marks
+  (`Modules/QuestTint.lua`). Blizzard schreibt jeden Titel bei jedem Update neu und passt die Zeile vorher an den
+  Titel an. Darum:
+  - Die EP kommen nur dazu, wenn der Titel dabei nicht mehr Zeilen braucht. Sonst weicht das Ende des Titels einem
+    „...“.
+  - Bliebe vom Titel fast nichts übrig (unter 10 Bytes samt „[24] “), bleibt er ohne EP.
+  - Ein Titel, den das Spiel schon abschneidet, wird genauso gekürzt, damit die EP lesbar bleiben.
+- Post-Hook auf `QuestLogQuests_Update`, auch wenn die Weltkarte später lädt. Nur Text: Kein Blizzard-Frame bekommt
+  ein Feld. Was EldoUI geändert hat, steht in einer schwachen Tabelle. Ausgeschaltet bekommt jeder Titel Blizzards
+  Text zurück, aber nur, wenn dort noch EldoUIs Text steht.
+- Verträgt sich mit Quest Marks, das bei Farbenblindheit „[24 schwer]“ in denselben Titel schreibt. Dessen Wort
+  kommt zuerst hinein (`AddDifficultyWord`, wirkt nur einmal), dann wird gemessen, egal welcher Hook zuerst läuft. Die
+  EP am Ende werden erkannt und nicht doppelt gesetzt, auch nach einem Farbwechsel.
+- Das Häkchen einer verfolgten Quest setzt Blizzards Zeilencode in Retail direkt hinter den Titel (bei dessen
+  Breite). Steht es dort (ein Anker am Titel, höchstens 6 Punkte hinter dem Ende), rückt es hinter die EP und beim
+  Ausschalten zurück. Jede andere Anordnung bleibt unberührt.
+- Der Schalter folgt Blizzard UI › „World map and quest log“ › Improve. „Minimal“ schaltet ihn aus.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` („+%s EP“, „EP im Questlog“).
+- Test: `tools/qol/test_quest_xp.lua` (läuft in `tools/ci/check_all.sh tests`, 54 Prüfungen). Er lädt die Datei ganz.
+  Ein Titel ist dort ein Textfeld, das nach einer festen Zahl Zeichen umbricht. Geprüft werden:
+  - EP einmal, auch wenn der Hook ohne neues Schreiben von Blizzard läuft.
+  - Quests ohne EP, mit geheimer Antwort oder einem Fehler bleiben, wie sie sind.
+  - Lange Titel bekommen ein „...“ und behalten den Farbcode. Fast leere Titel bleiben ohne EP. Abgeschnittene
+    Titel werden gekürzt.
+  - Farbe aus der EP-Leiste, kaputte oder fehlende Farbe.
+  - Das Wort von Quest Marks, auch wenn dessen Hook später läuft; ein Fehler dort wird gemeldet.
+  - Das Häkchen rückt mit und zurück, andere Anker bleiben.
+  - Höchststufe, gesperrte EP, Schalter aus, Blizzard-Schalter aus, Modul aus: Blizzards Text zurück. Ein Titel, den
+    Blizzard inzwischen neu geschrieben hat, bleibt unberührt.
+  - Ein Hook, Standards, „Minimal“, Optionen.
+- Im Spiel prüfen (nach einem Neustart des Spiels):
+  - Questlog öffnen (L). Erwartung: hinter jedem Titel „+… EP“ in Gelb. Zwei Quests mit verschiedener Belohnung
+    zeigen verschiedene Zahlen (sonst liest das Spiel nur die ausgewählte Quest). Die Summe der fertigen Quests passt
+    zum gelben Teil der EP-Leiste.
+  - Eine verfolgte Quest: Das Häkchen steht hinter den EP, nicht darauf.
+  - Gehen die gelben EP neben gelben Questtiteln unter, die Farbe unter Erfahrungs- und Rufleisten › „Farbe für
+    Quest-EP“ ändern oder Bescheid geben.
+  - Eine Quest mit langem Titel: Die Zeile wird nicht höher und überlappt nicht. Das Ende des Titels endet auf „...“,
+    die EP bleiben sichtbar.
+  - Quests verfolgen, abschließen, abbrechen, Zonen auf- und zuklappen: EP stehen nie doppelt da.
+  - Optionen › Quality of Life › Quests › „EP im Questlog“ aus: Die EP verschwinden sofort.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**B10 – Wowhead-Links in der Spielsprache (umgesetzt):**
+- Bisher führten die Wowhead-Links (Strg+Alt-Klick im Chat, `/eui wowhead`, „Wowhead-Link kopieren“ im Loot Guide
+  und im Questmenü) nur auf die englischen Seiten.
+- Neu in `Modules/QoL.lua` (Reiter „Interface“, Abschnitt Wowhead): Auswahl „Wowhead-Sprache“. Standard
+  „Spielsprache“ folgt dem Client, so heißen Dinge auf der Seite wie im Spiel. Wählbar sind auch Englisch, Deutsch,
+  Français, Español, Italiano, Português, Русский, 한국어 und 简体中文.
+- Adresse: `https://www.wowhead.com/classic/de/item=19019`, mit „Retail“ `https://www.wowhead.com/de/…`.
+  Clients ohne eigene Wowhead-Sprache (zhTW, Englisch) bekommen die englische Seite. Ein unbekannter Wert ebenfalls,
+  nie ein kaputter Pfad.
+- Alte Profile ohne die Einstellung verhalten sich wie „Spielsprache“: Beim Nutzer kommt also ab jetzt die deutsche
+  Seite.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+- Test: `tools/qol/test_wowhead.lua` (läuft in `tools/ci/check_all.sh tests`, 48 Prüfungen). Er schneidet den
+  Adressteil aus `QoL.lua` heraus. Geprüft werden:
+  - Spielsprache für jeden Client und gewählte Sprachen.
+  - Classic und Retail, alte Profile, ein unbekannter Wert.
+  - Jede Sprache der Auswahl ergibt ihren eigenen Pfad.
+  - Kopierfeld und Loot Guide nutzen dieselbe Adresse.
+- Im Spiel prüfen: Strg+Alt-Klick auf einen Gegenstandslink im Chat. Erwartung: Das Kopierfeld zeigt
+  `https://www.wowhead.com/classic/de/item=…`. Im Browser öffnet sich die deutsche Seite mit dem deutschen Namen.
+
+**Gegenprüfung von B6, B8 und B10 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit
+`7213a3d` und ließ alle Prüfungen laufen. Er fand keine Lua-Fehler und keine Probleme mit geheimen Werten oder Taint.
+Die Befunde und was daraus wurde (Korrekturen in `f90e7f1`):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | B6: „Satt“-Wartezeit zählte ab Beginn der Mahlzeit, nicht ab dem Essen (erst trinken, dann Buff-Essen: Signal zu früh) | mittel | behoben |
+| 2 | B6: Endete die Mahlzeit im Kampf, blieb ihr Zustand stehen (spätes Fehlsignal, oder die nächste Mahlzeit ohne Signal) | mittel | behoben |
+| 3 | B8: Das Wort von Quest Marks kam nach dem Messen dazu, wenn dessen Hook später lief | klein | behoben |
+| 4 | B8: Das Häkchen verfolgter Quests sitzt an der alten Titelbreite (plausibel, Retail-Code) | klein | behoben, im Spiel prüfen |
+| 5 | B8: Farbe fest verdrahtet statt „Quest XP color“ der EP-Leiste | klein | behoben |
+| 6 | B8: EP bei gesperrter EP-Gewinnung | klein | behoben |
+| 7 | B6: Beschriftung „Signal, wenn Ihr satt seid“ verwechselbar mit dem Buff „Satt“ und mit Anrede | klein | behoben: „Signal, wenn die Mahlzeit fertig ist“ |
+| 8 | B6: keine Ersatznamen ohne Zauber-API, Namen bei jeder Aura neu gelesen | klein | behoben |
+| 9 | B6: Makro mit Essen und Trinken bei voller Gesundheit gab ein Signal zu viel | klein | behoben (eine Sekunde Wartezeit) |
+| 10 | B8: Liest `GetQuestLogRewardXP(questID)` wirklich die genannte Quest? | klein | im Spiel prüfen (die EP-Leiste nutzt denselben Aufruf) |
 
 **Schon vorhanden:** Damage-Meter-Skin, Encounter Timeline, Fokus- und Boss-Frames, frei belegbare Datenleisten
 (`RegisterDataText`), Profile pro Charakter und Talentgruppe, Nameplate-Farbregeln, 67 Tags, Aurenfilter-Editor,

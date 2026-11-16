@@ -89,6 +89,7 @@ local M = E:NewModule("QoL", {
 		-- Wowhead
 		wowheadLinks = true,    -- Ctrl+Alt-click a chat link
 		wowheadSite = "classic",
+		wowheadLanguage = "auto", -- "auto" follows the game's language, else a Wowhead language path
 	},
 })
 
@@ -1166,6 +1167,28 @@ end
 -- The address opens in a copy box; nothing leaves the game by itself.
 ---------------------------------------------------------------------------
 local WOWHEAD_SITES = { classic = "https://www.wowhead.com/classic/", retail = "https://www.wowhead.com/" }
+-- Wowhead's own languages: a path after the site ("classic/de/item=..."),
+-- none for English. "auto" takes the game's language, so the page names
+-- things the way the game does; a language Wowhead has no page for
+-- (zhTW, and English) gets the English page.
+local WOWHEAD_LANGUAGES = { de = true, es = true, fr = true, it = true, pt = true, ru = true, ko = true, cn = true }
+local WOWHEAD_CLIENT = { deDE = "de", esES = "es", esMX = "es", frFR = "fr", itIT = "it", ptBR = "pt", ptPT = "pt",
+	ruRU = "ru", koKR = "ko", zhCN = "cn" }
+
+local function WowheadLanguage(choice)
+	if choice == nil or choice == "auto" then
+		local client = type(GetLocale) == "function" and GetLocale() or nil
+		choice = WOWHEAD_CLIENT[client]
+	end
+	return WOWHEAD_LANGUAGES[choice] and choice or nil
+end
+
+local function WowheadURL(kind, id)
+	local language = WowheadLanguage(M.db.wowheadLanguage)
+	return (WOWHEAD_SITES[M.db.wowheadSite] or WOWHEAD_SITES.classic) .. (language and (language .. "/") or "") .. kind .. "=" .. id
+end
+M.WowheadURL = WowheadURL -- tools/qol/test_wowhead.lua
+
 local LINK_KINDS = { item = "item", quest = "quest", spell = "spell", enchant = "spell", achievement = "achievement",
 	currency = "currency", npc = "npc", mount = "spell" }
 
@@ -1173,7 +1196,7 @@ local function ShowWowhead(kind, id, name)
 	kind = LINK_KINDS[kind]
 	id = tonumber(id)
 	if not kind or not id then return false end
-	local url = (WOWHEAD_SITES[M.db.wowheadSite] or WOWHEAD_SITES.classic) .. kind .. "=" .. id
+	local url = WowheadURL(kind, id)
 	E:ShowCopyBox("Wowhead", L["%s: press Ctrl+C, then paste it in your browser."]:format(name or (kind .. " " .. id)), url) -- no-L: "Wowhead" is a site name
 	return true
 end
@@ -1450,6 +1473,10 @@ M:AddOptions("Interface", {
 	{ type = "toggle", key = "wowheadLinks", disabled = HandledBy("wowhead"), label = "Ctrl+Alt-click a link", desc = "Ctrl+Alt-click an item, quest, spell or achievement link in chat for its Wowhead address in a copy box." },
 	{ type = "select", key = "wowheadSite", label = "Wowhead site", desc = "Which Wowhead the address points to. /eui wowhead (or a macro with it on a key) works on whatever the tooltip shows.",
 		values = { classic = "Classic", retail = "Retail" } },
+	{ type = "select", key = "wowheadLanguage", label = "Wowhead language", desc = "The language of the Wowhead page. Game language follows your game client, so the page names items, quests and creatures the way the game does.",
+		values = { auto = "Game language", en = "English", de = "Deutsch", fr = "Français", es = "Español", it = "Italiano",
+			pt = "Português", ru = "Русский", ko = "한국어", cn = "简体中文" }, -- each language in its own name
+		order = { "auto", "en", "de", "fr", "es", "it", "pt", "ru", "ko", "cn" } },
 	{ type = "header", label = "Screen" },
 	{ type = "toggle", key = "xpBarText", label = "XP bar text always visible", desc = "Shows the numbers on the experience bar without hovering (game setting; off puts your own value back)." },
 })
