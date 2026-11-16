@@ -2031,9 +2031,12 @@ end
 -- editing sets stays in Blizzard's equipment manager tab.
 -- "Equip after combat" (off by default; review verbesserungen.md, B12): a
 -- set clicked in combat is kept and goes on once combat ends (or, when you
--- are dead then, once you are alive again). Only the last click counts; a
--- second click on that set, or a click on the set you wear, takes it back.
--- Nothing is kept past a reload. Written from scratch; no addon code reused.
+-- are dead or feign death then, once you are alive and up again; a click
+-- while dead is kept the same way). Only the last click counts; a second
+-- click on that set, or a click on the set you wear, takes it back. A new
+-- fight before it could go on drops it, and so do the switch, the module
+-- going off and a reload. The chat line comes only when the game took the
+-- swap. Written from scratch; no addon code reused.
 ---------------------------------------------------------------------------
 local gear = { buttons = {} } -- pending: the set ID that goes on after combat
 local GEAR_OWNER = "Character:gearAfterCombat" -- its own event owner (the module's events stay as they are)
@@ -2073,8 +2076,21 @@ local function SetState(id)
 	return name, (not E:IsSecret(isEquipped) and isEquipped) and true or false
 end
 
-local TryPendingSet -- below: puts the kept set on
+local TryPendingSet, DropAtNewFight -- below: put the kept set on, or drop it
 
+-- Dead, a ghost or feigning death: gear can't change now. A failed or
+-- secret answer counts as "can" (the game refuses then; nothing breaks).
+local function CantChangeGear()
+	for _, check in ipairs({ UnitIsDeadOrGhost, rawget(_G, "UnitIsFeignDeath") }) do
+		if type(check) == "function" then
+			local ok, yes = pcall(check, "player")
+			if ok and not E:IsSecret(yes) and yes then return true end
+		end
+	end
+	return false
+end
+
+-- Listened to only while a set is kept, under their own owner.
 local function WatchPending(on)
 	for _, event in ipairs({ "PLAYER_REGEN_ENABLED", "PLAYER_ALIVE", "PLAYER_UNGHOST" }) do
 		if on then
@@ -2083,10 +2099,20 @@ local function WatchPending(on)
 			E:UnregisterEvent(event, GEAR_OWNER)
 		end
 	end
+	if on then
+		-- Feign Death ends without an event of its own: its aura goes.
+		E:RegisterUnitEvent("UNIT_AURA", "player", function() if gear.waited then TryPendingSet() end end, GEAR_OWNER)
+		E:RegisterEvent("PLAYER_REGEN_DISABLED", function() DropAtNewFight() end, GEAR_OWNER)
+	else
+		E:UnregisterUnitEvent("UNIT_AURA", "player", GEAR_OWNER)
+		E:UnregisterEvent("PLAYER_REGEN_DISABLED", GEAR_OWNER)
+	end
 end
 
-local function SetPending(id)
-	gear.pending = id
+-- waited: the set could not go on out of combat (dead, feigning) and
+-- waits; a new fight then drops it.
+local function SetPending(id, waited)
+	gear.pending, gear.waited = id, id ~= nil and waited or nil
 	WatchPending(id ~= nil)
 	if M.active then M:UpdateGear() end
 end
@@ -2100,16 +2126,20 @@ local function KeepSet(id)
 		SetPending(nil)
 		UIErrorsFrame:AddMessage(L["EldoUI: no set change after combat."], unpack(E.tokens.text.warn))
 	elseif not isEquipped then
-		SetPending(id)
-		UIErrorsFrame:AddMessage(L["EldoUI: %s goes on when combat ends. Click it again to keep your gear."]:format(name), unpack(E.tokens.text.good))
+		local fight = InCombatLockdown()
+		SetPending(id, not fight)
+		local text = fight and L["EldoUI: %s goes on when combat ends. Click it again to keep your gear."]
+			or L["EldoUI: %s goes on once you are alive again. Click it again to keep your gear."]
+		UIErrorsFrame:AddMessage(text:format(name), unpack(E.tokens.text.good))
 	end
 end
 
 -- Equip a set. `why` names the trigger for the chat line.
 local function EquipSet(id, why)
 	if not SetsAvailable() or not id then return false end
-	if InCombatLockdown() then
-		if M.db.gearAfterCombat then
+	local keep = M.active and M.db.gearAfterCombat
+	if InCombatLockdown() or (keep and CantChangeGear()) then
+		if keep then
 			KeepSet(id)
 		else
 			UIErrorsFrame:AddMessage(L["EldoUI: gear sets change only out of combat."], unpack(E.tokens.text.warn))
@@ -2120,14 +2150,17 @@ local function EquipSet(id, why)
 	if gear.pending then SetPending(nil) end
 	local name, isEquipped = SetState(id)
 	if not name or isEquipped then return false end
-	local ok = pcall(C_EquipmentSet.UseEquipmentSet, id)
-	if ok and why then M:Print(L["%s: equipped %s."]:format(why, name)) end
-	return ok
+	-- The game says whether it took the swap (false: refused); no answer
+	-- counts as taken, as before.
+	local ok, done = pcall(C_EquipmentSet.UseEquipmentSet, id)
+	local equipped = ok and not E:IsSecret(done) and done ~= false
+	if equipped and why then M:Print(L["%s: equipped %s."]:format(why, name)) end
+	return equipped
 end
 M.EquipSet = function(_, id) return EquipSet(id) end
 
--- After combat (or once you are alive again): the kept set goes on. The
--- switch turned off in the meantime drops it.
+-- After combat (or once you are alive and up again): the kept set goes
+-- on. The switch or the module turned off in the meantime drops it.
 TryPendingSet = function()
 	local id = gear.pending
 	if not id then
@@ -2135,16 +2168,25 @@ TryPendingSet = function()
 		return
 	end
 	if InCombatLockdown() then return end
-	if not M.db.gearAfterCombat then
+	if not (M.active and M.db.gearAfterCombat) then
 		SetPending(nil)
 		return
 	end
-	local ok, dead = pcall(UnitIsDeadOrGhost, "player")
-	if ok and not E:IsSecret(dead) and dead then return end
+	if CantChangeGear() then
+		gear.waited = true
+		return
+	end
 	SetPending(nil)
 	EquipSet(id, L["After combat"])
 end
 M.TryPendingSet = TryPendingSet
+
+-- A set still waiting when the next fight starts belonged to the last one.
+DropAtNewFight = function()
+	if not (gear.pending and gear.waited) then return end
+	SetPending(nil)
+	UIErrorsFrame:AddMessage(L["EldoUI: no set change after combat."], unpack(E.tokens.text.warn))
+end
 M.PendingSet = function() return gear.pending end -- tools/character/test_gear_after_combat.lua
 
 -- The menu of the info bar block: equip a set with a click. EldoUI never
@@ -2169,6 +2211,9 @@ end
 if E.RegisterDataText then
 	E:RegisterDataText("Gear", {
 		events = { "EQUIPMENT_SETS_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "EQUIPMENT_SWAP_FINISHED" },
+		-- Its menu is EldoUI's own; a pick in combat says no, or is kept
+		-- with "Equip after combat" (EquipSet).
+		combatClick = true,
 		text = function()
 			local r, g, b = unpack(E.media.accentColor)
 			local name = EquippedSetName()
@@ -2622,9 +2667,13 @@ function M:OnDisable()
 	-- Blizzard's own title, level line, item level and stat layout come
 	-- back; the skin itself after /reload.
 	self:Restore()
+	-- A set kept from the fight goes with the module.
+	if gear.pending then SetPending(nil) end
 end
 
 function M:OnProfileChanged()
+	-- The switch turned off (or a profile without it) drops a kept set.
+	if gear.pending and not self.db.gearAfterCombat then SetPending(nil) end
 	if self.active then self:Apply() end
 end
 

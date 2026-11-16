@@ -54,6 +54,7 @@ E:RegisterLocale("deDE", function() return {
 	["EldoUI Quest Item Bar"] = "EldoUI Questgegenstandsleiste",
 	["EldoUI timing"] = "EldoUI-Zeitmessung",
 	["EldoUI timing, %s measured (%s):"] = "EldoUI-Zeitmessung, %s gemessen (%s):",
+	["EldoUI: %s goes on once you are alive again. Click it again to keep your gear."] = "EldoUI: %s wird angelegt, sobald Ihr wieder lebt. Ein zweiter Klick darauf behält Eure Ausrüstung.",
 	["EldoUI: %s goes on when combat ends. Click it again to keep your gear."] = "EldoUI: %s wird angelegt, sobald der Kampf endet. Ein zweiter Klick darauf behält Eure Ausrüstung.",
 	["EldoUI: no set change after combat."] = "EldoUI: kein Setwechsel nach dem Kampf.",
 	["Empty for now: the next quest item you can use comes here."] = "Noch leer: Der nächste benutzbare Questgegenstand kommt hierher.",

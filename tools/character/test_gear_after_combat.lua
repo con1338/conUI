@@ -3,17 +3,22 @@
 -- Run from the repository root:
 --   lua5.1 tools/character/test_gear_after_combat.lua
 -- It cuts the gear set section out of EldoUI/Modules/Character.lua (from
--- "local gear" to the slot flyout) and runs it as it is, with stand-ins for
--- the helpers before it, the equipment set API, the combat lockdown, death,
--- events, the error frame, the info bar block, its menu and tooltips.
+-- "local gear" to the slot flyout) and the module's OnDisable and
+-- OnProfileChanged, and runs them as they are, with stand-ins for the
+-- helpers before them, the equipment set API, the combat lockdown, death
+-- and Feign Death, events, the error frame, the info bar block, its menu
+-- and tooltips.
 -- Checked: with the switch off a click in combat only says no; with it on
 -- the set is kept and goes on when combat ends, the last click counts, a
 -- second click or a click on the worn set takes it back, a click out of
--- combat wins; dead at the end of combat it waits until you are alive;
--- turned off, gone or already worn in the meantime nothing happens; a
--- failing or secret answer changes nothing; the events are only listened
--- to while a set is kept; the set button's border, the tooltips and the
--- hints; the default and the option.
+-- combat wins; dead or feigning at the end of combat it waits until you
+-- are alive and up, a click while dead is kept too, a new fight before it
+-- could go on drops it; the switch, the module or a profile turned off,
+-- the set gone or already worn: nothing; the game refusing (an error or
+-- false) gives no chat line; a secret answer changes nothing; the events
+-- are only listened to while a set is kept; the Gear block takes clicks in
+-- combat; the set button's border, the tooltips and the hints; the default
+-- and the option.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/character/") or "./"
 
 local function ReadFile(path)
@@ -36,6 +41,7 @@ local CHUNK = assert(loadstring(table.concat({
 	"local E, M, ours, Backdrop, Overlay, ImproveOn, Additions, PaperDollShown, Accent, Usable = ...",
 	"local L = E.L",
 	Between(character, "local gear = { buttons = {} }", "-- Slot flyout: hover a trinket", "Character.lua"),
+	Between(character, "function M:OnDisable()", "-- Options\n", "Character.lua"),
 	"return EquipSet, GearMenu, gear",
 }, "\n"), "=Character.lua gear sets"))
 
@@ -71,12 +77,15 @@ C_EquipmentSet = {
 	end,
 	UseEquipmentSet = function(id)
 		if world.useFails then error("can't equip now") end
+		if world.useRefused then return false end
 		table.insert(world.used, id)
 		for setID, set in pairs(world.sets) do set.equipped = setID == id end
+		return true
 	end,
 }
 function InCombatLockdown() return world.combat end
 function UnitIsDeadOrGhost(unit) assert(unit == "player") return world.dead end
+function UnitIsFeignDeath(unit) assert(unit == "player") return world.feign end
 UIErrorsFrame = { AddMessage = function(_, text, r, g, b) table.insert(world.errors, { text = text, color = { r, g, b } }) end }
 
 local Frame = {}
@@ -122,6 +131,8 @@ local function Setup()
 	function E.FrameCheck() return false end
 	function E:RegisterEvent(event, fn, owner) world.events[event .. "|" .. owner] = fn end
 	function E:UnregisterEvent(event, owner) world.events[event .. "|" .. owner] = nil end
+	function E:RegisterUnitEvent(event, unit, fn, owner) assert(unit == "player") world.events[event .. "|" .. owner] = fn end
+	function E:UnregisterUnitEvent(event, unit, owner) assert(unit == "player") world.events[event .. "|" .. owner] = nil end
 	function E:RegisterDataText(name, def) test.block = def test.blockName = name end
 	function E:TokenColor(kind, alpha)
 		if kind == "warn" then return 1, 0.8, 0, alpha end
@@ -143,6 +154,11 @@ local function Setup()
 	}
 	local M = { active = true, db = { gearAfterCombat = false, gearBar = true, gearBarSize = 20 } }
 	function M:Print(text) table.insert(world.printed, text) end
+	-- What OnDisable and OnProfileChanged call besides the gear sets.
+	function M:UnregisterEvent() end
+	function M:UnregisterUnitEvent() end
+	function M:Restore() end
+	function M:Apply() world.applied = (world.applied or 0) + 1 end
 	local function Backdrop()
 		local bd = {}
 		function bd:SetBackdropBorderColor(r, g, b) bd.border = { r, g, b } end
@@ -211,7 +227,7 @@ do
 	Check(M.PendingSet() == 2 and LastError() == "EldoUI: Damage goes on when combat ends. Click it again to keep your gear.",
 		"a click in combat keeps the set and says so")
 	Check(world.errors[1].color[2] == 0.9, "in the good color")
-	Check(Listening() == 3, "while a set is kept: the end of combat and coming back to life are listened to")
+	Check(Listening() == 5, "while a set is kept: the end and start of combat, coming back to life and the player's auras are listened to")
 	Check(#world.used == 0, "nothing is equipped in combat")
 	local r, g = unpack(Border(M, 2))
 	Check(r == 1 and g == 0.8, "the kept set's button has the warning border")
@@ -294,6 +310,12 @@ do
 	world.useFails = false
 	world.combat = true
 	test.EquipSet(1)
+	world.useRefused = true
+	EndCombat()
+	Check(#world.used == 0 and #world.printed == 0, "the game says no (false): no chat line")
+	world.useRefused = false
+	world.combat = true
+	test.EquipSet(1)
 	world.combat = false
 	test.EquipSet(3)
 	Check(M.PendingSet() == nil and Listening() == 0, "a click out of combat wins over the kept set")
@@ -301,6 +323,89 @@ do
 	world.combat = true
 	test.EquipSet(2)
 	Check(M.PendingSet() == nil, "a secret set name: nothing kept")
+end
+
+-- The module off, the switch off, a new profile.
+do
+	local M = Setup()
+	M.db.gearAfterCombat = true
+	world.combat = true
+	M.active = false
+	test.EquipSet(2)
+	Check(M.PendingSet() == nil and LastError() == "EldoUI: gear sets change only out of combat.", "module off: nothing is kept")
+end
+do
+	local M = Setup()
+	M.db.gearAfterCombat = true
+	world.combat = true
+	test.EquipSet(2)
+	Check(M.PendingSet() == 2, "kept while the module is on")
+	M.active = false
+	EndCombat()
+	Check(#world.used == 0 and M.PendingSet() == nil and Listening() == 0, "module turned off before combat ended: nothing goes on")
+	M.active = true
+	world.combat = true
+	test.EquipSet(2)
+	M.active = false
+	M:OnDisable()
+	Check(M.PendingSet() == nil and Listening() == 0, "turning the module off drops the kept set")
+	M.active = true
+	test.EquipSet(2)
+	M.db.gearAfterCombat = false
+	M:OnProfileChanged()
+	Check(M.PendingSet() == nil and Listening() == 0 and world.applied == 1, "the switch turned off drops it at once")
+	M.db.gearAfterCombat = true
+	test.EquipSet(2)
+	M:OnProfileChanged()
+	Check(M.PendingSet() == 2, "another setting changed: it stays")
+	EndCombat()
+	Check(world.used[1] == 2, "and goes on")
+end
+
+-- Dead out of combat, feigning death, a new fight.
+do
+	local M = Setup()
+	M.db.gearAfterCombat = true
+	world.dead = true
+	test.EquipSet(2)
+	Check(M.PendingSet() == 2 and LastError() == "EldoUI: Damage goes on once you are alive again. Click it again to keep your gear.",
+		"a click while dead out of combat is kept")
+	Check(#world.used == 0, "and nothing is tried while dead")
+	test.EquipSet(2)
+	Check(M.PendingSet() == nil, "a second click takes it back")
+	test.EquipSet(3)
+	world.dead = false
+	Fire("PLAYER_UNGHOST")
+	Check(world.used[1] == 3, "alive again: it goes on")
+	world.combat = true
+	test.EquipSet(2)
+	world.feign = true
+	EndCombat()
+	Check(#world.used == 1 and M.PendingSet() == 2, "feigning death when combat ends: it waits")
+	Fire("UNIT_AURA")
+	Check(#world.used == 1, "still feigning: still waiting")
+	world.feign = false
+	Fire("UNIT_AURA")
+	Check(world.used[2] == 2, "up again: it goes on")
+	world.combat = true
+	test.EquipSet(1)
+	world.dead = true
+	EndCombat()
+	world.dead = false
+	world.combat = true
+	Fire("PLAYER_REGEN_DISABLED")
+	Check(M.PendingSet() == nil and LastError() == "EldoUI: no set change after combat." and Listening() == 0,
+		"a new fight before it could go on drops it")
+	EndCombat()
+	Check(#world.used == 2, "and nothing goes on after that fight")
+	world.combat = true
+	test.EquipSet(3)
+	Fire("UNIT_AURA")
+	Fire("PLAYER_REGEN_DISABLED")
+	Check(M.PendingSet() == 3, "in the same fight auras and the combat start change nothing")
+	world.feign = SECRET
+	EndCombat()
+	Check(world.used[3] == 3, "a secret answer about feigning does not hold it back")
 end
 
 -- Tooltips and hints.
@@ -327,6 +432,12 @@ do
 	Check(M.PendingSet() == nil, "a click on its button takes it back")
 	test.GearMenu(CharacterFrame)
 	Check(test.menu ~= nil, "the block's menu opens")
+end
+
+-- The Gear block can be clicked in combat (its menu is EldoUI's own).
+do
+	Setup()
+	Check(test.block.combatClick == true, "the Gear block takes clicks in combat")
 end
 
 -- The default and the option.
