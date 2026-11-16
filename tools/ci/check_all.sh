@@ -111,6 +111,8 @@ check_tests() {
 	[ "${PIPESTATUS[0]}" -eq 0 ] || return 1
 	step "Loot Sim: Judgement rolls as a ranged attack"
 	lua5.1 tools/lootsim/test_judgement.lua || return 1
+	step "Auction House: Blizzard's screens come back under EldoUI's pages (F22)"
+	lua5.1 tools/auction/test_native_screens.lua || return 1
 	step "German pack: Fork.lua rules"
 	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"

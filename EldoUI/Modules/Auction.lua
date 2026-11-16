@@ -1377,23 +1377,35 @@ end
 -- one (never their children, never the whole window), and each is noted.
 -- Going back to a Blizzard tab, closing the window or turning Improve off
 -- shows exactly the noted ones again. When Blizzard itself picks a screen
--- (its own tab or the buy screen), it has just set every screen, so only
--- the title and close button come back.
+-- (its own tab or the buy screen) and that changes its display mode, it
+-- has just set every screen, so only the title and close button come back.
+-- Asked for the mode it already shows, Blizzard sets no screen at all
+-- (SetDisplayMode returns at once, Blizzard_AuctionHouseFrame.lua): its Sell
+-- tab while an item still sits in its sell slot, or a bag item clicked on
+-- Quick Sell. Then the noted screens come back too (F22: the Sell tab came
+-- back empty, seen in the game on 16.11.2026).
 ---------------------------------------------------------------------------
 local NATIVE_SCREENS = { "SearchBar", "CategoriesList", "BrowseResultsFrame", "ItemBuyFrame", "CommoditiesBuyFrame",
 	"ItemSellFrame", "ItemSellList", "CommoditiesSellFrame", "CommoditiesSellList", "AuctionsFrame",
 	"WoWTokenResults", "WoWTokenSellFrame" }
 local NATIVE_CHROME = { "TitleContainer", "TitleText", "CloseButton" }
 local putAway = {} -- frame -> "screen" or "chrome"
+local modeAway     -- Blizzard's display mode when the first of them was put away
 
 local function Protected(frame)
 	return InCombatLockdown() and E.FrameCheck(frame, "IsProtected") and true or false
+end
+
+local function DisplayMode()
+	local ahf = AuctionHouseFrame
+	return ahf and ahf.GetDisplayMode and ahf:GetDisplayMode() or nil
 end
 
 local function PutAway(frame, kind)
 	if type(frame) ~= "table" or putAway[frame] or not frame.IsShown or not frame:IsShown() then return end
 	-- A protected frame can't change in combat: it stays as it is.
 	if Protected(frame) then return end
+	if next(putAway) == nil then modeAway = DisplayMode() end
 	putAway[frame] = kind
 	frame:Hide()
 end
@@ -1417,6 +1429,15 @@ function M:RestoreNative(blizzardShown)
 			end
 		end
 	end
+	modeAway = nil
+end
+
+-- After Blizzard's SetDisplayMode (hooked in SetupAuctionHouse): its
+-- screens are its own again. Only a new display mode means Blizzard has
+-- shown them itself.
+function M:OnBlizzardDisplayMode()
+	local same = next(putAway) ~= nil and DisplayMode() == modeAway
+	self:HidePanel(not same)
 end
 
 -- The Blizzard frames put away right now (a copy).
@@ -1713,7 +1734,7 @@ function M:SetupAuctionHouse()
 	-- Blizzard showing one of its own screens (its tabs, or the buy screen
 	-- opened from a result) hides EldoUI's panel.
 	if AuctionHouseFrame.SetDisplayMode then
-		hooksecurefunc(AuctionHouseFrame, "SetDisplayMode", function() M:HidePanel(true) end)
+		hooksecurefunc(AuctionHouseFrame, "SetDisplayMode", function() M:OnBlizzardDisplayMode() end)
 	end
 	for _, tab in ipairs(BlizzardTabs()) do
 		tab:HookScript("OnClick", function() M:HidePanel(); M.lastPage = nil end)

@@ -29,7 +29,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F19 | Ausgeblendete Blizzard-Aktionsleisten: Platzwechsel im Kampf → ADDON_ACTION_BLOCKED (im Spiel gefunden) | mittel | behoben | `512df80` |
 | F20 | Angeln: Die Angeltaste erreicht den Schwimmer nicht, „Ihr müsst Euch näher an Eurem Ziel befinden …“ (im Spiel gefunden) | mittel | behoben | `cfebaee` |
 | F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
-| F22 | Taschen: `UseContainerItem` beim Klick auf einen Gegenstand verboten (im Fehlerlog gefunden) | mittel (plausibel) | offen | |
+| F22 | Auktionshaus: Verkaufen-Seite bleibt nach „Schnellverkauf“ leer; Rechtsklick in die Taschen verboten (im Spiel gefunden) | mittel | teilweise | `391f0b7` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -452,17 +452,48 @@ neuer Fehler.
   - Andere Beute zählt nie.
   - Fehlt `LOOT_CLOSED`, zählt nach dem nächsten Auswurf wieder ein Fang.
   - Außerhalb des Angelmodus zählt nichts.
-- **Nicht geprüft:** ob die Skill-ups im Protokoll ankommen (`GetProfessions` auf diesem Client).
+- **Nicht geprüft:** ob die Skill-ups im Protokoll ankommen (`GetProf### F22 – Auktionshaus: leere Verkaufen-Seite, Rechtsklick in die Taschen verboten (mittel, teilweise)
+- **Gefunden:** 16.11.2026. Im Fehlerlog stand aus Sitzung 59 (15.11. 23:32 bis 16.11. 00:18, Orgrimmar, außerhalb des
+  Kampfes, 51-mal) „Forbidden: EldoUI tried to call the protected function UNKNOWN() at
+  Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua:1611“: `UseContainerItem` aus `ContainerFrameItemButton_OnClick`, also
+  ein Rechtsklick auf einen Gegenstand in EldoUIs Taschenfenster. Der Spieler war an Bank, Auktionshaus und Berufslehrern.
+- **Vorgehen:** Blizzards Code aus der öffentlichen Kopie Gethe/wow-ui-source, Zweig `ptr` (12.1.7, Build 70892; der
+  Forever-Client ist 70888, die Zeilen des Stapels passen). EldoUIs Taschenknöpfe sind sauber: Sie nutzen
+  `ContainerFrameItemButtonTemplate`, die Taschennummer geht über Blizzards Attribut `bagid`. Vor `UseContainerItem` liest
+  Blizzard nur den Händler-Tab, den Modus des Auktionshauses (`IsListingAuctions`) und den Bank-Typ. `/console taintLog 1`
+  schreibt auf Forever kein `Logs/taint.log`, deshalb Nachstellen im Spiel.
+- **Im Spiel nachgestellt (16.11.2026):** Gegenstand per Rechtsklick in Blizzards Verkaufen-Seite, dann EldoUIs Tab
+  „Schnellverkauf“, dann zurück auf Blizzards „Verkaufen“: Das Fenster blieb leer (nur der Titel „Auktionen einstellen“),
+  der Gegenstand blieb im Verkaufsplatz gesperrt (ausgegraut) und ließ sich nicht verkaufen. Ein neuer Eintrag im
+  Fehlerlog entstand dabei nicht.
+- **Ursache 1, behoben:** `Modules/Auction.lua`. EldoUIs Haken an Blizzards `SetDisplayMode` nahm an, Blizzard habe danach
+  seine Seiten selbst gezeigt, und holte die von EldoUI weggelegten nicht zurück. Blizzards `SetDisplayMode` kehrt aber
+  sofort zurück, wenn der Modus schon gilt (`Blizzard_AuctionHouseFrame.lua`). Das passiert beim Verkaufen-Tab, solange
+  ein Gegenstand im Verkaufsplatz liegt, und bei einem Rechtsklick auf Schnellverkauf. Jetzt merkt sich EldoUI Blizzards
+  Modus beim Weglegen (`modeAway`). Bleibt er gleich, kommen die Seiten zurück (`M:OnBlizzardDisplayMode`).
+- **Ursache 2, vermutet (Code gelesen), noch offen:** Ein Klick auf ein Ergebnis der Einkaufsliste öffnet Blizzards
+  Kaufbildschirm aus EldoUIs Code (`OpenBuy` → `AuctionHouseFrame:SelectBrowseResult` → `SetDisplayMode`). Der Modus gilt
+  danach als von EldoUI verunreinigt. Jeder Rechtsklick in die Taschen am Auktionshaus liest ihn (`IsListingAuctions`) und
+  läuft dann verunreinigt: Bei einem Gegenstand, der nicht einstellbar ist, endet er in `UseContainerItem`, und das Spiel
+  sperrt ihn. Das bleibt so, bis Blizzard selbst in einen anderen Modus wechselt (ein Tab mit anderem Modus). Das würde den
+  Eintrag aus Sitzung 59 erklären; ob die Einkaufsliste damals benutzt wurde, ist nicht bekannt.
+  - Prüfung im Spiel: Einkaufsliste, suchen, auf ein Ergebnis klicken (Blizzards Kaufbildschirm öffnet sich), dann
+    `/run print(issecurevariable(AuctionHouseFrame,"displayMode"))`. Erwartung, falls die Vermutung stimmt: `false EldoUI`.
+  - Abhilfe: Blizzards Kaufbildschirm nicht mehr aus EldoUI öffnen. Zum Beispiel setzt EldoUI nur den Namen in Blizzards
+    Suchfeld (der Text eines Eingabefelds verunreinigt nichts), und Suche und Ergebnis klickt der Spieler bei Blizzard selbst.
+    Das ist ein Klick mehr; die Entscheidung liegt beim Nutzer.
+- **Test:** `tools/auction/test_native_screens.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die echte
+  Seiten-Buchhaltung und `ShowPage`/`HidePanel` aus `Auction.lua` und lässt sie gegen ein Modell von Blizzards Fenster laufen
+  (nach `SetDisplayMode`, `SetPostItem` und den Tabs von 12.1.7, mit der Rückkehr bei gleichem Modus). Geprüft: der Fall aus
+  dem Spiel; Kaufen-Tab nach der Einkaufsliste; ein Tab mit neuem Modus überlässt Blizzard die Seiten; Rechtsklick auf
+  Schnellverkauf (von Verkaufen und von Kaufen aus); Schließen; eine geschützte Seite wartet bis nach dem Kampf.
+- **Im Spiel prüfen:** wie oben nachgestellt (Verkaufen, Gegenstand, Schnellverkauf, Verkaufen). Erwartung: Blizzards
+  Verkaufen-Seite mit dem Gegenstand ist wieder da, er lässt sich einstellen.
+- **Nebenbei im Fehlerlog gesehen:** „Blocked: … at EldoUI/Modules/InfoBar.lua:800“ (`GuildTooltip`, im Kampf, Eschental,
+  3-mal, zuletzt 16.11. 11:11 in Sitzung 65): Der Gilden-Tooltip der Infoleiste fragt im Kampf `C_GuildInfo.GetMOTD` ab.
+  Nicht untersucht.
 
-### F22 – Klick in die Taschen: `UseContainerItem` verboten (mittel, plausibel, offen)
-- **Gefunden:** 16.11.2026 beim Lesen des Fehlerlogs für C6 (`review/verbesserungen.md`). Der Eintrag stammt aus
-  Sitzung 59 (15.11. 23:32 bis 16.11. 00:18, Orgrimmar, außerhalb des Kampfes, 51-mal), also aus der Zeit vor C6.
-- **Meldung:** „Forbidden: EldoUI tried to call the protected function UNKNOWN() at
-  Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua:1611“. Stapel: `UseContainerItem` aus
-  `ContainerFrameItemButton_OnClick` (`ContainerFrame.lua:1611`, aufgerufen aus Zeile 1696). Das Spiel schreibt die
-  Sperre EldoUI zu: Der Klickweg der Taschenknöpfe lief verunreinigt (Taint), und der Gegenstand wurde nicht benutzt.
-- **Offen:** welches Modul den Klickweg verunreinigt, was der Spieler dabei getan hat (z. B. beim Händler per
-  Rechtsklick verkauft oder etwas angelegt) und ob es sich nachstellen lässt.
+b es sich nachstellen lässt.
 
 ## Sonstiges
 
