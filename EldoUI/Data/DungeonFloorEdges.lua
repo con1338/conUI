@@ -3,7 +3,7 @@
 -- client ships (false: the one-floor form). Only floors whose art
 -- WoW: Forever has and whose creatures stand on them are listed.
 -- Client tables: floors from Classic 5.5.4.70631, art checked against
--- WoW: Forever 1.60.1.70862.
+-- WoW: Forever 1.60.1.70938.
 local _, E = ...
 
 E.DungeonFloorEdges = {

@@ -1,7 +1,7 @@
 -- EldoUI Camp Helper: game facts for WoW: Forever camping (client 1.60.1).
 -- Spell, aura and object ids are game data (Wowhead Forever and the client's
 -- DB2 tables), not anyone's code; the cooldowns were checked against the
--- client tables of build 1.60.1.70862. Effects are level 60 base values; the aura
+-- client tables of build 1.60.1.70938. Effects are level 60 base values; the aura
 -- itself is the truth when it can be read.
 local _, E = ...
 
@@ -36,7 +36,7 @@ end
 -- tier, `entry` (its game object entry) once it is known. `spells`
 -- are the placing spells; `spellTiers` gives each spell's tier when it is
 -- not the spell's place in the list. Each entry is the object the placing
--- spell summons in the client's spell effect data (build 1.60.1.70862, the
+-- spell summons in the client's spell effect data (build 1.60.1.70938, the
 -- spell's first summon-object effect), the same way the three fires above
 -- match the game.
 D.FEATURES = {
@@ -210,6 +210,8 @@ end
 
 -- Cooldowns in the client data: every feature spell is in the "Camping
 -- Feature" category and shares one hour; the fire kits share five minutes.
+-- Placing a feature is a 10 second cast (the Hearthstone's cast time), and
+-- the rest features reach the players around them (an area effect).
 D.FEATURE_CATEGORY = 97
 D.FEATURE_COOLDOWN = 3600
 D.FIRE_CATEGORY = 2511

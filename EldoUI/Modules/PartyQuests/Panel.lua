@@ -412,12 +412,12 @@ end
 
 function PQ:TogglePanel()
 	self.db.panel = not self.db.panel
-	self:UpdatePanel()
+	self:Refresh()
 	if E.RefreshConfig then E:RefreshConfig() end
 	return self.db.panel
 end
 
-E:AddCommand("party", "  show or hide the Party Quests panel", function()
+E:AddCommand("party", "show or hide the Party Quests panel", function()
 	if not PQ.active then
 		E:Print(E:ModuleOffHint("PartyQuests"))
 		return

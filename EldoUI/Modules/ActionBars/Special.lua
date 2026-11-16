@@ -112,17 +112,6 @@ local function TakeButton(button, holder, command)
 	if command then E:RegisterKeybindButton(button, command) end
 end
 
-local function ReturnButton(button)
-	if not button or not taken[button] then return end
-	taken[button] = nil
-	local container = button.container
-	button:SetParent(container or UIParent)
-	button:ClearAllPoints()
-	button:SetPoint("CENTER", container or UIParent, "CENTER")
-	button:SetAttribute("statehidden", nil)
-	if container then button:SetSize(container:GetSize()) end
-end
-
 -- Blizzard's bar keeps running (its updates drive the buttons) but shows
 -- nothing and takes no clicks while EldoUI holds its buttons.
 local quieted = {}
@@ -169,12 +158,28 @@ end
 local function SetOwnMouse(frame, enabled)
 	if not frame then return end
 	if enabled ~= nil then
-		if ownMouse[frame] == nil then ownMouse[frame] = frame:IsMouseEnabled() end
+		if ownMouse[frame] == nil then
+			local mouse = E.FrameMouse(frame, "IsMouseEnabled")
+			if mouse == nil then return end -- a secret answer: leave the game's frame alone
+			ownMouse[frame] = mouse
+		end
 		frame:EnableMouse(enabled)
 	elseif ownMouse[frame] ~= nil then
 		frame:EnableMouse(ownMouse[frame])
 		ownMouse[frame] = nil
 	end
+end
+
+local function ReturnButton(button)
+	if not button or not taken[button] then return end
+	taken[button] = nil
+	SetOwnMouse(button, nil)
+	local container = button.container
+	button:SetParent(container or UIParent)
+	button:ClearAllPoints()
+	button:SetPoint("CENTER", container or UIParent, "CENTER")
+	button:SetAttribute("statehidden", nil)
+	if container then button:SetSize(container:GetSize()) end
 end
 
 -- Hidden Blizzard frames stay hidden when Blizzard re-parents them (core
@@ -206,8 +211,15 @@ local function LayoutHolder(holder, buttons, count, db)
 		db.fillOrder == "columns")
 	M:SizeFrame(holder, width, height, Clamp(db.scale, 50, 200, 100) / 100)
 	M:UpdateBackdrop(holder, db)
+	-- At 0 % opacity the bar counts as hidden: no clicks, no tooltips.
+	local invisible = (tonumber(db.alpha) or 100) <= 0
 	for slot, button in ipairs(buttons) do
 		if slot > count then button:SetAttribute("statehidden", true) else button:SetAttribute("statehidden", nil) end
+		if invisible then
+			SetOwnMouse(button, false)
+		else
+			SetOwnMouse(button, nil)
+		end
 	end
 	return size
 end
@@ -417,13 +429,41 @@ local function SkinOverrideBar(skin)
 end
 
 local seatHolder
+local seatHooked = setmetatable({}, { __mode = "k" })
+
+local function SeatHidden()
+	return M.active and M.db.vehicle.seat == "hide" and E:BlizzardHidden(VEHICLE)
+end
+
+local function SetSeatMouse(frame, hide)
+	for _, button in ipairs(frame.buttons or {}) do
+		if hide then
+			SetOwnMouse(button, false)
+		else
+			SetOwnMouse(button, nil)
+		end
+	end
+end
+
+local function HookSeatSetup(frame)
+	if seatHooked[frame] or type(frame.SetupVehicle) ~= "function" then return end
+	seatHooked[frame] = true
+	-- The game can create seat buttons the first time it sets up a vehicle.
+	hooksecurefunc(frame, "SetupVehicle", function()
+		if not SeatHidden() then return end
+		E:RunOutOfCombat(function()
+			if frame == VehicleSeatIndicator and SeatHidden() then SetSeatMouse(frame, true) end
+		end, "actionBars:seatMouse")
+	end)
+end
+
 local function ApplySeat()
 	local frame = VehicleSeatIndicator
 	local db = M.db.vehicle
 	seatHolder = Holder("EldoUI_VehicleSeat", L["Vehicle Seats"], 128, 128)
 	local on = M.active and E:BlizzardAllowed(VEHICLE)
 	local move = on and db.seat == "move" and E:BlizzardAllowed(VEHICLE, "move")
-	local hide = on and db.seat == "hide" and E:BlizzardHidden(VEHICLE)
+	local hide = SeatHidden()
 	M:SetMoverActive("EldoUI_VehicleSeat", move)
 	seatHolder:SetShown(move)
 	if not frame then return end
@@ -436,7 +476,8 @@ local function ApplySeat()
 	end
 	-- Not protected; hidden by alpha so its frame manager keeps working.
 	SetOwnAlpha(frame, hide and 0 or nil)
-	for _, button in ipairs(frame.buttons or {}) do SetOwnMouse(button, hide and false or nil) end
+	SetSeatMouse(frame, hide)
+	if hide then HookSeatSetup(frame) end
 end
 
 -- EldoUI's own vehicle exit button. A secure button with Blizzard's
@@ -497,7 +538,7 @@ local function CreateExit()
 	end)
 	exitButton:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText(UnitOnTaxi("player") and (_G.TAXI_CANCEL or L["Land"]) or (_G.LEAVE_VEHICLE or L["Leave vehicle"]))
+		GameTooltip:SetText(UnitOnTaxi("player") and (E:GameText(_G.TAXI_CANCEL, L["Land"])) or (E:GameText(_G.LEAVE_VEHICLE, L["Leave vehicle"])))
 		GameTooltip:Show()
 	end)
 	exitButton:SetScript("OnLeave", function() GameTooltip:Hide() end)

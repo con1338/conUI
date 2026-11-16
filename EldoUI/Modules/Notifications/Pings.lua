@@ -116,7 +116,7 @@ local function CreateFeed()
 	feed.entries = {}   -- { at, time, sender (may be secret), text (may be secret), r, g, b }
 	local previous = E.currentModule
 	E.currentModule = M
-	E:CreateMover(feed, "EldoUI_PingFeed", "Ping Feed", { "TOPLEFT", "UIParent", "TOPLEFT", 330, -200 })
+	E:CreateMover(feed, "EldoUI_PingFeed", L["Ping Feed"], { "TOPLEFT", "UIParent", "TOPLEFT", 330, -200 })
 	E.currentModule = previous
 	M:LayoutPingFeed()
 	return feed

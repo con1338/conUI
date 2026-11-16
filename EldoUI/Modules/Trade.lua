@@ -50,6 +50,10 @@ local M = E:NewModule("Trade", {
 	},
 })
 
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "tradeLogPoint" }
+
 local floor = math.floor
 local PARTNER = "NPC"           -- the game's unit token for your trade partner
 local SLOTS = 6                 -- slot 7 is "will not be traded"
@@ -635,7 +639,7 @@ end
 -- Asks first: the log can't be brought back.
 function M:ConfirmClearTradeLog()
 	E:ShowConfirm({ key = "ELDOUI_TRADE_LOG_CLEAR", title = L["Trade log"], text = L["Clear the whole trade log? This can't be undone."],
-		accept = YES or L["Yes"], cancel = NO or L["No"], danger = true, onAccept = function() M:ClearTradeLog() end })
+		accept = E:GameText(YES, L["Yes"]), cancel = E:GameText(NO, L["No"]), danger = true, onAccept = function() M:ClearTradeLog() end })
 end
 
 function M:ClearTradeLog()
@@ -643,7 +647,7 @@ function M:ClearTradeLog()
 	self:UpdateTradeLog()
 end
 
-E:AddCommand("trades", "  open the gold trade log", function() M:ShowTradeLog() end, "Tools")
+E:AddCommand("trades", "open the gold trade log", function() M:ShowTradeLog() end, "Tools")
 
 -- The "trade log" link in the chat line. A hook can't be taken off again,
 -- so it is added once, the first time the module turns on, and the log
@@ -713,7 +717,7 @@ M.options = {
 		values = function() return E:MoneyStyleValues(true) end },
 	{ type = "select", key = "position", label = "Strip position", desc = "Where the info strip sits.", values = { below = "Below the window", above = "Above the window" } },
 	{ type = "range", key = "fontSize", label = "Text size", min = 9, max = 18, step = 1, desc = "Text size in the info strip." },
-	{ type = "range", key = "infoHeight", label = "Minimum strip height", min = 20, max = 80, step = 1, desc = "The strip grows with the font size; this is its smallest height." },
+	{ type = "range", unit = "px", key = "infoHeight", label = "Minimum strip height", min = 20, max = 80, step = 1, desc = "The strip grows with the font size; this is its smallest height." },
 	{ less = true, type = "toggle", key = "accentBorder", label = "Accent border", desc = "Draws the strip's border in the accent color instead of the normal panel border." },
 	{ type = "header", label = "Gold trade log" },
 	{ type = "toggle", key = "tradeLog", label = "Keep a trade log", desc = "Saves every finished trade that moved gold: who, where, and how much each way. Shared by all your characters." },

@@ -235,6 +235,6 @@ local rows = {
 	{ type = "toggle", key = "services.auction", label = L["Auction house"], desc = L["Auctioneers."] },
 	{ type = "toggle", key = "services.flight", label = L["Flight masters"], desc = L["Flight masters. While Transport Maps shows flight masters, they come from there instead, so each shows once."] },
 	{ type = "toggle", key = "services.inn", label = L["Innkeepers"], desc = L["Where you can set your hearthstone."] },
-	{ type = "toggle", key = "services.myFaction", label = L["Only my faction"], desc = L["Hide the other faction's services. Neutral towns, and NPCs whose side the data can't tell, always show."] },
+	{ type = "toggle", key = "services.myFaction", label = L["Only your faction"], desc = L["Hide the other faction's services. Neutral towns, and NPCs whose side the data can't tell, always show."] },
 }
 for _, row in ipairs(rows) do table.insert(M.options, row) end

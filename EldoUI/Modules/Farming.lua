@@ -297,6 +297,7 @@ function M:ParseLoot(text)
 	for _, pattern in ipairs(LootPatterns()) do
 		local link, count = text:match(pattern[1])
 		if link then
+			link = E.ChatParse and E.ChatParse:ItemLink(link) or link
 			local itemID = tonumber(link:match("item:(%d+)"))
 			if itemID then return itemID, pattern[2] and tonumber(count) or 1 end
 		end
@@ -457,7 +458,7 @@ function M:BuildBar()
 	bar:SetScript("OnHide", function() E.Ticker:Unsubscribe(BAR_TICK) end)
 	bar:Hide()
 	self.bar = bar
-	E:CreateMover(bar, "EldoUI_FarmBar", "Farming Bar", { "TOP", "UIParent", "TOP", 300, -8 }, { sample = { kind = "icons" } })
+	E:CreateMover(bar, "EldoUI_FarmBar", L["Farming Bar"], { "TOP", "UIParent", "TOP", 300, -8 }, { sample = { kind = "icons" } })
 end
 
 -- The session's tooltip rows: { label, value, kind } (kind "item" for the
@@ -973,7 +974,8 @@ M.options = {
 	{ type = "select", key = "valueSource", label = "Item value", values = { vendor = "Vendor price", auction = "Auction price", max = "The higher of both" }, desc = "How looted items are valued. Auction prices are the ones EldoUI saved when you searched the auction house." },
 	{ type = "range", key = "goal", label = "Gold goal", unit = "g", zeroText = "No goal", min = 0, max = 1000, step = 5,
 		desc = "A note when the session's gold plus item value reaches this much." },
-	{ type = "media", key = "goalSound", label = "Goal sound", mediaKind = "sound", none = true, desc = "A sound with the goal note. None for silence." },
+	{ type = "media", key = "goalSound", label = "Goal sound", mediaKind = "sound", none = true, desc = "A sound with the goal note. None for silence.",
+		disabled = function() return (M.db.goal or 0) == 0 and L["Set a gold goal first."] end },
 	{ type = "range", key = "keepSessions", label = "Sessions kept per zone", min = 1, max = 50, step = 1, desc = "How many saved sessions each zone keeps." },
 	{ type = "execute", label = "Session history", testSafe = true,
 		desc = "Your saved sessions per zone with gold, item value, XP, items and corpses looted per hour, and the totals. Also from the bar's right-click menu and the Farming info bar text.",
@@ -983,7 +985,7 @@ M.options = {
 	{ type = "toggle", key = "showGold", label = "Looted gold", desc = "Show the gold you looted and gold per hour." },
 	{ type = "toggle", key = "showItems", label = "Items and their value", desc = "Show the items you looted, their value and value per hour." },
 	{ type = "toggle", key = "showXP", label = "XP", desc = "Show the XP you gained and XP per hour." },
-	{ type = "range", key = "barWidth", label = "Width", min = 200, max = 600, step = 10, desc = "Width of the bar." },
+	{ type = "range", unit = "px", key = "barWidth", label = "Width", min = 200, max = 600, step = 10, desc = "Width of the panel with your gold, items and XP." },
 }
 
 E:RegisterStyles("Farming", {

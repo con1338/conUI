@@ -54,12 +54,19 @@ local function Filtered()
 	return list
 end
 
--- One entry as the text in the copy box: when, how often, where, then the
--- message and the stack.
+-- The day (with its year, the text may be kept) and the time to the second,
+-- in EldoUI's date format.
+local function Moment(stamp)
+	stamp = stamp or 0
+	return ("%s, %s"):format(E:ShortDay(stamp, true), E:FormatTime(stamp, true))
+end
+
+-- One entry in the selectable detail pane: when, how often, where,
+-- then the message, stack, and any saved local variables.
 local function DetailText(entry)
 	local lines = {
-		E:Plural(entry.count or 1, "First %s, last %s, %d time", "First %s, last %s, %d times"):format(date("%Y-%m-%d %H:%M:%S", entry.first or 0),
-			date("%Y-%m-%d %H:%M:%S", entry.last or 0), entry.count or 1),
+		E:Plural(entry.count or 1, "First %s, last %s, %d time", "First %s, last %s, %d times"):format(Moment(entry.first),
+			Moment(entry.last), entry.count or 1),
 		L["Addon: %s"]:format(entry.addon or L["Unknown addon"]),
 	}
 	if entry.zone then lines[#lines + 1] = L["Zone: %s"]:format(entry.zone) end
@@ -69,6 +76,12 @@ local function DetailText(entry)
 	if entry.stack and entry.stack ~= "" then
 		lines[#lines + 1] = ""
 		lines[#lines + 1] = entry.stack
+	end
+	local locals = E.Plain(entry.locals)
+	if type(locals) == "string" and locals:find("%S") then
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = L["Local variables"]
+		lines[#lines + 1] = Errors.ScrubLocals(locals)
 	end
 	return table.concat(lines, "\n")
 end
@@ -105,10 +118,8 @@ local function CreateRow(row)
 	row.hover:Hide()
 	row.time = Kit.Text(row, E.tokens.size.small, "LEFT", "secondary")
 	row.time:SetPoint("LEFT", 6, 0)
-	-- Wide enough for the longest clock text at the current text size.
-	row.time:SetText(E:FormatClock(12, 58))
-	row.time:SetWidth(math.max(54, math.ceil(row.time:GetStringWidth()) + 4))
-	row.time:SetText("")
+	row.time:SetWordWrap(false)
+	row.time:SetWidth(54)
 	row.count = Kit.Text(row, E.tokens.size.small, "RIGHT")
 	row.count:SetPoint("LEFT", row.time, "RIGHT", 2, 0)
 	row.count:SetWidth(34)
@@ -116,6 +127,7 @@ local function CreateRow(row)
 		tipTitle = L["Report"], tip = L["This error as a bug report to copy, with a link to the bug form. Nothing is sent by itself."] })
 	row.report:SetPoint("RIGHT", -3, 0)
 	row.report:SetScript("OnClick", function(self) ShowReport(self:GetParent().item) end)
+	row.report:HookScript("OnSizeChanged", function() if window.Layout then window.Layout() end end)
 	row.text = Kit.Text(row, E.tokens.size.label, "LEFT")
 	row.text:SetPoint("LEFT", row.count, "RIGHT", 8, 0)
 	row.text:SetPoint("RIGHT", row.report, "LEFT", -6, 0)
@@ -129,7 +141,9 @@ local function CreateRow(row)
 end
 
 local function UpdateRow(row, entry)
-	row.time:SetText(E:FormatTime(entry.last or 0))
+	-- Today the time; an earlier day its date.
+	row.time:SetText(E:When(entry.last or 0))
+	row.time:SetWidth(math.max(54, math.ceil(row.time:GetStringWidth()) + 4))
 	row.count:SetText("x" .. tostring(entry.count or 1))
 	row.count:SetTextColor(E:TokenColor(entry.kind == "error" and "bad" or "warn"))
 	local first = (entry.message or ""):match("^[^\n]*") or ""
@@ -235,11 +249,19 @@ local function CreateWindow()
 	E:RegisterThemed(window.privacy, FitPrivacy)
 	local function Layout()
 		local width = content:GetWidth() or 0
-		listBox:SetWidth(math.max(math.floor(width * LIST_SHARE), 200))
+		local minimum = 200
+		-- Long dates and larger buttons keep room for the message beside them.
+		for _, row in ipairs(window.list:ShownRows()) do
+			minimum = math.max(minimum, row.time:GetWidth() + row.count:GetWidth() + row.report:GetWidth()
+				+ 80 + 29 + Kit.SCROLL_WIDTH + 4)
+		end
+		local wanted = math.max(math.floor(width * LIST_SHARE), minimum)
+		if listBox:GetWidth() ~= wanted then listBox:SetWidth(wanted) end
 		FitPrivacy()
 		area.child:SetWidth(math.max((area.scroll:GetWidth() or 0), 50))
 		box:SetWidth(area.child:GetWidth())
 	end
+	hooksecurefunc(window.list, "Refresh", Layout)
 	window:HookScript("OnSizeChanged", Layout)
 	window.Layout = Layout
 
@@ -270,12 +292,19 @@ local function CreateWindow()
 	window.buttons = { select = selectText, issue = issue, copyAll = copyAll, clear = clear }
 	window.footerText:SetPoint("RIGHT", selectText, "LEFT", -8, 0)
 
-	-- New errors show while the window is open; a theme change repaints.
+	-- New errors show while the window is open, at most twice a second, so
+	-- a storm of repeats leaves the text readable; a theme change repaints.
+	local refreshQueued = false
 	Errors:OnChange(window, function()
-		if window:IsShown() then
-			Errors:MarkSeen()
-			Refresh()
-		end
+		if not window:IsShown() or refreshQueued then return end
+		refreshQueued = true
+		C_Timer.After(0.5, function()
+			refreshQueued = false
+			if window:IsShown() then
+				Errors:MarkSeen()
+				Refresh()
+			end
+		end)
 	end)
 	E:RegisterThemed(window, function(self) if self:IsShown() then Refresh() end end)
 	window:HookScript("OnShow", function()
@@ -297,9 +326,14 @@ Refresh = function()
 	local shown = window.selected or entries[1]
 	window.shownEntry = shown
 	window.list:SetData(entries)
+	-- The text is set again for another entry, or for a new count while
+	-- the player is not selecting in it.
 	local text = shown and DetailText(shown) or ""
-	window.box.shown = text
-	window.box:SetText(text)
+	local box = window.box
+	if box.entry ~= shown or (text ~= box.shown and not box:HasFocus()) then
+		box.entry, box.shown = shown, text
+		box:SetText(text)
+	end
 	window.buttons.select:SetEnabled(shown ~= nil)
 	window.buttons.issue:SetEnabled(shown ~= nil)
 	window.buttons.copyAll:SetEnabled(#entries > 0)
@@ -352,4 +386,4 @@ E:AddCommand("errors", "[clear]  open EldoUI's error log, or empty it", function
 	else
 		E:ToggleErrorWindow(true)
 	end
-end)
+end, "Troubleshooting")

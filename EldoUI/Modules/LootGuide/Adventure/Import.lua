@@ -1,4 +1,4 @@
--- EldoUI My Adventure: import from Forever Journal (its installed tables and FJ1: codes).
+-- EldoUI My Adventure: import from Forever Journal (installed tables and FJ1:/FJ2: codes).
 --
 -- A player who switches from Forever Journal keeps every day of their
 -- history. Forever Journal's saved data (FJ_Chars: every character's
@@ -28,13 +28,13 @@
 --   4. Merge, never wipe (Backup.lua B.Merge). A backup of each journal is
 --      taken first; "Undo the import" puts every touched journal back.
 --      Running it twice adds nothing twice: rows match on what they say,
---      and everything up to the last import's newest moment is skipped.
+--      and the newest second remembers which moments already came in.
 --   5. Optionally its settings (I.TakeSettings). Then the player is told to
 --      turn Forever Journal off in the AddOns list and reload (EldoUI never
 --      turns another addon off).
 --
--- FJ1: codes (Forever Journal's backup code) are read by I:ReadFJ1, adapted
--- from its data-only reader: no loadstring, at most 20 levels deep.
+-- FJ1: and compressed FJ2: codes go through the same data-only reader,
+-- which reads at most 20 levels of plain data.
 --
 -- API (E.Adventure.Import):
 --   I:Available()        Forever Journal's saved data is here
@@ -49,7 +49,7 @@
 --   I:Ask()                       the confirm with Import / Import with settings
 --   I:AdoptPending()              journals waiting for this character
 --   I.Map(fj, guid) -> journal    one Forever Journal journal in EldoUI's shape
---   I:ReadFJ1(text) -> payload | nil, err
+--   I:ReadCode(text) -> payload | nil, err
 --   I.DecodeFJ1(body) -> value | nil, err
 --
 -- Portions adapted from Forever Journal by Ugge Zen, MIT License (see
@@ -884,9 +884,29 @@ local function ImportInto(charKey, guid, fj, session)
 		root[charKey] = dst
 	end
 	local mark = HighWater(dst)
+	local newest = math.max(mark, mapStats.newest)
+	local storedRows = mark > 0 and dst.imported.lastRows
+	local previous = type(storedRows) == "table" and Copy(storedRows) or {}
+	local lastRows = newest == mark and previous or {}
+	local function ContentKey(row) return B.RowKey(S.Pack(nil, row, true)) end
+	-- Older imports may only remember a removed moment in the trash.
+	for _, item in ipairs(dst.trash or {}) do
+		if type(item) == "table" and item.kind == "row" and type(item.data) == "string" and S.Head(item.data) == mark then
+			local row = S.Unpack(dst, item.data)
+			if row then previous[ContentKey(row)] = true end
+		end
+	end
 	local function Old(t) return mark > 0 and (tonumber(t) or 0) <= mark end
 	local stats = B.Merge(dst, theirs, {
-		skip = function(row) return Old(row.t) end,
+		skip = function(row)
+			local t = row.t or 0
+			if t < mark then return true end
+			if t ~= mark and t ~= newest then return false end
+			local key = ContentKey(row)
+			local seen = t == mark and previous[key]
+			if t == newest then lastRows[key] = true end
+			return seen
+		end,
 		skipEntry = function(kind, entry)
 			if kind == "goals" then return Old(entry.created) end
 			return Old(entry.t)
@@ -902,7 +922,8 @@ local function ImportInto(charKey, guid, fj, session)
 	imported.version = session.version
 	imported.at = session.at
 	imported.rows = (tonumber(imported.rows) or 0) + stats.rows
-	imported.lastT = math.max(mark, mapStats.newest)
+	imported.lastT = newest
+	imported.lastRows = lastRows
 	S.Bump(dst)
 	stats.unmapped = mapStats.unmapped
 	-- Its dungeon history: runs in the journal's runs (Runs.lua).
@@ -985,7 +1006,11 @@ function I:Undo()
 	local root = S.Root()
 	for charKey, at in pairs(session.chars or {}) do
 		if at == false then
-			if root then root[charKey] = nil end
+			-- No journal before the import: an empty one keeps the GUID, so
+			-- no older copy comes back in its place.
+			local had = root and root[charKey]
+			local guid = type(had) == "table" and type(had.guid) == "string" and had.guid or nil
+			if root then root[charKey] = guid and NewRecord(guid) or nil end
 		elseif at == "empty" then
 			local had = root and root[charKey]
 			if root then root[charKey] = NewRecord(type(had) == "table" and had.guid or nil) end
@@ -1191,17 +1216,30 @@ function I.DecodeFJ1(s)
 	return result
 end
 
--- A pasted FJ1: code -> { at, who, journal, fj = true } or nil and why.
-function I:ReadFJ1(text)
-	local body = type(text) == "string" and text:match("^%s*FJ1:(.-)%s*$")
-	if not body then return nil, L["That is not a Forever Journal backup code (it starts with FJ1:)."] end
+local function UnpackCode(body)
+	local codec = C_EncodingUtil
+	local method = Enum and Enum.CompressionMethod and Enum.CompressionMethod.Deflate
+	if not (codec and codec.DecodeBase64 and codec.DecompressString and method) then return nil end
+	local ok, bytes = pcall(codec.DecodeBase64, (body:gsub("%s", "")))
+	if not ok or E:IsSecret(bytes) or type(bytes) ~= "string" then return nil end
+	local unpacked, plain = pcall(codec.DecompressString, bytes, method)
+	if unpacked and not E:IsSecret(plain) and type(plain) == "string" then return plain end
+end
+
+-- A pasted code -> { at, who, journal, fj, mergeOnly } or nil and why.
+function I:ReadCode(text)
+	local damaged = L["The code is incomplete or damaged. Copy all of it and paste it again."]
+	if type(text) ~= "string" or E:IsSecret(text) or #text > I.MAX_CODE + 4 then return nil, damaged end
+	local version, body = text:match("^%s*FJ([12]):(.-)%s*$")
+	if not body then return nil, damaged end
+	if version == "2" then body = UnpackCode(body) end
 	local value = I.DecodeFJ1(body)
 	if type(value) ~= "table" or type(value.data) ~= "table" or type(value.data.events) ~= "table" then
-		return nil, L["The code is incomplete or damaged. Copy all of it, from FJ1: to the last }."]
+		return nil, damaged
 	end
 	local journal = I.Map(value.data, S.MyGUID())
 	return {
-		at = Num(value.at), fj = true, journal = journal,
+		at = Num(value.at), fj = true, journal = journal, mergeOnly = value.kind == "new" or nil,
 		who = { name = Unlink(value.name), class = Str(value.class), race = Str(value.race), level = Num(value.level) },
 	}
 end

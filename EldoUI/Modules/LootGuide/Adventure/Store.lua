@@ -23,7 +23,7 @@
 --     abandoned = { { t, id, title, z, s, l, started, giver } },  quests
 --               that left the log without a hand-in (Chronicle.lua)
 --     keepNotes = { [keepKey] = text },        your notes on keepsakes
---     imported = { from, version, at, rows, lastT, characters,
+--     imported = { from, version, at, rows, lastT, lastRows, characters,
 --                  dungeons, totals, extra, unmapped }   (Import.lua)
 --     rollupNone, trimSkip   what the last roll-up and trim already read
 --               (so a full journal does not read every row for each new
@@ -51,7 +51,8 @@
 -- set each other's journal aside on every switch): the fullest one, with
 -- the places and dungeons the others knew, so a place you have been to
 -- is never a first visit again. Otherwise it starts a new one. Orphans are
--- kept, however many there are; the Saved data page lists them.
+-- kept packed, the newest ten (Backup.lua); the Saved data page lists
+-- them, gives one back to its own character or removes it.
 --
 -- The record is a registered saved store (E:MigrateStore): the first time
 -- a session reads it, a "before update" backup is taken when an update
@@ -244,10 +245,15 @@ local function New(guid)
 		seq = 0, rev = 0, salt = 0, nextId = 1 })
 end
 
--- Kept, however many there are (the Saved data page lists them).
+-- Set aside, packed, the newest few kept (Backup.lua); the Saved data page
+-- lists them.
 local function Orphan(key, rec)
+	local entry = { key = key, guid = rec.guid, at = Now(), journal = rec }
+	local B = A.Backup
+	if B and B.KeepOrphan then return B:KeepOrphan(entry) end
 	local orphans = S.Cache().orphans
-	orphans[#orphans + 1] = { key = key, guid = rec.guid, at = Now(), journal = rec }
+	orphans[#orphans + 1] = entry
+	return entry
 end
 
 local migrated = setmetatable({}, { __mode = "k" })
@@ -283,8 +289,11 @@ local function MergePlaces(into, from)
 				if type(own) ~= "table" then
 					into.zones[zone] = CopyTable(info)
 				else
-					if tonumber(info.first) and (not tonumber(own.first) or info.first < own.first) then
-						own.first, own.firstLevel = info.first, info.firstLevel
+					local first, mine = tonumber(info.first), tonumber(own.first)
+					if first and (not mine or first < mine) then
+						own.first, own.firstLevel = first, info.firstLevel
+					elseif mine then
+						own.first = mine
 					end
 					if type(info.subs) == "table" then
 						if type(own.subs) ~= "table" then own.subs = {} end
@@ -299,31 +308,99 @@ local function MergePlaces(into, from)
 	if type(from.instancesSeen) == "table" then
 		if type(into.instancesSeen) ~= "table" then into.instancesSeen = {} end
 		for name, at in pairs(from.instancesSeen) do
-			local mine = tonumber(into.instancesSeen[name])
-			if type(name) == "string" and tonumber(at) and (not mine or at < mine) then into.instancesSeen[name] = at end
+			local mine, seen = tonumber(into.instancesSeen[name]), tonumber(at)
+			if type(name) == "string" and seen then into.instancesSeen[name] = mine and math.min(mine, seen) or seen end
 		end
 	end
 end
 S.MergePlaces = MergePlaces
 
--- This character's own journal from the orphans (same GUID), or nil.
+-- This character's own journal from the orphans (same GUID), or nil. The
+-- fullest copy comes back, and every other copy with the same GUID is
+-- folded into it, oldest first: moments, goals, notes and places. A folded
+-- copy leaves the orphans, so it never comes back on its own later (after
+-- "Clear this character's journal", say). A copy that can't be folded stays
+-- set aside on the Saved data page.
+local function OrphanGUID(entry)
+	if type(entry) ~= "table" then return nil end
+	if entry.guid ~= nil then return entry.guid end
+	return type(entry.journal) == "table" and entry.journal.guid or nil
+end
+
+-- The journal an entry holds: in hand, or read from its packed code.
+local function OrphanJournal(entry)
+	local B = A.Backup
+	if B and B.OrphanJournal then return B.OrphanJournal(entry) end
+	return type(entry.journal) == "table" and entry.journal or nil
+end
+
 local function Adopt(guid)
 	local orphans = S.Cache().orphans
-	local best, bestIndex
-	for index, entry in ipairs(orphans) do
-		local journal = type(entry) == "table" and entry.journal
-		if type(journal) == "table" and journal.guid == guid
-			and (not best or #(type(journal.events) == "table" and journal.events or {}) > #(type(best.events) == "table" and best.events or {})) then
-			best, bestIndex = journal, index
+	local B = A.Backup
+	local function Rows(entry)
+		if B and B.OrphanRows then return B.OrphanRows(entry) end
+		return type(entry.journal) == "table" and type(entry.journal.events) == "table" and #entry.journal.events or 0
+	end
+	local mine = {}
+	for _, entry in ipairs(orphans) do
+		if OrphanGUID(entry) == guid then mine[#mine + 1] = entry end
+	end
+	-- The fullest copy that can be read comes back.
+	table.sort(mine, function(a, b) return Rows(a) > Rows(b) end)
+	local best, bestEntry
+	for _, entry in ipairs(mine) do
+		local journal = OrphanJournal(entry)
+		if type(journal) == "table" and type(journal.events) == "table" then
+			best, bestEntry = journal, entry
+			break
 		end
 	end
 	if not best then return nil end
-	table.remove(orphans, bestIndex)
-	for _, entry in ipairs(orphans) do
-		local journal = type(entry) == "table" and entry.journal
-		if type(journal) == "table" and journal.guid == guid then MergePlaces(best, journal) end
+	if best.guid == nil then best.guid = guid end
+	local others = {}
+	for _, entry in ipairs(mine) do
+		if entry ~= bestEntry then others[#others + 1] = entry end
+	end
+	table.sort(others, function(a, b) return (tonumber(a.at) or 0) < (tonumber(b.at) or 0) end)
+	local gone = { [bestEntry] = true }
+	for _, entry in ipairs(others) do
+		local ok, err = pcall(function()
+			local journal = OrphanJournal(entry)
+			if type(journal) ~= "table" then error("it can't be read") end
+			if B and B.Merge then B.Merge(best, journal) end
+			MergePlaces(best, journal)
+		end)
+		if ok then
+			gone[entry] = true
+		else
+			geterrorhandler()(("EldoUI My Adventure: an older copy of this journal stays set aside: %s"):format(tostring(err)))
+		end
+	end
+	for index = #orphans, 1, -1 do
+		if gone[orphans[index]] then table.remove(orphans, index) end
 	end
 	return best
+end
+
+-- A renamed character's journal: a record on this realm under another
+-- key with this character's GUID moves to its new key, with its backups.
+local function Renamed(root, key, guid)
+	local realm = type(key) == "string" and key:match(" %- (.+)$")
+	if not realm then return nil end
+	local suffix = " - " .. realm
+	for other, rec in pairs(root) do
+		if other ~= key and type(other) == "string" and type(rec) == "table" and rec.guid == guid
+			and other:sub(-#suffix) == suffix then
+			root[other] = nil
+			local B = A.Backup
+			if B and B.Claim then
+				local ok, err = pcall(B.Claim, other, key, guid)
+				if not ok then geterrorhandler()(err) end
+			end
+			return rec
+		end
+	end
+	return nil
 end
 
 local function Own()
@@ -338,7 +415,7 @@ local function Own()
 		rec = nil
 	end
 	if type(rec) ~= "table" then
-		rec = Adopt(guid) or New(guid)
+		rec = Renamed(root, key, guid) or Adopt(guid) or New(guid)
 		root[key] = rec
 	end
 	if not migrated[rec] then
@@ -454,7 +531,7 @@ local function Number(text)
 	return tonumber(text)
 end
 
-local function EncodeValue(rec, kindOf, value)
+local function EncodeValue(rec, kindOf, value, inlineStrings)
 	if E:IsSecret(value) or type(value) == "nil" then return "" end
 	if kindOf == "n" then
 		value = tonumber(value)
@@ -463,7 +540,7 @@ local function EncodeValue(rec, kindOf, value)
 		return tostring(value)
 	elseif kindOf == "b" then
 		return value and "1" or ""
-	elseif kindOf == "i" then
+	elseif kindOf == "i" and not inlineStrings then
 		local id = S.Intern(rec, tostring(value))
 		return id and tostring(id) or ""
 	end
@@ -484,16 +561,17 @@ local function Slot(position)
 	return 7 + position
 end
 
-function S.Pack(rec, row)
+-- Inline strings are for content comparisons across journals, never storage.
+function S.Pack(rec, row, inlineStrings)
 	local def = J:Kind(row.kind)
 	local fields = def and def.fields or {}
 	local parts = {
 		EncodeValue(rec, "n", row.t), EncodeValue(rec, "n", row.seq), Escape(tostring(row.kind)),
-		EncodeValue(rec, "n", row.level), EncodeValue(rec, "i", row.zone), EncodeValue(rec, "i", row.subzone),
+		EncodeValue(rec, "n", row.level), EncodeValue(rec, "i", row.zone, inlineStrings), EncodeValue(rec, "i", row.subzone, inlineStrings),
 		"", "", "", row.keep and "1" or "",
 	}
 	for position, field in ipairs(fields) do
-		parts[Slot(position)] = EncodeValue(rec, field[2], row[field[1]])
+		parts[Slot(position)] = EncodeValue(rec, field[2], row[field[1]], inlineStrings)
 	end
 	for slot = 1, #parts do parts[slot] = parts[slot] or "" end
 	local last = #parts
@@ -1150,7 +1228,17 @@ function J:Clear(charKey)
 	local root = Root()
 	charKey = charKey or E.charKey
 	if not (root and charKey) then return false end
-	root[charKey] = nil
+	-- An empty journal with the same GUID, so no older copy comes back.
+	local old = root[charKey]
+	local guid = type(old) == "table" and type(old.guid) == "string" and old.guid
+		or (charKey == E.charKey and MyGUID()) or nil
+	if guid then
+		local rec = New(guid)
+		if charKey ~= E.charKey then rec.startedLevel = nil end
+		root[charKey] = rec
+	else
+		root[charKey] = nil
+	end
 	decodedCache = setmetatable({}, { __mode = "k" })
 	windowCache = setmetatable({}, { __mode = "k" })
 	kindCache = setmetatable({}, { __mode = "k" })

@@ -18,6 +18,10 @@
 -- click, the same as the portrait menu's "Reset all instances"; with the
 -- Instances module's "Announce reset" on, a right-click sends the last
 -- reset to the group (one line per click).
+-- "Loot" (off by default) shows the loot method, the master looter and
+-- the threshold; for the leader a click opens a menu where each pick is one
+-- C_PartyInfo.SetLootMethod or SetLootThreshold call. A change can print
+-- one line in the player's own chat; nothing is sent to the group.
 -- There is no "disband": that would remove every member from one click,
 -- so the player uses leave group or Blizzard's raid panel instead.
 --
@@ -32,8 +36,8 @@ local M = E:NewModule("RaidTools", {
 	title = "Raid Tools",
 	desc = "A bar with ready check, role check, pull countdown, world markers, target icons and group tools for leaders and assists.",
 	category = "Group",
-	frames = { "EldoUI_RaidToolsBar", "EldoUI_RaidToolsHolder" },
-	movers = { "EldoUI_RaidTools" },
+	frames = { "EldoUI_RaidToolsBar", "EldoUI_RaidToolsHolder", "EldoUI_HealerManaFrame" },
+	movers = { "EldoUI_RaidTools", "EldoUI_HealerMana" },
 	savedKeys = { "profile.modules.RaidTools" },
 	optionsPage = "module:RaidTools",
 	presets = { "Column", "Compact", "Leader", "Markers", "Minimal" },
@@ -62,6 +66,8 @@ local M = E:NewModule("RaidTools", {
 		raidPanel = false,
 		leaveGroup = false,
 		resetInstances = false,   -- ResetInstances on your click
+		lootMethod = false,       -- the Loot button: method, master looter, threshold
+		lootNotice = true,        -- one line in your own chat when the leader changes them
 		tooltips = true,
 	},
 })
@@ -69,7 +75,8 @@ E:RegisterVisibilityFacet("EldoUI_RaidTools", "rules", { module = "RaidTools", s
 
 -- World marker slots in Blizzard's order (skull first), with the raid
 -- icon that matches each marker's color and shape.
-local MARKER_ORDER = WORLD_RAID_MARKER_ORDER or { 8, 4, 1, 7, 2, 3, 6, 5 }
+local MARKER_ORDER = type(WORLD_RAID_MARKER_ORDER) == "table" and #WORLD_RAID_MARKER_ORDER > 0 and WORLD_RAID_MARKER_ORDER
+	or { 8, 4, 1, 7, 2, 3, 6, 5 }
 local MARKER_ICON = { [1] = 6, [2] = 4, [3] = 3, [4] = 7, [5] = 1, [6] = 2, [7] = 5, [8] = 8 }
 local TARGET_ORDER = { 8, 7, 2, 1, 3, 4, 5, 6 }
 local ICON_PATH = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_%d"
@@ -213,6 +220,14 @@ local function ShowTip(button)
 		local line = button.tip[index]
 		if type(line) == "table" then hints[#hints + 1] = line else E.UIKit.TipText(GameTooltip, line) end
 	end
+	if button.status then
+		local status = button.status()
+		if type(status) == "table" then
+			for _, pair in ipairs(status) do E.UIKit.TipPair(GameTooltip, pair[1], pair[2]) end
+		elseif status then
+			E.UIKit.TipText(GameTooltip, status)
+		end
+	end
 	E:TooltipHint(GameTooltip, unpack(hints))
 	GameTooltip:Show()
 end
@@ -319,12 +334,21 @@ function M:CreateBar()
 			type = "worldmarker", marker = marker, action1 = "toggle", action2 = "clear",
 		})
 		AddTip(button, L["World marker"], { L["Left-click"], L["place it where you click next, or remove it"] }, { L["Right-click"], L["remove it"] })
+		button.marker = marker
+		button.status = function() return M.MarkerStatus(button) end
+		button:HookScript("PostClick", function() M:UpdateMarkers() end)
 		bar.markers[index] = button
 	end
 	bar.clearMarkers = SecureIconButton(bar, "EldoUI_RaidToolsClearMarkers", "Interface\\Buttons\\UI-GroupLoot-Pass-Up", {
 		type = "worldmarker", action = "clear",
 	})
 	AddTip(bar.clearMarkers, L["Clear world markers"], L["Removes all world markers."])
+	bar.clearMarkers:HookScript("PostClick", function() M:UpdateMarkers() end)
+	-- The game sends no event when a world marker is placed or removed, so a
+	-- slow check reads them about once a second. It runs only in a group,
+	-- while the bar shows, out of combat (M.WatchMarkers).
+	bar:HookScript("OnShow", function() M:UpdateMarkers() end)
+	bar:HookScript("OnHide", function() M.WatchMarkers(false) end)
 
 	-- Raid target icons on your current target.
 	bar.targets = {}
@@ -382,7 +406,7 @@ function M:CreateBar()
 	bar.leave = TextButton(bar, L["Leave"], function()
 		if not IsInGroup() then return Notify(L["You are not in a group."]) end
 		E:ShowConfirm({ key = "ELDOUI_RAIDTOOLS_LEAVE", title = L["Leave group"], text = L["Leave your group?"],
-			accept = YES or L["Yes"], cancel = NO or L["No"], danger = true, onAccept = LeaveGroup })
+			accept = E:GameText(YES, L["Yes"]), cancel = E:GameText(NO, L["No"]), danger = true, onAccept = LeaveGroup })
 	end)
 	AddTip(bar.leave, L["Leave group"], L["Asks first, then you leave the group."])
 	bar.reset = TextButton(bar, L["Reset"], function(_, mouse)
@@ -404,6 +428,9 @@ function M:CreateBar()
 	end)
 	AddTip(bar.reset, L["Reset instances"], { L["Left-click"], L["reset all your instances (leader, or alone), like the portrait menu"] },
 		{ L["Right-click"], L["announce the last reset to the group (Instances > Resets > Announce reset)"] })
+	bar.loot = TextButton(bar, L["Loot"], function(button) M:OpenLootMenu(button) end)
+	AddTip(bar.loot, L["Loot method"], { L["Click"], L["change it (group leader)"] })
+	bar.loot.status = function() return M.LootLines(M.LootState()) end
 	return bar
 end
 
@@ -416,12 +443,177 @@ function M:UpdateGroupButtons()
 	local poll = CanPoll() and 1 or E.tokens.disabledAlpha
 	bar.ready:SetAlpha(poll)
 	bar.roles:SetAlpha(poll)
+	if bar.loot then bar.loot.text:SetText(M.LootLabel(M.LootState())) end
 	local on = IsInRaid() and IsEveryoneAssistant and IsEveryoneAssistant()
 	if on then
 		bar.assist:SetBackdropBorderColor(unpack(E.media.accentColor))
 	else
 		bar.assist:SetBackdropBorderColor(unpack(E.media.borderColor))
 	end
+end
+
+---------------------------------------------------------------------------
+-- Loot method: what the game reports, and the leader's menu. Each pick in
+-- the menu is one C_PartyInfo.SetLootMethod or SetLootThreshold call.
+---------------------------------------------------------------------------
+local LOOT_MASTER = Enum and Enum.LootMethod and Enum.LootMethod.Masterlooter or 2
+local LOOT_NAMES = {
+	[0] = { E.Key("Free"), E.Key("Free for all") },
+	[1] = { E.Key("Round"), E.Key("Round robin") },
+	[2] = { E.Key("Master"), E.Key("Master looter") },
+	[3] = { E.Key("Group"), E.Key("Group loot") },
+	[4] = { E.Key("Need"), E.Key("Need before greed") },
+	[5] = { E.Key("Personal"), E.Key("Personal loot") },
+}
+-- Uncommon, rare and epic: the thresholds the game's own menu offers.
+local LOOT_THRESHOLDS = { 2, 3, 4 }
+local QUALITY_NAMES = { [0] = E.Key("Poor"), [1] = E.Key("Common"), [2] = E.Key("Uncommon"), [3] = E.Key("Rare"), [4] = E.Key("Epic"), [5] = E.Key("Legendary") }
+
+local function QualityText(quality)
+	local own = QUALITY_NAMES[quality] and L[QUALITY_NAMES[quality]] or tostring(quality)
+	local name = E:GameText(rawget(_G, "ITEM_QUALITY" .. quality .. "_DESC"), own)
+	local r, g, b = E.UIKit.QualityColor(quality)
+	if not r then return name end
+	return ("|cff%02x%02x%02x%s|r"):format(r * 255, g * 255, b * 255, name)
+end
+
+-- The group's loot: { method, looter, class, threshold }, or nil outside a
+-- group or when the game keeps the method secret.
+function M.LootState()
+	local party = C_PartyInfo
+	if not (IsInGroup() and party and party.GetLootMethod) then return nil end
+	local method = E.PlainCallEach(party.GetLootMethod)
+	if type(method) ~= "number" then return nil end
+	local state = { method = method }
+	local unit = method == LOOT_MASTER and E.MasterLooterUnit()
+	if unit then
+		state.looter = E.PlainCall(E.UnitWhisperName, E, unit)
+		state.looterUnit = unit
+		state.class = E.Plain(select(2, E.PlainCallEach(UnitClass, unit)))
+	end
+	local threshold = E.PlainCall(rawget(_G, "GetLootThreshold"))
+	if type(threshold) == "number" then state.threshold = threshold end
+	return state
+end
+
+function M.LootLabel(state)
+	local names = state and LOOT_NAMES[state.method]
+	return names and L[names[1]] or L["Loot"]
+end
+
+-- Tooltip pairs: the method, the master looter in class color, the threshold.
+function M.LootLines(state)
+	if not state then return L["Not in a group."] end
+	local names = LOOT_NAMES[state.method]
+	local lines = { { L["Method"], names and L[names[2]] or tostring(state.method) } }
+	if state.looter then lines[#lines + 1] = { L["Master looter"], E:WrapClassColor(state.class, state.looter) } end
+	if state.threshold then lines[#lines + 1] = { L["Threshold"], QualityText(state.threshold) } end
+	return lines
+end
+
+-- The local notice: "Loot: Master looter (Mira), Rare and up".
+function M.LootNotice(state)
+	local names = state and LOOT_NAMES[state.method]
+	if not names then return nil end
+	local text = L[names[2]]
+	if state.looter then text = text .. " (" .. state.looter .. ")" end
+	if state.threshold then text = text .. ", " .. L["%s and up"]:format(QualityText(state.threshold)) end
+	return L["Loot: %s"]:format(text)
+end
+
+local function LootKey(state)
+	if not state then return nil end
+	return ("%s:%s:%s"):format(state.method, state.looter or "", state.threshold or "")
+end
+
+function M:OnLootChanged()
+	self:UpdateGroupButtons()
+	local state = M.LootState()
+	local key = LootKey(state)
+	-- The first reading (a login, joining a group) prints nothing.
+	if key and self.lootKey and key ~= self.lootKey and self.db.lootMethod and self.db.lootNotice then
+		local line = M.LootNotice(state)
+		if line then self:Print(line) end
+	end
+	self.lootKey = key
+end
+
+-- The methods the client offers, as numbers.
+function M.AvailableLootMethods()
+	local party = C_PartyInfo
+	local list = party and E.PlainCall(party.GetAvailableLootMethods)
+	local methods = {}
+	if type(list) == "table" then
+		for _, entry in ipairs(list) do
+			local method = type(entry) == "table" and (entry.method or entry.lootMethod) or entry
+			if type(method) == "number" and LOOT_NAMES[method] then methods[#methods + 1] = method end
+		end
+	end
+	return methods
+end
+
+-- The group members by name, for the master looter list.
+local function LootCandidates()
+	local list = {}
+	local units = { "player" }
+	if IsInRaid() then
+		units = {}
+		for index = 1, (E.PlainCall(GetNumGroupMembers) or 0) do units[#units + 1] = "raid" .. index end
+	else
+		for index = 1, 4 do units[#units + 1] = "party" .. index end
+	end
+	for _, unit in ipairs(units) do
+		local name = E.PlainCall(UnitExists, unit) and E.PlainCall(E.UnitWhisperName, E, unit)
+		if type(name) == "string" and name ~= "" then
+			list[#list + 1] = { unit = unit, name = name, class = E.Plain(select(2, E.PlainCallEach(UnitClass, unit))) }
+		end
+	end
+	table.sort(list, function(a, b) return a.name < b.name end)
+	return list
+end
+
+local function SetLoot(fn, ...)
+	if not IsInGroup() then return Notify(L["You are not in a group."]) end
+	if not IsLeader() then return Notify(L["Only the group leader can do this."]) end
+	if InCombatLockdown() then return Notify(L["After combat."]) end
+	CallGroup(fn, ...)
+end
+
+function M:OpenLootMenu(owner)
+	if not IsInGroup() then return Notify(L["You are not in a group."]) end
+	if not IsLeader() then return Notify(L["Only the group leader can do this."]) end
+	if InCombatLockdown() then return Notify(L["After combat."]) end
+	local party = C_PartyInfo
+	if not (party and party.SetLootMethod) then return Notify(L["Not available on this client."]) end
+	local state = M.LootState() or {}
+	E.UIKit.ContextMenu(owner, function(_, root)
+		root:CreateTitle(L["Loot method"])
+		for _, method in ipairs(M.AvailableLootMethods()) do
+			local name = L[LOOT_NAMES[method][2]]
+			if method == LOOT_MASTER then
+				local sub = root:CreateButton(name)
+				sub:SetScrollMode(360)
+				for _, member in ipairs(LootCandidates()) do
+					sub:CreateRadio(E:WrapClassColor(member.class, member.name), function() return state.looterUnit == member.unit end,
+						function()
+							if E.PlainCall(E.UnitWhisperName, E, member.unit) == member.name then
+								SetLoot(party.SetLootMethod, method, member.name)
+							end
+						end)
+				end
+			else
+				root:CreateRadio(name, function() return state.method == method end, function() SetLoot(party.SetLootMethod, method) end)
+			end
+		end
+		local setThreshold = rawget(_G, "SetLootThreshold")
+		if setThreshold then
+			root:CreateDivider()
+			root:CreateTitle(L["Threshold"])
+			for _, quality in ipairs(LOOT_THRESHOLDS) do
+				root:CreateRadio(QualityText(quality), function() return state.threshold == quality end, function() SetLoot(setThreshold, quality) end)
+			end
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -465,6 +657,7 @@ function M:Layout()
 	Use(bar.raidPanel, db.raidPanel, textWidth, 3)
 	Use(bar.leave, db.leaveGroup, textWidth, 3)
 	Use(bar.reset, db.resetInstances, textWidth, 3)
+	Use(bar.loot, db.lootMethod, textWidth, 3)
 
 	local length, lines = 0, 0
 	for _, row in ipairs(rows) do
@@ -547,6 +740,7 @@ function M:UpdateVisibility()
 	end
 	-- No driver needed (shown for everyone, rules that never hide): shown.
 	if not E:VisibilityDriver(block, { staticState = true, condition = ShownFor() }) then bar:Show() end
+	self:SyncMarkerWatch()
 end
 
 -- Settings before the shared visibility rules: "Hide in combat" becomes
@@ -571,13 +765,30 @@ function M:OnEnable()
 	self:CreateBar()
 	self:Layout()
 	self:UpdateVisibility()
+	self:UpdateMarkers()
+	self:SyncHealerMana()
+	self.lootKey = LootKey(M.LootState())
 	local function Refresh()
 		self:UpdateVisibility()
 		self:UpdateGroupButtons()
+		self:UpdateMarkers()
 	end
-	self:RegisterEvent("GROUP_ROSTER_UPDATE", Refresh)
+	self:RegisterEvent("GROUP_ROSTER_UPDATE", function()
+		if not IsInGroup() then
+			self.lootKey = nil
+		elseif not self.lootKey then
+			self.lootKey = LootKey(M.LootState())
+		end
+		Refresh()
+	end)
 	self:RegisterEvent("PARTY_LEADER_CHANGED", Refresh)
-	self:RegisterEvent("PLAYER_ENTERING_WORLD", Refresh)
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
+		self.lootKey = LootKey(M.LootState())
+		Refresh()
+	end)
+	self:RegisterEvent("PLAYER_REGEN_DISABLED", function() self:SyncMarkerWatch() end)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", Refresh)
+	self:RegisterEvent("PARTY_LOOT_METHOD_CHANGED", function() self:OnLootChanged() end)
 	-- Talent group and resting live in the driver as their current state.
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", function() self:UpdateVisibility() end)
 	self:RegisterEvent("PLAYER_UPDATE_RESTING", function()
@@ -587,14 +798,18 @@ end
 
 function M:OnDisable()
 	for _, event in ipairs({ "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED", "PLAYER_ENTERING_WORLD",
+		"PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PARTY_LOOT_METHOD_CHANGED",
 		"ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_UPDATE_RESTING" }) do
 		self:UnregisterEvent(event)
 	end
+	M.WatchMarkers(false)
+	self:StopHealerMana()
 	self:UpdateVisibility()
 end
 
 function M:OnProfileChanged()
 	self:MigrateVisibility()
+	self:SyncHealerMana()
 	if not self.active or not self.bar then return end
 	self:Layout()
 	self:UpdateVisibility()
@@ -628,9 +843,9 @@ M.options = {
 	{ type = "header", label = "Buttons" },
 	{ type = "toggle", key = "readyCheck", label = "Ready check", desc = "Asks the group whether everyone is ready." },
 	{ type = "toggle", key = "rolePoll", label = "Role check", desc = "Asks everyone to confirm their role." },
-	{ type = "toggle", key = "countdown", label = "Pull countdown", desc = "Left-click starts the group countdown, right-click cancels it." },
+	{ type = "toggle", key = "countdown", label = "Pull countdown", desc = "Left-click starts the group countdown, right-click cancels it. Its big numbers are styled under Blizzard UI > Combat HUD > Start countdown." },
 	{ type = "range", unit = "s", key = "countdownSeconds", dependsOn = "countdown", label = "Countdown seconds", min = 3, max = 30, step = 1, desc = "Length of the pull countdown." },
-	{ type = "toggle", key = "worldMarkers", label = "World markers", desc = "Eight buttons that place or remove the colored ground markers." },
+	{ type = "toggle", key = "worldMarkers", label = "World markers", desc = "Eight buttons that place or remove the colored ground markers. A placed marker's button is lit, the others are dimmed." },
 	{ type = "toggle", key = "clearMarkers", label = "Clear buttons", desc = "A button that removes all world markers (and all target icons on the icon row).",
 		disabled = function() return not (M.db.worldMarkers or M.db.raidTargets) and L["Turn on \"World markers\" or \"Target icon row\" first."] end },
 	{ type = "toggle", key = "raidTargets", label = "Target icon row", desc = "A second row that puts skull, cross and the other icons on your target." },
@@ -643,12 +858,14 @@ M.options = {
 	{ type = "toggle", key = "raidPanel", label = "Raid panel", desc = "Opens Blizzard's raid window, where the leader can move members between groups or remove them." },
 	{ type = "toggle", key = "leaveGroup", label = "Leave group", desc = "Leaves the group after you confirm. There is no disband button: removing everyone at once would be many actions from one click." },
 	{ type = "toggle", key = "resetInstances", label = "Reset instances", desc = "Left-click resets all your instances (group leader, or alone), the same as the portrait menu. Right-click announces the last reset when the Instances module allows it. Only ever on your click." },
+	{ type = "toggle", key = "lootMethod", label = "Loot method", desc = "Shows the loot method, the master looter and the threshold. The group leader clicks it to change them; for everyone else it only shows what the leader set." },
+	{ type = "toggle", key = "lootNotice", dependsOn = "lootMethod", label = "Tell me when the loot changes", desc = "One line in your own chat when the leader changes the loot method, the master looter or the threshold. Nothing is sent to the group." },
 	{ type = "header", label = "Look" },
 	{ type = "select", key = "orientation", label = "Direction", desc = "A row across or a column down.", values = { HORIZONTAL = "Across", VERTICAL = "Down" } },
-	{ type = "range", key = "buttonSize", label = "Button size", min = 14, max = 40, step = 1, desc = "Height of every button; text buttons are wider." },
+	{ type = "range", unit = "px", key = "buttonSize", label = "Button size", min = 14, max = 40, step = 1, desc = "Height of every button; text buttons are wider." },
 	{ type = "range", key = "fontSize", label = "Text size", min = 0, max = 20, step = 1, zeroText = "Auto",
 		desc = "Size of the labels on Ready, Roles, Pull and the group buttons. Auto follows the button size." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 10, step = 1, desc = "Gap between buttons." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 10, step = 1, desc = "Gap between buttons." },
 	{ type = "toggle", key = "backdrop", label = "Background", desc = "A panel behind the buttons." },
 	{ type = "range", percent = true, key = "alpha", label = "Opacity", min = 0.2, max = 1, step = 0.05, desc = "How solid the bar looks." },
 	{ type = "execute", label = "Move", desc = "Unlock EldoUI frames to drag the bar. Show for a minute (top of the page) makes it visible outside a group.",
@@ -679,7 +896,7 @@ end
 ---------------------------------------------------------------------------
 -- The group row's buttons, for the presets that promise "only" some buttons.
 local function WithoutGroupRow(settings)
-	for _, key in ipairs({ "convertGroup", "everyoneAssist", "mainTank", "mainAssist", "raidPanel", "leaveGroup", "resetInstances" }) do
+	for _, key in ipairs({ "convertGroup", "everyoneAssist", "mainTank", "mainAssist", "raidPanel", "leaveGroup", "resetInstances", "lootMethod" }) do
 		settings[key] = false
 	end
 	return settings
@@ -689,7 +906,7 @@ E:RegisterStyles("RaidTools", {
 	{ key = "Leader", title = "Raid leader", desc = "Every leader button and the target icon row, without Leave group.",
 		settings = { visibility = "LEAD", fade = { preset = "always", show = "always", fadedAlpha = 0, fadeTime = 0.2, delay = 0 }, orientation = "HORIZONTAL", buttonSize = 22, spacing = 2,
 			backdrop = true, alpha = 1, readyCheck = true, rolePoll = true, countdown = true, worldMarkers = true, clearMarkers = true, raidTargets = true,
-			convertGroup = true, everyoneAssist = true, mainTank = true, mainAssist = true, raidPanel = true, leaveGroup = false, resetInstances = true } },
+			convertGroup = true, everyoneAssist = true, mainTank = true, mainAssist = true, raidPanel = true, leaveGroup = false, resetInstances = true, lootMethod = true } },
 	{ key = "Compact", title = "Compact", desc = "Small buttons, only ready check, pull and markers.",
 		settings = WithoutGroupRow({ visibility = "LEAD", orientation = "HORIZONTAL", buttonSize = 18, spacing = 1, backdrop = true, alpha = 1,
 			readyCheck = true, rolePoll = false, countdown = true, worldMarkers = true, clearMarkers = true, raidTargets = false }) },
@@ -703,6 +920,6 @@ E:RegisterStyles("RaidTools", {
 		settings = { visibility = "LEAD", fade = { preset = "custom", show = "nocombat", fadedAlpha = 0 }, backdrop = false, alpha = 0.6, buttonSize = 20, spacing = 2,
 			readyCheck = true, rolePoll = true, countdown = true, worldMarkers = true, clearMarkers = false, raidTargets = false } },
 }, { restores = {
-	"alpha", "visibility", "convertGroup", "everyoneAssist", "mainTank", "mainAssist", "raidPanel",
-	"leaveGroup", "resetInstances"
+	"healerMana.enabled", "alpha", "visibility", "convertGroup", "everyoneAssist", "mainTank", "mainAssist", "raidPanel",
+	"leaveGroup", "resetInstances", "lootMethod"
 } })

@@ -134,9 +134,7 @@ function M:Build()
 	E:TrimIcon(launcher.icon)
 	launcher.count = E:CreateText(launcher, E.tokens.size.small, "RIGHT")
 	launcher.count:SetPoint("BOTTOMRIGHT", -2, 2)
-	local highlight = launcher:CreateTexture(nil, "HIGHLIGHT")
-	highlight:SetAllPoints(launcher.icon)
-	highlight:SetColorTexture(1, 1, 1, E.tokens.hover.control)
+	E:SkinHudButton(launcher, launcher.icon)
 	launcher:SetScript("OnClick", function(button, mouse)
 		if E:IsOptionsLinkClick(button, mouse) then return end
 		M:Toggle()
@@ -351,7 +349,7 @@ M.options = {
 	{ type = "description", label = "Only for mages: your character is not a mage, so the button stays hidden.", tone = "warning", hidden = IsMage },
 	{ type = "description", label = "One button lists the teleports and portals you know; click a row to cast it. The list hides in combat." },
 	{ type = "header", label = "Button" },
-	{ type = "range", key = "size", label = "Button size", min = 24, max = 56, step = 1, desc = "Size of the travel button." },
+	{ type = "range", unit = "px", key = "size", label = "Button size", min = 24, max = 56, step = 1, desc = "Size of the travel button." },
 	{ type = "toggle", key = "counts", label = "Rune counts", desc = "How many Runes of Teleportation and Runes of Portals you carry: on the button and under each row. A kind you have none of is grayed out." },
 	{ type = "toggle", key = "closeOnCast", label = "Close after a click", desc = "The list closes once you click a spell in it." },
 	{ type = "execute", label = "Move", desc = "Unlock EldoUI frames to drag the travel button (mover \"Mage Travel\").", func = function() E:MoveFrame("EldoUI_MageTravel") end },

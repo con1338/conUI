@@ -161,7 +161,7 @@ E:RegisterGlowUser("cooldownReady", {
 })
 E:RegisterGlowUser("cooldownAura", {
 	title = "Cooldown rows: aura active",
-	desc = "Cooldown row icons glow while their spell's buff is on you or its debuff is on your target, as the game reports it. Off by default.",
+	desc = "Cooldown row icons glow while their spell's buff is on you or its debuff is on your target. Off by default.",
 	order = 22,
 	button = true,
 	default = { style = "none", colorMode = "custom", color = { 0.3, 1, 0.4 } },
@@ -685,7 +685,13 @@ local function BuildAuraSlots(row, shown)
 				}
 			end
 		end
-		if #slots > 0 then entry[lane.unit] = widget.CreateSlots(rowFrames[row.key], { unit = lane.unit, slots = slots }) end
+		if #slots > 0 then
+			-- The row's icons are reused by place, so the same row and the
+			-- same spells in the same places get their container back.
+			local glow = E:GlowSettings("cooldownAura")
+			entry[lane.unit] = widget.CreateSlots(rowFrames[row.key], { unit = lane.unit, slots = slots,
+				poolKey = ("cdrow:%s:%s:%s"):format(tostring(row.key), sig, tostring(glow)) })
+		end
 	end
 end
 
@@ -1671,13 +1677,13 @@ for _, row in ipairs(ROWS) do
 			desc = "Next to the essential row follows it; own mover can be dragged in move mode." })
 		table.insert(rowsOptions, { type = "select", key = p .. "side", label = "Side", values = SIDES, hidden = NotAttached,
 			desc = "Which side of the essential row the icons sit on." })
-		table.insert(rowsOptions, { type = "range", key = p .. "gap", label = "Gap", min = 0, max = 40, step = 1, hidden = NotAttached,
+		table.insert(rowsOptions, { type = "range", unit = "px", key = p .. "gap", label = "Gap", min = 0, max = 40, step = 1, hidden = NotAttached,
 			desc = "Space to the essential row." })
-		table.insert(rowsOptions, { type = "range", key = p .. "size", label = "Icon size", min = 20, max = 64, step = 1, hidden = Off,
+		table.insert(rowsOptions, { type = "range", unit = "px", key = p .. "size", label = "Icon size", min = 20, max = 64, step = 1, hidden = Off,
 			desc = "Width and height of each icon." })
 		table.insert(rowsOptions, { type = "range", key = p .. "perRow", label = "Icons per row", min = 4, max = 16, step = 1, hidden = Off,
 			desc = "Icons in one row before a new one starts." })
-		table.insert(rowsOptions, { type = "range", key = p .. "spacing", label = "Spacing", min = 0, max = 20, step = 1, hidden = Off,
+		table.insert(rowsOptions, { type = "range", unit = "px", key = p .. "spacing", label = "Spacing", min = 0, max = 20, step = 1, hidden = Off,
 			desc = "Space between icons." })
 	end
 end
@@ -1750,7 +1756,7 @@ local lookOptions = {
 		desc = "A bright line along the edge of the swipe." },
 	{ type = "toggle", key = "rows.swipe.bling", label = "Flash when ready", cog = true,
 		desc = "The game's short flash when a cooldown ends." },
-	{ type = "range", key = "rows.swipe.inset", label = "Swipe inset", min = 0, max = 6, step = 1, cog = true,
+	{ type = "range", unit = "px", key = "rows.swipe.inset", label = "Swipe inset", min = 0, max = 6, step = 1, cog = true,
 		desc = "Keeps the swipe this many pixels inside the icon edge." },
 	{ type = "header", label = "Out of range (all rows)", fold = true },
 	{ type = "toggle", key = "rows.range.enabled", label = "Mark out of range",

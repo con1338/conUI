@@ -5,11 +5,11 @@
 -- reputation reward and the standing it needs (0 Hated .. 7 Exalted). The rank
 -- each rank reward needs comes from the game (C_MajorFactions.GetRenownRewardsForLevel),
 -- never from here.
--- Client tables of WoW: Forever 1.60.1.70862.
+-- Client tables of WoW: Forever 1.60.1.70938.
 local _, E = ...
 
 E.pvpRewards = {
-	build = "1.60.1.70862",
+	build = "1.60.1.70938",
 	items = {
 		[271903] = "Enriched Seal|3|4|0|12|53|48||A||2799:4",
 		[271904] = "Volunteer's Lucky Seal|3|4|0|12|38|33||A||2799:4",

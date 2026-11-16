@@ -75,8 +75,8 @@ M.options = function()
 	end
 	local look = {
 		{ type = "header", label = "Look" },
-		{ type = "range", key = "width", label = "Width", min = 360, max = 1000, step = 10, desc = "Width of the search box and its results." },
-		{ type = "range", key = "rowHeight", label = "Row height", min = 18, max = 48, step = 1, desc = "Height of one result row." },
+		{ type = "range", unit = "px", key = "width", label = "Width", min = 360, max = 1000, step = 10, desc = "Width of the search box and its results." },
+		{ type = "range", unit = "px", key = "rowHeight", label = "Row height", min = 18, max = 48, step = 1, desc = "Height of one result row." },
 		{ type = "range", key = "fontSize", label = "Search text size", min = 12, max = 24, step = 1, desc = "Size of the text you type." },
 		{ type = "toggle", key = "icons", label = "Icons", desc = "The icon of each result on the left of its row." },
 		{ type = "toggle", key = "kindLabels", label = "Kind labels", desc = "Panel, Setting, Mount and the other kinds on the right of each row." },

@@ -70,6 +70,7 @@ local M = E:NewModule("InfoBar", {
 		labelColor = "accent",  -- accent | class | white | gray
 		valueColor = "white",   -- white | class | accent
 		currency1 = 0, currency2 = 0, currency3 = 0, currency4 = 0,
+		errorsHideNone = true,  -- the Lua errors block takes no room while nothing is new
 		dt = {},                -- per datatext: { label = "default"|"none"|"custom"|"icon", custom = "" }
 		dtEdit = "Durability",  -- the datatext the label rows edit
 		-- Look of the main bar (bar 2 has the same keys under bar2).
@@ -162,6 +163,7 @@ local PANEL_DEFAULTS = {
 --     onMouseWheel = function(button, delta) end,             -- optional
 --     combatClick = true,               -- optional: clicks also work in combat
 --     secretWidth = 90,                 -- optional: width while the text is secret
+--     collapseEmpty = true,             -- optional: an empty text takes no room
 -- })
 ---------------------------------------------------------------------------
 E.dataTexts = {}
@@ -266,18 +268,20 @@ end
 E:RegisterDataText("Time", {
 	poll = true,
 	text = function()
-		local db = DB()
-		if db.timeSource == "realm" then return Value(RealmClock()) end
-		return Value(LocalClock())
+		local text = Value(DB().timeSource == "realm" and RealmClock() or LocalClock())
+		return M.calendar and M.calendar.Mark(text) or text
 	end,
 	tooltip = function(tooltip)
 		tooltip:AddDoubleLine(L["Local time"], LocalClock(), 1, 1, 1, 1, 1, 1)
 		tooltip:AddDoubleLine(L["Realm time"], RealmClock(), 1, 1, 1, 1, 1, 1)
-		E:TooltipHint(tooltip, { L["Click"], L["calendar"] })
+		-- Invites, today's events, the next guild event and the resets
+		-- (Modules/InfoBar/Calendar.lua).
+		if M.calendar then M.calendar.AddLines(tooltip) M.calendar.Hint(tooltip) end
 	end,
 	-- Opens a normal game window: works in combat too.
 	combatClick = true,
 	onClick = function()
+		if M.calendar and M.calendar.Disabled() then return end
 		if not C_AddOns.IsAddOnLoaded("Blizzard_Calendar") then C_AddOns.LoadAddOn("Blizzard_Calendar") end
 		if ToggleCalendar then ToggleCalendar() end
 	end,
@@ -331,61 +335,82 @@ E:RegisterDataText("Latency", {
 ---------------------------------------------------------------------------
 -- Durability
 ---------------------------------------------------------------------------
--- Repair cost per slot from the tooltip data, when the client gives it.
--- Only read on hover (at most 18 lookups), never on a timer.
-local function SlotRepairCost(slot)
-	if not (C_TooltipInfo and C_TooltipInfo.GetInventoryItem) then return nil end
-	local ok, data = pcall(C_TooltipInfo.GetInventoryItem, "player", slot)
-	if not ok or type(data) ~= "table" then return nil end
-	local cost = data.repairCost
-	if IsSecret(cost) or type(cost) ~= "number" or cost <= 0 then return nil end
-	return cost
-end
+do
+	-- Repair costs are read from tooltip data only when this tooltip opens.
+	local function ItemRepairCost(getter, ...)
+		local data = E.PlainCall(getter, ...)
+		if type(data) ~= "table" then return nil end
+		local cost = data.repairCost
+		if IsSecret(cost) or type(cost) ~= "number" or not (cost > 0 and cost < math.huge) then return nil end
+		return cost
+	end
 
-E:RegisterDataText("Durability", {
-	events = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED" },
-	label = "Dur",
-	icon = "Interface\\Minimap\\Tracking\\Repair",
-	text = function()
-		local lowest = 100
-		for slot = 1, 18 do
-			local current, maximum = GetInventoryItemDurability(slot)
-			if current and maximum and maximum > 0 then
-				lowest = math.min(lowest, current / maximum * 100)
+	local function BagRepairCost()
+		local cache = E.BagCache
+		local durability = C_Container and C_Container.GetContainerItemDurability
+		local tooltip = C_TooltipInfo and C_TooltipInfo.GetBagItem
+		if not cache or not durability then return 0, false end
+		local total, damaged = 0, false
+		for bag, slot in cache:Items({ equipped = true, reagent = true }) do
+			local current, maximum = E.PlainCallAll(durability, bag, slot)
+			if type(current) == "number" and type(maximum) == "number" and maximum > 0 and current < maximum then
+				damaged = true
+				total = total + (ItemRepairCost(tooltip, bag, slot) or 0)
 			end
 		end
-		return DurabilityText(lowest)
-	end,
-	tooltip = function(tooltip)
-		local any, totalCost = false, 0
-		for slot = 1, 18 do
-			local current, maximum = GetInventoryItemDurability(slot)
-			if current and maximum and maximum > 0 and current < maximum then
-				any = true
-				local percent = current / maximum * 100
-				local link = GetInventoryItemLink("player", slot) or L["Slot %d"]:format(slot)
-				local right = DurabilityText(percent)
-				local cost = SlotRepairCost(slot)
-				if cost then
-					totalCost = totalCost + cost
-					right = CoinString(cost) .. "  " .. right
+		return total, damaged
+	end
+
+	E:RegisterDataText("Durability", {
+		events = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED" },
+		label = "Dur",
+		icon = "Interface\\Minimap\\Tracking\\Repair",
+		text = function()
+			local lowest = 100
+			for slot = 1, 18 do
+				local current, maximum = GetInventoryItemDurability(slot)
+				if current and maximum and maximum > 0 then
+					lowest = math.min(lowest, current / maximum * 100)
 				end
-				tooltip:AddDoubleLine(link, right, 1, 1, 1, 1, 1, 1)
 			end
-		end
-		if not any then
-			E.UIKit.TipText(tooltip, L["Nothing is damaged."])
-		elseif totalCost > 0 then
-			tooltip:AddLine(" ")
-			E.UIKit.TipPair(tooltip, L["Repair cost"], CoinString(totalCost))
-		end
-	end,
-	-- Opens the character window: out of combat only (M.ClickBlock).
-	hint = { Key("Click"), Key("character window") },
-	onClick = function()
-		ToggleCharacter("PaperDollFrame")
-	end,
-})
+			return DurabilityText(lowest)
+		end,
+		tooltip = function(tooltip)
+			local any, totalCost = false, 0
+			for slot = 1, 18 do
+				local current, maximum = E.PlainCallAll(GetInventoryItemDurability, slot)
+				if type(current) == "number" and type(maximum) == "number" and maximum > 0 and current < maximum then
+					any = true
+					local percent = current / maximum * 100
+					local link = GetInventoryItemLink("player", slot) or L["Slot %d"]:format(slot)
+					local right = DurabilityText(percent)
+					local cost = ItemRepairCost(C_TooltipInfo and C_TooltipInfo.GetInventoryItem, "player", slot)
+					if cost then
+						totalCost = totalCost + cost
+						right = CoinString(cost) .. "  " .. right
+					end
+					tooltip:AddDoubleLine(link, right, 1, 1, 1, 1, 1, 1)
+				end
+			end
+			local bagCost, bagDamage = BagRepairCost()
+			if bagCost > 0 then
+				E.UIKit.TipPair(tooltip, L["In bags"], CoinString(bagCost))
+			end
+			totalCost = totalCost + bagCost
+			if not any and not bagDamage then
+				E.UIKit.TipText(tooltip, L["Nothing is damaged."])
+			elseif totalCost > 0 then
+				tooltip:AddLine(" ")
+				E.UIKit.TipPair(tooltip, L["Repair cost"], CoinString(totalCost))
+			end
+		end,
+		-- Opens the character window: out of combat only (M.ClickBlock).
+		hint = { Key("Click"), Key("character window") },
+		onClick = function()
+			ToggleCharacter("PaperDollFrame")
+		end,
+	})
+end
 
 ---------------------------------------------------------------------------
 -- Gold: every character from EldoUIDB.inventory, with filters and session
@@ -465,11 +490,10 @@ E:RegisterDataText("Gold", {
 		tooltip:AddDoubleLine(L["Total"], CoinString(total), 1, 1, 1, 1, 1, 1)
 		if session.start then
 			local net = session.gained - session.spent
-			E.UIKit.TipPair(tooltip, L["Session earned"], CoinString(session.gained), 0.27, 0.87, 0.27)
-			E.UIKit.TipPair(tooltip, L["Session spent"], CoinString(session.spent), 1, 0.27, 0.27)
+			E.UIKit.TipPair(tooltip, L["Session earned"], CoinString(session.gained), E:TokenColor("good"))
+			E.UIKit.TipPair(tooltip, L["Session spent"], CoinString(session.spent), E:TokenColor("bad"))
 			local sign = net < 0 and "-" or "+"
-			local nr, ng, nb = 0.27, 0.87, 0.27
-			if net < 0 then nr, ng, nb = 1, 0.27, 0.27 end
+			local nr, ng, nb = E:TokenColor(net < 0 and "bad" or "good")
 			E.UIKit.TipPair(tooltip, L["Session net"], sign .. CoinString(math.abs(net)), nr, ng, nb)
 		end
 		local alts = E.modules.Characters
@@ -515,11 +539,7 @@ E:RegisterDataText("Bags", {
 	label = "Free",
 	icon = "Interface\\Buttons\\Button-Backpack-Up",
 	text = function()
-		local free, total = 0, 0
-		for _, bag in ipairs(E.BagCache:BagIDs()) do
-			free = free + E.BagCache:Free(bag)
-			total = total + E.BagCache:NumSlots(bag)
-		end
+		local free, total = E.BagCache:GeneralSlots(E.BagCache:BagIDs())
 		local kind = (total > 0 and free == 0) and "bad" or (free <= 4 and "warn") or nil
 		return Status(kind, ("%d"):format(free)) .. Value("/" .. total)
 	end,
@@ -527,8 +547,17 @@ E:RegisterDataText("Bags", {
 		for _, bag in ipairs(E.BagCache:BagIDs()) do
 			local slots = E.BagCache:NumSlots(bag)
 			if slots > 0 then
-				local free = E.BagCache:Free(bag)
-				local name = bag == 0 and (BACKPACK_TOOLTIP or L["Backpack"]) or (C_Container.GetBagName and C_Container.GetBagName(bag)) or L["Bag %d"]:format(bag)
+				local free, family = E.BagCache:Free(bag)
+				local name = bag == 0 and E:GameText(BACKPACK_TOOLTIP, L["Backpack"])
+					or E.PlainCall(C_Container.GetBagName, bag) or L["Bag %d"]:format(bag)
+				if type(family) == "number" and family ~= 0 and C_Item and C_Item.GetItemInfoInstant then
+					local slot = E.PlainCall(C_Container.ContainerIDToInventoryID, bag)
+					local link = type(slot) == "number" and E.PlainCall(GetInventoryItemLink, "player", slot)
+					local subType = type(link) == "string" and select(3, E.PlainCallAll(C_Item.GetItemInfoInstant, link))
+					if type(subType) == "string" and subType ~= "" and not name:find(subType, 1, true) then
+						name = L["%s (%s)"]:format(name, subType)
+					end
+				end
 				tooltip:AddDoubleLine(name, L["%d/%d free"]:format(free, slots), 1, 1, 1, 1, 1, 1)
 			end
 		end
@@ -609,6 +638,7 @@ E:RegisterDataText("Currencies", {
 		tooltip:AddLine(" ")
 		E.UIKit.TipText(tooltip, L["Tick \"Show on backpack\" in the currency tab to show one here."])
 	end,
+	hint = { Key("Click"), Key("currency tab") },
 	-- Opens the character window: out of combat only (M.ClickBlock).
 	onClick = function()
 		if ToggleCharacter and _G.TokenFrame then ToggleCharacter("TokenFrame") end
@@ -623,7 +653,9 @@ local HEARTHSTONES = { 6948 }
 
 local function HearthstoneID()
 	for _, id in ipairs(HEARTHSTONES) do
-		if (C_Item.GetItemCount(id) or 0) > 0 then return id end
+		-- The game can answer with a secret value; that counts as unknown.
+		local count = C_Item.GetItemCount(id)
+		if not IsSecret(count) and type(count) == "number" and count > 0 then return id end
 	end
 end
 
@@ -663,9 +695,9 @@ E:RegisterDataText("Hearthstone", {
 		end
 		local left = HearthCooldown(id)
 		if left and left > 0 then
-			E.UIKit.TipPair(tooltip, L["Cooldown"], FormatTime(left), 1, 0.8, 0)
+			E.UIKit.TipPair(tooltip, L["Cooldown"], FormatTime(left), E:TokenColor("warn"))
 		elseif left then
-			E.UIKit.TipPair(tooltip, L["Cooldown"], L["Ready"], 0.27, 0.87, 0.27)
+			E.UIKit.TipPair(tooltip, L["Cooldown"], L["Ready"], E:TokenColor("good"))
 		end
 		tooltip:AddLine(" ")
 		E:TooltipHint(tooltip, { L["Click"], L["use the Hearthstone"] })
@@ -686,7 +718,7 @@ E:RegisterDataText("Class", {
 		local r, g, b = E:ClassColor("player")
 		tooltip:AddDoubleLine(UnitName("player") or "", className or "", 1, 1, 1, r, g, b)
 		if race then E.UIKit.TipPair(tooltip, L["Race"], race) end
-		E.UIKit.TipPair(tooltip, LEVEL or L["Level"], tostring(UnitLevel("player")))
+		E.UIKit.TipPair(tooltip, E:GameText(LEVEL, L["Level"]), tostring(UnitLevel("player")))
 	end,
 	hint = { Key("Click"), Key("character window") },
 	-- Opens the character window: out of combat only (M.ClickBlock).
@@ -795,6 +827,7 @@ function M.GuildTooltip(tooltip)
 	if C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster() end
 	local guildName, rankName = GetGuildInfo("player")
 	if guildName then tooltip:AddDoubleLine("<" .. guildName .. ">", rankName or "", 1, 1, 1, 0.65, 0.65, 0.65) end
+	if M.calendar then M.calendar.AddGuildLine(tooltip) end
 	-- The game blocks the guild message itself while chat is locked down
 	-- (encounters, keys, PvP): it is left out then, not read and dropped.
 	local motd = not E:CommRestricted() and C_GuildInfo and C_GuildInfo.GetMOTD and C_GuildInfo.GetMOTD()
@@ -915,7 +948,7 @@ E:RegisterDataText("XP", {
 	end,
 	tooltip = function(tooltip)
 		local level = UnitLevel("player")
-		E.UIKit.TipPair(tooltip, LEVEL or L["Level"], tostring(level))
+		E.UIKit.TipPair(tooltip, E:GameText(LEVEL, L["Level"]), tostring(level))
 		if E:AtMaxLevel() then
 			E.UIKit.TipText(tooltip, L["You are at the level cap."])
 			return
@@ -965,6 +998,7 @@ E:RegisterDataText("Reputation", {
 		if not faction then
 			E.UIKit.TipText(tooltip, L["No faction watched."])
 			E.UIKit.TipText(tooltip, L["Tick \"Show as experience bar\" in the reputation list."])
+			E:TooltipHint(tooltip, { L["Click"], L["open the reputation list"] })
 			return
 		end
 		local standing = _G["FACTION_STANDING_LABEL" .. tostring(faction.reaction)] or ""
@@ -998,8 +1032,8 @@ E:RegisterDataText("Honor", {
 	text = function()
 		local info = HonorCurrency()
 		local amount = info and Plain(info.quantity)
-		if amount then return Label((HONOR or L["Honor"]) .. " ") .. Value(BreakUpLargeNumbers(amount)) end
-		return Label(HONOR or L["Honor"])
+		if amount then return Label((E:GameText(HONOR, L["Honor"])) .. " ") .. Value(BreakUpLargeNumbers(amount)) end
+		return Label(E:GameText(HONOR, L["Honor"]))
 	end,
 	tooltip = function(tooltip)
 		local info = HonorCurrency()
@@ -1029,84 +1063,103 @@ E:RegisterDataText("Honor", {
 ---------------------------------------------------------------------------
 -- Place: zone, coordinates, speed
 ---------------------------------------------------------------------------
-local function ZoneColorCode()
-	local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
-	if pvpType == "sanctuary" then return E:TextHex("accent") end
-	if pvpType == "friendly" then return E:TextHex("good") end
-	if pvpType == "hostile" then return E:TextHex("bad") end
-	if pvpType == "contested" then return E:TextHex("warn") end
-	return "|cffffffff"
-end
+do
+	local function ZoneColorCode()
+		local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
+		if pvpType == "sanctuary" then return E:TextHex("accent") end
+		if pvpType == "friendly" then return E:TextHex("good") end
+		if pvpType == "hostile" then return E:TextHex("bad") end
+		if pvpType == "contested" then return E:TextHex("warn") end
+		return "|cffffffff"
+	end
 
-E:RegisterDataText("Zone", {
-	events = { "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA" },
-	text = function()
-		local text = GetMinimapZoneText and GetMinimapZoneText() or GetZoneText()
-		return ZoneColorCode() .. (text or "") .. "|r"
-	end,
-	tooltip = function(tooltip)
-		E.UIKit.TipPair(tooltip, L["Zone"], GetRealZoneText() or "")
-		local sub = GetSubZoneText()
-		if sub and sub ~= "" then E.UIKit.TipPair(tooltip, L["Area"], sub) end
-		local pvpType, faction
-		if C_PvP and C_PvP.GetZonePVPInfo then
-			local _
-			pvpType, _, faction = C_PvP.GetZonePVPInfo()
-		end
-		if pvpType then E.UIKit.TipPair(tooltip, L["Status"], faction and (pvpType .. " (" .. faction .. ")") or pvpType) end
-		tooltip:AddLine(" ")
-		E:TooltipHint(tooltip, { L["Click"], L["world map"] })
-	end,
-	-- A click on the block goes through the game's own map button (a secure
-	-- overlay, so the game opens it, in combat too). This runs only from
-	-- the "»" menu or without that button, and only out of combat.
-	onClick = function()
-		if ToggleWorldMap then ToggleWorldMap() end
-	end,
-})
+	-- Coordinates are nil inside instances: then "--", never a guess.
+	local function PlayerCoords()
+		local mapID = C_Map and C_Map.GetBestMapForUnit("player")
+		local position = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
+		if not position then return nil end
+		local x, y = position:GetXY()
+		if IsSecret(x) or IsSecret(y) or not x or not y or (x == 0 and y == 0) then return nil end
+		return x * 100, y * 100
+	end
 
--- Coordinates are nil inside instances: then "--", never a guess.
-local function PlayerCoords()
-	local mapID = C_Map and C_Map.GetBestMapForUnit("player")
-	local position = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
-	if not position then return nil end
-	local x, y = position:GetXY()
-	if IsSecret(x) or IsSecret(y) or not x or not y or (x == 0 and y == 0) then return nil end
-	return x * 100, y * 100
-end
+	-- The coordinate format per precision setting, made once.
+	M.coordPatterns = {}
 
--- The coordinate format per precision setting, made once.
-M.coordPatterns = {}
-
-E:RegisterDataText("Coords", {
-	title = "Coordinates",
-	poll = true,
-	interval = 0.2,
-	text = function()
-		local x, y = PlayerCoords()
-		if not x then return GREY .. "--, --|r" end
+	local function CoordinateText(x, y)
 		local decimals = DB().coordDecimals or 1
-		local patterns = M.coordPatterns
-		local pattern = patterns[decimals]
+		local pattern = M.coordPatterns[decimals]
 		if not pattern then
 			pattern = ("%%.%df, %%.%df"):format(decimals, decimals)
-			patterns[decimals] = pattern
+			M.coordPatterns[decimals] = pattern
 		end
-		return Value(pattern:format(x, y))
-	end,
-	tooltip = function(tooltip)
-		E.UIKit.TipPair(tooltip, L["Zone"], GetRealZoneText() or "")
-		if not PlayerCoords() then E.UIKit.TipText(tooltip, L["The game gives no position here."]) end
-		tooltip:AddLine(" ")
-		E:TooltipHint(tooltip, { L["Click"], L["world map"] })
-	end,
-	-- A click on the block goes through the game's own map button (a secure
-	-- overlay, so the game opens it, in combat too). This runs only from
-	-- the "»" menu or without that button, and only out of combat.
-	onClick = function()
-		if ToggleWorldMap then ToggleWorldMap() end
-	end,
-})
+		return pattern:format(x, y)
+	end
+
+	local function InsertPlayerLocation()
+		local util = rawget(_G, "ChatFrameUtil")
+		local active = util and util.GetActiveWindow or rawget(_G, "ChatEdit_GetActiveWindow")
+		local box = type(active) == "function" and active()
+		if not (box and box:IsShown() and box:HasFocus()) then return end
+		local zone = GetRealZoneText()
+		if IsSecret(zone) or type(zone) ~= "string" or zone == "" then return end
+		local x, y = PlayerCoords()
+		local text = x and (zone .. " (" .. CoordinateText(x, y) .. ")") or zone
+		E:InsertLink(text)
+	end
+
+	E:RegisterDataText("Zone", {
+		events = { "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA" },
+		text = function()
+			local text = GetMinimapZoneText and GetMinimapZoneText() or GetZoneText()
+			return ZoneColorCode() .. (text or "") .. "|r"
+		end,
+		tooltip = function(tooltip)
+			E.UIKit.TipPair(tooltip, L["Zone"], GetRealZoneText() or "")
+			local sub = GetSubZoneText()
+			if sub and sub ~= "" then E.UIKit.TipPair(tooltip, L["Area"], sub) end
+			local pvpType, faction
+			if C_PvP and C_PvP.GetZonePVPInfo then
+				local _
+				pvpType, _, faction = C_PvP.GetZonePVPInfo()
+			end
+			if pvpType then E.UIKit.TipPair(tooltip, L["Status"], faction and (pvpType .. " (" .. faction .. ")") or pvpType) end
+			tooltip:AddLine(" ")
+			E:TooltipHint(tooltip, { L["Click"], L["world map"] }, { L["Shift-click"], L["insert your location into chat"] })
+		end,
+		-- A click on the block goes through the game's own map button (a secure
+		-- overlay, so the game opens it, in combat too). This runs only from
+		-- the "»" menu or without that button, and only out of combat.
+		onClick = function()
+			if ToggleWorldMap then ToggleWorldMap() end
+		end,
+		onShiftClick = InsertPlayerLocation,
+	})
+
+	E:RegisterDataText("Coords", {
+		title = "Coordinates",
+		poll = true,
+		interval = 0.2,
+		text = function()
+			local x, y = PlayerCoords()
+			if not x then return GREY .. "--, --|r" end
+			return Value(CoordinateText(x, y))
+		end,
+		tooltip = function(tooltip)
+			E.UIKit.TipPair(tooltip, L["Zone"], GetRealZoneText() or "")
+			if not PlayerCoords() then E.UIKit.TipText(tooltip, L["The game gives no position here."]) end
+			tooltip:AddLine(" ")
+			E:TooltipHint(tooltip, { L["Click"], L["world map"] }, { L["Shift-click"], L["insert your location into chat"] })
+		end,
+		-- A click on the block goes through the game's own map button (a secure
+		-- overlay, so the game opens it, in combat too). This runs only from
+		-- the "»" menu or without that button, and only out of combat.
+		onClick = function()
+			if ToggleWorldMap then ToggleWorldMap() end
+		end,
+		onShiftClick = InsertPlayerLocation,
+	})
+end
 
 E:RegisterDataText("Speed", {
 	poll = true,
@@ -1154,7 +1207,7 @@ local function SpecName()
 		end
 	end
 	local group = info and info.GetActiveSpecGroup and info.GetActiveSpecGroup()
-	if group then return (TALENTS or L["Talents"]) .. " " .. group end
+	if group then return (E:GameText(TALENTS, L["Talents"])) .. " " .. group end
 end
 
 -- Talent Planner (T7): Shift-click opens it, the tooltip names the
@@ -1177,7 +1230,7 @@ E:RegisterDataText("Spec", {
 	events = { "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_LOOT_SPEC_UPDATED", "PLAYER_LEVEL_UP" },
 	text = function()
 		local name, icon = SpecName()
-		if not name then return Label(TALENTS or L["Talents"]) end
+		if not name then return Label(E:GameText(TALENTS, L["Talents"])) end
 		local iconText = icon and ("|T%s:0:0:0:0:64:64:5:59:5:59|t "):format(icon) or ""
 		return iconText .. Value(name)
 	end,
@@ -1222,6 +1275,7 @@ E:RegisterDataText("ItemLevel", {
 		if Plain(equipped) then E.UIKit.TipPair(tooltip, L["Equipped"], ("%.1f"):format(equipped)) end
 		if Plain(overall) then E.UIKit.TipPair(tooltip, L["Best in bags"], ("%.1f"):format(overall)) end
 	end,
+	hint = { Key("Click"), Key("character window") },
 	-- Opens the character window: out of combat only (M.ClickBlock).
 	onClick = function()
 		ToggleCharacter("PaperDollFrame")
@@ -1248,9 +1302,8 @@ E:RegisterDataText("Played", {
 			local since = GetTime() - played.at
 			E.UIKit.TipPair(tooltip, L["Total"], FormatDuration(played.total + since))
 			E.UIKit.TipPair(tooltip, L["This level"], FormatDuration(played.level + since))
-		else
-			E:TooltipHint(tooltip, { L["Click"], L["ask the game for your total time (also shown in chat)"] })
 		end
+		E:TooltipHint(tooltip, { L["Click"], L["ask the game for your total time (also shown in chat)"] })
 	end,
 	-- Opens a normal game window: works in combat too.
 	combatClick = true,
@@ -1581,6 +1634,7 @@ local function Missing(value)
 end
 
 local function OpenCalendar()
+	if M.calendar and M.calendar.Disabled() then return end
 	if not C_AddOns.IsAddOnLoaded("Blizzard_Calendar") then C_AddOns.LoadAddOn("Blizzard_Calendar") end
 	if ToggleCalendar then ToggleCalendar() end
 end
@@ -1595,14 +1649,16 @@ E:RegisterDataText("Date", {
 		-- "long" names the weekday and month in the client language.
 		if DB().dateFormat == "long" then
 			local now = time()
-			return Value(E:WeekdayName(date("*t", now).wday, true) .. " " .. E:ShortDay(now))
+			local text = Value(E:WeekdayName(date("*t", now).wday, true) .. " " .. E:ShortDay(now))
+			return M.calendar and M.calendar.Mark(text) or text
 		end
-		return Value(date(DATE_FORMATS[DB().dateFormat] or DATE_FORMATS.dmy))
+		local text = Value(date(DATE_FORMATS[DB().dateFormat] or DATE_FORMATS.dmy))
+		return M.calendar and M.calendar.Mark(text) or text
 	end,
 	tooltip = function(tooltip)
 		E.UIKit.TipTitle(tooltip, E:LongDay(time(), true))
 		E.UIKit.TipText(tooltip, L["The date format is on the Datatexts tab."])
-		E:TooltipHint(tooltip, { L["Click"], L["calendar"] })
+		if M.calendar then M.calendar.AddLines(tooltip) M.calendar.Hint(tooltip) end
 	end,
 	-- Opens a normal game window: works in combat too.
 	combatClick = true,
@@ -1917,6 +1973,8 @@ E:RegisterDataText("EldoUI", {
 	title = "EldoUI",
 	text = function() return Label("EldoUI") end,
 	tooltip = function(tooltip)
+		local log = E.errors
+		if log and (log.unseen or 0) > 0 then E.UIKit.TipPair(tooltip, L["New Lua errors"], tostring(log.unseen)) end
 		E:TooltipHint(tooltip, { L["Click"], L["move frames"] })
 		E:TooltipHint(tooltip, { L["Right-click"], L["keybind mode"] })
 		E.UIKit.TipText(tooltip, L["Type /eui in chat for the settings."])
@@ -1926,6 +1984,60 @@ E:RegisterDataText("EldoUI", {
 		if mouseButton == "RightButton" then E:ToggleKeybindMode() else E:ToggleMoveMode() end
 	end,
 })
+
+-- Lua errors: the number of new entries in EldoUI's error log. The log
+-- tells its listeners at most once per frame, so a burst of errors redraws
+-- the block once. The tooltip text is scrubbed like a bug report: no
+-- names, realms or quoted chat text.
+local ERROR_PREVIEW = 60
+local function ErrorLine(log, entry)
+	local message = log:ScrubReport(tostring(entry.message or "")):gsub("%s+", " ")
+	if #message > ERROR_PREVIEW then message = message:sub(1, ERROR_PREVIEW - 3) .. "..." end
+	local where = entry.addon and (entry.addon .. ": ") or ""
+	local count = (entry.count or 1) > 1 and (" x" .. entry.count) or ""
+	return ("%s%s%s|r  %s%s"):format(GREY, E:When(entry.last or 0), count, where, message)
+end
+
+E:RegisterDataText("Errors", {
+	title = "Lua errors",
+	label = "Errors",
+	collapseEmpty = true,
+	text = function()
+		local log = E.errors
+		local unseen = log and log.unseen or 0
+		if unseen > 0 then return Status("warn", tostring(unseen)) end
+		if DB().errorsHideNone then return "" end
+		return GREY .. "0|r"
+	end,
+	tooltip = function(tooltip)
+		local log = E.errors
+		if not log then return end
+		local entries, thisSession = log.entries or {}, 0
+		for _, entry in ipairs(entries) do
+			if entry.session == log.session then thisSession = thisSession + 1 end
+		end
+		E.UIKit.TipPair(tooltip, L["New errors"], tostring(log.unseen or 0))
+		E.UIKit.TipPair(tooltip, L["This session"], tostring(thisSession))
+		E.UIKit.TipPair(tooltip, L["In the log"], tostring(#entries))
+		for index = #entries, math.max(#entries - 2, 1), -1 do
+			E.UIKit.TipText(tooltip, ErrorLine(log, entries[index]))
+		end
+	end,
+	hint = { { Key("Click"), Key("open the error log") }, { Key("Right-click"), Key("mark all as seen") } },
+	combatClick = true,
+	onClick = function(_, mouseButton)
+		if mouseButton == "RightButton" then
+			if E.errors then E.errors:MarkSeen() end
+		else
+			E:ToggleErrorWindow(true)
+		end
+	end,
+})
+if E.errors and E.errors.OnChange then
+	E.errors:OnChange("InfoBarErrors", function()
+		if M.active then M:RefreshDataText("Errors") end
+	end)
+end
 
 -- Custom currencies: four slots, each showing the currency picked for it.
 local function CurrencyText(id)
@@ -1967,6 +2079,7 @@ for slot = 1, 4 do
 				tooltip:AddLine(E:StatusText("bad", L["At the cap."]))
 			end
 		end,
+		hint = { Key("Click"), Key("currency tab") },
 		-- Opens the character window: out of combat only (M.ClickBlock).
 		onClick = function()
 			if ToggleCharacter and _G.TokenFrame then ToggleCharacter("TokenFrame") end
@@ -2345,11 +2458,7 @@ local DASHBOARD_ROWS = {
 			current = lowest, max = 100, status = status } }
 	end,
 	Bags = function()
-		local free, total = 0, 0
-		for _, bag in ipairs(E.BagCache:BagIDs()) do
-			free = free + E.BagCache:Free(bag)
-			total = total + E.BagCache:NumSlots(bag)
-		end
+		local free, total = E.BagCache:GeneralSlots(E.BagCache:BagIDs())
 		-- The bar fills as the bags fill; it warns with 4 slots left.
 		local status = (total > 0 and free == 0) and "bad" or (total > 0 and free <= 4 and "warn") or nil
 		return { { icon = E.dataTexts.Bags.icon, label = L["Bags"], value = RowValue(L["%d free"]:format(free), status),
@@ -2467,7 +2576,7 @@ local function SampleDashboardRows()
 			status = DURABILITY_STATUS[E:DurabilityLevel(38) or ""] },
 		{ icon = E.dataTexts.Bags.icon, label = L["Bags"], value = RowValue(L["%d free"]:format(3), "warn"), current = 69, max = 72, status = "warn" },
 		{ icon = "Interface\\Icons\\INV_BannerPVP_02", label = L["Honor"], value = RowValue("1,980 / 2,000", "warn"), current = 1980, max = 2000, status = "warn" },
-		{ label = L["Argent Dawn"], value = Value(("%s  %.0f%%"):format(_G.FACTION_STANDING_LABEL6 or L["Honored"], 62)),
+		{ label = L["Argent Dawn"], value = Value(("%s  %.0f%%"):format(E:GameText(_G.FACTION_STANDING_LABEL6, L["Honored"]), 62)),
 			current = 7440, max = 12000, color = c and { c.r, c.g, c.b } },
 		{ icon = "Interface\\Icons\\Trade_Tailoring", label = L["Tailoring"], value = Value("212 / 300"), current = 212, max = 300 },
 	}
@@ -2645,7 +2754,9 @@ local function UpdateButton(button)
 	elseif not IsSecret(text) and type(text) ~= "string" then
 		text = tostring(text or "")
 	end
-	local label = LabelPart(button.dataName, definition)
+	-- A block with nothing to say takes no room (collapseEmpty).
+	local collapsed = definition.collapseEmpty and not IsSecret(text) and text == ""
+	local label = not collapsed and LabelPart(button.dataName, definition)
 	if label then
 		-- string.format, so a secret value can still be shown.
 		if definition.labelAfter then
@@ -2665,7 +2776,9 @@ local function UpdateButton(button)
 	-- Bars: as wide as the text. A secret text can't be measured: keep the
 	-- width it had, or the block's own guess.
 	local width
-	if definition.fixedWidth then
+	if collapsed then
+		width = 0
+	elseif definition.fixedWidth then
 		width = definition.fixedWidth
 	elseif IsSecret(text) then
 		width = button.plainWidth or definition.secretWidth or 90
@@ -2707,6 +2820,12 @@ local function HolderMover(holder)
 	return E.movers[BAR_MOVERS[holder.barIndex]]
 end
 
+local draggedBlocks = setmetatable({}, { __mode = "k" })
+
+local function IsLocationClick()
+	return IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown()
+end
+
 local function StartBarDrag(frame)
 	if not M.db.shiftDrag or not IsShiftKeyDown() or InCombatLockdown() then return end
 	local holder = BarOf(frame.target or frame) or M.bars[1]
@@ -2714,6 +2833,7 @@ local function StartBarDrag(frame)
 	if not mover then return end
 	GameTooltip_Hide()
 	mover:StartMoving()
+	draggedBlocks[frame.target or frame] = true
 	M.dragging = mover
 end
 
@@ -2728,6 +2848,7 @@ local function StopBarDrag()
 end
 
 local function EnableDrag(frame)
+	frame:HookScript("OnMouseDown", function(self) draggedBlocks[self.target or self] = nil end)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", StartBarDrag)
 	frame:SetScript("OnDragStop", StopBarDrag)
@@ -2794,11 +2915,14 @@ do
 			overlay:SetAttribute("type1", "click")
 		end
 		overlay:SetAttribute("shift-type1", "noop") -- Shift+drag moves the bar instead
-		local highlight = overlay:CreateTexture(nil, "HIGHLIGHT")
-		highlight:SetAllPoints()
-		local r, g, b = unpack(E.media.accentColor)
-		highlight:SetColorTexture(r, g, b, 0.12)
-		overlay.highlight = highlight
+		overlay:HookScript("PostClick", function(frame, button, down)
+			if down or button ~= "LeftButton" or not IsLocationClick() then return end
+			local target = frame.target
+			local definition = target and E.dataTexts[target.dataName]
+			if definition and definition.onShiftClick then M.ClickBlock(target, button) end
+		end)
+		-- The same hover and press marks as every other block.
+		overlay.highlight = E:SkinHoverPress(overlay)
 		overlay.dataName = dataName
 		overlay:SetScript("OnEnter", function(frame) if frame.target then ShowTooltip(frame.target) end end)
 		overlay:SetScript("OnLeave", function(frame) if frame.target then HideTooltip(frame.target) else GameTooltip_Hide() end end)
@@ -2822,8 +2946,6 @@ do
 
 	local function PlaceOverlay(overlay, target)
 		local spec = SECURE_BLOCKS[overlay.dataName]
-		local r, g, b = unpack(E.media.accentColor) -- accent read at draw time
-		overlay.highlight:SetColorTexture(r, g, b, 0.12)
 		if spec.item then
 			local id = HearthstoneID() or HEARTHSTONES[1]
 			overlay:SetAttribute("item", "item:" .. id)
@@ -2985,7 +3107,11 @@ end
 -- error, so those blocks wait for the end of combat like the others.
 function M.ClickBlock(button, mouseButton, owner)
 	local definition = E.dataTexts[button.dataName]
-	if not (definition and definition.onClick) then return end
+	if not (definition and definition.onClick) or (not owner and draggedBlocks[button]) then return end
+	if IsLocationClick() and definition.onShiftClick then
+		if mouseButton == "LeftButton" then definition.onShiftClick() end
+		return
+	end
 	if definition.combatClick or not InCombatLockdown() then
 		definition.onClick(button, mouseButton)
 	elseif E.UIKit and E.UIKit.Toast then
@@ -3005,7 +3131,8 @@ local function GetButton(holder, index)
 		button:SetScript("OnLeave", HideTooltip)
 		button:SetScript("OnClick", function(self, mouseButton)
 			if E:IsOptionsLinkClick(self, mouseButton) then return end
-			if IsShiftKeyDown() and M.db.shiftDrag then return end
+			local definition = E.dataTexts[self.dataName]
+			if IsShiftKeyDown() and M.db.shiftDrag and not (IsLocationClick() and definition and definition.onShiftClick) then return end
 			M.ClickBlock(self, mouseButton)
 		end)
 		button:SetScript("OnMouseWheel", function(self, delta)
@@ -3013,8 +3140,15 @@ local function GetButton(holder, index)
 			if definition and definition.onMouseWheel then definition.onMouseWheel(self, delta) end
 		end)
 		EnableDrag(button)
+		-- The shared hover and press marks; a block without a click keeps
+		-- them off (BindButton).
+		button.hover, button.pressed = E:SkinHoverPress(button)
 		-- Alt-click: some datatexts use Ctrl-click for themselves.
-		E:BindOptionsLink(button, function(self)
+		E:BindOptionsLink(button, function(self, mouseButton)
+			local definition = E.dataTexts[self.dataName]
+			if mouseButton == "RightButton" and definition and definition.rightClickOptions then
+				return definition.rightClickOptions
+			end
 			local owner = self:GetParent()
 			local tab = owner and owner.panelIndex and "Panels" or (owner and owner.barIndex == 2 and "Second bar") or "Main bar"
 			return { page = "module:InfoBar", tab = tab }
@@ -3042,6 +3176,12 @@ local function BindButton(holder, button, name, definition, fontSize, events)
 	button.plainWidth, button.shownText = nil, nil
 	E:SetFont(button.text, fontSize, M.DockOutline(holder))
 	button:EnableMouseWheel(definition.onMouseWheel and true or false)
+	if button.hover then
+		-- Only a block that does something on a click lights up.
+		local clickable = definition.onClick ~= nil
+		button.hover:SetShown(clickable)
+		button.pressed:SetAlpha(clickable and 1 or 0)
+	end
 	button:Show()
 	UpdateButton(button)
 	for _, event in ipairs(definition.events or {}) do
@@ -3552,6 +3692,7 @@ function M.MoreButton(bar)
 		more:SetScript("OnEnter", M.ShowMoreTooltip)
 		more:SetScript("OnLeave", GameTooltip_Hide)
 		more:SetScript("OnClick", M.OpenMoreMenu)
+		more.hover = E:SkinHoverPress(more)
 		EnableDrag(more)
 		more:Hide()
 		bar.more = more
@@ -4624,8 +4765,8 @@ end
 
 local function BarLookOptions(prefix, hidden)
 	local rows = {
-		{ type = "range", key = prefix .. "width", label = "Width", min = 0, max = 2560, step = 10, zeroText = "Full", desc = "Width in pixels. Full spans the whole screen.", hidden = hidden },
-		{ type = "range", key = prefix .. "height", label = "Height", min = 16, max = 48, step = 1, desc = "Height of the bar in pixels.", hidden = hidden },
+		{ type = "range", unit = "px", key = prefix .. "width", label = "Width", min = 0, max = 2560, step = 10, zeroText = "Full", desc = "Width in pixels. Full spans the whole screen.", hidden = hidden },
+		{ type = "range", unit = "px", key = prefix .. "height", label = "Height", min = 16, max = 48, step = 1, desc = "Height of the bar in pixels.", hidden = hidden },
 		{ type = "range", key = prefix .. "fontSize", label = "Text size", min = 8, max = 20, step = 1, desc = "Text size of every datatext on this bar.", hidden = hidden },
 		{ type = "toggle", key = prefix .. "backdrop", label = "Background", desc = "Draw the bar's dark background and border. Off leaves only the text.", hidden = hidden,
 			cog = {
@@ -4792,8 +4933,8 @@ local PANEL_LOOK = {
 		end },
 	{ type = "toggle", key = PanelKey("vertical"), label = "Vertical", hidden = function() return NoPanel() or not NotDashboard() end,
 		desc = "Stack the slots top to bottom instead of side by side." },
-	{ type = "range", key = PanelKey("width"), label = "Width", min = 100, max = 1200, step = 10, hidden = NoPanel, desc = "Width of the panel in pixels." },
-	{ type = "range", key = PanelKey("height"), label = "Slot height", min = 14, max = 48, step = 1, hidden = NoPanel, desc = "Height of each slot in pixels." },
+	{ type = "range", unit = "px", key = PanelKey("width"), label = "Width", min = 100, max = 1200, step = 10, hidden = NoPanel, desc = "Width of the panel in pixels." },
+	{ type = "range", unit = "px", key = PanelKey("height"), label = "Slot height", min = 14, max = 48, step = 1, hidden = NoPanel, desc = "Height of each slot in pixels." },
 	{ type = "range", key = PanelKey("fontSize"), label = "Text size", min = 8, max = 20, step = 1, hidden = NoPanel, desc = "Text size in this panel." },
 	{ type = "toggle", key = PanelKey("backdrop"), label = "Background", hidden = NoPanel,
 		desc = "Draw a background behind the panel. Off leaves only the text, which can be hard to read on a bright minimap.",
@@ -4842,7 +4983,7 @@ table.insert(PANEL_OPTIONS, { type = "execute", label = "Delete this panel", hid
 		if not panel then return end
 		local work = function() M:DeletePanel(index) AfterPanelChange() end
 		E:ConfigConfirm(L["Delete the panel \"%s\"?"]:format(panel.name or index), work,
-			{ title = L["Delete panel"], accept = DELETE or L["Delete"], danger = true })
+			{ title = L["Delete panel"], accept = E:GameText(DELETE, L["Delete"]), danger = true })
 	end })
 for _, option in ipairs(PANEL_OPTIONS) do table.insert(M.options, option) end
 
@@ -4885,6 +5026,8 @@ local DATATEXT_OPTIONS = {
 		func = function() E:ToggleConfig("general") end },
 	{ type = "range", key = "cpuWarn", label = "CPU warning", unit = "ms", min = 0.5, max = 10, step = 0.5, desc = "The CPU datatext turns yellow when all addons together take this long per frame." },
 	{ type = "range", key = "cpuBad", label = "CPU high", unit = "ms", min = 1, max = 20, step = 0.5, desc = "The CPU datatext turns red at this value." },
+	{ type = "toggle", key = "errorsHideNone", label = "Hide Lua errors when there are none",
+		desc = "The Lua errors block takes no room until a new error is logged." },
 	{ type = "range", key = "ammoWarn", label = "Ammo warning", min = 0, max = 1000, step = 50, desc = "The Ammo datatext turns yellow at or below this many." },
 	{ type = "toggle", key = "bgSwap", label = "Battleground score in battlegrounds",
 		desc = "In a battleground the main bar's center shows your score and the fight time instead of its usual blocks." },

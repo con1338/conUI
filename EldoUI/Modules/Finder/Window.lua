@@ -515,7 +515,7 @@ function M:OnProfileChanged()
 	end
 end
 
-E:AddCommand("go", "  [text] open the Finder search box (panels, settings, mounts, toys, items, macros, places)", function(rest)
+E:AddCommand("go", "[text]  open the Finder search box (panels, settings, mounts, toys, items, macros, places)", function(rest)
 	if not M.active then
 		E:Print(E:ModuleOffHint("Finder"))
 		return

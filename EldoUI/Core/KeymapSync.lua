@@ -352,9 +352,9 @@ local function OfferIssues(id)
 	for _, issue in ipairs(list) do lines[#lines + 1] = "- " .. E:KeymapIssueText(issue) end
 	E:PushAlert({
 		key = ISSUES_ALERT, title = L["Keys and spells"], options = { page = "keybinds" },
-		text = L["Two things get in the way of your keys:"] .. "\n" .. table.concat(lines, "\n"),
+		text = (#list == 1 and L["One thing gets in the way of your keys:"] or L["Two things get in the way of your keys:"]) .. "\n" .. table.concat(lines, "\n"),
 		actions = {
-			{ label = L["Fix it"], tip = L["Turns the paging off on those bars and shows the keys on bars 1 to 3. Both can be changed back on the Action Bars page."],
+			{ label = L["Fix it"], tip = L["Turns the paging off on those bars and shows the keys on bars 1 to 3. The paging can be changed back on the Action Bars page, the keys on the Keybinds page."],
 				func = function() E:FixKeymapIssues(list) end },
 			{ label = L["Leave it"] },
 		},
@@ -406,6 +406,14 @@ end
 function E:KeymapBindingSetText()
 	if BindingSet() == ACCOUNT_SET then return L["Your keys are saved for all your characters."] end
 	return L["Your keys are saved for this character only."]
+end
+
+-- The scope line of the key set confirms: with account keys a key set
+-- changes every character's keys, while the copy for Undo stays on this
+-- character. nil with character keys (nothing beyond this character).
+function E:KeySetScopeText()
+	if BindingSet() ~= ACCOUNT_SET then return nil end
+	return L["Your keys are shared by your account, so this changes the keys of all your characters. The copy for Undo is kept on this character."]
 end
 
 local function ApplyAuto(plan)

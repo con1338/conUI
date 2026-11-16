@@ -343,6 +343,7 @@ Board.DISPLAY = {
 	boar = 503,      -- a stonetusk boar
 	kodo = 1453,     -- a Barrens kodo
 	bat = 4732,      -- a duskbat
+	snake = 1986,    -- a green water snake
 }
 
 -- Animation ids of the game's model animations.

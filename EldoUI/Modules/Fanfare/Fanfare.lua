@@ -23,7 +23,7 @@ local SCREENSHOT_GAP = 10
 local M = E:NewModule("Fanfare", {
 	title = "Fanfare",
 	aliases = { "Sound and Fun" }, -- earlier title, for search and /eui
-	desc = "Sounds, big text, screen flashes and icons for moments in the game: level up, epic loot, whispers, queue pops, boss kills and more. Fully customizable triggers.",
+	desc = "Sounds, big text, screen flashes and icons for moments in the game: level up, epic loot, whispers, queue pops, boss kills and more. You choose which moments play which effects.",
 	category = "Interface",
 	frames = { "EldoUI_FanfareSplash" },
 	movers = { "EldoUI_Fanfare" },
@@ -49,6 +49,16 @@ local M = E:NewModule("Fanfare", {
 		triggers = {},
 	},
 })
+
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "triggers", "order", "seeded" }
+M.keepOnResetNote = E.Key("Your own triggers are kept too; the built-in ones go back to how they ship.")
+-- After the reset the built-in triggers go back to how they ship.
+function M:AfterReset()
+	if type(self.db.triggers) ~= "table" then return end
+	self:RestoreBuiltins()
+end
 F.module = M
 
 local LOGIN_GRACE = 5
@@ -163,6 +173,7 @@ function M:Rebuild()
 			end
 		end
 	end
+	F.SyncQuestSources(index)
 	local needed = {}
 	wipe(eventSources)
 	for key in pairs(index) do
@@ -695,10 +706,55 @@ end
 
 function M:RestoreBuiltins()
 	for _, id in ipairs(F.builtinOrder) do
-		self.db.triggers[id] = BuiltinCopy(id)
+		local trigger = BuiltinCopy(id)
+		-- A later preview fills these defaults even when Fanfare is off.
+		Normalize(trigger)
+		self.db.triggers[id] = trigger
 		if not tContains(self.db.order, id) then table.insert(self.db.order, id) end
 	end
 	self:Rebuild()
+end
+
+-- Undo each built-in setting that still has the value Reset gave it.
+-- Lists like colors stay together when the player changes them.
+local function UndoBuiltin(value, before, reset)
+	if E.DeepEqual(before, reset) then return value end
+	if E.DeepEqual(value, reset) then return type(before) == "table" and CopyTable(before) or before end
+	if type(value) ~= "table" or type(before) ~= "table" or type(reset) ~= "table"
+		or value[1] ~= nil or before[1] ~= nil or reset[1] ~= nil then return value end
+	local restored = {}
+	for key, setting in pairs(value) do restored[key] = setting end
+	for key, setting in pairs(reset) do restored[key] = UndoBuiltin(value[key], before[key], setting) end
+	for key, setting in pairs(before) do
+		if reset[key] == nil then restored[key] = UndoBuiltin(value[key], setting, nil) end
+	end
+	return restored
+end
+
+function M:AfterResetUndo(before, reset)
+	local db = self.db
+	if type(db.triggers) ~= "table" or type(db.order) ~= "table" then return end
+	local oldTriggers = type(before.triggers) == "table" and before.triggers or {}
+	local triggers = {}
+	for id, trigger in pairs(db.triggers) do triggers[id] = trigger end
+	for _, id in ipairs(F.builtinOrder) do
+		local trigger = triggers[id]
+		if type(trigger) ~= "table" or trigger.builtin == id then
+			triggers[id] = UndoBuiltin(trigger, oldTriggers[id], reset.triggers[id])
+		end
+	end
+	db.triggers = triggers
+
+	-- Keep later moves and list changes. Drop slots Reset added for built-ins
+	-- that Undo removes from the list again.
+	local order = {}
+	local oldOrder = type(before.order) == "table" and before.order or {}
+	for _, id in ipairs(db.order) do
+		if not F.builtins[id] or triggers[id] ~= nil or tContains(oldOrder, id) then
+			order[#order + 1] = id
+		end
+	end
+	db.order = order
 end
 
 function M:MoveTrigger(id, delta)

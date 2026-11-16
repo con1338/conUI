@@ -51,6 +51,7 @@ local M = E:NewModule("Minimap", {
 		border = "thin",           -- thin, thick, none
 		accentBorder = false,
 		showZone = true,
+		pingNames = true,
 		zonePosition = "inside",   -- inside, outside, hover
 		zoneSize = 14,
 		showCoords = true,
@@ -69,10 +70,16 @@ local M = E:NewModule("Minimap", {
 		layerNetwork = false,      -- join the hidden layer network channel
 		layerAddon = true,         -- with the layer addon installed, the chip opens it instead
 		wheelZoom = true,
+		overlaySize = 0.75,
+		overlayOpacity = 0.45,
+		overlayCombat = true,
+		overlayCompass = false,
+		overlayCircle = false,
 		zoomReset = 0,             -- seconds; 0 keeps the zoom
 		rotate = "blizzard",       -- blizzard (leave the game setting), on, off
 		middleClick = "tracking",  -- tracking, calendar, none
 		iconScale = 1,
+		trackingIcon = true,       -- the flat tracking box shows the active tracking ability
 		binMode = "drawer",        -- off, bar, drawer, rail, hover
 		binSize = 26,
 		binPerRow = 6,
@@ -148,7 +155,7 @@ local function Remember(frame)
 		parent = frame:GetParent(), points = points, scale = frame:GetScale(),
 		level = frame:GetFrameLevel(), alpha = frame:GetAlpha(),
 		width = frame:GetWidth(), height = frame:GetHeight(),
-		mouse = frame.IsMouseEnabled and frame:IsMouseEnabled(),
+		mouse = E.FrameMouse(frame, "IsMouseEnabled"),
 	}
 end
 
@@ -235,6 +242,8 @@ function M:UpdatePlates()
 	self:UpdatePlate(self.zone)
 	self:UpdatePlate(self.coords)
 	self:UpdatePlate(self.clock.text)
+	local chip = self.Layer and self.Layer.chip
+	if chip then self:UpdatePlate(chip.text) end
 end
 
 ---------------------------------------------------------------------------
@@ -326,7 +335,7 @@ function M:CreateOverlay()
 		GameTooltip:SetOwner(button, "ANCHOR_BOTTOMLEFT")
 		local hour, minute = GetGameTime()
 		local r, g, b = unpack(E.media.accentColor)
-		GameTooltip:AddLine(TIMEMANAGER_TITLE or L["Clock"], r, g, b)
+		GameTooltip:AddLine(E:GameText(TIMEMANAGER_TITLE, L["Clock"]), r, g, b)
 		local now = date("*t")
 		E.UIKit.TipPair(GameTooltip, L["Local time"], E:FormatClock(now.hour, now.min))
 		E.UIKit.TipPair(GameTooltip, L["Realm time"], E:FormatClock(hour, minute))
@@ -335,6 +344,8 @@ function M:CreateOverlay()
 		GameTooltip:Show()
 	end)
 	clock:SetScript("OnLeave", GameTooltip_Hide)
+	-- The shared hover and pressed look: the clock can be clicked.
+	E:SkinHoverPress(clock)
 	E:BindOptionsLink(clock, { page = "module:Minimap", key = "showClock" })
 	self.clock = clock
 
@@ -647,6 +658,7 @@ function M:PlaceInCorner(entries)
 	local infoBar = E.modules.InfoBar
 	local docked = infoBar and infoBar.AttachedHeight and infoBar:AttachedHeight("minimap") or 0
 	self.zoneStacks = nil
+	self.pingStacks, self.pingDocked, self.pingBottom = stacks, docked, docked
 	if stacks.TOP and stacks.TOP[1] and stacks.TOP[1].frame == self.zone then
 		self.zoneStacks, self.zoneDocked = stacks, docked
 	else
@@ -679,8 +691,148 @@ function M:PlaceInCorner(entries)
 			Keep.SetPoint(frame, position, Minimap, position, x / scale, y / scale)
 			offset = offset + frame:GetHeight() * scale + 2
 		end
+		if position == "BOTTOM" then self.pingBottom = offset end
 	end
 	cornerPlacing = false
+end
+
+-- Minimap pings arrive as an ordinary frame event, separate from world
+-- pings. The game's own event callback table is closed to addons, so the
+-- module listens through its regular event registration.
+do
+	local EVENT, TICK = "MINIMAP_PING", "Minimap:ping-name"
+	local HOLD, FADE, REPEAT = 3, 0.4, 0.25
+	local RECENT_LIMIT = 16
+	local recent, nextRecent = {}, 1
+
+	local function Enabled()
+		return M.active and M.db.pingNames and M.improved and E:BlizzardAllowed(MAP, "improve")
+	end
+
+	local function Finite(value)
+		return not IsSecret(value) and type(value) == "number" and value == value and math.abs(value) < math.huge
+	end
+
+	local function SenderName(unit)
+		local name = E.PlainCallAll(UnitName, unit)
+		if type(name) ~= "string" or name == "" or name == _G.UNKNOWNOBJECT then return nil end
+		local displayName = E.PlainCall(E.DisplayName, E, unit)
+		if type(displayName) == "string" and displayName ~= "" then return displayName end
+	end
+
+	function M:PositionPingName()
+		local text = self.pingName
+		if not (self.activePing and self.pingStacks and text) then return end
+		E:SetWindowFont(text, self.db.textSize)
+		text.kitSize = self.db.textSize
+		local _, height = text:GetFont()
+		height = height or self.db.textSize
+		local width = text:GetUnboundedStringWidth() or 0
+		local maxWidth = Minimap:GetWidth() * 0.5
+		local need = math.min(width, maxWidth) + 2 * PLATE_PAD_X
+		local drop, room = FitRow(self.pingStacks, "BOTTOM", height + 2 * PLATE_PAD_Y, need, self.pingBottom, self.pingDocked)
+		text:ClearAllPoints()
+		text:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, INSET + self.pingBottom + drop + PLATE_PAD_Y)
+		text:SetWidth(math.max(1, math.min(width, room - 2 * PLATE_PAD_X, maxWidth)))
+		text:SetShown(room >= math.min(need, 24))
+		self:UpdatePlate(text)
+	end
+
+	function M:HidePingName()
+		self.activePing = nil
+		E.Ticker:Unsubscribe(TICK)
+		if self.pingLabel then
+			self.pingName:SetText("")
+			self.pingLabel:Hide()
+		end
+	end
+
+	local function UpdatePing()
+		local ping = M.activePing
+		if not ping then return end
+		local left = ping.expires - GetTime()
+		if left <= 0 or not Enabled() or not M.overlay:IsVisible()
+			or E.PlainCall(UnitGUID, ping.unit) ~= ping.guid then
+			M:HidePingName()
+			return
+		end
+		-- Names and stream aliases can change while the label is on screen.
+		local name = SenderName(ping.unit)
+		if not name then
+			M:HidePingName()
+			return
+		end
+		if name ~= M.pingName:GetText() then
+			M.pingName:SetText(name)
+			M:PositionPingName()
+		end
+		M.pingLabel:SetAlpha(math.min(1, left / FADE))
+	end
+
+	local function GroupToken(unit)
+		return unit == "player" or unit:match("^party%d+$") or unit:match("^raid%d+$")
+	end
+
+	local function OnPing(unit, y, x)
+		if not Enabled() or not (M.overlay and M.overlay:IsVisible()) then return end
+		if IsSecret(unit) or type(unit) ~= "string" or not Finite(y) or not Finite(x) then return end
+		local guid = E.PlainCall(UnitGUID, unit)
+		if type(guid) ~= "string" or not guid:match("^Player%-") then return end
+		local name = SenderName(unit)
+		if not name then return end
+
+		local now = GetTime()
+		for _, ping in ipairs(recent) do
+			if now - ping.at <= REPEAT and guid == ping.guid and x == ping.x and y == ping.y then
+				-- Prefer a group token over a target that can change during the hold.
+				if ping == M.activePing and GroupToken(unit) and not GroupToken(ping.unit) then ping.unit = unit end
+				return
+			end
+		end
+		local ping = { unit = unit, guid = guid, x = x, y = y, at = now, expires = now + HOLD + FADE }
+		recent[nextRecent] = ping
+		nextRecent = nextRecent % RECENT_LIMIT + 1
+
+		if not M.pingLabel then
+			local label = CreateFrame("Frame", nil, M.overlay)
+			label:SetAllPoints(M.overlay)
+			label:EnableMouse(false)
+			M.pingLabel = label
+			M.pingName = E.UIKit.Text(label, M.db.textSize, "CENTER")
+			M.pingName:SetWordWrap(false)
+			M.pingName:SetMaxLines(1)
+		end
+		local _, class = E.PlainCallEach(UnitClass, unit)
+		local r, g, b
+		if type(class) == "string" then r, g, b = E:GetClassColor(class) end
+		if not r then r, g, b = unpack(E.tokens.text.body) end
+		M.pingName:SetTextColor(r, g, b)
+		M.pingName:SetText(name)
+		M.activePing = ping
+		M:PositionPingName()
+		M.pingLabel:SetAlpha(1)
+		M.pingLabel:Show()
+		if not E.Ticker:IsSubscribed(TICK) then E.Ticker:Subscribe(TICK, 0.1, UpdatePing, M) end
+	end
+
+	function M:StopPingNames()
+		self:HidePingName()
+		wipe(recent)
+		nextRecent = 1
+		self:UnregisterEvent(EVENT)
+	end
+
+	local function OnPingEvent(_, _, unit, y, x)
+		OnPing(unit, y, x)
+	end
+
+	function M:ApplyPingNames()
+		if not Enabled() then
+			self:StopPingNames()
+			return
+		end
+		self:RegisterEvent(EVENT, OnPingEvent)
+	end
 end
 
 function M:LayoutCorners()
@@ -725,10 +877,13 @@ function M:LayoutCorners()
 		end
 	end
 	self:PlaceInCorner(entries)
+	self:PositionPingName()
 	-- Zone text above the map.
 	if improve and db.showZone and db.zonePosition == "outside" then
 		self.zone:ClearAllPoints()
-		self.zone:SetWidth(200)
+		-- As wide as the map: long names fit a large map, and a small map
+		-- shortens them instead of letting them stick out.
+		self.zone:SetWidth(math.max(1, (Minimap:GetWidth() or 200) - 8))
 		self.zone:SetPoint("BOTTOM", Minimap, "TOP", 0, 6)
 	end
 	self:UpdatePlates()
@@ -919,9 +1074,16 @@ function M:PaintOriginalHardware(target, skinId)
 	return true
 end
 
+-- The map's border: the panel edge of the art style (two pixels under
+-- high contrast), three of them for Thick.
+local function BorderSize(db)
+	local edge = E:EdgeSize()
+	return db.border == "thick" and 3 * edge or (db.border == "none" and 0 or edge)
+end
+
 function M:StyleHolder()
 	local db, holder = self.db, self.holder
-	local border = db.border == "thick" and 3 * E.pixel or (db.border == "none" and 0 or E.pixel)
+	local border = BorderSize(db)
 	self.borderSize = border
 	local r, g, b, a = unpack(E.media.borderColor)
 	if db.accentBorder then r, g, b = unpack(E.media.accentColor) end
@@ -956,7 +1118,7 @@ function M:SkinBlizzardMinimap(on)
 			self.skinFrame = frame
 		end
 		local frame = self.skinFrame
-		local border = db.border == "thick" and 3 * E.pixel or (db.border == "none" and 0 or E.pixel)
+		local border = BorderSize(db)
 		frame:ClearAllPoints()
 		frame:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -border, border)
 		frame:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", border, -border)
@@ -1021,7 +1183,7 @@ function M:HookMinimap()
 		-- Shown large in another EldoUI frame (the dungeon view's Live mode):
 		-- that frame puts it back.
 		if anchoring or not M.active or M.mode ~= "replace" or E:MinimapHostOwner() then return end
-		E:RunOutOfCombat(function() if M.mode == "replace" then M:AnchorMinimap() end end)
+		E:RunOutOfCombat(function() if M.mode == "replace" then M:AnchorMinimap() end end, "minimap:anchor")
 	end)
 	-- Forever's skin resets the mask when the rotate setting changes.
 	hooksecurefunc(Minimap, "SetMaskTexture", function()
@@ -1032,7 +1194,7 @@ function M:HookMinimap()
 	end)
 	-- Blizzard zooms with the wheel itself; EldoUI only adds the zoom reset.
 	Minimap:HookScript("OnMouseWheel", function()
-		if M.active and E:BlizzardAllowed(MAP, "improve") then M:ScheduleZoomReset() end
+		if M.active and not M.minimapOverlay and E:BlizzardAllowed(MAP, "improve") then M:ScheduleZoomReset() end
 	end)
 	Minimap:HookScript("OnMouseUp", function(_, button)
 		if button ~= "MiddleButton" or not M.active or not E:BlizzardAllowed(MAP, "improve") then return end
@@ -1044,23 +1206,60 @@ function M:HookMinimap()
 	-- The holder follows it, so its border, texts and buttons don't stay
 	-- around an empty square. Method hooks, not OnHide/OnShow, so
 	-- hiding the whole UI (Alt+Z) doesn't count as the player's choice.
-	hooksecurefunc(Minimap, "Hide", function() M:FollowMapShown() end)
+	hooksecurefunc(Minimap, "Hide", function()
+		M:CloseMinimapOverlay()
+		M:FollowMapShown()
+	end)
 	hooksecurefunc(Minimap, "Show", function() M:FollowMapShown() end)
 end
 
 function M:FollowMapShown()
-	if not self.active or self.mode ~= "replace" or not self.holder then return end
+	if not self.active or self.minimapOverlay or self.mode ~= "replace" or not self.holder then return end
 	E:RunOutOfCombat(function()
-		if M.active and M.mode == "replace" and M.holder then M.holder:SetShown(Minimap:IsShown()) end
-	end)
+		if M.active and not M.minimapOverlay and M.mode == "replace" and M.holder then
+			M.holder:SetShown(Minimap:IsShown())
+		end
+	end, "minimap:shown")
+end
+
+-- On mouseover: the zone name shows while the cursor is anywhere on the
+-- map, the clock, the layer chip and the corner buttons included. Leaving
+-- the map for one of them is not leaving the map, so the name hides only
+-- once the cursor is off the map's area.
+local function CursorOnMap()
+	local area = (M.mode == "replace" and M.holder) or Minimap
+	return area:IsMouseOver() or Minimap:IsMouseOver()
 end
 
 function M:HoverZone(over)
 	if not self.zone or not self.improved then return end
-	if self.db.showZone and self.db.zonePosition == "hover" then
-		self.zone:SetShown(over)
+	if not (self.db.showZone and self.db.zonePosition == "hover") then return end
+	local watch = self.zoneWatch
+	if over or CursorOnMap() then
+		self.zone:Show()
 		self:UpdatePlate(self.zone)
+		if not over then
+			if not watch then
+				watch = CreateFrame("Frame", nil, Minimap)
+				watch.wait = 0
+				watch:SetScript("OnUpdate", function(frame, elapsed)
+					frame.wait = frame.wait + elapsed
+					if frame.wait < 0.1 then return end
+					frame.wait = 0
+					if not CursorOnMap() then
+						frame:Hide()
+						M:HoverZone(false)
+					end
+				end)
+				self.zoneWatch = watch
+			end
+			watch:Show()
+		end
+		return
 	end
+	if watch then watch:Hide() end
+	self.zone:Hide()
+	self:UpdatePlate(self.zone)
 end
 
 function M:MiddleClick()
@@ -1096,6 +1295,7 @@ local function MapMode()
 end
 
 function M:ApplyMap()
+	if self:RefreshMinimapOverlay() then return end
 	local db = self.db
 	local mode = MapMode()
 	local skinned = mode == "keep" and E:BlizzardAllowed(MAP, "skin")
@@ -1215,11 +1415,14 @@ function M:ApplyImprove()
 	if self.mode == "keep" and not (self.improved and db.showCoords) and Usable(coords) then Restore(coords) end
 	if self.Layer then self.Layer.Refresh() end
 	self:LayoutCorners()
+	self:ApplyPingNames()
 end
 
 -- Back to Blizzard's minimap. Size and mask come back at once; the cluster
 -- art may need a reload (handler reload = skin, replace).
 function M:RestoreMap()
+	self:CloseMinimapOverlay(true)
+	self:StopPingNames()
 	self:PaintSkinFrame(nil)
 	if self.holder then
 		if E:IsVisibilityAttached(self.holder) then E:DetachVisibility(self.holder) end
@@ -1339,6 +1542,56 @@ local function SkinButton(frame, on, allArt)
 	end
 end
 M.SkinMinimapButton = SkinButton
+
+-- The active tracking ability (its name and icon), or nil: the first active
+-- spell in the game's tracking list. Town tracking (not a spell) is not one.
+local function ActiveTracking()
+	local C = C_Minimap
+	if not (C and C.GetNumTrackingTypes and C.GetTrackingInfo) then return nil end
+	local count = C.GetNumTrackingTypes()
+	if E.Secret(count) or type(count) ~= "number" then return nil end
+	for index = 1, count do
+		local info = C.GetTrackingInfo(index)
+		if type(info) == "table" and not E.Secret(info.active) and info.active == true
+			and not E.Secret(info.name) and not E.Secret(info.texture)
+			and (info.type == "spell" or (info.type == nil and info.spellID)) then
+			return info.name, info.texture
+		end
+	end
+	return nil
+end
+M.ActiveTracking = ActiveTracking
+
+-- The flat tracking box: the active ability's icon, or the plain tracking
+-- glyph a little dimmed while nothing is tracked. Display only: the button
+-- still opens the game's own menu.
+function M:UpdateTrackingIcon()
+	local frame = MinimapCluster and MinimapCluster.Tracking
+	local box = frame and buttonBoxes[frame]
+	if not (box and box.icon) then return end
+	local name, texture
+	local wanted = self.active and self.db.trackingIcon ~= false
+	if wanted then name, texture = ActiveTracking() end
+	if texture then
+		box.icon:SetTexture(texture)
+		E:TrimIcon(box.icon)
+		box.icon:SetAlpha(1)
+	else
+		E:SetClientAtlas(box.icon, "UI-HUD-Minimap-Tracking-Up", E.UIKit and E.UIKit.GLYPHS and E.UIKit.GLYPHS.dot)
+		box.icon:SetAlpha(wanted and 0.6 or 1)
+	end
+	self.trackingName = name
+	-- The tooltip names it: "Tracking: Find Herbs".
+	local button = frame.Button
+	if Usable(button) and not box.tipHooked then
+		box.tipHooked = true
+		button:HookScript("OnEnter", function(hovered)
+			if not (M.trackingName and box:IsShown() and GameTooltip:IsOwned(hovered)) then return end
+			E.UIKit.TipText(GameTooltip, L["Tracking: %s"]:format(M.trackingName))
+			GameTooltip:Show()
+		end)
+	end
+end
 -- Read-only: the EldoUI box behind a skinned Blizzard minimap button.
 function M:ButtonBox(frame) return buttonBoxes[frame] end
 
@@ -1539,6 +1792,7 @@ function M:SkinTimeManager()
 end
 
 function M:ApplyButtons()
+	if self:RefreshMinimapOverlay() then return end
 	local db = self.db
 	local allowed = E:BlizzardAllowed(BUTTONS)
 	self.buttonsMoved = allowed and E:BlizzardAllowed(BUTTONS, "move")
@@ -1566,6 +1820,7 @@ function M:ApplyButtons()
 		end
 	end
 	SkinButtons(skinOn)
+	if skinOn then self:UpdateTrackingIcon() end
 	self:HookButtonMoves()
 	E:OnBlizzardAddOn("Blizzard_TimeManager", function()
 		if M.active then M:SkinTimeManager() end
@@ -1574,7 +1829,7 @@ function M:ApplyButtons()
 	if not self.timeManagerHooked then
 		self.timeManagerHooked = true
 		E:OnBlizzardAddOn("Blizzard_TimeManager", function()
-			if M.active and E:BlizzardAllowed(BUTTONS) then E:RunOutOfCombat(function() M:ApplyButtons() end) end
+			if M.active and E:BlizzardAllowed(BUTTONS) then E:RunOutOfCombat(function() M:ApplyButtons() end, "minimap:buttons") end
 		end)
 	end
 	self:ApplyBin()
@@ -1754,6 +2009,7 @@ end
 -- An addon showed or hid one of its buttons, or moved it: the bin is laid
 -- out again once, on the next frame.
 function Bin.Queue()
+	Bin.refreshPending = true
 	if Bin.queued then return end
 	Bin.queued = true
 	C_Timer.After(0, function()
@@ -1854,6 +2110,10 @@ end
 function M:OpenBin(open)
 	local bin = self.bin
 	if not bin then return end
+	if open then
+		self:CollectButtons(true)
+		if #Bin.Visible() == 0 then return end
+	end
 	if self.db.binMode == "drawer" then self.db.binOpen = open and true or false end
 	if open and not bin:IsShown() then
 		-- The map may have moved since the bin was laid out.
@@ -2066,6 +2326,11 @@ end
 
 -- After an addon showed, hid or moved one of its gathered buttons.
 function M:RefreshBin()
+	if Bin.collectPending then
+		Bin.refreshPending = true
+		return self:CollectButtons(Bin.collectPending == "discovery")
+	end
+	Bin.refreshPending = nil
 	if not self.bin then return end
 	self:PlaceBinButtons()
 	self:ShowBinParts(false)
@@ -2096,9 +2361,24 @@ function M:ReleaseButton(button, icons)
 	if button == self.badge then self:PlaceBadge() end
 end
 
-function M:CollectButtons()
-	if not self.active or self.db.binMode == "off" or not E:BlizzardAllowed(BUTTONS, "replace") or InCombatLockdown() then return end
+function M:CollectButtons(discoveryOnly)
+	if self.minimapOverlay then
+		self:RefreshMinimapOverlay()
+		if self.minimapOverlay then return end
+	end
+	if not self.active or self.db.binMode == "off" or not E:BlizzardAllowed(BUTTONS, "replace") then return end
+	if InCombatLockdown() then
+		if not discoveryOnly or not Bin.collectPending then
+			Bin.collectPending = discoveryOnly and "discovery" or "full"
+		end
+		E:RunOutOfCombat(function() M:CollectButtons(Bin.collectPending == "discovery") end, "minimap:bin")
+		return
+	end
+	Bin.collectPending = nil
+	local refreshPending = Bin.refreshPending
+	Bin.refreshPending = nil
 	if Bin.StandsBack() then return self:ReleaseButtons() end
+	local changed = not self.bin
 	if not self.bin then self:CreateBin() end
 	local exclude = self.db.binExclude
 	-- Buttons the player keeps on the map go back to their addon first.
@@ -2109,12 +2389,14 @@ function M:CollectButtons()
 		if name and exclude[name] then
 			self:ReleaseButton(button, icons)
 			table.remove(binOrder, index)
+			changed = true
 		end
 	end
 	for _, child in ipairs(Bin.Candidates()) do
 		local name = child:GetName()
 		Bin.seen[name] = child
 		if not binned[child] and not exclude[name] then
+			changed = true
 			local points = {}
 			for i = 1, child:GetNumPoints() do points[i] = { child:GetPoint(i) } end
 			binned[child] = { parent = child:GetParent(), points = points, scale = child:GetScale() }
@@ -2137,17 +2419,21 @@ function M:CollectButtons()
 	for index = 2, #binOrder do
 		if binOrder[index] == self.badge then
 			table.insert(binOrder, 1, table.remove(binOrder, index))
+			changed = true
 			break
 		end
 	end
+	if discoveryOnly and not changed and not refreshPending then return false end
 	self:PlaceToggle()
 	self:PlaceBinButtons()
-	self:ShowBinParts(true)
-	self:RestoreDrawer()
+	self:ShowBinParts(not discoveryOnly)
+	if not discoveryOnly then self:RestoreDrawer() end
 	self:LayoutCorners()
+	return changed
 end
 
 function M:ReleaseButtons()
+	Bin.collectPending, Bin.refreshPending = nil, nil
 	local icons = #binOrder > 0 and Bin.Icons()
 	for _, button in ipairs(binOrder) do self:ReleaseButton(button, icons) end
 	wipe(binOrder)
@@ -2545,7 +2831,7 @@ function M:ApplyQueue()
 			-- Blizzard re-anchors it to the minimap when the scale changes.
 			hooksecurefunc(QueueStatusButton, "SetPoint", function()
 				if queueAnchoring or cornerPlacing or M.layingOut or not M.active or not E:BlizzardAllowed(QUEUE, "move") then return end
-				E:RunOutOfCombat(function() M:AnchorQueue() end)
+				E:RunOutOfCombat(function() M:AnchorQueue() end, "minimap:queue")
 			end)
 		end
 		self:AnchorQueue()
@@ -2606,9 +2892,214 @@ E:RegisterBlizzardHandler(QUEUE, {
 })
 
 ---------------------------------------------------------------------------
+-- Minimap overlay
+---------------------------------------------------------------------------
+do
+	local OWNER, COMPASS_TICK = "minimap-overlay", "Minimap:overlay-compass"
+	local compass = { E.Key("N"), E.Key("W"), E.Key("S"), E.Key("E") }
+	local chromeKeys = { "holder", "overlay", "skinRing", "originalHardware", "bin", "binToggle", "badge" }
+	local view, menuHooked
+
+	local function Allowed(module)
+		local mode = MapMode()
+		return module.active and mode ~= nil and mode ~= "hide" and E.PlainCall(IsInInstance) == false
+	end
+
+	local function AddMenuEntry(root)
+		root:CreateButton(L["Toggle minimap overlay"], function() M:ToggleMinimapOverlay() end)
+	end
+
+	function M:HookMinimapOverlayMenu()
+		if menuHooked or not (Menu and Menu.ModifyMenu) then return end
+		menuHooked = true
+		Menu.ModifyMenu("MENU_MINIMAP_TRACKING", function(_, root)
+			if Allowed(M) then AddMenuEntry(root) end
+		end)
+	end
+
+	local function CreateView()
+		local frame = CreateFrame("Frame", nil, UIParent)
+		frame:SetPoint("CENTER")
+		frame:SetFrameStrata("LOW")
+		frame:Hide()
+		frame.guide = CreateFrame("Frame", nil, frame)
+		frame.guide:SetAllPoints()
+		frame.guide:SetFrameLevel(frame:GetFrameLevel() + 20)
+		frame.letters = {}
+		for index = 1, 4 do
+			frame.letters[index] = E:CreateText(frame.guide, E.tokens.size.body, "CENTER")
+		end
+		frame.lines = {}
+		-- The exit menu stays in the corner so it never takes a click on the map.
+		frame.menu = E.UIKit.Button(UIParent, { text = L["Minimap overlay"], height = E.tokens.height.row,
+			onClick = function(button)
+				E.UIKit.ContextMenu(button, function(_, root) AddMenuEntry(root) end, { at = "owner" })
+			end })
+		frame.menu:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -16, -48)
+		frame.menu:Hide()
+		return frame
+	end
+
+	local function PlaceCompass(frame)
+		local rotating = E.PlainCall(GetCVar, "rotateMinimap") == "1"
+		local facing = 0
+		if rotating then facing = E.PlainCall(GetPlayerFacing) end
+		if type(facing) ~= "number" then facing = false end
+		if facing == frame.compassFacing then return end
+		frame.compassFacing = facing
+		local radius = frame:GetWidth() * 0.46
+		for index, text in ipairs(frame.letters) do
+			text:SetShown(type(facing) == "number")
+			if type(facing) == "number" then
+				local angle = (index - 1) * math.pi / 2 - facing
+				text:SetText(L[compass[index]])
+				text:ClearAllPoints()
+				text:SetPoint("CENTER", frame.guide, "CENTER", -math.sin(angle) * radius, math.cos(angle) * radius)
+			end
+		end
+	end
+
+	local function LayoutView(frame, db)
+		local size = math.floor(UIParent:GetHeight() * db.overlaySize + 0.5)
+		if size ~= frame:GetWidth() then
+			frame:SetSize(size, size)
+			E:FitHostedMinimap(OWNER)
+		end
+		frame:SetAlpha(db.overlayOpacity)
+		frame.menu:SetText(L["Minimap overlay"])
+		E.UIKit.RefitButton(frame.menu)
+		if frame.menu:GetWidth() + 20 > (UIParent:GetWidth() - size) / 2 then
+			frame.menu:SetText(L["Close"])
+			E.UIKit.RefitButton(frame.menu)
+		end
+		if db.overlayCompass then
+			frame.compassFacing = nil
+			PlaceCompass(frame)
+			if not E.Ticker:IsSubscribed(COMPASS_TICK) then
+				E.Ticker:Subscribe(COMPASS_TICK, 0.1, function() PlaceCompass(frame) end, frame)
+			end
+		else
+			E.Ticker:Unsubscribe(COMPASS_TICK)
+			for _, text in ipairs(frame.letters) do text:Hide() end
+		end
+		if db.overlayCircle then
+			local radius = size * 0.42
+			local r, g, b = E:TokenColor("body")
+			for index = 1, 48 do
+				local line = frame.lines[index]
+				if not line then
+					line = frame.guide:CreateLine(nil, "ARTWORK")
+					frame.lines[index] = line
+				end
+				local start = (index - 1) * math.pi / 24
+				local finish = index * math.pi / 24
+				line:SetStartPoint("CENTER", frame.guide, math.cos(start) * radius, math.sin(start) * radius)
+				line:SetEndPoint("CENTER", frame.guide, math.cos(finish) * radius, math.sin(finish) * radius)
+				line:SetThickness(E.pixel)
+				line:SetColorTexture(r, g, b, 0.55)
+				line:Show()
+			end
+		else
+			for _, line in ipairs(frame.lines) do line:Hide() end
+		end
+	end
+
+	local function HideChrome(overlay, frame)
+		if not (Usable(frame) and frame.IsShown and frame.Hide) then return end
+		if E.PlainCall(frame.IsShown, frame) ~= true or E.FrameCheck(frame, "IsProtected") then return end
+		overlay.chrome[frame] = true
+		frame:Hide()
+	end
+
+	local function HideMapChrome(module, overlay)
+		HideChrome(overlay, MinimapCluster)
+		for _, key in ipairs(chromeKeys) do
+			HideChrome(overlay, module[key])
+		end
+		for _, key in ipairs(BUTTON_KEYS) do
+			for _, frame in ipairs(ButtonFrames(key)) do HideChrome(overlay, frame) end
+		end
+		if module.queueMoved and module.db.queue.anchor == "minimap" then HideChrome(overlay, QueueStatusButton) end
+	end
+
+	function M:RefreshMinimapOverlay()
+		local overlay = self.minimapOverlay
+		if not overlay then return false end
+		if not Allowed(self) or overlay.db ~= self.db or overlay.map ~= Minimap then
+			self:CloseMinimapOverlay(true)
+			return self.minimapOverlay ~= nil
+		end
+		overlay.refresh = true
+		if not overlay.closing and not InCombatLockdown() then
+			HideMapChrome(self, overlay)
+			LayoutView(overlay.frame, self.db)
+		end
+		return true
+	end
+
+	function M:CloseMinimapOverlay(skipRefresh)
+		local overlay = self.minimapOverlay
+		if not overlay then return end
+		overlay.closing = true
+		E.Ticker:Unsubscribe(COMPASS_TICK)
+		-- The empty overlay can hide at once. Native geometry and input wait.
+		if E.FrameCheck(overlay.frame, "IsProtected") then overlay.frame:SetAlpha(0) else overlay.frame:Hide() end
+		overlay.frame.menu:Hide()
+		E:RunOutOfCombat(function()
+			if M.minimapOverlay ~= overlay then return end
+			M.minimapOverlay = nil
+			if E:MinimapHostOwner() == OWNER then
+				overlay.map:SetMouseClickEnabled(overlay.clicks)
+				overlay.map:EnableMouseWheel(overlay.wheel)
+				E:SetMinimapPinClickThrough(false)
+				E:ReleaseMinimap(OWNER, true)
+			end
+			for frame in pairs(overlay.chrome) do
+				if not E.FrameCheck(frame, "IsProtected") then frame:Show() end
+			end
+			if overlay.refresh and not skipRefresh and M.active then M:Apply() end
+			M:FollowMapShown()
+		end, OWNER)
+	end
+
+	function M:ToggleMinimapOverlay()
+		if self.minimapOverlay then return self:CloseMinimapOverlay() end
+		local map = Minimap
+		if not (Allowed(self) and Usable(map) and E.PlainCall(map.IsVisible, map) == true)
+			or InCombatLockdown() or E:MinimapHostOwner() or E.FrameCheck(map, "IsProtected") then return end
+		local clicks = E.FrameMouse(map, "IsMouseClickEnabled")
+		local wheel = E.FrameMouse(map, "IsMouseWheelEnabled")
+		if clicks == nil or wheel == nil then return end
+		view = view or CreateView()
+		local size = math.floor(UIParent:GetHeight() * self.db.overlaySize + 0.5)
+		view:SetSize(size, size)
+		if not E:HostMinimap(OWNER, view) then return end
+		local overlay = { frame = view, map = map, db = self.db, clicks = clicks, wheel = wheel, chrome = {} }
+		self.minimapOverlay = overlay
+		if self.zoomTimer then self.zoomTimer:Cancel() self.zoomTimer = nil end
+		map:SetMouseClickEnabled(false)
+		map:EnableMouseWheel(true)
+		E:SetMinimapPinClickThrough(true)
+		HideMapChrome(self, overlay)
+		LayoutView(view, self.db)
+		view:Show()
+		view.menu:Show()
+	end
+end
+
+---------------------------------------------------------------------------
 -- Module
 ---------------------------------------------------------------------------
+-- A new UI scale or screen size: the border and the map inside it are
+-- sized again in whole screen pixels.
+if E.RegisterPixelCallback then
+	E:RegisterPixelCallback(function()
+		if M.active and M.db then E:RunOutOfCombat(function() if M.active then M:ApplyMap() end end, "minimap:pixel") end
+	end)
+end
+
 function M:Apply()
+	if self:RefreshMinimapOverlay() then return end
 	self.layingOut = true
 	self:ApplyMap()
 	self:ApplyBadge()
@@ -2623,14 +3114,23 @@ end
 -- A queued layout runs only while the module is still on, so turning the
 -- minimap off during combat keeps it off after the fight.
 function M:OnEnable()
-	E:RunOutOfCombat(function() if M.active then M:Apply() end end)
+	self:HookMinimapOverlayMenu()
+	E:RunOutOfCombat(function() if M.active then M:Apply() end end, "minimap:apply")
 	self:StartTextTick()
 	self:RegisterEvent("ZONE_CHANGED", "UpdateZone")
 	self:RegisterEvent("ZONE_CHANGED_INDOORS", "UpdateZone")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", "UpdateZone")
 	self:RegisterEvent("DIEL_CYCLE_CHANGED", function() if M.diel then M:UpdateDiel() end end)
+	self:RegisterEvent("MINIMAP_UPDATE_TRACKING", function() M:UpdateTrackingIcon() end)
+	self:RegisterEvent("PLAYER_REGEN_DISABLED", function()
+		if M.minimapOverlay and M.db.overlayCombat then M:CloseMinimapOverlay() end
+	end)
+	self:RegisterEvent("ADDON_LOADED", function()
+		if M.minimapOverlay then M:RefreshMinimapOverlay() end
+	end)
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
-		if M.active then E:RunOutOfCombat(function() if M.active then M:Apply() end end) end
+		if M.minimapOverlay and E.PlainCall(IsInInstance) ~= false then M:CloseMinimapOverlay() end
+		if M.active then E:RunOutOfCombat(function() if M.active then M:Apply() end end, "minimap:apply") end
 	end)
 	-- Square mask for the indoor (hybrid) map as well.
 	E:OnBlizzardAddOn("Blizzard_HybridMinimap", function()
@@ -2639,12 +3139,17 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	self:CloseMinimapOverlay(true)
+	self:StopPingNames()
 	E.Ticker:Unsubscribe(TEXT_TICK)
 	self:UnregisterEvent("ZONE_CHANGED")
 	self:UnregisterEvent("ZONE_CHANGED_INDOORS")
 	self:UnregisterEvent("ZONE_CHANGED_NEW_AREA")
 	self:UnregisterEvent("DIEL_CYCLE_CHANGED")
+	self:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
 	self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+	self:UnregisterEvent("PLAYER_REGEN_DISABLED")
+	self:UnregisterEvent("ADDON_LOADED")
 	if self.Layer then self.Layer.Disable() end
 	if self.badge then self.badge:Hide() end
 	E:RunOutOfCombat(function()
@@ -2653,11 +3158,12 @@ function M:OnDisable()
 		M:RestoreButtons()
 		M:RestoreMap()
 		if E.RefreshMinimapCluster then E:RefreshMinimapCluster() end
-	end)
+	end, "minimap:restore")
 	E:ShowReloadPrompt(L["Minimap switched off. Anything of Blizzard's minimap that is still missing comes back after a reload."])
 end
 
 function M:OnProfileChanged()
+	if not self.db.pingNames then self:StopPingNames() end
 	self:TakeManagePick()
 	self:TakeAddName()
 	if self.active then E:RunOutOfCombat(function() if M.active then M:Apply() end end) end
@@ -2698,6 +3204,17 @@ M.options = {
 		desc = "A sample map in its shape, with the zone name and clock as set on the Text tab." },
 	{ type = "description", label = "Blizzard UI decides: Replace gives the EldoUI minimap, Skin gives Blizzard's a flat look, Improve adds the text and extras below." },
 	SwitchButton(MAP, "replace", E.Key("Use the EldoUI minimap"), E.Key("Turns on the Blizzard UI switch for the minimap with Replace.")),
+	{ type = "header", label = "Minimap overlay" },
+	{ type = "execute", label = "Toggle minimap overlay", func = function() M:ToggleMinimapOverlay() end,
+		desc = "Centers the game's minimap with its pins. Click through to the world and use the mouse wheel to zoom. You can also set a key binding." },
+	{ type = "range", key = "overlaySize", label = "Overlay size", desc = "Size as a share of the screen height.",
+		min = 0.60, max = 1, step = 0.05, percent = true },
+	{ type = "range", key = "overlayOpacity", label = "Overlay opacity", desc = "How much of the world shows through the large map.",
+		min = 0.15, max = 1, step = 0.05, percent = true },
+	{ type = "toggle", key = "overlayCombat", label = "Close overlay when combat starts",
+		desc = "Hide the large map when combat starts and return it to its normal position after combat." },
+	{ type = "toggle", key = "overlayCompass", label = "Overlay compass letters", desc = "Show the four compass directions around the large map." },
+	{ type = "toggle", key = "overlayCircle", label = "Overlay range circle", desc = "Show a thin circle near the edge of the large map." },
 	{ type = "header", label = "Shape and size" },
 	{ type = "select", key = "shape", label = "Shape", desc = "Square or round map.", values = { square = "Square", round = "Round" } },
 	{ type = "range", key = "size", label = "Size", desc = "Width and height of the EldoUI minimap (Replace).", min = 120, max = 400, step = 1,
@@ -2741,6 +3258,8 @@ for _, row in ipairs({
 	{ type = "toggle", key = "clockRealm", label = "Realm time", desc = "Show the server's time instead of your computer's." },
 	{ type = "select", key = "clockPosition", label = "Clock position", desc = "Corner or edge of the map.", values = POSITIONS },
 	{ type = "range", key = "textSize", label = "Text size", desc = "Font size of the clock and coordinates.", min = 8, max = 20, step = 1 },
+	{ type = "toggle", key = "pingNames", label = "Show minimap ping names",
+		desc = "Briefly shows who pinged the minimap, in their class color." },
 	{ type = "header", label = "Day and night" },
 	{ type = "toggle", key = "diel", label = "Day/night indicator", desc = "Forever's day and night cycle as a small icon on the map." },
 	{ type = "select", key = "dielPosition", label = "Indicator position", desc = "Corner or edge of the map.", values = POSITIONS },
@@ -2754,17 +3273,24 @@ for _, row in ipairs({
 	{ type = "header", label = "Hopping" },
 	{ type = "description", label = "A player on another layer invites you; you accept in the game's popup and leave the group once your layer changes. Each step is a click." },
 	{ type = "toggle", key = "layerNetwork", label = "Join the layer network", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = "Joins a hidden chat channel that players of EldoUI and of the layer addon share, so you can ask them for a hop and help them. It never shows in your chat. Off: hops go through your guild only." },
+		desc = function()
+			return L["Joins a hidden chat channel shared by EldoUI and %s for asking for and offering layer hops. Off: use your guild only."]:format(E.LayerNetwork.folder)
+		end },
 	{ type = "toggle", key = "layerHelp", label = "Help others hop", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
 		desc = "Answers hop requests from your guild and, while you are in the layer network, from its players. Each request shows a card: Invite or Not now. Never in combat or in an instance." },
-	{ type = "toggle", key = "layerAddon", label = "Use the layer addon", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = "When the layer addon is installed, the chip opens its window and EldoUI stays out of the network, so you never answer a request twice.",
+	{ type = "toggle", key = "layerAddon", label = function() return L["Use %s"]:format(E.LayerNetwork.folder) end, -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
+		desc = function()
+			return L["Opens the %s window from the layer chip and lets it handle layer network requests."]:format(E.LayerNetwork.folder)
+		end,
 		hidden = function() return not (M.Layer and M.Layer.AddonLoaded()) end },
 
 	{ type = "tab", label = "Buttons" },
 	{ type = "description", label = "Places Blizzard's minimap buttons in the map's corners. Needs \"Minimap buttons\" on in Blizzard UI (Move to place, Hide for \"Hidden\")." },
 	SwitchButton(BUTTONS, "move", E.Key("Let EldoUI place the minimap buttons"), E.Key("Turns on the Blizzard UI switch for the minimap buttons with Move.")),
 	{ type = "range", percent = true, key = "iconScale", label = "Button scale", desc = "Scale of Blizzard's minimap buttons.", min = 0.5, max = 1.5, step = 0.05, hidden = Not(BUTTONS, "move") },
+	{ type = "toggle", key = "trackingIcon", label = "Show the active tracking",
+		desc = "The flat tracking button shows the icon of the tracking you have on, such as Find Herbs, and is dimmed while nothing is tracked. It still opens the game's tracking menu.",
+		hidden = Not(BUTTONS, "skin") },
 }) do
 	table.insert(M.options, row)
 end
@@ -2804,9 +3330,9 @@ local BIN_OPTIONS = {
 			if M.active then E:RunOutOfCombat(function() M:ApplyBin() end) end
 			if E.RefreshConfig then E:RefreshConfig() end
 		end },
-	{ type = "range", key = "binSize", label = "Bin button size", desc = "Size of each addon button in the bin.", min = 14, max = 40, step = 1 },
+	{ type = "range", unit = "px", key = "binSize", label = "Bin button size", desc = "Size of each addon button in the bin.", min = 14, max = 40, step = 1 },
 	{ type = "range", key = "binPerRow", label = "Buttons per row", desc = "Addon buttons per row in the bin.", min = 1, max = 12, step = 1 },
-	{ type = "range", key = "binSpacing", label = "Bin spacing", desc = "Gap between addon buttons.", min = 0, max = 8, step = 1 },
+	{ type = "range", unit = "px", key = "binSpacing", label = "Bin spacing", desc = "Gap between addon buttons.", min = 0, max = 8, step = 1 },
 	{ type = "select", key = "binSide", label = "Bin side",
 		desc = "Where the bin opens. Automatic opens beside the map on the side that faces the middle of the screen, or below it where there is no room, and always stays on the screen.",
 		values = { AUTO = "Automatic", BOTTOM = "Below the map", LEFT = "Left of the map" }, order = { "AUTO", "BOTTOM", "LEFT" } },
@@ -2842,7 +3368,7 @@ for _, option in ipairs(BIN_OPTIONS) do table.insert(M.options, option) end
 do
 	local TEXT_ROWS = { showZone = true, zonePosition = "showZone", zoneSize = "showZone", showCoords = true,
 		coordDecimals = "showCoords", coordPosition = "showCoords", showClock = true, clockRealm = "showClock",
-		clockPosition = "showClock", textSize = true, diel = true, dielPosition = "diel", layer = true, layerPosition = "layer" }
+		clockPosition = "showClock", textSize = true, pingNames = true, diel = true, dielPosition = "diel", layer = true, layerPosition = "layer" }
 	local BIN_ROWS = { binSize = true, binPerRow = true, binSpacing = true, binSide = true, binManage = true,
 		binGrow = true, binMover = true, binKeepOpen = true, binAdd = true }
 	local needsImprove = E:BlizzardNeeds(MAP, "improve")

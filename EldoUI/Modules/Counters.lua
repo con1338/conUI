@@ -409,7 +409,7 @@ function M:ShowManager()
 		box:SetScript("OnEnterPressed", function(b) Add(); b:ClearFocus() end)
 		box:SetScript("OnEscapePressed", function(b) b:ClearFocus() end)
 		manager.box = box
-		local add = E.UIKit.Button(manager, ADD or L["Add"], { width = 86, onClick = Add })
+		local add = E.UIKit.Button(manager, E:GameText(ADD, L["Add"]), { width = 86, onClick = Add })
 		add:SetPoint("LEFT", box, "RIGHT", 8, 0)
 		manager.add = add
 
@@ -503,11 +503,11 @@ M.options = {
 		dependsOn = "gold",
 		desc = "Gold to reach; the gold counter turns green once you have it. The slider goes to 5000; type a bigger goal in the box." },
 	{ type = "header", label = "Layout" },
-	{ type = "select", key = "layout", label = "Direction", values = { row = "Row", column = "Column" }, desc = "Side by side or stacked, for the shared strip." },
+	{ type = "select", key = "layout", label = "Direction", values = { row = "Row", column = "Column" }, desc = "Side by side or stacked, for the shared strip.", disabled = function() return M.db.separate and L["Only for the shared strip, and Separate movers is on."] end },
 	{ type = "toggle", key = "separate", label = "Separate movers", desc = "Every counter on its own mover instead of one strip. Place them in move mode." },
-	{ type = "range", key = "iconSize", label = "Icon size", min = 12, max = 40, step = 1, desc = "Size of each counter's icon." },
+	{ type = "range", unit = "px", key = "iconSize", label = "Icon size", min = 12, max = 40, step = 1, desc = "Size of each counter's icon." },
 	{ type = "range", key = "fontSize", label = "Text size", min = 9, max = 18, step = 1, desc = "Size of the count text." },
-	{ type = "range", key = "spacing", label = "Spacing", min = 0, max = 16, step = 1, desc = "Gap between counters in the strip." },
+	{ type = "range", unit = "px", key = "spacing", label = "Spacing", min = 0, max = 16, step = 1, desc = "Gap between counters in the strip.", disabled = function() return M.db.separate and L["Only for the shared strip, and Separate movers is on."] end },
 	{ type = "toggle", key = "background", label = "Background", desc = "A see-through panel behind the counters." },
 	{ type = "header", label = "Text" },
 	{ type = "toggle", key = "showGoal", label = "Show goal", desc = "Show have/goal; the count turns green once the goal is reached." },

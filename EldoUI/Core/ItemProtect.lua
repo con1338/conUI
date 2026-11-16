@@ -164,6 +164,7 @@ function IP.SafeToSellRow(tooltip, link, itemID, add)
 	itemID = Plain(itemID)
 	if type(itemID) ~= "number" then return end
 	local name, _, quality, _, _, _, _, _, _, _, price = C_Item.GetItemInfo(Plain(link) or itemID)
+	quality, price = Plain(quality), Plain(price)
 	if not name or type(quality) ~= "number" or quality > 1 or type(price) ~= "number" or price <= 0 then return end
 	local bag, slot = OwnerSlot(tooltip)
 	local reason = E:ItemProtection(itemID, bag, slot)

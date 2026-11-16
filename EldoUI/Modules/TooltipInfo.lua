@@ -7,6 +7,8 @@
 --   Mount       the mount a player rides and where it comes from (the game's
 --               own Mount Journal text), out of combat
 --   Targeted by the members of your group targeting this unit
+--   Quest use   the quests in your log that ask for an item, each with how
+--               many you have and how many it needs
 --
 -- Each row is a tooltip section with its own Always / Shift / Never setting
 -- on the Tooltip page. Nothing here is hidden combat data: node names and
@@ -97,9 +99,18 @@ E:RegisterTooltipSection("gathering", {
 	object = function(_, name, add, data)
 		local nodes = E.NodeSkill
 		if not nodes then return end
-		local node = nodes:Find(name, type(data) == "table" and nodes.EntryOf(data.guid) or nil)
+		local entry
+		if not E.Secret(data) and type(data) == "table" and (not canaccesstable or canaccesstable(data)) then
+			entry = nodes.EntryOf(data.guid)
+		end
+		local node = nodes:Find(name, entry)
 		local skill = node and NODE_SKILL[node.kind]
-		if skill then AddSkillRow(add, skill, node.rank) end
+		if not skill then return end
+		AddSkillRow(add, skill, node.rank)
+		if not (E.GatheringItemCounts and node.itemID) then return end
+		local carried, total = E:GatheringItemCounts(node.itemID)
+		if carried == nil then return end
+		add(total and L["You have: %d · all characters %d"]:format(carried, total) or L["You have: %d"]:format(carried))
 	end,
 	unit = function(tooltip, unit, add)
 		if Safe(UnitIsPlayer(unit)) then return end
@@ -202,5 +213,131 @@ E:RegisterTooltipSection("targetedBy", {
 		if #names == 0 then return end
 		local shown = #names > 6 and (table.concat(names, ", ", 1, 6) .. (" +%d"):format(#names - 6)) or table.concat(names, ", ")
 		add(L["Targeted by (%d)"]:format(#names), shown)
+	end,
+})
+
+---------------------------------------------------------------------------
+-- Quest use: quests in your log that ask for this item, with the count
+---------------------------------------------------------------------------
+-- The log is read into an index by item name on the first hover after a
+-- quest log event, so a hover is one table lookup. The rows themselves are
+-- never kept, so the count is always the game's current one.
+local QuestUse = { dirty = true, byName = {}, byQuest = {}, MAX = 2 }
+E.QuestUse = QuestUse
+
+-- The item an objective asks for, lower case: "Linen Cloth: 4/10",
+-- "4/10 Linen Cloth" or "Linen Cloth: 10/10 (Complete)" give "linen cloth".
+function QuestUse.ObjectiveItem(text)
+	if type(text) ~= "string" then return nil end
+	text = text:gsub("%s*%b()%s*$", "")
+	local name = text:match("^(.-)%s*:%s*%d+%s*/%s*%d+$") or text:match("^%d+%s*/%s*%d+%s+(.+)$")
+	return name and name ~= "" and name:lower() or nil
+end
+
+local function Objectives(questID, title)
+	local items = {}
+	local ok, list = pcall(C_QuestLog.GetQuestObjectives, questID)
+	if not ok or type(list) ~= "table" then return items end
+	for _, objective in ipairs(list) do
+		local kind = type(objective) == "table" and Safe(objective.type)
+		local name = (kind == nil or kind == "item") and QuestUse.ObjectiveItem(Safe(objective.text))
+		local have, need = tonumber(Safe(objective.numFulfilled)) or 0, tonumber(Safe(objective.numRequired))
+		if name and need and need > 0 then
+			local entry = { questID = questID, title = title, name = name, have = have, need = need,
+				done = Safe(objective.finished) == true or have >= need }
+			QuestUse.byName[name] = QuestUse.byName[name] or {}
+			table.insert(QuestUse.byName[name], entry)
+			items[#items + 1] = entry
+		end
+	end
+	return items
+end
+
+function QuestUse.Rebuild()
+	QuestUse.dirty = false
+	QuestUse.byName, QuestUse.byQuest = {}, {}
+	local log = C_QuestLog
+	if not (log and log.GetNumQuestLogEntries and log.GetInfo and log.GetQuestObjectives) then return end
+	local ok, count = pcall(log.GetNumQuestLogEntries)
+	for index = 1, ok and tonumber(Safe(count)) or 0 do
+		local got, info = pcall(log.GetInfo, index)
+		if got and type(info) == "table" and not Safe(info.isHeader) and not Safe(info.isHidden) then
+			local questID, title = Safe(info.questID), Safe(info.title)
+			if type(questID) == "number" and type(title) == "string" and title ~= "" then
+				QuestUse.byQuest[questID] = { title = title, items = Objectives(questID, title) }
+			end
+		end
+	end
+end
+
+local function ItemName(itemID, link)
+	local name = itemID and C_Item.GetItemNameByID and Safe((C_Item.GetItemNameByID(itemID)))
+	if type(name) ~= "string" and C_Item.GetItemInfo then name = Safe((C_Item.GetItemInfo(link or itemID))) end
+	return type(name) == "string" and name ~= "" and name or nil
+end
+
+-- The quests in the log that ask for the item, in log order: matched by
+-- the item's name, and with the Loot Guide data also by its quest list.
+function QuestUse.Find(itemID, link)
+	if QuestUse.dirty then QuestUse.Rebuild() end
+	local found, seen = {}, {}
+	local name = ItemName(itemID, link)
+	for _, entry in ipairs(name and QuestUse.byName[name:lower()] or {}) do
+		if not seen[entry.questID] then
+			seen[entry.questID] = true
+			found[#found + 1] = entry
+		end
+	end
+	-- The Loot Guide is read in place: this tooltip part belongs to no
+	-- module of its own.
+	local guide = itemID and E.LootGuide
+	if guide and guide.HasData and guide:HasData() then
+		local ok, quests = pcall(guide.ItemQuests, guide, itemID)
+		for _, questID in ipairs(ok and type(quests) == "table" and quests.needed or {}) do
+			local quest = QuestUse.byQuest[questID]
+			if quest and not seen[questID] then
+				seen[questID] = true
+				found[#found + 1] = #quest.items == 1 and quest.items[1] or { questID = questID, title = quest.title }
+			end
+		end
+	end
+	return found
+end
+
+-- The quests this section names for the item (the Loot Guide's "Needed
+-- for" row leaves them out).
+function QuestUse.Shown(itemID, link)
+	local ids = {}
+	for index, entry in ipairs(QuestUse.Find(itemID, link)) do
+		if index > QuestUse.MAX then break end
+		ids[#ids + 1] = entry.questID
+	end
+	return ids
+end
+
+local function MarkDirty() QuestUse.dirty = true end
+for _, event in ipairs({ "QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN" }) do
+	E:RegisterEvent(event, MarkDirty, QuestUse)
+end
+
+E:RegisterTooltipSection("questUse", {
+	order = 48.5,
+	title = "Quest use",
+	desc = "Quests in your log that ask for this item, with how many you have and how many they need.",
+	default = "always",
+	item = function(_, link, itemID, add)
+		itemID = tonumber(Safe(itemID)) or (type(link) == "string" and tonumber(link:match("item:(%d+)")))
+		if not itemID then return end
+		local found = QuestUse.Find(itemID, link)
+		for index = 1, math.min(#found, QuestUse.MAX) do
+			local entry = found[index]
+			local count = ""
+			if entry.need then
+				count = entry.done and ("   " .. E:TextHex("good") .. L["%d/%d done"]:format(entry.have, entry.need) .. "|r")
+					or ("   |cffffffff%d/%d|r"):format(entry.have, entry.need)
+			end
+			add(index == 1 and L["For quest"] or " ", entry.title .. count)
+		end
+		if #found > QuestUse.MAX then add(" ", L["(+%d more)"]:format(#found - QuestUse.MAX), nil, nil, nil, 0.65, 0.65, 0.7) end
 	end,
 })

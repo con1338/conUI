@@ -159,14 +159,22 @@ end
 -- the addon the game blamed); otherwise the first AddOns path decides.
 function Errors:Add(kind, message, stack, count, locals, addon)
 	message = Truncate(Safe(message), MAX_TEXT)
-	if not TakeToken() then
-		self.dropped = self.dropped + (count or 1)
+	local key = KeyOf(kind, message)
+	local entry = self.byKey[key]
+	-- A repeat only raises its count, at full accuracy, and takes nothing
+	-- from the rate limit: a storm of one error leaves room for new ones.
+	-- The limit holds back new entries and a later session's new capture.
+	local repeated = entry and entry.session == self.session
+	if not repeated and not TakeToken() then
+		if entry then
+			entry.count, entry.last = entry.count + (count or 1), time()
+		else
+			self.dropped = self.dropped + (count or 1)
+		end
 		self:NotifySoon()
 		return
 	end
-	local key = KeyOf(kind, message)
 	local now = time()
-	local entry = self.byKey[key]
 	if entry then
 		entry.count = entry.count + (count or 1)
 		entry.last = now

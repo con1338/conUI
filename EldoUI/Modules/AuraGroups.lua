@@ -38,7 +38,7 @@
 -- round.
 -- Written from scratch for EldoUI.
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 local L = E.L
 
@@ -502,7 +502,7 @@ function M:BuildGroupFrames(index)
 				end
 			end
 		end
-		entry.container = W.CreateSlots(entry.content, { unit = group.unit, slots = slots })
+		entry.container = W.CreateSlots(entry.content, { unit = group.unit, slots = slots, poolKey = ("auragroup:%d:%s"):format(index, sig) })
 	end
 	UpdateShown(index)
 end
@@ -564,6 +564,9 @@ function M:OnEnable()
 		if M:UpdateExampleRanks() then E:RunOutOfCombat(function() M:Layout() end, "AuraGroups:Ranks") end
 	end)
 	self:RegisterEvent("UPDATE_SHAPESHIFT_FORM", UpdateVisibility)
+	E:OnSoundMuteChanged("AuraGroups", function()
+		E:RunOutOfCombat(function() for index = 1, MAX_GROUPS do SyncSounds(index) end end, "AuraGroups:Mute")
+	end)
 	M:UpdateExampleRanks()
 	E:RunOutOfCombat(function() M:Layout() end)
 end
@@ -939,13 +942,13 @@ M.options = {
 	{ type = "range", key = G("missingAlpha"), label = "Faded opacity", unit = "%", min = 10, max = 80, step = 5,
 		hidden = function() return Off() or Edit().missing ~= "faded" end,
 		desc = "How visible a missing aura's icon is." },
-	{ type = "range", key = G("size"), label = "Icon size", min = 16, max = 64, step = 1, hidden = NotIcons,
+	{ type = "range", unit = "px", key = G("size"), label = "Icon size", min = 16, max = 64, step = 1, hidden = NotIcons,
 		desc = "Width and height of each icon." },
-	{ type = "range", key = G("barWidth"), label = "Bar width", min = 80, max = 320, step = 2, hidden = NotBars,
+	{ type = "range", unit = "px", key = G("barWidth"), label = "Bar width", min = 80, max = 320, step = 2, hidden = NotBars,
 		desc = "Width of each timer bar." },
-	{ type = "range", key = G("barHeight"), label = "Bar height", min = 10, max = 32, step = 1, hidden = NotBars,
+	{ type = "range", unit = "px", key = G("barHeight"), label = "Bar height", min = 10, max = 32, step = 1, hidden = NotBars,
 		desc = "Height of each timer bar." },
-	{ type = "range", key = G("spacing"), label = "Spacing", min = 0, max = 20, step = 1, hidden = Off,
+	{ type = "range", unit = "px", key = G("spacing"), label = "Spacing", min = 0, max = 20, step = 1, hidden = Off,
 		desc = "Space between icons or bars." },
 	{ type = "range", key = G("perRow"), label = "Per row", min = 1, max = 20, step = 1, hidden = Off,
 		desc = "Icons in one row (or bars in one column) before a new one starts." },

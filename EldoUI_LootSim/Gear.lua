@@ -32,6 +32,7 @@ local RATINGS = {
 	ITEM_MOD_CRIT_RATING_SHORT = { "crit", 9 }, ITEM_MOD_CRIT_MELEE_RATING_SHORT = { "crit", 9 },
 	ITEM_MOD_CRIT_RANGED_RATING_SHORT = { "rangedCrit", 10 }, ITEM_MOD_CRIT_SPELL_RATING_SHORT = { "spellCrit", 11 },
 	ITEM_MOD_HIT_RATING_SHORT = { "hit", 6 }, ITEM_MOD_HIT_MELEE_RATING_SHORT = { "hit", 6 },
+	ITEM_MOD_HIT_RANGED_RATING_SHORT = { "rangedHit", 7 },
 	ITEM_MOD_HIT_SPELL_RATING_SHORT = { "spellHit", 8 },
 }
 
@@ -152,6 +153,7 @@ local function Put(sheet, stats, sign)
 	local critPer = (info.critAgi or 20) * level / 60
 	sheet.crit = (sheet.crit or 0) + agi / critPer + Get("crit")
 	sheet.rangedCrit = (sheet.rangedCrit or sheet.crit) + agi / critPer + Get("crit") + Get("rangedCrit")
+	sheet.rangedHit = (sheet.rangedHit or sheet.hit or 0) + Get("hit") + Get("rangedHit")
 	sheet.hit = (sheet.hit or 0) + Get("hit")
 	sheet.spellHit = (sheet.spellHit or 0) + Get("spellHit")
 	local spellCrit = Get("spellCrit") + (stats.spellCritAlso and Get("crit") or 0)

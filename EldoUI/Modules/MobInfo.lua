@@ -3,7 +3,7 @@
 --   * Item tooltips: "Dropped by N mobs", then the mobs with the best drop
 --     rate, as "Name   67% (4/6)" (drops / corpses you looted).
 --   * Hostile NPC tooltips: corpses looted, average money per corpse and
---     the top drops in quality color. NPC ID on Shift.
+--     the top drops in quality color.
 -- Only loot windows the player opens are counted, through the data the game
 -- gives addons (GetLootSourceInfo). No combat log, no combat math: secret
 -- values are skipped, never compared. All tooltip lines go through
@@ -478,9 +478,6 @@ local function UnitSection(_, unit, add)
 			add(L["Max health"], text, GREY[1], GREY[2], GREY[3])
 		end
 	end
-	if IsShiftKeyDown() then
-		add(L["NPC ID"], tostring(npc), GREY[1], GREY[2], GREY[3])
-	end
 end
 
 function M:RegisterSections()
@@ -568,6 +565,6 @@ M.options = {
 		func = function()
 			E:ShowConfirm({ key = "ELDOUI_MOBINFO_RESET", title = L["Mob and Loot Info"],
 				text = L["Delete all %s data?\n\nEvery looted mob and drop count is lost."]:format(E:Highlight(L["Mob and Loot Info"])),
-				accept = RESET or L["Reset"], danger = true, onAccept = function() M:ResetData() end })
+				accept = E:GameText(RESET, L["Reset"]), danger = true, onAccept = function() M:ResetData() end })
 		end },
 }

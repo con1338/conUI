@@ -1,4 +1,4 @@
--- EldoUI Flight Games: Four in a Row. The Alliance and the Horde drop
+-- EldoUI Flight Games: Four in a Row. The two factions drop
 -- banners into a frame of seven columns; a banner falls to the lowest free
 -- place. Four of yours in a row (across, up or slanting) wins.
 -- Written from scratch for EldoUI.
@@ -17,7 +17,7 @@ local MODES = {
 	{ key = "normal", title = "Normal", depth = 3, noise = 8 },
 	{ key = "hard", title = "Hard", depth = 5, noise = 0 },
 }
-local ALLIANCE, HORDE = "Interface\\Icons\\INV_BannerPVP_02", "Interface\\Icons\\INV_BannerPVP_01"
+local ALLIANCE = "Interface\\Icons\\INV_BannerPVP_02"
 local ORDER = { 4, 3, 5, 2, 6, 1, 7 }  -- the computer looks at the middle first
 
 local Four = {}
@@ -112,7 +112,7 @@ local function Negamax(board, depth, alpha, beta, v)
 end
 
 -- The computer's column for side v.
--- The Horde's column, searched on a copy of the board.
+-- The opponent's column, searched on a copy of the board.
 function Four:Choose(v)
 	local mode, board = self.mode, B.Copy(self.board)
 	local best, bestValue = nil, -math.huge
@@ -152,7 +152,7 @@ local function New(host, mode)
 		end
 	end
 	game.hover = { disc = B.Dot(area, CELL - 16, nil, "ARTWORK"), icon = B.Sprite(area, CELL - 34, CELL - 34, "OVERLAY") }
-	E:SetClientFile(game.hover.icon, ALLIANCE, "Interface\\Icons\\INV_Misc_QuestionMark")
+	E:SetClientFile(game.hover.icon, host.FactionIcon(1), "Interface\\Icons\\INV_Misc_QuestionMark")
 	E:TrimIcon(game.hover.icon)
 	game.falling = { disc = B.Dot(area, CELL - 12, nil, "ARTWORK"), icon = B.Sprite(area, CELL - 30, CELL - 30, "OVERLAY") }
 	game.prompt = B.Label(area, E.tokens.size.small, "secondary", "RIGHT")
@@ -171,8 +171,8 @@ function Four:Start()
 	self:Draw()
 end
 
--- A banner saved in mid-fall lands; a game saved in the Horde's turn
--- has the Horde move.
+-- A banner saved in mid-fall lands; a game saved in the opponent's turn
+-- has the opponent move.
 function Four:Loaded()
 	self.thread = nil
 	self.think = (self.turn == -1 and not self.result and not self.fall) and THINK or nil
@@ -294,15 +294,15 @@ end
 function Four:Summary()
 	if self.result == "won" then return E:Plural(self.moves, "Four in a row in %d move", "Four in a row in %d moves"):format(self.moves) end
 	if self.result == "draw" then return L["The frame is full: a draw."] end
-	return L["The Horde got four in a row."]
+	return L["The %s got four in a row."]:format(self.host.FactionName(-1))
 end
 
-local function Paint(view, v, palette, size)
-	local color = v == 1 and palette[7] or palette[6]
+local function Paint(view, v, host, palette, size)
+	local color = host.FactionColor(v, palette)
 	view.disc:SetVertexColor(color[1], color[2], color[3], 1)
 	if view.file ~= v then
 		view.file = v
-		E:SetClientFile(view.icon, v == 1 and ALLIANCE or HORDE, "Interface\\Icons\\INV_Misc_QuestionMark")
+		E:SetClientFile(view.icon, host.FactionIcon(v), "Interface\\Icons\\INV_Misc_QuestionMark")
 		E:TrimIcon(view.icon)
 	end
 	view.disc:SetSize(size, size)
@@ -323,7 +323,7 @@ function Four:Draw()
 		token.ring:SetShown(on and winning[i] or false)
 		if on then
 			local c, r = (i - 1) % COLS + 1, math.floor((i - 1) / COLS) + 1
-			Paint(token, v, palette, CELL - 12)
+			Paint(token, v, self.host, palette, CELL - 12)
 			B.Place(token.disc, (c - 1) * CELL + 6, TOP + (r - 1) * CELL + 6, area)
 			B.Place(token.icon, (c - 1) * CELL + 15, TOP + (r - 1) * CELL + 15, area)
 			if winning[i] then
@@ -336,7 +336,7 @@ function Four:Draw()
 	self.falling.disc:SetShown(f ~= nil)
 	self.falling.icon:SetShown(f ~= nil)
 	if f then
-		Paint(self.falling, f.v, palette, CELL - 12)
+		Paint(self.falling, f.v, self.host, palette, CELL - 12)
 		B.Place(self.falling.disc, (f.c - 1) * CELL + 6, TOP + f.y + 6, area)
 		B.Place(self.falling.icon, (f.c - 1) * CELL + 15, TOP + f.y + 15, area)
 	end
@@ -344,8 +344,8 @@ function Four:Draw()
 	self.hover.disc:SetShown(yours)
 	self.hover.icon:SetShown(yours)
 	if yours then
-		local blue = palette[7]
-		self.hover.disc:SetVertexColor(blue[1], blue[2], blue[3], 0.7)
+		local playerColor = self.host.FactionColor(1, palette)
+		self.hover.disc:SetVertexColor(playerColor[1], playerColor[2], playerColor[3], 0.7)
 		B.Place(self.hover.disc, (self.col - 1) * CELL + 8, 2, area)
 		B.Place(self.hover.icon, (self.col - 1) * CELL + 17, 11, area)
 	end
@@ -353,20 +353,20 @@ function Four:Draw()
 	if self.result == "won" then
 		text = L["Four in a row: you win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde got four in a row."]
+		text = L["The %s got four in a row."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["The frame is full: a draw."]
 	elseif self.turn == 1 then
 		text = L["Your move."]
 	else
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	end
 	self.prompt:SetText(text)
 end
 
 M:RegisterGame({
 	key = "four", order = 140, group = "board",
-	title = "Four in a Row", desc = "Drop Alliance banners against the Horde; four in a row wins.",
+	title = "Four in a Row", desc = "Drop your faction's banners against the other faction; four in a row wins.",
 	controls = Key("Click a column, or Left, Right and Space (or 1 to 7). P: pause."),
 	icon = ALLIANCE,
 	modes = MODES,

@@ -35,6 +35,8 @@ M.options = {
 			if InCombatLockdown() then return L["Opens after combat."] end
 		end,
 		desc = "Open the Death Log window. /eui deaths does the same." },
+	{ type = "toggle", key = "zoneNote", label = "Deaths near your level", disabled = NotHardcore,
+		desc = "On entering a zone, show one notice when your log contains at least ten deaths within three levels of you. Once per zone per session, outside combat and instances. Off by default." },
 	{ type = "tab", label = "Warnings" },
 	{ type = "header", label = "PvP flag" },
 	{ type = "toggle", key = "pvpTarget", label = "Warn on a flagged target", disabled = NotHardcore,
@@ -51,7 +53,7 @@ M.options = {
 	{ type = "select", key = "alertTitle", label = "Card title color", values = { bad = "Red", accent = "Accent color", plain = "Plain" },
 		order = { "bad", "accent", "plain" }, desc = "The color of the title on death cards and warnings." },
 	{ type = "header", label = "Death log window" },
-	{ type = "range", key = "rowHeight", label = "Row height", min = 16, max = 28, step = 1, desc = "Height of each row in the death log." },
+	{ type = "range", unit = "px", key = "rowHeight", label = "Row height", min = 16, max = 28, step = 1, desc = "Height of each row in the death log." },
 	{ type = "toggle", key = "classColors", label = "Class colors", desc = "Names in their class color, when the class is known." },
 	{ type = "toggle", key = "transparent", label = "See-through window", desc = "The death log window lets the game show through a little. How much: General > Panel opacity." },
 }

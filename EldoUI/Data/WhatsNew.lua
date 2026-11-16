@@ -18,6 +18,30 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3001",
+		date = Key("November 2026"),
+		summary = Key("2 fixes."),
+		items = {
+			Key("Bags and loot: Right-clicking a potion, food or other usable item in the bag window uses it again."),
+			Key("Map and minimap: Logging in no longer shows a blocked-action error from the minimap, and the minimap now shows the name of the player who pings it."),
+		},
+	},
+	{
+		version = "0.7.3000",
+		date = Key("November 2026"),
+		summary = Key("61 new features, 105 improvements and 150 fixes."),
+		items = {
+			Key("Flight Games is on by default and the Games box appears on your next flight path."),
+			Key("Auto UI scale keeps the full layout width on 16:10 screens."),
+			Key("Move mode can undo your last change and keeps locked frames in place when you reset."),
+			Key("Profile resets, copies, deletions, and imports keep a backup you can undo from the alert."),
+			Key("Choose group quests and dungeon routes separately for each character in the leveling guide."),
+			Key("Bag and bank windows share the same look and stay sharp at any window scale."),
+			Key("Dungeon bosses in the Journal learn their drops from group and solo loot."),
+			Key("The Alerts tab keeps its lines between sessions and follows your EldoUI language."),
+		},
+	},
+	{
 		version = "0.7.2001",
 		date = Key("November 2026"),
 		summary = Key("13 new features, 2 improvements and 3 fixes."),

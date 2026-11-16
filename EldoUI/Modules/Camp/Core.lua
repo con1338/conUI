@@ -619,7 +619,7 @@ function M:BuildPanel()
 	panel.finder = finder
 	panel:Hide()
 	self.panel = panel
-	E:CreateMover(panel, "EldoUI_CampPanel", "Camp Panel", { "TOPRIGHT", "UIParent", "TOPRIGHT", -230, -240 }, { sample = { kind = "panel" } })
+	E:CreateMover(panel, "EldoUI_CampPanel", L["Camp Panel"], { "TOPRIGHT", "UIParent", "TOPRIGHT", -230, -240 }, { sample = { kind = "panel" } })
 	E:RegisterHideable(panel, "EldoUI_CampPanel", { mouse = true })
 end
 

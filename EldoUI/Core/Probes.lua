@@ -58,7 +58,7 @@ E:AddCommand("probe", "<kind> ...  in-game checks that print what the game repor
 		print("Developer checks:")
 		for _, line in ipairs(devLines) do print(line) end
 	end
-end, "Tools")
+end, "Troubleshooting")
 
 -- /eui probe textures: which original 2004 interface textures this client
 -- ships, and which drawing calls it offers. The result opens in a copy box

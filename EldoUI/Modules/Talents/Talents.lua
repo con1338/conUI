@@ -162,6 +162,17 @@ function M:ConfigID(group)
 	return id
 end
 
+function M:CopyCurrentTalents(group, notify)
+	if self:IsOtherClass(group) then return end
+	local config = self:ConfigID(group)
+	local text = config and C_Traits and E.PlainCall(C_Traits.GenerateImportString, config)
+	if type(text) ~= "string" or text == "" then
+		(notify or M.ChatNotice)(L["Your talents aren't loaded yet. Try again in a moment."], true)
+		return
+	end
+	E:ShowCopyBox(L["Copy my talents"], L["Press Ctrl+C to copy."], text)
+end
+
 function M:NumGroups()
 	local count = Number(Call(GetNumSpecGroups)) or Number(Call(C_SpecializationInfo and C_SpecializationInfo.GetNumSpecGroups))
 	return math.max(math.min(count or 1, 2), 1)
@@ -1226,8 +1237,13 @@ local function Command(arg)
 	elseif word == "level" then
 		M:Learn("level")
 	elseif word == "export" then
-		local plan = M:ActivePlan()
-		if plan then E:ShowExport("share:talents:" .. plan.id) else E:Print(L["Make a plan first: click talents in the planner."]) end
+		if rest:lower() == "current" then
+			local group = M:ViewGroup()
+			M:CopyCurrentTalents(not M:IsOtherClass(group) and group or E:TalentGroup())
+		else
+			local plan = M:ActivePlan()
+			if plan then E:ShowExport("share:talents:" .. plan.id) else E:Print(L["Make a plan first: click talents in the planner."]) end
+		end
 	elseif word == "import" then
 		if rest ~= "" then M:ImportText(rest) else M:ShowImportBox() end
 	elseif word == "send" then
@@ -1240,4 +1256,4 @@ local function Command(arg)
 	end
 end
 
-E:AddCommand("talents", "[next | level | export | import [link] | send <party | raid | guild | name> | reset | config | on | off]  the Talent Planner: open it, import a plan or a talent calculator link, or learn your plan's next point", Command, "Tools")
+E:AddCommand("talents", "[next | level | export [current] | import [link] | send <party | raid | guild | name> | reset | config | on | off]  the Talent Planner: open it, import a plan or a talent calculator link, or learn your plan's next point", Command, "Tools")

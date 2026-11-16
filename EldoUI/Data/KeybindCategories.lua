@@ -58,7 +58,7 @@
 -- only its Apply, when you tick it, puts known ones on empty buttons.
 -- Written from scratch for EldoUI.
 -- The spell IDs here are checked against the WoW: Forever client tables of
--- build 1.60.1.70862.
+-- build 1.60.1.70938.
 local _, E = ...
 local L = E.L
 
@@ -948,6 +948,7 @@ C.offBar = {
 		{ home = "travelmenu", spells = { 3567 }, tier = 5 }, -- Teleport: Orgrimmar
 		{ home = "travelmenu", spells = { 3565 }, tier = 5 }, -- Teleport: Darnassus
 		{ home = "travelmenu", spells = { 3566 }, tier = 5 }, -- Teleport: Thunder Bluff
+		{ home = "travelmenu", spells = { 1297659 }, tier = 5 }, -- Teleport: Dalaran (both factions, level 50)
 		{ home = "travelmenu", spells = { 10059 }, tier = 5 }, -- Portal: Stormwind
 		{ home = "travelmenu", spells = { 11416 }, tier = 5 }, -- Portal: Ironforge
 		{ home = "travelmenu", spells = { 11417 }, tier = 5 }, -- Portal: Orgrimmar

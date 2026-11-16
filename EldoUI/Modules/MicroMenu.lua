@@ -749,7 +749,7 @@ end
 E:RegisterDataText("Menu", {
 	text = function()
 		local r, g, b = unpack(E.media.accentColor)
-		return ("|cff%02x%02x%02x%s|r"):format(r * 255, g * 255, b * 255, MAINMENU_BUTTON or L["Menu"])
+		return ("|cff%02x%02x%02x%s|r"):format(r * 255, g * 255, b * 255, E:GameText(MAINMENU_BUTTON, L["Menu"]))
 	end,
 	tooltip = function(tooltip)
 		E:TooltipHint(tooltip, { L["Click"], L["open any game window from a list"] })
@@ -757,7 +757,7 @@ E:RegisterDataText("Menu", {
 	end,
 	onClick = function(owner)
 		E.UIKit.ContextMenu(owner, function(_, root)
-			root:CreateTitle(MAINMENU_BUTTON or L["Menu"])
+			root:CreateTitle(E:GameText(MAINMENU_BUTTON, L["Menu"]))
 			for _, info in ipairs(MICRO_BUTTONS) do
 				local button = _G[info[1]]
 				local inMenu = Usable(button) and (button:GetParent() == MicroMenu or (saved[button] and saved[button].parent == MicroMenu))
@@ -1239,7 +1239,7 @@ M.options = {
 		hidden = Allowed(MICRO, "move") },
 	{ type = "range", key = "micro.perRow", label = "Buttons per row", desc = "How many buttons before a new row starts.", min = 1, max = 14, step = 1,
 		hidden = Allowed(MICRO, "move") },
-	{ type = "range", key = "micro.spacing", label = "Spacing", desc = "Gap between buttons.", min = 0, max = 12, step = 1,
+	{ type = "range", unit = "px", key = "micro.spacing", label = "Spacing", desc = "Gap between buttons.", min = 0, max = 12, step = 1,
 		hidden = Allowed(MICRO, "move") },
 	{ type = "select", key = "micro.growth", label = "Growth direction", desc = "Which corner the first button sits in and which way new buttons and rows are added.",
 		values = { rightDown = "Right, rows down", leftDown = "Left, rows down", rightUp = "Right, rows up", leftUp = "Left, rows up" },
@@ -1265,7 +1265,7 @@ local BAG_OPTIONS = {
 	SwitchButton(BAGS, "move", E.Key("Let EldoUI place the bag bar"), E.Key("Turns on the Blizzard UI switch for the bag bar with Move and scale.")),
 	{ type = "header", label = "Layout", hidden = BagsLayoutHidden },
 	{ type = "range", key = "bags.scale", label = "Scale", unit = "%", desc = "Size of the bag buttons in percent (100 = Blizzard's size).", min = SCALE_MIN, max = SCALE_MAX, step = 5, hidden = BagsLayoutHidden },
-	{ type = "range", key = "bags.spacing", label = "Spacing", desc = "Gap between bag buttons.", min = 0, max = 12, step = 1, hidden = BagsLayoutHidden },
+	{ type = "range", unit = "px", key = "bags.spacing", label = "Spacing", desc = "Gap between bag buttons.", min = 0, max = 12, step = 1, hidden = BagsLayoutHidden },
 	{ type = "toggle", key = "bags.vertical", label = "Vertical", desc = "Stack the bag buttons top to bottom.", hidden = BagsLayoutHidden },
 	{ type = "toggle", key = "bags.reverse", label = "Backpack last", desc = "Put the backpack at the end of the row instead of the start.", hidden = BagsLayoutHidden },
 	{ type = "header", label = "Buttons", hidden = BagsLayoutHidden },

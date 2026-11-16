@@ -316,11 +316,11 @@ E:RegisterEvent("PLAYER_ENTERING_WORLD", function(_, _, isLogin, isReload)
 	end
 end, owner)
 
-E:AddCommand("fillbars", "  fill the empty buttons of bars 4 and 5 with your out-of-combat class spells now; undo takes the last fill off again", function(args)
+E:AddCommand("fillbars", "[undo]  fill the empty buttons of bars 4 and 5 with your out-of-combat class spells now; undo takes the last fill off again", function(args)
 	if type(args) == "string" and strtrim(args):lower() == "undo" then
 		E:RunOutOfCombat(function() E:UndoQuietBars() end, "KeybindQuietBars:undo")
 		return
 	end
 	Record().skip = nil
 	FillSoon(nil, true)
-end, "Tools")
+end, "Keys and spells")

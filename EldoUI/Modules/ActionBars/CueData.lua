@@ -19,7 +19,7 @@
 -- Every ID is from the game's own spell data for WoW: Forever (spell
 -- tables, talent tree TraitDefinition and TraitNodeEntry, trainer ranks),
 -- first written on build 1.60.1.70450 and checked again on build
--- 1.60.1.70862. Spells that the game's data still names but no Forever
+-- 1.60.1.70938. Spells that the game's data still names but no Forever
 -- talent or trainer grants, and talent effects without an aura of their
 -- own, are left out.
 -- Written from scratch for EldoUI.
@@ -152,7 +152,8 @@ E.SpellCueData = {
 			-- Divine Favor.
 			{ auras = { 20216 }, unit = P, kind = HELP, mine = true, on = { 635, 19750, 20473 } },
 			-- A seal on you lights Judgement.
-			{ ranksOf = { 21084, 20375, 21082, 20165, 20166, 20164 }, auras = { 21084, 20375, 21082, 20165, 20166, 20164 },
+			{ ranksOf = { 21084, 20375, 21082, 20165, 20166, 20164, 1311649 },
+				auras = { 21084, 20375, 21082, 20165, 20166, 20164, 1311649 },
 				unit = P, kind = HELP, mine = true, on = { 20271 } },
 		},
 		own = {
@@ -163,6 +164,7 @@ E.SpellCueData = {
 			{ 20165, P, HELP, true },    -- Seal of Light
 			{ 20166, P, HELP, true },    -- Seal of Wisdom
 			{ 20164, P, HELP, true },    -- Seal of Justice
+			{ 1311649, P, HELP, true },  -- Seal of Fury
 		},
 	},
 	ROGUE = {
@@ -195,6 +197,7 @@ E.SpellCueData = {
 			{ 5118, P, HELP, true },     -- Aspect of the Cheetah
 			{ 13159, P, HELP, true },    -- Aspect of the Pack
 			{ 20043, P, HELP, true },    -- Aspect of the Wild
+			{ 13161, P, HELP, true },    -- Aspect of the Beast
 		},
 	},
 	WARRIOR = {

@@ -473,7 +473,7 @@ function M:BuildArrow()
 	holder:SetSize(160, self.db.arrowSize + 34)
 	frame:SetPoint("TOP", holder, "TOP", 0, 0)
 	self.arrowHolder = holder
-	E:CreateMover(holder, "EldoUI_WaypointArrow", "Waypoint Arrow", { "TOP", "UIParent", "TOP", 0, -120 })
+	E:CreateMover(holder, "EldoUI_WaypointArrow", L["Waypoint Arrow"], { "TOP", "UIParent", "TOP", 0, -120 })
 end
 
 function M:LayoutArrow()
@@ -504,6 +504,8 @@ end
 -- The arrow turns with you on the shared ticker, only while it shows.
 local ARROW_TICK = "Waypoints:arrow"
 local ELAPSED_STEP = 0.05
+local POSITION_RETRY = 1
+local function ArrowTick(elapsed) M:OnArrowUpdate(elapsed) end
 
 function M:UpdateArrowShown()
 	local frame = self.arrowFrame
@@ -512,10 +514,13 @@ function M:UpdateArrowShown()
 	frame:SetShown(show)
 	if self.arrowHolder then self.arrowHolder:SetShown(self.active and self.db.arrow) end
 	if show then
-		if not E.Ticker:IsSubscribed(ARROW_TICK) then
-			E.Ticker:Subscribe(ARROW_TICK, ELAPSED_STEP, function(elapsed) M:OnArrowUpdate(elapsed) end, M)
+		local period = self.positionRetry and POSITION_RETRY or ELAPSED_STEP
+		if self.arrowPeriod ~= period or not E.Ticker:IsSubscribed(ARROW_TICK) then
+			self.arrowPeriod = period
+			E.Ticker:Subscribe(ARROW_TICK, period, ArrowTick, M)
 		end
 	else
+		self.arrowPeriod = nil
 		E.Ticker:Unsubscribe(ARROW_TICK)
 	end
 end
@@ -542,15 +547,41 @@ function M:SetArrow(uid)
 	self.arrowUid = uid
 	self.arrowHidden = nil
 	self.lastDistance, self.speed, self.arrived = nil, nil, nil
+	self.arrowElapsed, self.etaElapsed, self.etaText, self.positionRetry = 0, 0, nil, nil
+	if self.arrowFrame then
+		self.arrowFrame.lastAngle, self.arrowFrame.lastInfo, self.arrowFrame.lastTint = nil, nil, nil
+	end
 	RefreshArrowTitle(self)
 	self:UpdateArrowShown()
 	self:SyncGamePin()
 	self:RefreshPins()
 end
 
+local function ArrowInfo(frame, text)
+	if frame.lastInfo == text then return end
+	frame.lastInfo = text
+	frame.info:SetText(text)
+end
+
+local function ArrowAngle(frame, angle)
+	local bucket = floor(angle / (pi / 128) + 0.5) % 256
+	if frame.lastAngle == bucket then return end
+	frame.lastAngle = bucket
+	frame.icon:SetRotation(bucket * pi / 128)
+end
+
+local function ArrowTint(frame, r, g, b)
+	local tint = frame.lastTint
+	if tint and tint[1] == r and tint[2] == g and tint[3] == b then return end
+	tint = tint or {}
+	tint[1], tint[2], tint[3] = r, g, b
+	frame.lastTint = tint
+	frame.icon:SetVertexColor(r, g, b)
+end
+
 function M:OnArrowUpdate(elapsed)
 	self.arrowElapsed = (self.arrowElapsed or 0) + elapsed
-	if self.arrowElapsed < ELAPSED_STEP then return end
+	if self.arrowElapsed < (self.positionRetry and POSITION_RETRY or ELAPSED_STEP) then return end
 	local step = self.arrowElapsed
 	self.arrowElapsed = 0
 	local frame, db = self.arrowFrame, self.db
@@ -561,23 +592,31 @@ function M:OnArrowUpdate(elapsed)
 	if not continent then
 		-- Inside an instance the game names the map but hides where you are.
 		local here = C_Map and Clean(Try(C_Map.GetBestMapForUnit, "player"))
-		frame.icon:SetRotation(0)
-		frame.icon:SetVertexColor(Shade("DIM"))
-		frame.info:SetText(here and L["No position here"] or L["No position in this area"])
-		self.lastDistance = nil
+		ArrowAngle(frame, 0)
+		ArrowTint(frame, Shade("DIM"))
+		ArrowInfo(frame, here and L["No position here"] or L["No position in this area"])
+		self.lastDistance, self.speed, self.positionRetry = nil, nil, true
+		self.etaElapsed, self.etaText = 0, nil
+		self:UpdateArrowShown()
 		return
 	end
 	if not wp.continent then
 		wp.continent, wp.north, wp.west = M.WorldPos(wp.mapID, wp.x, wp.y)
 	end
 	if wp.continent ~= continent then
-		frame.icon:SetRotation(0)
-		frame.icon:SetVertexColor(Shade("DIM"))
-		frame.info:SetText(M.MapName(wp.mapID))
-		self.lastDistance = nil
+		ArrowAngle(frame, 0)
+		ArrowTint(frame, Shade("DIM"))
+		ArrowInfo(frame, M.MapName(wp.mapID))
+		self.lastDistance, self.speed, self.positionRetry = nil, nil, true
+		self.etaElapsed, self.etaText = 0, nil
+		self:UpdateArrowShown()
 		return
 	end
 
+	if self.positionRetry then
+		self.positionRetry = nil
+		self:UpdateArrowShown()
+	end
 	local dn, dw = wp.north - north, wp.west - west
 	local distance = sqrt(dn * dn + dw * dw)
 	if distance <= db.arrivalDistance then
@@ -590,32 +629,36 @@ function M:OnArrowUpdate(elapsed)
 	if facing then
 		local angle = (atan2(dw, dn) - facing) % (2 * pi)
 		self.angle = angle
-		frame.icon:SetRotation(angle)
+		ArrowAngle(frame, angle)
 		if db.headingColours then
 			local off = abs(angle > pi and angle - 2 * pi or angle) / pi -- 0 ahead, 1 behind
 			if off < 0.5 then
-				frame.icon:SetVertexColor(Blend(AHEAD, SIDE, off * 2))
+				ArrowTint(frame, Blend(AHEAD, SIDE, off * 2))
 			else
-				frame.icon:SetVertexColor(Blend(SIDE, BEHIND, (off - 0.5) * 2))
+				ArrowTint(frame, Blend(SIDE, BEHIND, (off - 0.5) * 2))
 			end
 		else
-			frame.icon:SetVertexColor(unpack(E.media.accentColor))
+			ArrowTint(frame, unpack(E.media.accentColor))
 		end
 	else
-		frame.icon:SetRotation(0)
-		frame.icon:SetVertexColor(Shade("DIM"))
+		ArrowAngle(frame, 0)
+		ArrowTint(frame, Shade("DIM"))
 	end
 
-	-- Speed towards the waypoint, smoothed, for the arrival time.
-	if self.lastDistance then
-		local closing = (self.lastDistance - distance) / step
-		self.speed = self.speed and (self.speed * 0.9 + closing * 0.1) or closing
+	-- Speed is sampled across a second so the arrival estimate stays steady.
+	self.etaElapsed = (self.etaElapsed or 0) + step
+	if self.lastDistance == nil then self.lastDistance = distance end
+	if self.etaElapsed >= 1 then
+		local closing = (self.lastDistance - distance) / self.etaElapsed
+		self.speed = self.speed and (self.speed * 0.5 + closing * 0.5) or closing
+		self.lastDistance, self.etaElapsed = distance, 0
+		self.etaText = self.speed > 0.5 and FormatTime(distance / self.speed) or nil
 	end
-	self.lastDistance = distance
-	local parts = {}
-	if db.showDistance then parts[#parts + 1] = FormatDistance(distance) end
-	if db.showETA and self.speed and self.speed > 0.5 then parts[#parts + 1] = FormatTime(distance / self.speed) end
-	frame.info:SetText(table.concat(parts, "  "))
+	local text = db.showDistance and FormatDistance(distance) or ""
+	if db.showETA and self.etaText then
+		text = text == "" and self.etaText or text .. "  " .. self.etaText
+	end
+	ArrowInfo(frame, text)
 end
 
 function M:Arrive(wp)
@@ -634,9 +677,9 @@ function M:Arrive(wp)
 				if distance and (not bestDistance or distance < bestDistance) then best, bestDistance = uid, distance end
 			end
 		end
-		if best then self:SetArrow(best) else self.arrowFrame.info:SetText(L["Arrived"]) end
+		if best then self:SetArrow(best) else ArrowInfo(self.arrowFrame, L["Arrived"]) end
 	else
-		self.arrowFrame.info:SetText(L["Arrived"])
+		ArrowInfo(self.arrowFrame, L["Arrived"])
 	end
 end
 
@@ -830,7 +873,7 @@ events:SetScript("OnEvent", function(_, event)
 	if event == "USER_WAYPOINT_UPDATED" then
 		M:OnGamePinChanged()
 	elseif event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" then
-		M.lastDistance, M.speed = nil, nil
+		M.lastDistance, M.speed, M.positionRetry, M.etaText, M.etaElapsed = nil, nil, nil, nil, 0
 		M:UpdateCorpse()
 		M:RefreshPins()
 		M:UpdateArrowShown()

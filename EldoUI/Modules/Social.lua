@@ -20,8 +20,8 @@
 -- Presentation only. Rows are restyled after Blizzard fills them
 -- (hooksecurefunc and ScrollBox callbacks); every frame and function name is
 -- checked before use, Blizzard art is made invisible with SetAlpha(0), and
--- per-frame state lives in local weak tables. Nothing is ever accepted,
--- invited, queued or sent for the player.
+-- per-frame state lives in local weak tables. Optional player menu actions
+-- run only on the player's click.
 -- Written from scratch for EldoUI; no code or media from other addons.
 local _, E = ...
 local L = E.L
@@ -35,6 +35,7 @@ local M = E:NewModule("Social", {
 	defaults = {
 		skin = true,            -- v0.5.0 switch, read once for the update (see legacy below)
 		transparent = false,
+		playerMenuActions = false,
 		-- Friends window
 		searchBox = true,
 		classColors = true,
@@ -355,9 +356,14 @@ local function ClassWrap(text, token)
 end
 
 local function SetClassIcon(texture, token)
+	local _, readable = E.FrameAtlas(texture)
+	if not readable then return nil end
 	if not token then return false end
 	local ok = pcall(texture.SetAtlas, texture, "classicon-" .. token:lower())
-	if ok and texture:GetAtlas() then
+	local atlas
+	atlas, readable = E.FrameAtlas(texture)
+	if not readable then return nil end
+	if ok and atlas and atlas ~= "" then
 		texture:SetTexCoord(0, 1, 0, 1)
 		return true
 	end
@@ -590,14 +596,21 @@ function M:StyleFriendRow(row, elementData)
 
 	-- Class icon over the game icon while the friend plays a WoW character.
 	local icon = row.gameIcon
-	local showClass = db.classIcons and data.class and icon and icon:IsShown()
-	if showClass then
-		parts_.classIcon:ClearAllPoints()
-		parts_.classIcon:SetAllPoints(icon)
-		showClass = SetClassIcon(parts_.classIcon, data.class)
+	local showClass = db.classIcons and data.class and icon and icon:IsShown() or false
+	local _, readable = E.FrameAtlas(parts_.classIcon)
+	if readable then
+		if showClass then
+			showClass = SetClassIcon(parts_.classIcon, data.class)
+			if showClass ~= nil then
+				parts_.classIcon:ClearAllPoints()
+				parts_.classIcon:SetAllPoints(icon)
+			end
+		end
+		if showClass ~= nil then
+			parts_.classIcon:SetShown(showClass and true or false)
+			Fade(icon, showClass and true or false, FRIENDS)
+		end
 	end
-	parts_.classIcon:SetShown(showClass and true or false)
-	Fade(icon, showClass and true or false, FRIENDS)
 
 	-- Offline rows dimmed; rows that don't match the search fade further.
 	local alpha = (db.dimOffline and not data.online) and E.tokens.disabledAlpha or 1
@@ -690,7 +703,7 @@ function M.CreateIgnoreTab(_)
 		C_Timer.After(0, function() E:UpdateTabs() end)
 	end)
 	E:SkinTabs({ tab }, { plain = true, isSelected = function() local w = IgnoreWindow(); return w and w:IsShown() or false end })
-	tab:SetText(_G.IGNORE or L["Ignore"])
+	tab:SetText(E:GameText(_G.IGNORE, L["Ignore"]))
 	local window = IgnoreWindow()
 	window:HookScript("OnShow", function() E:UpdateTabs() end)
 	window:HookScript("OnHide", function() E:UpdateTabs() end)
@@ -975,7 +988,7 @@ local function GroupedRowUpdate(row, item)
 	})
 	-- The whole second line on hover, for when the row cuts it short.
 	row.kitTipTitle, row.kitTipText = name, sub
-	if not SetClassIcon(row.icon.icon, item.class) then
+	if SetClassIcon(row.icon.icon, item.class) == false then
 		row.icon:SetIcon("Interface\\Icons\\INV_Misc_GroupNeedMore")
 		E:TrimIcon(row.icon.icon)
 	end
@@ -1322,7 +1335,7 @@ function M.CreateSocialTabs(_)
 		C_Timer.After(0, function() E:UpdateTabs() end)
 	end)
 	E:SkinTabs({ ignore }, { plain = true, isSelected = function() local w = SocialIgnoreWindow(); return w and w:IsShown() or false end })
-	ignore:SetText(_G.IGNORE or L["Ignore"])
+	ignore:SetText(E:GameText(_G.IGNORE, L["Ignore"]))
 	own.socialIgnore = ignore
 	local window = SocialIgnoreWindow()
 	if window then
@@ -1587,13 +1600,14 @@ M.friendsPart = friendsPart
 ---------------------------------------------------------------------------
 -- Module life cycle
 ---------------------------------------------------------------------------
-function M:OnInitialize()
-	-- v0.5.0 "Compact text" becomes the two text sizes.
-	if self.db.compactRows and not self.db.sizesMigrated then
-		self.db.nameSize, self.db.infoSize = 12, 10
-	end
-	self.db.sizesMigrated = true
+-- v0.5.0 "Compact text" becomes the two text sizes. Runs once per saved
+-- profile; a profile the old login check already looked at carries sizesMigrated.
+function M.MigrateSizes(profile)
+	local modules = type(profile) == "table" and type(profile.modules) == "table" and profile.modules
+	local profileSettings = modules and type(modules.Social) == "table" and modules.Social
+	if profileSettings and profileSettings.compactRows and not profileSettings.sizesMigrated then profileSettings.nameSize, profileSettings.infoSize = 12, 10 end
 end
+E:RegisterProfileMigration(M.MigrateSizes, "Social:sizes", 1)
 
 function M:ApplyAll()
 	for _, part in ipairs(parts) do
@@ -1605,13 +1619,149 @@ function M:ApplyAll()
 	end
 end
 
+-- Optional actions on the game's player menus. The menu's identity is
+-- checked again on click because a unit token can change while it is open.
+do
+	local tags = { "MENU_UNIT_PLAYER", "MENU_UNIT_PARTY", "MENU_UNIT_RAID_PLAYER", "MENU_UNIT_FRIEND", "MENU_UNIT_TARGET", "MENU_UNIT_ENEMY_PLAYER" }
+
+	local function Enabled()
+		return M.active and M.db.playerMenuActions
+	end
+
+	local function MenuCharacterName(name)
+		return not Secret(name) and type(name) == "string" and name ~= "" and name ~= _G.UNKNOWNOBJECT
+			and not name:find('[|:%c"]') and name or nil
+	end
+
+	local function LinkName(name)
+		local names = C_NameUtil
+		return MenuCharacterName(E.PlainCall(names and names.ReplaceSurnameSeparatorWithLinkSeparator, name))
+	end
+
+	local function PlayerName(context, allowNameOnly)
+		if Secret(context) or type(context) ~= "table" or (canaccesstable and not canaccesstable(context)) then return end
+		local unit, guid = context.unit, context.guid
+		if Secret(unit) or Secret(guid) or Secret(context.name) or Secret(context.surname) then return end
+		local me = E.PlainCall(UnitGUID, "player")
+		if type(me) ~= "string" or not me:match("^Player%-") then return end
+		if unit ~= nil then
+			if type(unit) ~= "string" or E.PlainCall(UnitIsPlayer, unit) ~= true then return end
+			local current = E.PlainCall(UnitGUID, unit)
+			if type(current) ~= "string" or not current:match("^Player%-") or current == me or (guid ~= nil and guid ~= current) then return end
+			local first, surname = E.PlainCallAll(UnitNameUnmodified, unit)
+			local name = MenuCharacterName(first)
+			if not name then return end
+			local separators = Constants and Constants.CharacterNameSeparatorConsts
+			local regional = E.PlainCall(RegionalUniqueNamesEnabled) == true
+			local separator = regional and (separators and separators.CHARACTERNAME_SURNAME_SEPARATOR or " ") or "-"
+			if surname ~= nil and surname ~= "" then
+				surname = MenuCharacterName(surname)
+				if not surname then return end
+				name = name .. separator .. surname
+			end
+			return name, current, unit
+		end
+		-- Camelot's Friend menu supplies the full character name from the chat
+		-- link or friends list even when no live unit token exists.
+		if not allowNameOnly then return end
+		if guid ~= nil and (type(guid) ~= "string" or not guid:match("^Player%-") or guid == me) then return end
+		local name = MenuCharacterName(context.name)
+		if not name then return end
+		local mine = E.PlainCall(E.UnitWhisperName, E, "player")
+		local linked, linkedMine = LinkName(name), mine and LinkName(mine)
+		if not (linked and linkedMine) or linked:lower() == linkedMine:lower() then return end
+		-- Two Forever characters can use the same given name. Use the
+		-- broader self check for a bare name, whose identity is ambiguous.
+		local regional = E.PlainCall(RegionalUniqueNamesEnabled) == true
+		if (not regional or not linked:find("-", 1, true)) and E.PlainCall(E.IsMe, E, name) ~= false then return end
+		return name, guid
+	end
+
+	local function CanInvite(name, unit)
+		local guild = C_GuildInfo
+		if not (guild and type(guild.Invite) == "function" and E.PlainCall(CanGuildInvite) == true) then return false end
+		if unit then return E.PlainCall(UnitIsInMyGuild, unit) == false end
+		if E.PlainCall(guild.MemberExistsByName, name) ~= false then return false end
+		local linked = LinkName(name)
+		return linked ~= nil and (linked == name or E.PlainCall(guild.MemberExistsByName, linked) == false)
+	end
+
+	-- Native UnitPopup rows publish their labels through MenuUtil. Check
+	-- the existing entries including their submenus before adding our rows.
+	local function ExistingActions(root)
+		local invite, who
+		local seen = { [root] = true }
+		local budget = 256
+		local function Visit(description, depth)
+			for _, child in description:EnumerateElementDescriptions() do
+				budget = budget - 1
+				if budget < 0 or depth > 16 or Secret(child) or type(child) ~= "table"
+					or (canaccesstable and not canaccesstable(child)) or seen[child] then return false end
+				seen[child] = true
+				local label = E.PlainCall(MenuUtil.GetElementText, child)
+				if label and (label == L["Guild invite"] or label == _G.COMMUNITIES_LIST_DROP_DOWN_INVITE) then invite = true end
+				if label and (label == L["Who list"] or label == L["Who"] or label == _G.WHO or label == _G.WHO_LIST) then who = true end
+				if invite and who then return true end
+				if not Visit(child, depth + 1) then return false end
+			end
+			return true
+		end
+		local ok, complete = pcall(Visit, root, 1)
+		if ok and complete then return invite, who end
+		return true, true
+	end
+
+	local function AddActions(root, context, allowNameOnly)
+		if not (Enabled() and root) then return end
+		local name, guid, unit = PlayerName(context, allowNameOnly)
+		if not name then return end
+		local inviteLabel = L["Guild invite"]
+		local whoLabel = E:GetLanguage() == "daDK" and L["Who list"] or L["Who"]
+		local hasInvite, hasWho = ExistingActions(root)
+		local invite = not hasInvite and CanInvite(name, unit)
+		local who = not hasWho and C_FriendList and type(C_FriendList.SendWho) == "function" and LinkName(name)
+		if not (invite or who) then return end
+		root:CreateDivider()
+		local function StillSelected()
+			if not Enabled() then return false end
+			local currentName, currentGUID = PlayerName(context, allowNameOnly)
+			return currentName == name and currentGUID == guid
+		end
+		if invite then
+			root:CreateButton(inviteLabel, function()
+				if StillSelected() and CanInvite(name, unit) then pcall(C_GuildInfo.Invite, name) end
+			end)
+		end
+		if who then
+			root:CreateButton(whoLabel, function()
+				if not StillSelected() or not (C_FriendList and type(C_FriendList.SendWho) == "function") then return end
+				local prefix = E.Plain(_G.WHO_TAG_EXACT) or "x-"
+				local origins = Enum and Enum.SocialWhoOrigin
+				pcall(C_FriendList.SendWho, prefix .. who, origins and origins.Social)
+			end)
+		end
+	end
+
+	function M:RegisterPlayerMenuActions()
+		if not Enabled() or self.playerMenusRegistered or not (Menu and Menu.ModifyMenu) then return end
+		self.playerMenusRegistered = true
+		for _, tag in ipairs(tags) do
+			local allowNameOnly = tag == "MENU_UNIT_FRIEND"
+			Menu.ModifyMenu(tag, function(_, root, context) AddActions(root, context, allowNameOnly) end)
+		end
+	end
+end
+
 function M:OnEnable()
+	self:SyncGuildHistory()
+	self:RegisterPlayerMenuActions()
 	self:ApplyAll()
 	self:RegisterEvent("FRIENDLIST_UPDATE", function() M:QueueRows() end)
 	self:RegisterEvent("BN_FRIEND_INFO_CHANGED", function() M:QueueRows() end)
 end
 
 function M:OnDisable()
+	self:SyncGuildHistory()
 	self:UnregisterEvent("FRIENDLIST_UPDATE")
 	self:UnregisterEvent("BN_FRIEND_INFO_CHANGED")
 	for _, part in ipairs(parts) do self:UndoPart(part) end
@@ -1619,6 +1769,8 @@ end
 
 function M:OnProfileChanged()
 	if not self.active then return end
+	self:SyncGuildHistory()
+	self:RegisterPlayerMenuActions()
 	self:ApplyAll()
 end
 
@@ -1645,6 +1797,9 @@ M.options = {
 		func = function() E:ToggleConfig("blizzard") end },
 	{ type = "toggle", disabled = NoSeeThroughWindow, key = "transparent", label = "See-through windows",
 		desc = "The friends, guild, calendar, group finder and PvP windows let the game show through a little. How much: General > Panel opacity." },
+
+	{ type = "toggle", key = "playerMenuActions", label = "Guild invite and Who in player menus",
+		desc = "Adds Guild invite when you can invite the player, and Who to look up their character by name." },
 
 	{ type = "tab", label = "Friends" },
 }

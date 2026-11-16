@@ -791,7 +791,7 @@ M.options = {
 	{ type = "execute", label = L["Test"], func = function() M:Test(Editing()) end,
 		desc = L["Shows a pulse now (the entry chosen below, or the first on the list)."] },
 	{ type = "header", label = L["Look"] },
-	{ type = "range", key = "size", label = L["Icon size"], min = 32, max = 128, step = 2,
+	{ type = "range", unit = "px", key = "size", label = L["Icon size"], min = 32, max = 128, step = 2,
 		desc = L["How big the pulse icon is."] },
 	{ type = "range", unit = "s", key = "holdTime", label = L["Hold time"], min = 0, max = 3, step = 0.1,
 		desc = L["Seconds the icon stays at full size before it fades."] },

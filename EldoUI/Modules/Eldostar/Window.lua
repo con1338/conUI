@@ -45,7 +45,7 @@ local function Size()
 end
 
 local function Compact()
-	return M.db and M.db.view == "compact"
+	return M.db and M.db.view == "compact" and not M.groupPrompt
 end
 
 local function Locked()
@@ -55,8 +55,9 @@ end
 ---------------------------------------------------------------------------
 -- Goal rows
 ---------------------------------------------------------------------------
-local TIP_MANUAL = L["Click to check this off when it is done. Click again to uncheck it."]
-local TIP_AUTO = L["The game reports this one, so it ticks by itself."]
+-- Kept as keys: the language is chosen after the files load.
+local TIP_MANUAL = E.Key("Click to check this off when it is done. Click again to uncheck it.")
+local TIP_AUTO = E.Key("The game reports this one, so it ticks by itself.")
 
 local function CountText(entry)
 	if entry.have and entry.need and entry.need > 1 then return ("%d/%d"):format(entry.have, entry.need) end
@@ -127,7 +128,7 @@ local function UpdateRow(row, item, _, kind)
 		row.text:SetText(item.text or "")
 		if item.kind == "section" then
 			E:SetHeaderFont(row.text, math.max(size - 1, 9))
-			row.text:SetTextColor(UI.Accent())
+			if item.active == false then UI.Paint(row.text, "secondary") else row.text:SetTextColor(UI.Accent()) end
 			row.text:SetText((item.text or ""):upper())
 		elseif item.kind == "notice" then
 			UI.Paint(row.text, "warn")
@@ -137,7 +138,7 @@ local function UpdateRow(row, item, _, kind)
 		return
 	end
 	local entry = item.entry
-	local note = entry.goal.kind == "note"
+	local note = entry.waiting or entry.goal.kind == "note" or (entry.along and entry.goal.kind == "task")
 	E:SetFont(row.text, size)
 	E:SetFont(row.count, math.max(size - 1, 9))
 	row.text:SetText(M.EntryText(entry))
@@ -166,7 +167,7 @@ local function UpdateRow(row, item, _, kind)
 	else
 		local lines = M.GoalDetails(entry.goal)
 		if entry.leftOut then lines[#lines + 1] = L["You don't have this quest, so it doesn't hold the step up."] end
-		lines[#lines + 1] = manual and TIP_MANUAL or TIP_AUTO
+		lines[#lines + 1] = L[manual and TIP_MANUAL or TIP_AUTO]
 		UI.Tooltip(row, M.GoalText(entry.goal), table.concat(lines, "\n"))
 	end
 end
@@ -174,6 +175,8 @@ end
 -- The list items of a step: tip, notice, goals, then the goals along the way.
 function M:StepItems(view)
 	local items = {}
+	local heading, active = M.SectionInfo(view.step.section)
+	if heading then items[#items + 1] = { kind = "section", text = heading, active = active == true } end
 	if view.notice then items[#items + 1] = { kind = "notice", text = view.notice } end
 	if self.db.showTip and view.step.tip then items[#items + 1] = { kind = "tip", text = view.step.tip } end
 	if #items > 0 then items[#items + 1] = { kind = "space" } end
@@ -521,7 +524,12 @@ function M:UpdateWindow()
 	if not (frame and frame:IsShown()) then return end
 	local view = self:View()
 	self.view = view
+	self.groupPrompt = view.state == "group"
 	local compact = Compact()
+	if self.lastCompact ~= compact then
+		self.lastCompact = compact
+		self:ApplySize()
+	end
 	local step = view.state == "step"
 	Parts(frame, step, compact)
 	if compact then LayoutCompact(frame) end
@@ -537,6 +545,7 @@ function M:UpdateWindow()
 		self:OfferTour()
 		local stepTitle = view.step.title
 		if compact then
+			if view.step.section and view.step.section.title then stepTitle = view.step.section.title .. " · " .. stepTitle end
 			SetTitle(frame, stepTitle)
 			local open = FirstOpen(view)
 			local text = open and M.EntryText(open, true) or L["Every goal is done."]
@@ -565,7 +574,7 @@ function M:UpdateWindow()
 		-- opens the guide list.
 		local text
 		if view.state == "choose" then
-			text = L["Pick a guide to start."]
+			text = view.text or L["Pick a guide to start."]
 		elseif view.state == "finished" then
 			text = L["You finished %s."]:format(guide.title)
 		else
@@ -575,10 +584,14 @@ function M:UpdateWindow()
 		UI.Paint(frame.goalLine, "secondary")
 		return
 	end
-	if view.state == "choose" then
+	if view.state == "group" then
+		ShowMessage(frame, view.text,
+			{ L["Skip it"], function() M:ChooseGroup(view.groupQuest, false, guide.id, view.index) end },
+			{ L["Do it with a group"], function() M:ChooseGroup(view.groupQuest, true, guide.id, view.index) end })
+	elseif view.state == "choose" then
 		local suggest = view.suggest
 		ShowMessage(frame,
-			suggest and L["Pick a guide to start. For your level: %s."]:format(suggest.title) or L["Pick a guide to start."],
+			view.text or (suggest and L["Pick a guide to start. For your level: %s."]:format(suggest.title) or L["Pick a guide to start."]),
 			suggest and { L["Start this guide"], function() M:StartGuide(suggest.id) end, suggest.title,
 				L["Starts the guide where its steps fit your character."] },
 			{ L["Browse guides"], BrowseGuides, L["Guides"], L["Opens the guide list in the Journal."] })

@@ -216,6 +216,122 @@ local function ReadTaxiNodes()
 	return found
 end
 
+-- Quest changes share one short batch even when both sources are enabled.
+local questSeen, questPending = {}, {}
+local questObjective, questReady, questFull, questQuiet, questTriggers
+local questGeneration = 0
+local QUEST_EVENTS = { "QUEST_LOG_UPDATE", "QUEST_WATCH_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_ENTERING_WORLD" }
+
+local function QuestTable(value)
+	return not Secret(value) and type(value) == "table" and (not canaccesstable or canaccesstable(value))
+end
+
+local function ReadQuest(questID)
+	local api = C_QuestLog
+	if type(api) ~= "table" then return end
+	local complete = E.PlainCall(api.IsComplete, questID)
+	local objectives = E.PlainCall(api.GetQuestObjectives, questID)
+	if type(complete) ~= "boolean" or not QuestTable(objectives) then return end
+	if #objectives > 64 then return end
+	local result = { complete = complete, objectives = {} }
+	for index = 1, #objectives do
+		local objective = objectives[index]
+		if not QuestTable(objective) then return end
+		local finished = E.Plain(objective.finished)
+		if type(finished) ~= "boolean" then return end
+		result.objectives[index] = finished
+	end
+	return result
+end
+
+local function NoteQuest(questID, quiet, generation)
+	local previous, current = questSeen[questID], ReadQuest(questID)
+	if generation ~= questGeneration then return end
+	questSeen[questID] = current
+	if quiet or not previous or not current then return end
+	local completed = 0
+	if questObjective then
+		for index, finished in ipairs(current.objectives) do
+			if finished and previous.objectives[index] == false then completed = completed + 1 end
+		end
+	end
+	local ready = questReady and current.complete and not previous.complete
+	if completed == 0 and not ready then return end
+	local title = E.PlainCall(C_QuestLog.GetTitleForQuestID, questID)
+	if type(title) ~= "string" or title == "" then return end
+	local module = F.module
+	for _ = 1, completed do
+		if generation ~= questGeneration then return end
+		module:Emit("questobjective", { quest = title })
+	end
+	if generation == questGeneration and ready then module:Emit("questready", { quest = title }) end
+end
+
+local function ReadQuestRoster(quiet, generation)
+	if type(C_QuestLog) ~= "table" then return end
+	local count = E.PlainCall(C_QuestLog.GetNumQuestLogEntries)
+	if type(count) ~= "number" or count ~= math.floor(count) or count < 0 or count > 200 then return end
+	local found = {}
+	for index = 1, count do
+		if generation ~= questGeneration then return end
+		local info = E.PlainCall(C_QuestLog.GetInfo, index)
+		if not QuestTable(info) then wipe(questSeen) return end
+		if E.Plain(info.isHeader) == false then
+			local id = E.Plain(info.questID)
+			if type(id) == "number" and id > 0 and id < math.huge then
+				found[id] = true
+				NoteQuest(id, quiet, generation)
+			end
+		end
+	end
+	if generation ~= questGeneration then return end
+	for id in pairs(questSeen) do if not found[id] then questSeen[id] = nil end end
+end
+
+function F.SyncQuestSources(index)
+	local objective, ready = index.questobjective ~= nil, index.questready ~= nil
+	local triggers = F.module and F.module.db.triggers
+	if objective == questObjective and ready == questReady and triggers == questTriggers then return end
+	questObjective, questReady, questTriggers = objective, ready, triggers
+	questGeneration = questGeneration + 1
+	questFull, questQuiet = nil, nil
+	wipe(questSeen)
+	wipe(questPending)
+	if objective or ready then ReadQuestRoster(true, questGeneration) end
+end
+
+local function QuestChanged(event, questID)
+	if not (questObjective or questReady) then return end
+	questID = E.Plain(questID)
+	if event == "PLAYER_ENTERING_WORLD" then
+		questFull, questQuiet = true, true
+	elseif event == "QUEST_REMOVED" or event == "QUEST_TURNED_IN" then
+		if type(questID) == "number" and questID > 0 and questID < math.huge then questSeen[questID], questPending[questID] = nil, nil end
+	elseif event == "QUEST_LOG_UPDATE" then
+		questFull = true
+	elseif type(questID) == "number" and questID > 0 and questID < math.huge then
+		if event == "QUEST_ACCEPTED" then
+			questSeen[questID], questPending[questID] = nil, "quiet"
+		elseif questPending[questID] ~= "quiet" then
+			questPending[questID] = true
+		end
+	end
+	local generation = questGeneration
+	E:Debounce("fanfare:quests:" .. generation, 0.2, function()
+		if generation ~= questGeneration or not (F.module and F.module.active) then return end
+		local full, quiet, pending = questFull, questQuiet, questPending
+		questFull, questQuiet, questPending = nil, nil, {}
+		if quiet or full then
+			ReadQuestRoster(quiet, generation)
+		else
+			for id, mode in pairs(pending) do
+				if generation ~= questGeneration then return end
+				NoteQuest(id, mode == "quiet", generation)
+			end
+		end
+	end)
+end
+
 F.groupOrder = { "Progress", "Loot", "Social", "Group", "Instance", "PvP", "World", "Status" }
 
 -- Conditions every source supports; sources add their own.
@@ -236,6 +352,16 @@ F.sources = {
 			return { quest = title or "" }
 		end,
 		tokens = { "quest" }, icon = "Interface\\GossipFrame\\ActiveQuestIcon", sample = { quest = "The Defias Brotherhood" },
+	},
+	questobjective = {
+		label = "A quest objective is done", group = "Progress", events = QUEST_EVENTS,
+		payload = QuestChanged, tokens = { "quest" },
+		icon = "Interface\\GossipFrame\\ActiveQuestIcon", sample = { quest = "The Defias Brotherhood" },
+	},
+	questready = {
+		label = "A quest is ready to turn in", group = "Progress", events = QUEST_EVENTS,
+		payload = QuestChanged, tokens = { "quest" },
+		icon = "Interface\\GossipFrame\\AvailableQuestIcon", sample = { quest = "The Defias Brotherhood" },
 	},
 	achievement = {
 		label = "Achievement earned", group = "Progress", events = { "ACHIEVEMENT_EARNED" },

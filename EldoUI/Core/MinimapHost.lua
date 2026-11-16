@@ -6,9 +6,9 @@
 --                                 false in combat or while another owner
 --                                 has it
 --   E:FitHostedMinimap(owner)     follows a new frame size
---   E:ReleaseMinimap(owner)       puts back parent, points, size, scale,
---                                 strata, level and zoom; in combat it
---                                 waits for the end of the fight
+--   E:ReleaseMinimap(owner[, exact]) restores parent, points, size, scale,
+--                                 strata, level and zoom, after combat if needed.
+--                                 Exact skips the normal Minimap relayout.
 --   E:MinimapHostOwner()          who has it now, or nil
 --
 -- The map, the arrow, the group blips and the room pictures are the
@@ -32,7 +32,7 @@ local function Redraw(map)
 end
 
 local function Save(map)
-	local saved = { parent = map:GetParent(), points = {}, scale = map:GetScale(), strata = map:GetFrameStrata(),
+	local saved = { map = map, parent = map:GetParent(), points = {}, scale = map:GetScale(), strata = map:GetFrameStrata(),
 		level = map:GetFrameLevel(), zoom = map.GetZoom and map:GetZoom() }
 	saved.width, saved.height = map:GetSize()
 	for index = 1, map:GetNumPoints() do saved.points[index] = { map:GetPoint(index) } end
@@ -44,7 +44,7 @@ function E:MinimapHostOwner()
 end
 
 function E:FitHostedMinimap(owner)
-	local map = Map()
+	local map = host.saved and host.saved.map
 	if not (map and host.owner == owner and host.frame) or InCombatLockdown() then return false end
 	local width, height = host.frame:GetSize()
 	local size = math.max(64, math.floor(math.min(width or 0, height or 0)))
@@ -56,7 +56,7 @@ end
 function E:HostMinimap(owner, frame)
 	local map = Map()
 	if not (map and owner and frame) or InCombatLockdown() then return false end
-	if host.owner and host.owner ~= owner then return false end
+	if host.owner and (host.owner ~= owner or host.saved.map ~= map) then return false end
 	if not host.saved then host.saved = Save(map) end
 	host.owner, host.frame = owner, frame
 	map:SetParent(frame)
@@ -71,28 +71,29 @@ function E:HostMinimap(owner, frame)
 	return true
 end
 
-function E:ReleaseMinimap(owner)
-	local map = Map()
+function E:ReleaseMinimap(owner, exact)
+	local saved = host.saved
+	local map = saved and saved.map
 	if not (map and host.owner and host.owner == owner) then return false end
 	if InCombatLockdown() then
-		self:RunOutOfCombat(function() E:ReleaseMinimap(owner) end)
+		self:RunOutOfCombat(function()
+			if host.saved == saved then E:ReleaseMinimap(owner, exact) end
+		end)
 		return false
 	end
-	local saved = host.saved
+	map:SetParent(saved.parent)
+	map:ClearAllPoints()
+	for _, point in ipairs(saved.points) do map:SetPoint(unpack(point)) end
+	map:SetScale(saved.scale or 1)
+	if saved.width and saved.height then map:SetSize(saved.width, saved.height) end
+	if saved.strata then map:SetFrameStrata(saved.strata) end
+	if saved.level then map:SetFrameLevel(saved.level) end
+	if map.SetZoom and type(saved.zoom) == "number" then map:SetZoom(saved.zoom) end
+	-- Keep ownership during SetPoint so the normal anchor hook waits.
 	host.owner, host.frame, host.saved = nil, nil, nil
-	if saved then
-		map:SetParent(saved.parent)
-		map:ClearAllPoints()
-		for _, point in ipairs(saved.points) do map:SetPoint(unpack(point)) end
-		map:SetScale(saved.scale or 1)
-		if saved.width and saved.height then map:SetSize(saved.width, saved.height) end
-		if saved.strata then map:SetFrameStrata(saved.strata) end
-		if saved.level then map:SetFrameLevel(saved.level) end
-		if map.SetZoom and type(saved.zoom) == "number" then map:SetZoom(saved.zoom) end
-	end
-	-- The Minimap module puts its own layout back on top.
+	-- Most hosts want the current Minimap layout applied after restoring.
 	local module = self.modules and self.modules.Minimap
-	if module and module.active and module.ApplyMap then pcall(module.ApplyMap, module) end
+	if not exact and module and module.active and module.ApplyMap then pcall(module.ApplyMap, module) end
 	Redraw(map)
 	return true
 end

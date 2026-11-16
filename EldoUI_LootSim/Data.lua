@@ -6,12 +6,15 @@
 -- numbers from that rank's own description. The numbers below are only a
 -- fallback for a description the client has not loaded yet (the top rank at
 -- level 60, scaled down for lower levels).
+-- Named spell IDs checked against client tables of 1.60.1.70938. This
+-- identifier check does not verify the simulation's numerical assumptions.
 --
 -- Ability fields:
 --   kind      melee (special weapon attack), queue (replaces the next main
 --             hand swing), ranged (special shot), spell (direct), dot,
 --             channel, finisher (combo points), buff
 --   school    physical, holy, fire, nature, frost, shadow, arcane
+--   hitType   ranged selects the ranged miss table for a direct spell
 --   weapon    adds a weapon swing (mult = share of it), normalized = uses
 --             the normalized weapon speed
 --   bonus     flat damage on top of the weapon; apPct = percent of attack power
@@ -122,8 +125,8 @@ D.SPELLS = {
 	PALADIN = {
 		sealOfRighteousness = { id = 21084, kind = "buff", school = "holy", cost = 120, duration = 30, seal = "righteousness", perSpeed = 17, coef = 0.092 },
 		sealOfCommand = { id = 20375, kind = "buff", school = "holy", cost = 65, duration = 30, seal = "command", ppm = 7, weaponPct = 70, coef = 0.2 },
-		-- rangedHit: a ranged attack's miss roll since the hotfix of 11 November 2026 (Engine.lua, Fight:SpellLands).
-		judgement = { id = 20271, kind = "spell", school = "holy", min = 116, max = 127, cost = 86, cd = 10, coef = 0.5, judge = true, rangedHit = true },
+		-- Blizzard's November 11, 2026 Forever hotfix gives Judgement ranged hit.
+		judgement = { id = 20271, kind = "spell", school = "holy", hitType = "ranged", min = 116, max = 127, cost = 86, cd = 10, coef = 0.5, judge = true },
 		consecration = { id = 26573, kind = "dot", school = "holy", min = 384, max = 384, duration = 8, ticks = 4, cost = 565, cd = 8, coef = 0.33, parse = "first" },
 	},
 	SHAMAN = {
@@ -132,7 +135,8 @@ D.SPELLS = {
 		chainLightning = { id = 421, kind = "spell", school = "nature", min = 493, max = 551, cost = 760, cast = 2.5, cd = 6, coef = 0.714, parse = "range" },
 		earthShock = { id = 8042, kind = "spell", school = "nature", min = 517, max = 545, cost = 345, cd = 6, coef = 0.386, shock = true, parse = "range" },
 		flameShock = { id = 8050, kind = "spell", school = "fire", min = 292, max = 292, cost = 450, cd = 6, coef = 0.214, dot = 320, dotDuration = 12, dotCoef = 0.4, shock = true, parse = "first" },
-		stormstrike = { id = 17364, kind = "melee", school = "physical", weapon = true, cost = 319, cd = 20, natureBonus = 0.2, charges = 2 },
+		-- Blizzard's November 10, 2026 Forever hotfix sets this cooldown to 8 s.
+		stormstrike = { id = 17364, kind = "melee", school = "physical", weapon = true, cost = 319, cd = 8, natureBonus = 0.2, charges = 2 },
 	},
 	DRUID = {
 		shred = { id = 5221, kind = "melee", school = "physical", weapon = true, mult = 2.25, bonus = 180, cost = 60, builder = true, form = "cat", parse = "afterPercent" },
@@ -213,28 +217,22 @@ D.TALENTS = {
 	WARRIOR = {
 		["Impale"] = { crit = { "yellow", 0.1 } },
 		["Two-Handed Weapon Specialization"] = { dmg = { "twohand", 0.01 } },
-		["One-Handed Weapon Specialization"] = { dmg = { "onehand", 0.02 } },
 		["Dual Wield Specialization"] = { dmg = { "offhand", 0.05 } },
 		["Improved Heroic Strike"] = { cost = { "spell:heroicStrike", 1 } },
 		["Improved Overpower"] = { critChance = { "spell:overpower", 25 } },
 		["Flurry"] = { special = "flurry", values = { 0.1, 0.15, 0.2, 0.25, 0.3 } },
 		["Deep Wounds"] = { special = "deepWounds", per = 0.2 },
 		["Unbridled Wrath"] = { special = "unbridledWrath", per = 8 },
-		["Sword Specialization"] = { special = "swordSpec", per = 1 },
 	},
 	ROGUE = {
 		["Lethality"] = { crit = { "builder", 0.06 } },
 		["Dual Wield Specialization"] = { dmg = { "offhand", 0.1 } },
-		["Improved Eviscerate"] = { dmg = { "spell:eviscerate", 0.05 } },
 		["Aggression"] = { dmg = { "spell:sinisterStrike", 0.02 }, dmg2 = { "spell:eviscerate", 0.02 } },
 		["Opportunity"] = { dmg = { "spell:backstab", 0.04 }, dmg2 = { "spell:ambush", 0.04 } },
-		["Improved Sinister Strike"] = { cost = { "spell:sinisterStrike", 2.5 } },
-		["Improved Backstab"] = { critChance = { "spell:backstab", 10 } },
 		["Improved Ambush"] = { critChance = { "spell:ambush", 15 } },
 		["Improved Slice and Dice"] = { special = "longerSnD", per = 0.15 },
 		["Relentless Strikes"] = { special = "relentless", per = 0.2 },
 		["Seal Fate"] = { special = "sealFate", per = 20 },
-		["Sword Specialization"] = { special = "swordSpec", per = 1 },
 	},
 	HUNTER = {
 		["Mortal Shots"] = { crit = { "ranged", 0.06 } },
@@ -253,9 +251,7 @@ D.TALENTS = {
 	MAGE = {
 		["Fire Power"] = { dmg = { "school:fire", 0.02 } },
 		["Ice Shards"] = { crit = { "school:frost", 0.2 } },
-		["Piercing Ice"] = { dmg = { "school:frost", 0.02 } },
 		["Arcane Instability"] = { dmg = { "all", 0.01 }, critChance = { "all", 1 } },
-		["Improved Fireball"] = { cast = { "spell:fireball", 0.1 } },
 		["Improved Frostbolt"] = { cast = { "spell:frostbolt", 0.1 } },
 		["Ignite"] = { special = "ignite", per = 0.08 },
 		["Arcane Concentration"] = { special = "clearcasting", per = 2 },
@@ -266,9 +262,7 @@ D.TALENTS = {
 		["Shadow Mastery"] = { dmg = { "school:shadow", 0.02 } },
 		["Improved Corruption"] = { cast = { "spell:corruption", 0.4 } },
 		["Improved Shadow Bolt"] = { special = "isb", per = 0.04 },
-		["Emberstorm"] = { dmg = { "school:fire", 0.02 } },
 		["Improved Bane of Agony"] = { dmg = { "spell:curseOfAgony", 0.02 } },
-		["Improved Immolate"] = { dmg = { "spell:immolate", 0.05 } },
 		["Improved Life Tap"] = { special = "lifeTap", per = 0.1 },
 	},
 	PRIEST = {
@@ -278,29 +272,23 @@ D.TALENTS = {
 		["Improved Shadow Word: Pain"] = { special = "longerSWP", per = 3 },
 		["Searing Light"] = { dmg = { "spell:smite", 0.05 }, dmg2 = { "spell:holyFire", 0.05 } },
 		["Divine Fury"] = { cast = { "spell:smite", 0.1 }, cast2 = { "spell:holyFire", 0.1 } },
-		["Force of Will"] = { dmg = { "all", 0.01 }, critChance = { "all", 1 } },
 	},
 	PALADIN = {
 		["Two-Handed Weapon Specialization"] = { dmg = { "twohand", 0.02 } },
-		["One-Handed Weapon Specialization"] = { dmg = { "onehand", 0.02 } },
 		["Vengeance"] = { special = "vengeance", per = 0.03 },
 		["Improved Judgement"] = { cd = { "spell:judgement", 1 } },
-		["Improved Seal of Righteousness"] = { dmg = { "spell:sealOfRighteousness", 0.03 } },
 	},
 	SHAMAN = {
 		["Concussion"] = { dmg = { "spell:lightningBolt", 0.01 }, dmg2 = { "spell:chainLightning", 0.01 }, dmg3 = { "spell:earthShock", 0.01 } },
 		["Elemental Fury"] = { crit = { "school:nature", 1 }, crit2 = { "school:fire", 1 } },
 		["Lightning Mastery"] = { cast = { "spell:lightningBolt", 0.2 }, cast2 = { "spell:chainLightning", 0.2 } },
-		["Weapon Mastery"] = { dmg = { "physical", 0.02 } },
 		["Flurry"] = { special = "flurry", values = { 0.1, 0.15, 0.2, 0.25, 0.3 } },
 		["Elemental Weapons"] = { special = "windfuryAP", per = 0.1333 },
 		["Call of Thunder"] = { critChance = { "spell:lightningBolt", 1 }, critChance2 = { "spell:chainLightning", 1 } },
 	},
 	DRUID = {
-		["Natural Weapons"] = { dmg = { "physical", 0.02 } },
-		["Improved Shred"] = { cost = { "spell:shred", 6 } },
+		["Shredding Attacks"] = { cost = { "spell:shred", 6 } },
 		["Ferocity"] = { cost = { "spell:maul", 1 }, cost2 = { "spell:swipe", 1 }, cost3 = { "spell:claw", 1 } },
-		["Feral Aggression"] = { dmg = { "spell:ferociousBite", 0.03 } },
 		["Blood Frenzy"] = { special = "sealFate", per = 50 },
 		["Vengeance"] = { crit = { "spell:starfire", 0.2 }, crit2 = { "spell:moonfire", 0.2 }, crit3 = { "spell:wrath", 0.2 } },
 		["Moonfury"] = { dmg = { "spell:starfire", 0.02 }, dmg2 = { "spell:moonfire", 0.02 }, dmg3 = { "spell:wrath", 0.02 } },

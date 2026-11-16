@@ -148,6 +148,7 @@ end
 local function ResetSlot(button)
 	local p = parts[button]
 	if not p then return end
+	if M.PaintTradeMark then M:PaintTradeMark(button, p.bind) end
 	p.edge:Hide()
 	p.over:Hide()
 	UnskinSlotArt(button, p)
@@ -163,8 +164,8 @@ M.BlizzardSlotProtected = Protected
 -- The overlay parts of one Blizzard slot (plugins read them).
 function M.BlizzardSlotParts(button) return parts[button] end
 
--- data: quality, link, bound (false = not bound yet), quest, empty, protected.
-local function PaintSlot(button, skin, improve, quality, link, bound, quest, empty, protected)
+-- data: quality, link, bound (false = not bound yet), quest, empty, protected, junk, tradeRecord.
+local function PaintSlot(button, skin, improve, quality, link, bound, quest, empty, protected, junk, tradeRecord)
 	if not (skin or improve) then
 		ResetSlot(button)
 		return
@@ -180,6 +181,7 @@ local function PaintSlot(button, skin, improve, quality, link, bound, quest, emp
 	end
 	p.edge:SetShown(skin and true or false)
 	if not improve or empty then
+		if M.PaintTradeMark then M:PaintTradeMark(button, p.bind) end
 		p.over:Hide()
 		return
 	end
@@ -187,7 +189,8 @@ local function PaintSlot(button, skin, improve, quality, link, bound, quest, emp
 	p.level:SetText(M.ItemLevelText(link, quality))
 	p.level:SetTextColor(M:ItemLevelColor(quality))
 	p.bind:SetText(M.BindText(link, bound))
-	local coin, dim = M.JunkMarks(quality)
+	if M.PaintTradeMark then M:PaintTradeMark(button, p.bind, tradeRecord) end
+	local coin, dim = M.JunkMarks(quality, junk)
 	p.coin:SetShown(coin and true or false)
 	p.dim:SetShown(dim and true or false)
 	-- The warn color is read when drawn, so the safe palette reaches it.
@@ -231,8 +234,13 @@ local function PaintContainer(frame)
 				quest = questInfo and (questInfo.isQuestItem or questInfo.questID) and true or false
 			end
 			if info then
-				PaintSlot(button, skin, improve, info.quality, info.hyperlink, info.isBound and true or false, quest, false,
-					improve and Protected(info.itemID, bag, slot))
+				local junk = E.WillSellAsJunk and E:WillSellAsJunk(bag, slot, info)
+				local tradeRecord = improve and M.db.tradeTime and not E.Secret(info.isBound) and info.isBound == true and {
+					bag = bag, slot = slot, link = info.hyperlink, quality = info.quality, bound = true,
+				}
+				if tradeRecord and M.TradeItemGUID then tradeRecord.tradeGUID = M:TradeItemGUID(tradeRecord) end
+				PaintSlot(button, skin, improve, info.quality, info.hyperlink, E.Plain(info.isBound), quest, false,
+					improve and Protected(info.itemID, bag, slot), junk, tradeRecord)
 			else
 				PaintSlot(button, skin, improve, nil, nil, nil, false, true)
 			end

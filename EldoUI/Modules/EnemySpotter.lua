@@ -83,8 +83,10 @@ end
 
 function M:PlateRemoved(unit)
 	local name = plates[unit]
+	-- A plate the list never held (an NPC, a friend): nothing changed.
+	if not name then return end
 	plates[unit] = nil
-	local entry = name and enemies[name]
+	local entry = enemies[name]
 	if entry then
 		entry.visible = false
 		entry.seen = GetTime()
@@ -142,6 +144,16 @@ function M:WatchList()
 	end
 end
 
+-- Bumped when the theme changes, so every row takes the new fonts.
+local styleGen = 0
+E:OnThemeChanged("EnemySpotter", function() styleGen = styleGen + 1 end)
+
+local list = {}
+local function ByShownThenSeen(a, b)
+	if a.visible ~= b.visible then return a.visible end
+	return a.seen > b.seen
+end
+
 function M:Update()
 	local frame = self.frame
 	if not (frame and self.active) then return end
@@ -152,21 +164,21 @@ function M:Update()
 	local function Num(key) return tonumber(db[key]) or defaults[key] end
 	local width, rowHeight, fontSize = Num("width"), Num("rowHeight"), Num("fontSize")
 	local now = GetTime()
-	local list = {}
+	wipe(list)
 	for name, entry in pairs(enemies) do
 		if not entry.visible and now - entry.seen > Num("forget") then
 			enemies[name] = nil
 		else
-			table.insert(list, entry)
+			list[#list + 1] = entry
 		end
 	end
-	table.sort(list, function(a, b)
-		if a.visible ~= b.visible then return a.visible end
-		return a.seen > b.seen
-	end)
-	self:WatchList()
+	table.sort(list, ByShownThenSeen)
+	-- Hidden in an instance, the list waits for the next plate or zone
+	-- change instead of redrawing every second.
+	local inInstance = db.hideInInstances and IsInInstance()
+	if inInstance then E.Ticker:Unsubscribe(TICK) else self:WatchList() end
 
-	local hidden = (db.hideInInstances and IsInInstance()) or (db.autoHide and #list == 0 and not E:IsMoveMode())
+	local hidden = inInstance or (db.autoHide and #list == 0 and not E:IsMoveMode())
 	if hidden then
 		frame:SetAlpha(0)
 		return
@@ -185,40 +197,46 @@ function M:Update()
 	end
 
 	local shown = math.min(#list, Num("maxRows"))
+	-- Place, size and fonts change only with the settings or the theme;
+	-- the per-second redraw sets text, color and alpha.
+	local style = ("%s:%s:%s:%s:%s:%d"):format(width, rowHeight, fontSize, top, tostring(db.showLevel), styleGen)
 	for index = 1, shown do
 		local entry = list[index]
 		local row = self:Row(index)
-		row:ClearAllPoints()
-		row:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -top - (index - 1) * rowHeight)
-		row:SetSize(width - 8, rowHeight)
-		row.bg:SetColorTexture(1, 1, 1, index % 2 == 0 and 0.03 or 0)
-		E:SetNameTextFont(row.name, fontSize)
-		E:SetFont(row.level, fontSize)
-		E:SetFont(row.ago, math.max(fontSize - 1, 9))
+		if row.style ~= style then
+			row.style = style
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -top - (index - 1) * rowHeight)
+			row:SetSize(width - 8, rowHeight)
+			row.bg:SetColorTexture(1, 1, 1, index % 2 == 0 and 0.03 or 0)
+			E:SetNameTextFont(row.name, fontSize)
+			E:SetFont(row.level, fontSize)
+			E:SetFont(row.ago, math.max(fontSize - 1, 9))
+			row.ago:ClearAllPoints()
+			row.ago:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+			row.ago:SetWidth(34)
+			row.level:ClearAllPoints()
+			row.level:SetPoint("RIGHT", row.ago, "LEFT", -4, 0)
+			row.level:SetWidth(28)
+			row.name:ClearAllPoints()
+			row.name:SetPoint("LEFT", row, "LEFT", 2, 0)
+			row.name:SetPoint("RIGHT", db.showLevel and row.level or row.ago, "LEFT", -4, 0)
+		end
 
-		row.ago:ClearAllPoints()
-		row.ago:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-		row.ago:SetWidth(34)
 		row.ago:SetText(entry.visible and L["now"] or Ago(now - entry.seen))
 		row.ago:SetTextColor(unpack(E.media.text.secondary))
 
-		row.level:ClearAllPoints()
-		row.level:SetPoint("RIGHT", row.ago, "LEFT", -4, 0)
-		row.level:SetWidth(28)
 		if db.showLevel then
 			local level = entry.level
 			local text = (level and level > 0) and tostring(level) or "??"
 			row.level:SetText(text)
-			local color = (level and level > 0 and GetCreatureDifficultyColor) and GetCreatureDifficultyColor(level)
+			local color = (level and level > 0 and GetCreatureDifficultyColor) and E:DifficultyColor(GetCreatureDifficultyColor(level))
 			if color then row.level:SetTextColor(color.r, color.g, color.b) else row.level:SetTextColor(E:TokenColor("bad")) end
 			row.level:Show()
 		else
 			row.level:Hide()
 		end
 
-		row.name:ClearAllPoints()
-		row.name:SetPoint("LEFT", row, "LEFT", 2, 0)
-		row.name:SetPoint("RIGHT", db.showLevel and row.level or row.ago, "LEFT", -4, 0)
 		row.name:SetText(entry.name)
 		local color = E:ClassColorObject(entry.class)
 		if color then row.name:SetTextColor(color.r, color.g, color.b) else row.name:SetTextColor(1, 1, 1) end
@@ -295,6 +313,7 @@ end)
 -- Re-apply size, fonts and theme colors.
 function M:OnProfileChanged()
 	self:MigrateSound()
+	styleGen = styleGen + 1
 	if not self.active then return end
 	self:UpdateBackground(true)
 	self:Update()
@@ -312,7 +331,7 @@ E:RegisterStyles("EnemySpotter", {
 		settings = { width = 170, rowHeight = 16, fontSize = 12, showTitle = false, showLevel = false, background = false, maxRows = 6 } },
 	{ key = "Large", title = "Large", desc = "Wide 240 px list with 14 pt text and up to 12 rows.",
 		settings = { width = 240, rowHeight = 22, fontSize = 14, showTitle = true, showLevel = true, background = true, maxRows = 12 } },
-	{ key = "Battleground", title = "Battleground", desc = "Long list for open-world PvP: 15 rows, quick to forget.",
+	{ key = "Battleground", title = "World PvP", desc = "Long list for open-world PvP: 15 rows, quick to forget.",
 		settings = { width = 200, rowHeight = 16, fontSize = 12, showTitle = true, showLevel = true, background = true, maxRows = 15, forget = 30 } },
 })
 
@@ -330,8 +349,8 @@ M.options = {
 		desc = "Which sound to play: EldoUI's sounds, the game's or a SharedMedia pack's." },
 	{ type = "header", label = "Look" },
 	{ type = "range", key = "maxRows", label = "Rows", min = 3, max = 20, step = 1, desc = "The most players shown at once." },
-	{ type = "range", key = "width", label = "Width", min = 120, max = 320, step = 4, desc = "Width of the list in pixels." },
-	{ type = "range", key = "rowHeight", label = "Row height", min = 14, max = 28, step = 1, desc = "Height of each row." },
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 120, max = 320, step = 4, desc = "Width of the list in pixels." },
+	{ type = "range", unit = "px", key = "rowHeight", label = "Row height", min = 14, max = 28, step = 1, desc = "Height of each player's line in the list." },
 	{ type = "range", key = "fontSize", label = "Text size", min = 9, max = 18, step = 1, desc = "Text size in the list." },
 	{ type = "toggle", key = "showTitle", label = "Title", desc = "Show \"Enemies (n)\" above the list." },
 	{ type = "toggle", key = "showLevel", label = "Level", desc = "Show each player's level, colored by difficulty." },

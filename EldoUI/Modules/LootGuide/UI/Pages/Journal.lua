@@ -24,6 +24,7 @@ local Key = E.Key
 local LEFT_WIDTH = 240
 local MODEL_WIDTH = 170
 local TOP = 26
+local PlainCall, PlainCallEach = E.PlainCall, E.PlainCallEach
 
 -- One extra line in an instance's header from another module (the
 -- Attunements tab: "Attunement: 3 of 4 steps"). fn(instanceKey) returns
@@ -266,6 +267,43 @@ end
 ---------------------------------------------------------------------------
 -- Instance: left list
 ---------------------------------------------------------------------------
+local function PositiveInteger(value)
+	return type(value) == "number" and value > 0 and value < math.huge and value % 1 == 0
+end
+
+local function BossMap(key)
+	local info = LG:InstanceInfo(key)
+	local map = info and (info.map or (info.forever and info.forever.map))
+	return PositiveInteger(map) and map or nil
+end
+
+-- Only the current character's public saved instances. Entries on another
+-- map cannot mark a row, even when their encounters share a name.
+local function LockoutKills(map, now)
+	local kills = {}
+	if not map then return kills end
+	local count = PlainCall(GetNumSavedInstances)
+	if not PositiveInteger(count) then return kills end
+	local _, kind, currentDifficulty, _, _, _, _, currentMap = PlainCallEach(GetInstanceInfo)
+	local inInstance = currentMap == map and (kind == "party" or kind == "raid")
+	for index = 1, count do
+		local _, _, reset, difficulty, locked, extended, _, _, _, _, encounters, _, _, instanceMap =
+			PlainCallEach(GetSavedInstanceInfo, index)
+		if instanceMap == map and (not inInstance or (currentDifficulty ~= nil and currentDifficulty == difficulty))
+			and (locked == true or extended == true) and type(reset) == "number" and reset > 0 and reset < math.huge
+			and PositiveInteger(encounters) then
+			local expiry = now + reset
+			for encounter = 1, encounters do
+				local name, _, killed = PlainCallEach(GetSavedInstanceEncounterInfo, index, encounter)
+				if killed == true and type(name) == "string" and name ~= "" then
+					kills[name] = math.max(kills[name] or 0, expiry)
+				end
+			end
+		end
+	end
+	return kills
+end
+
 local function BossRowCreate(row)
 	row.select = row:CreateTexture(nil, "BACKGROUND")
 	row.select:SetAllPoints()
@@ -279,6 +317,11 @@ local function BossRowCreate(row)
 	row.portrait = row:CreateTexture(nil, "ARTWORK")
 	row.portrait:SetSize(26, 26)
 	row.portrait:SetPoint("LEFT", row.number, "RIGHT", 2, 0)
+	row.killed = row:CreateTexture(nil, "OVERLAY")
+	row.killed:SetSize(12, 12)
+	row.killed:SetPoint("BOTTOMRIGHT", row.portrait, "BOTTOMRIGHT")
+	Kit.SetGlyph(row.killed, "check")
+	row.killed:Hide()
 	row.right = Kit.Text(row, 11, "RIGHT")
 	row.right:SetPoint("RIGHT", -4, 0)
 	row.name = Kit.Text(row, 12, "LEFT")
@@ -296,6 +339,9 @@ local function BossRowCreate(row)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		E.UIKit.TipTitle(GameTooltip, item.title)
 		if item.sub and item.sub ~= "" then GameTooltip:AddLine(item.sub, unpack(Kit.SECONDARY)) end
+		if item.killStatus then
+			GameTooltip:AddLine(item.killStatus == "lockout" and L["Killed this lockout"] or L["Killed this run"], unpack(Kit.GOOD))
+		end
 		if item.upgrades and item.upgrades > 0 then
 			GameTooltip:AddLine(E:Plural(item.upgrades, "%d upgrade for you", "%d upgrades for you"):format(item.upgrades), unpack(Kit.GOOD))
 		end
@@ -326,6 +372,8 @@ end
 local function BossRowUpdate(row, item)
 	row.select:SetShown(State().boss == item.select)
 	row.number:SetText(item.number and tostring(item.number) or "")
+	row.killed:SetShown(item.killStatus ~= nil)
+	if item.killStatus then row.killed:SetVertexColor(E:TokenColor("good")) end
 	local portrait = false
 	if item.boss and item.boss.display and SetPortraitTextureFromCreatureDisplayID then
 		local ok = pcall(SetPortraitTextureFromCreatureDisplayID, row.portrait, item.boss.display)
@@ -372,18 +420,18 @@ local function BossItems(key)
 		local bits = {}
 		if boss.level then bits[#bits + 1] = (L["Level %d"]):format(boss.level) end
 		if boss.rare then bits[#bits + 1] = Kit.Hex(unpack(Kit.WARN)) .. L["Rare spawn"] .. "|r" end
-		items[#items + 1] = { select = index, number = index, boss = boss, title = boss.name, sub = table.concat(bits, "  ·  "),
+		items[#items + 1] = { select = index, number = index, boss = boss, instanceKey = key, title = boss.name, sub = table.concat(bits, "  ·  "),
 			upgrades = up, wished = wished }
 	end
 	if #loot.trash > 0 then
 		local up, wished = Counts(loot.trash)
-		items[#items + 1] = { select = "trash", title = L["Trash and zone drops"], sub = E:Plural(#loot.trash, "%d item", "%d items"):format(#loot.trash),
+		items[#items + 1] = { select = "trash", instanceKey = key, title = L["Trash and zone drops"], sub = E:Plural(#loot.trash, "%d item", "%d items"):format(#loot.trash),
 			icon = "Interface\\Icons\\INV_Misc_Bag_10", upgrades = up, wished = wished }
 	end
 	local rewards = RewardItems(key, State().faction)
 	if #rewards > 0 then
 		local up, wished = Counts(rewards)
-		items[#items + 1] = { select = "rewards", title = L["Quest rewards"], sub = E:Plural(#rewards, "%d item", "%d items"):format(#rewards),
+		items[#items + 1] = { select = "rewards", instanceKey = key, title = L["Quest rewards"], sub = E:Plural(#rewards, "%d item", "%d items"):format(#rewards),
 			icon = "Interface\\GossipFrame\\AvailableQuestIcon", upgrades = up, wished = wished }
 	end
 	return items, #loot.bosses
@@ -677,6 +725,12 @@ local function BuildInstance(page)
 	left.list.page = page
 	left.list:SetPoint("TOPLEFT", 0, -26)
 	left.list:SetPoint("BOTTOMRIGHT")
+	left.list:HookScript("OnHide", function() page:CancelBossExpiry() end)
+	if E.Instances then
+		E.Instances:OnChange("journalBossKills", function(what)
+			if (what == "runs" or what == "reset") and page:BossListVisible() then LG:Fire("bossKills") end
+		end)
+	end
 	left.quest = Kit.CreateList(left, {
 		create = function(row)
 			P.QuestRowCreate(row)
@@ -714,6 +768,76 @@ end
 ---------------------------------------------------------------------------
 local Page = {}
 
+function Page:BossListVisible()
+	return LG.active and LG:IsOpen() and self:IsShown() and self.inst:IsShown() and self.inst.left.list:IsShown()
+		and not InCombatLockdown()
+end
+
+function Page:CancelBossExpiry()
+	if self.bossExpiry then
+		self.bossExpiry:Cancel()
+		self.bossExpiry = nil
+	end
+end
+
+function Page:RefreshBossKills(readLockouts, items)
+	self:CancelBossExpiry()
+	local list = self.inst.left.list
+	if not self:BossListVisible() then
+		if items then list:SetData(items) end
+		return
+	end
+	local map = BossMap(self.key)
+	local now = GetTime()
+	if readLockouts or self.bossKillKey ~= self.key or self.bossKillChar ~= E.charKey then
+		self.bossKillKey, self.bossKillChar = self.key, E.charKey
+		self.bossLockouts = LockoutKills(map, now)
+	end
+	local current = map and E.Instances and E.Instances:CurrentBossEncounters(map)
+	local names = {}
+	for _, name in pairs(current or {}) do
+		if type(name) == "string" then names[name] = true end
+	end
+	local earliest
+	for _, item in ipairs(items or list.data) do
+		local boss = item.boss
+		local expiry = boss and self.bossLockouts[boss.name]
+		item.killStatus = nil
+		if expiry and expiry > now then
+			item.killStatus = "lockout"
+			earliest = math.min(earliest or expiry, expiry)
+		elseif boss and current and ((boss.encounter and current[boss.encounter] ~= nil) or names[boss.name]) then
+			item.killStatus = "run"
+		end
+	end
+	local row = GameTooltip:IsShown() and GameTooltip:GetOwner()
+	local previous = row and row.list == list and row.item
+	if items then list:SetData(items) else list:Refresh() end
+	if previous and GameTooltip:IsOwned(row) then
+		local shown = row.item
+		if row:IsVisible() and shown and previous.instanceKey == shown.instanceKey
+			and previous.select == shown.select and previous.title == shown.title then
+			row:GetScript("OnEnter")(row)
+		else
+			GameTooltip:Hide()
+		end
+	end
+	if earliest then
+		self.bossExpiry = C_Timer.NewTimer(earliest - now, function()
+			self.bossExpiry = nil
+			self:RefreshBossKills()
+		end)
+	end
+end
+
+local function BossLockoutsChanged()
+	local page = LG:GetPage("journal")
+	local frame = page and page.frame
+	if frame and frame:BossListVisible() then LG:Fire("bossLockouts") end
+end
+LG:Listen("UPDATE_INSTANCE_INFO", "journalBossKills", BossLockoutsChanged)
+LG:Listen("PLAYER_ENTERING_WORLD", "journalBossKills", BossLockoutsChanged)
+
 function Page:ShowHome()
 	State().view = "home"
 	self.inst:Hide()
@@ -749,7 +873,7 @@ function Page:DrawHeader()
 	end
 end
 
-function Page:DrawLeft()
+function Page:DrawLeft(readLockouts)
 	local s = State()
 	local left = self.inst.left
 	local bosses, bossCount = BossItems(self.key)
@@ -815,7 +939,7 @@ function Page:DrawLeft()
 			if item.select == s.boss then valid = true end
 		end
 		if not valid then s.boss = bosses[1] and bosses[1].select or nil end
-		left.list:SetData(bosses)
+		self:RefreshBossKills(readLockouts, bosses)
 		left.none:SetShown(#bosses == 0)
 		left.none:SetText(L["No bosses known for this instance yet."])
 	else
@@ -931,7 +1055,8 @@ function Page:SetMode(mode)
 	local s = State()
 	if modes[mode] and not ModeShown(mode, self.key) then mode = "bosses" end
 	s.mode = mode
-	self:DrawLeft()
+	if mode == "bosses" and BossMap(self.key) and E.Instances then E.Instances:RequestLockouts() end
+	self:DrawLeft(mode == "bosses")
 	mode = s.mode
 	local custom = modes[mode] ~= nil
 	self.inst.left.list:SetShown(mode == "bosses")
@@ -1030,6 +1155,9 @@ local function Refresh(page, changed)
 		or changed.quests or changed.player or changed.bags or changed.settings or changed.questRewards
 		or changed.forever -- a WoW: Forever boss or drop you just saw
 	if page.inst:IsShown() and page.key then
+		if not relevant and (changed.bossLockouts or changed.bossKills) then
+			page:RefreshBossKills(changed.bossLockouts)
+		end
 		if changed.items and not relevant then
 			page.loot.list:Refresh()
 			page.inst.left.quest:Refresh()
@@ -1050,7 +1178,7 @@ local function Refresh(page, changed)
 		if not relevant then return end
 		if not LG:InstanceInfo(page.key) then page:ShowHome() return end
 		page:DrawHeader()
-		page:DrawLeft()
+		page:DrawLeft(changed.bossLockouts)
 		if State().mode == "bosses" then page:DrawLoot() else page.detail:Redraw(true) end
 	elseif page.home:IsShown() and (relevant or changed.items) then
 		DrawHome(page)

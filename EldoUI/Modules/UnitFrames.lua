@@ -454,7 +454,7 @@ local function CastDefaults(width, height, extra)
 		showSuccess = false, successColor = { 0.25, 0.8, 0.35 }, flash = false, feedback = true,
 		-- Other units' casts: hide uninterruptible ones, glow on important
 		-- spells (the game's own flag), hide the rest, raid marker.
-		hideLocked = false, hideUnimportant = false, raidMarker = false,
+		hideLocked = false, hideUnimportant = false, raidMarker = false, showMyInterrupt = false,
 		-- Player bar on its own position: on its mover, or under/above the
 		-- Cooldown Manager, optionally as wide as it.
 		anchor = "MOVER", matchWidth = false, anchorGap = 4,
@@ -517,6 +517,10 @@ local function UnitDefaults(width, height, extra)
 		healthTag = "[health:current] | [health:percent]",
 		powerText = "NONE",    -- "PERCENT", "CURRENT", "BOTH", "CUSTOM" or "NONE"
 		powerTag = "[power:current]",
+		healthSize = 0,        -- 0 = the frames' text size
+		healthX = 0, healthY = 0,
+		powerSize = 0,         -- 0 = three below the text size (the full text size on orbs)
+		powerX = 0, powerY = 0,
 		texts = { Text(false, "[level] [classification]", "TOPRIGHT", -2, 12, 11), Text(false, "[status]", "CENTER", 0, 0, 12) },
 		infoPanel = { enabled = false, height = 14, transparent = false, position = "BOTTOM", tag = "" },
 		-- Badges: a level badge and a class or role badge.
@@ -532,7 +536,7 @@ local function UnitDefaults(width, height, extra)
 		privateAuras = { enabled = false, count = 2, size = 30, anchor = "LEFT" },
 		-- Icons and highlights
 		indicators = {
-			combat = false, resting = false, leader = true, pvp = false, raidMarker = true,
+			combat = false, resting = false, leader = true, pvp = false, raidMarker = true, quest = false,
 			classification = false, role = false, phase = false, readyCheck = false, readyHold = 6,
 			resurrect = true, summon = true, size = 16,
 			combatStyle = "MODERN", combatColor = { 1, 1, 1 }, combatPoint = "BOTTOMLEFT", combatX = 2, combatY = 2, combatSize = 0,
@@ -595,7 +599,7 @@ local M = E:NewModule("UnitFrames", {
 		units = {
 			player = UnitDefaults(277, 46, {
 				castbar = CastDefaults(277, 20, { enabled = true, latency = true, spellTarget = false }),
-				indicators = { combat = true, resting = true, leader = true, pvp = false, raidMarker = true,
+				indicators = { combat = true, resting = true, leader = true, pvp = false, pvpTimer = true, raidMarker = true,
 					classification = false, role = true, phase = false, readyCheck = true, readyHold = 6,
 					resurrect = true, summon = true, size = 16,
 					combatStyle = "MODERN", combatColor = { 1, 1, 1 }, combatPoint = "BOTTOMLEFT", combatX = 2, combatY = 2, combatSize = 0,
@@ -608,7 +612,7 @@ local M = E:NewModule("UnitFrames", {
 				buffs = AuraBlock("HELPFUL", "all", false, 22, 9, 18, "TOP", { attachTo = "DEBUFFS" }),
 				texts = { Text(true, "[level:smart] [classification]", "TOPRIGHT", -2, 12, 11), Text(false, "[status]", "CENTER", 0, 0, 12) },
 				indicators = { combat = false, resting = false, leader = true, pvp = false, raidMarker = true,
-					classification = true, role = false, phase = true, readyCheck = false, readyHold = 6,
+					classification = true, role = false, phase = true, readyCheck = false, readyHold = 6, quest = true,
 					resurrect = true, summon = true, size = 16,
 					combatStyle = "MODERN", combatColor = { 1, 1, 1 }, combatPoint = "BOTTOMLEFT", combatX = 2, combatY = 2, combatSize = 0,
 					restingStyle = "CLASSIC", restingColor = { 1, 1, 1 }, restingPoint = "TOPLEFT", restingX = 2, restingY = 0, restingSize = 0 },
@@ -617,7 +621,7 @@ local M = E:NewModule("UnitFrames", {
 			focus = UnitDefaults(200, 36, {
 				castbar = CastDefaults(200, 16, { enabled = true, offsetY = -4 }),
 				indicators = { combat = false, resting = false, leader = false, pvp = false, raidMarker = true,
-					classification = true, role = false, phase = false, readyCheck = false, readyHold = 6,
+					classification = true, role = false, phase = false, readyCheck = false, readyHold = 6, quest = true,
 					resurrect = true, summon = true, size = 14,
 					combatStyle = "MODERN", combatColor = { 1, 1, 1 }, combatPoint = "BOTTOMLEFT", combatX = 2, combatY = 2, combatSize = 0,
 					restingStyle = "CLASSIC", restingColor = { 1, 1, 1 }, restingPoint = "TOPLEFT", restingX = 2, restingY = 0, restingSize = 0 },
@@ -691,9 +695,9 @@ local STATUS_FORMATS = {
 	deficit = "[health:deficit]",
 }
 E:RegisterTag("health:status", function(unit, arg)
-	if Flag(UnitIsPlayer, unit) and not Flag(UnitIsConnected, unit) then return PLAYER_OFFLINE or L["Offline"] end
+	if Flag(UnitIsPlayer, unit) and not Flag(UnitIsConnected, unit) then return E:GameText(PLAYER_OFFLINE, L["Offline"]) end
 	if Flag(UnitIsGhost, unit) then return L["Ghost"] end
-	if Flag(UnitIsDead, unit) then return DEAD or L["Dead"] end
+	if Flag(UnitIsDead, unit) then return E:GameText(DEAD, L["Dead"]) end
 	return E:FormatTag(STATUS_FORMATS[arg or "percent"] or STATUS_FORMATS.percent, unit)
 end, "UNIT_HEALTH UNIT_MAXHEALTH UNIT_CONNECTION UNIT_FLAGS", { category = "Health", arg = true, example = "[health:status:percent]",
 	desc = "Health, or Dead / Ghost / Offline when that applies. Formats: percent, current, max, current-max, current-percent, deficit." })
@@ -1078,12 +1082,115 @@ local function ApplyIconStyle(texture, style)
 	end
 end
 
+-- The player badge and its passive tooltip share one public countdown.
+-- The expiry is refreshed at the display cadence, never by a frame update.
+do
+	local tickKey = "UnitFrames:pvp-timer"
+
+	local function Tooltip(hover)
+		if E:IsMoveMode() or E.FrameCheck(GameTooltip, "IsForbidden") then return end
+		E.UIKit.AnchorTooltip(hover)
+		E.UIKit.TipTitle(GameTooltip, L["PvP"])
+		local text = hover.countdown
+		if text then E.UIKit.TipText(GameTooltip, L["PvP flag expires in %s."]:format(text)) end
+		GameTooltip:Show()
+	end
+
+	function UFX.CreatePvPCountdown(frame, parent)
+		local timer = E:CreateText(parent, E.tokens.size.small, "LEFT")
+		timer:Hide()
+		local hover = CreateFrame("Frame", nil, parent)
+		hover:SetAllPoints(frame.indicators.pvp)
+		hover:SetScript("OnEnter", Tooltip)
+		local function HideTooltip()
+			if not E.FrameCheck(GameTooltip, "IsForbidden") and GameTooltip:IsOwned(hover) then GameTooltip:Hide() end
+		end
+		hover:SetScript("OnLeave", HideTooltip)
+		hover:SetScript("OnHide", HideTooltip)
+		-- Hover scripts turn the mouse on, so clicks are given back to the
+		-- unit frame after them: only the pointer's motion stays here.
+		hover:EnableMouse(false)
+		if hover.EnableMouseMotion then hover:EnableMouseMotion(true) end
+		hover:Hide()
+		frame.pvpCountdown, frame.pvpHover = timer, hover
+		frame:HookScript("OnHide", function() UFX.UpdatePvPCountdown(frame, false) end)
+		frame:HookScript("OnShow", function()
+			if frame:IsEventRegistered("PVP_TIMER_UPDATE") and not frame.testing then UFX.UpdatePvPBadge(frame) end
+		end)
+	end
+
+	function UFX.UpdatePvPCountdown(frame, badge, freeForAll)
+		local timer, hover = frame.pvpCountdown, frame.pvpHover
+		if not timer then return end
+		badge = badge and M.active and frame:IsVisible()
+		local settings = frame.db and frame.db.indicators
+		local text
+		if badge and settings and settings.pvpTimer ~= false and not freeForAll then
+			if frame.testing then
+				text = "2:34"
+			elseif Plain(IsPVPTimerRunning) == true then
+				local ms = Plain(GetPVPTimer)
+				if type(ms) == "number" and ms > 0 and ms <= 86400000 then
+					text = E:FormatDuration(math.ceil(ms / 1000), "minutes")
+				end
+			end
+		end
+		timer:SetText(text or "")
+		timer:SetShown(text ~= nil)
+		local changed = hover.countdown ~= text
+		hover.countdown = text
+		hover:SetShown(badge and hover.EnableMouseMotion and true or false)
+		if changed and badge and not E.FrameCheck(GameTooltip, "IsForbidden") and GameTooltip:IsOwned(hover) then Tooltip(hover) end
+		if not text or frame.testing then
+			E.Ticker:Unsubscribe(tickKey)
+		elseif not E.Ticker:IsSubscribed(tickKey) then
+			E.Ticker:Subscribe(tickKey, 1, function() UFX.UpdatePvPBadge(frame) end, M)
+		end
+	end
+
+	function UFX.UpdatePvPBadge(frame, preview)
+		local settings = frame.db and frame.db.indicators
+		local unit, icon = frame.unit, frame.indicators.pvp
+		if not settings or (frame.testing and not preview) then return end
+		local freeForAll = not preview and settings.pvp and Flag(UnitIsPVPFreeForAll, unit)
+		local flagged = freeForAll or (settings.pvp and (preview or Flag(UnitIsPVP, unit)))
+		if freeForAll then
+			icon:SetAtlas("UI-HUD-UnitFrame-Player-PVP-FFAIcon")
+		elseif flagged then
+			local faction = Plain(UnitFactionGroup, unit)
+			icon:SetAtlas(faction == "Horde" and "UI-HUD-UnitFrame-SmallCircle-Horde" or "UI-HUD-UnitFrame-SmallCircle-Alliance")
+		end
+		icon:SetShown(flagged and true or false)
+		UFX.UpdatePvPCountdown(frame, flagged, freeForAll)
+	end
+end
+
+function UFX.UpdateQuestIndicator(frame, refresh)
+	local icon = frame.indicators and frame.indicators.quest
+	if not icon then return end
+	local settings = frame.db and frame.db.indicators
+	local allowed = (frame.unit == "target" or frame.unit == "focus") and settings and settings.quest
+	local show = false
+	if allowed and not E.IdentitySecret(frame.unit) and Plain(UnitExists, frame.unit) == true and Plain(UnitIsPlayer, frame.unit) == false then
+		if refresh or frame.questIndicatorReady ~= true then
+			local progress, seen = E:QuestUnitProgress(frame.unit)
+			frame.questIndicatorShown = progress ~= nil or (not seen and Plain(C_QuestLog and C_QuestLog.UnitIsRelatedToActiveQuest, frame.unit) == true)
+			frame.questIndicatorReady = true
+		end
+		show = frame.questIndicatorShown == true
+	else
+		frame.questIndicatorReady = nil
+	end
+	icon:SetShown(show)
+end
+
 local function UpdateIndicators(frame)
 	local ind = frame.indicators
 	local db = frame.db and frame.db.indicators
 	local unit = frame.unit
 	if not ind or not db or frame.testing then return end
 	UFX.UpdateCircle(frame)
+	UFX.UpdateQuestIndicator(frame)
 	ind.combat:SetShown(db.combat and Flag(UnitAffectingCombat, unit))
 	local resting = db.resting and unit == "player" and Flag(IsResting)
 	if db.restingStyle == "TEXT" then
@@ -1113,16 +1220,7 @@ local function UpdateIndicators(frame)
 	end
 	ind.role:SetTexture(roleTexture)
 	ind.role:SetShown(roleTexture ~= nil)
-	if db.pvp and Flag(UnitIsPVPFreeForAll, unit) then
-		ind.pvp:SetAtlas("UI-HUD-UnitFrame-Player-PVP-FFAIcon")
-		ind.pvp:Show()
-	elseif db.pvp and Flag(UnitIsPVP, unit) then
-		local faction = Plain(UnitFactionGroup, unit)
-		ind.pvp:SetAtlas(faction == "Horde" and "UI-HUD-UnitFrame-SmallCircle-Horde" or "UI-HUD-UnitFrame-SmallCircle-Alliance")
-		ind.pvp:Show()
-	else
-		ind.pvp:Hide()
-	end
+	UFX.UpdatePvPBadge(frame)
 	if db.raidMarker then
 		SetRaidMarker(ind.raidMarker, unit)
 	else
@@ -1370,6 +1468,7 @@ M.CastX = CastX
 --   interrupted    the cast was interrupted (info.reason)
 --   hold           the ended bar is held a moment (info.color, info.word, info.hold)
 --   layout         the bar was laid out (info.enabled, info.width, info.height)
+--   marker         the cast's raid marker changed
 -- Cast info (start, delayed, channelUpdate, and the ends of the bar's
 -- current cast): name, texture, spellID, castID, castBarID, channel,
 -- isTradeskill and notInterruptible. The game may hand any of these as
@@ -1579,7 +1678,7 @@ local function ShowTicks(castbar, count)
 			castbar.ticks[index] = tick
 		end
 		tick:ClearAllPoints()
-		tick:SetSize(math.max(E.pixel, 1), castbar.barHeight or 1)
+		tick:SetSize(E:PixelFor(castbar), castbar.barHeight or 1)
 		tick:SetPoint("CENTER", castbar, "LEFT", castbar.barWidth * index / count, 0)
 		tick:Show()
 	end
@@ -1679,10 +1778,24 @@ local function StartCast(frame, channel, reason)
 	end
 end
 
--- Time text in the chosen format; secret durations are formatted by the
--- client ("%s / %s" joins two formatted strings, no math).
+-- Time text in the chosen format, in tenths of a second like the nameplate
+-- cast bars. The text widget formats the numbers itself, so a secret
+-- duration needs no math here.
+local function TenthsText(castbar, duration, format)
+	if format == "ELAPSED" then
+		castbar.time:SetFormattedText("%.1f", duration:GetElapsedDuration())
+	elseif format == "REMAININGMAX" then
+		castbar.time:SetFormattedText("%.1f / %.1f", duration:GetRemainingDuration(), duration:GetTotalDuration())
+	else
+		castbar.time:SetFormattedText("%.1f", duration:GetRemainingDuration())
+	end
+end
+
+-- When the client refuses the numbers, its own seconds formatter writes them
+-- ("%s / %s" joins two formatted strings, no math).
 local function DurationText(castbar, duration)
 	local format = castbar.settings.timeFormat
+	if duration.GetRemainingDuration and pcall(TenthsText, castbar, duration, format) then return end
 	local formatter = castbar.formatter
 	if formatter and duration.FormatRemainingDuration then
 		if format == "ELAPSED" and duration.FormatElapsedDuration then
@@ -1853,7 +1966,7 @@ local function EndCast(frame, castGUID, spellID, castBarID)
 	if IsShownCast(castbar, castGUID, spellID, castBarID) then
 		CastX.FireCastHook("stop", castbar, frame.unit, CastX.CastInfo(castbar))
 		if castbar.settings.showSuccess then
-			CastX.HoldCast(castbar, castbar.settings.successColor, _G.DONE or L["Done"])
+			CastX.HoldCast(castbar, castbar.settings.successColor, E:GameText(_G.DONE, L["Done"]))
 		else
 			HideTicks(castbar)
 			CastX.HideCastGlow(castbar)
@@ -2043,7 +2156,8 @@ end
 -- changed: a different unit is now in the frame (or it just showed).
 local function UpdateAll(frame, changed)
 	if frame.testing or not frame.db then return end
-	if not UnitExists(frame.unit) then return end
+	if changed then frame.questIndicatorReady = nil end
+	if not UnitExists(frame.unit) then UFX.UpdateQuestIndicator(frame) return end
 	UpdateHealth(frame)
 	ColorHealthBackdrop(frame)
 	UpdatePower(frame)
@@ -2107,10 +2221,10 @@ local UNIT_EVENTS = {
 		EndCast(frame, castGUID, spellID, castBarID)
 	end,
 	UNIT_SPELLCAST_FAILED = function(frame, _, castGUID, spellID, castBarID)
-		FailCast(frame, _G.FAILED or L["Failed"], castGUID, spellID, castBarID)
+		FailCast(frame, E:GameText(_G.FAILED, L["Failed"]), castGUID, spellID, castBarID)
 	end,
 	UNIT_SPELLCAST_INTERRUPTED = function(frame, _, castGUID, spellID, _, castBarID)
-		FailCast(frame, _G.INTERRUPTED or L["Interrupted"], castGUID, spellID, castBarID, "interrupted")
+		FailCast(frame, E:GameText(_G.INTERRUPTED, L["Interrupted"]), castGUID, spellID, castBarID, "interrupted")
 	end,
 }
 -- These handlers get the event payload; every other one only the frame.
@@ -2125,7 +2239,10 @@ local GLOBAL_EVENTS = {
 	PLAYER_ENTERING_WORLD = function(frame) UpdateAll(frame, true) end,
 	RAID_TARGET_UPDATE = function(frame)
 		UpdateIndicators(frame)
-		if frame.castbar:IsShown() and not frame.testing then CastX.UpdateCastMarker(frame.castbar, frame.unit) end
+		if frame.castbar:IsShown() and not frame.testing then
+			CastX.UpdateCastMarker(frame.castbar, frame.unit)
+			CastX.FireCastHook("marker", frame.castbar, frame.unit)
+		end
 	end,
 	PARTY_LEADER_CHANGED = UpdateIndicators,
 	PLAYER_ROLES_ASSIGNED = function(frame) UpdateIndicators(frame) UpdatePower(frame) end,
@@ -2155,6 +2272,38 @@ do
 	end
 end
 
+-- One shared quest pass refreshes only the two quest indicators.
+do
+	local function RefreshQuestIndicators()
+		if not M.active then return end
+		for _, unit in ipairs({ "target", "focus" }) do
+			local frame = M.frames[unit]
+			if frame and frame:IsShown() and not frame.testing then UFX.UpdateQuestIndicator(frame, true) end
+		end
+	end
+	-- Quest events come in bursts: read once half a second after the last
+	-- one, and at the latest two seconds after the first, like the plates.
+	local QUEST_WAIT, QUEST_MOST, QUEST_TICK = 0.5, 2, "UnitFrames:quest-indicators"
+	local questFirst, questDue
+	local function QuestTick()
+		if not questDue or GetTime() < questDue then return end
+		questFirst, questDue = nil, nil
+		E.Ticker:Unsubscribe(QUEST_TICK)
+		RefreshQuestIndicators()
+	end
+	local function QuestChanged(_, _event, unit)
+		if E.Secret(unit) or (unit ~= nil and unit ~= "player") then return end
+		local now = GetTime()
+		questFirst = questFirst or now
+		questDue = math.min(now + QUEST_WAIT, questFirst + QUEST_MOST)
+		if not E.Ticker:IsSubscribed(QUEST_TICK) then E.Ticker:Subscribe(QUEST_TICK, 0.1, QuestTick, M) end
+	end
+	function UFX.ListenForQuests()
+		M:RegisterEvent("QUEST_LOG_UPDATE", function() QuestChanged() end)
+		M:RegisterEvent("UNIT_QUEST_LOG_CHANGED", QuestChanged)
+	end
+end
+
 -- Events that mean "a different unit is now in this frame".
 local CHANGE_EVENTS = {
 	target = { "PLAYER_TARGET_CHANGED" },
@@ -2177,6 +2326,10 @@ local function OnEvent(frame, event, ...)
 		UpdateAll(frame, true)
 		-- The target and focus frames flash for their new unit.
 		if (frame.key == "target" or frame.key == "focus") and Flag(UnitExists, frame.unit) then UFX.Flash(frame) end
+		return
+	end
+	if frame.unit == "player" and (event == "PVP_TIMER_UPDATE" or event == "PLAYER_PVP_FLAG_CHANGED") then
+		UFX.UpdatePvPBadge(frame)
 		return
 	end
 	local handler = UNIT_EVENTS[event] or GLOBAL_EVENTS[event]
@@ -2283,21 +2436,23 @@ local function CreateUnitFrame(unit, name, parent)
 	frame.tags = {}
 
 	frame.highlight = textLayer:CreateTexture(nil, "BACKGROUND")
-	frame.highlight:SetColorTexture(1, 1, 1, 0.1)
+	frame.highlight:SetColorTexture(1, 1, 1, E.tokens.hover.hud)
 	frame.highlight:SetAllPoints(frame.health)
 	frame.highlight:Hide()
 
 	-- Status icons.
 	local ind = {}
-	for _, key in ipairs({ "combat", "resting", "leader", "role", "pvp", "raidMarker", "classification", "readyCheck", "status" }) do
+	for _, key in ipairs({ "combat", "resting", "leader", "role", "pvp", "raidMarker", "classification", "readyCheck", "status", "quest" }) do
 		ind[key] = textLayer:CreateTexture(nil, "OVERLAY")
 		ind[key]:Hide()
 	end
+	ind.quest:SetAtlas("UI-HUD-UnitFrame-Target-PortraitOn-Boss-Quest")
 	ind.raidMarker:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
 	ind.restingText = E:CreateText(textLayer, E.tokens.size.small)
 	ind.restingText:SetText("zzz")
 	ind.restingText:Hide()
 	frame.indicators = ind
+	if unit == "player" then UFX.CreatePvPCountdown(frame, textLayer) end
 
 	-- Danger gates (Core/UnitFX.lua): threat on the frame or the portrait
 	-- box, "another tank has it" over it, low health on the health bar and
@@ -2676,7 +2831,7 @@ local function LayoutOrbs(frame, db)
 		end
 		frame.boxCleared = true
 		frame.highlight:SetTexture(E.skinOrb and E.skinOrb.files.fill or E.media.flat)
-		frame.highlight:SetVertexColor(1, 1, 1, 0.12)
+		frame.highlight:SetVertexColor(1, 1, 1, E.tokens.hover.hud)
 		for _, key in ipairs({ "other", "mine", "absorb", "healAbsorb" }) do frame.prediction[key]:Hide() end
 		frame.prediction.overAbsorb:Hide()
 		return
@@ -2686,7 +2841,7 @@ local function LayoutOrbs(frame, db)
 	if frame.boxCleared then
 		frame.boxCleared = nil
 		E:SetTemplate(frame)
-		frame.highlight:SetColorTexture(1, 1, 1, 0.1)
+		frame.highlight:SetColorTexture(1, 1, 1, E.tokens.hover.hud)
 	end
 end
 
@@ -2922,8 +3077,15 @@ local function LayoutIndicators(frame, db)
 	PlaceIcon(ind.leader, frame, db, "TOPLEFT", size + 2, 0, 1)
 	PlaceIcon(ind.role, frame, db, "TOPLEFT", 2 * size + 4, 0, 2)
 	PlaceIcon(ind.pvp, frame, db, "TOPRIGHT", -2, 0)
+	if frame.pvpCountdown then
+		local timer = frame.pvpCountdown
+		E:SetFont(timer, E.tokens.size.small, "OUTLINE")
+		timer:ClearAllPoints()
+		timer:SetPoint("LEFT", ind.pvp, "RIGHT", 4, 0)
+	end
 	PlaceIcon(ind.raidMarker, frame, db, "TOP", 0, 0)
 	PlaceIcon(ind.classification, frame, db, "TOPRIGHT", -size - 2, 0, 1)
+	PlaceIcon(ind.quest, frame, db, "RIGHT", 2, 0, 1)
 	local big = math.floor(size * 1.5)
 	ind.readyCheck:SetSize(big, big)
 	ind.readyCheck:SetPoint("CENTER", frame.health, "CENTER")
@@ -2958,12 +3120,17 @@ end
 
 -- Name, health and power texts plus any number of extra texts.
 local function LayoutTexts(frame, db, fontSize)
+	-- Health and power texts: their own size (0 follows the text size) and
+	-- a nudge from their usual place.
+	local healthSize, powerSize = tonumber(db.healthSize) or 0, tonumber(db.powerSize) or 0
+	local hx, hy = tonumber(db.healthX) or 0, tonumber(db.healthY) or 0
+	local px, py = tonumber(db.powerX) or 0, tonumber(db.powerY) or 0
 	E:SetNameTextFont(frame.nameText, (db.nameSize or 0) > 0 and db.nameSize or fontSize)
-	E:SetFont(frame.healthText, fontSize)
-	E:SetFont(frame.powerText, math.max(fontSize - 3, 8))
+	E:SetFont(frame.healthText, healthSize > 0 and healthSize or fontSize)
+	E:SetFont(frame.powerText, powerSize > 0 and powerSize or math.max(fontSize - 3, 8))
 	frame.nameText:ClearAllPoints()
 	frame.healthText:ClearAllPoints()
-	frame.healthText:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
+	frame.healthText:SetPoint("RIGHT", frame.health, "RIGHT", -6 + hx, hy)
 	-- Texts outside the frame's edge: the unit-frame graphics move them out
 	-- by what they paint there (Core/UnitGraphics.lua).
 	local lift = frame.graphicsLift or {}
@@ -2983,15 +3150,17 @@ local function LayoutTexts(frame, db, fontSize)
 	elseif position == "RIGHT" then
 		frame.nameText:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
 		frame.healthText:ClearAllPoints()
-		frame.healthText:SetPoint("LEFT", frame.health, "LEFT", 6, 0)
+		frame.healthText:SetPoint("LEFT", frame.health, "LEFT", 6 + hx, hy)
 	else
 		frame.nameText:SetPoint("LEFT", frame.health, "LEFT", 6, 0)
 	end
 	-- The name never reaches past the area it sits in (the game cuts it
 	-- with "..."): the name panel less its corners and the panel's own
-	-- right-hand text, the bars above the frame, the health bar when it is
-	-- centered, and 60 % of the health bar beside the health text.
+	-- right-hand text, the bars above the frame, the health bar less the
+	-- health text's room on both sides when it is centered, and 60 % of the
+	-- health bar beside the health text, or all of it with no health text.
 	local areas = frame.areaWidths or {}
+	local healthShown = HealthTag(db) ~= ""
 	local nameWidth
 	if position == "INFO" and frame.infoPanel:IsShown() and areas.info then
 		local reserve = 0
@@ -3000,23 +3169,25 @@ local function LayoutTexts(frame, db, fontSize)
 	elseif position == "TOP" then
 		nameWidth = (areas.health or db.width) - 4
 	elseif position == "CENTER" and areas.health then
-		nameWidth = areas.health - 12
+		-- "12.3k | 100%" needs about six font sizes, a single value three and a half.
+		local room = healthShown and math.ceil(fontSize * (db.healthText == "BOTH" and 6 or 3.5)) + 6 or 0
+		nameWidth = areas.health - 12 - 2 * room
 	elseif areas.health then
-		nameWidth = areas.health * 0.6
+		nameWidth = healthShown and areas.health * 0.6 or areas.health - 12
 	end
 	frame.nameText:SetWidth(math.max(nameWidth or db.width * 0.6, 20))
 	frame.powerText:ClearAllPoints()
-	frame.powerText:SetPoint("RIGHT", frame.power, "RIGHT", -4, 0)
+	frame.powerText:SetPoint("RIGHT", frame.power, "RIGHT", -4 + px, py)
 	frame.powerText:SetShown((db.powerHeight or 0) >= 8)
 	-- Orbs: the values in the middle of each orb, the name over the health orb.
 	if IsOrb(frame, db) then
 		frame.healthText:ClearAllPoints()
-		frame.healthText:SetPoint("CENTER", frame.health, "CENTER", 0, 0)
+		frame.healthText:SetPoint("CENTER", frame.health, "CENTER", hx, hy)
 		frame.healthText:SetJustifyH("CENTER")
 		frame.powerText:ClearAllPoints()
-		frame.powerText:SetPoint("CENTER", frame.power, "CENTER", 0, 0)
+		frame.powerText:SetPoint("CENTER", frame.power, "CENTER", px, py)
 		frame.powerText:SetJustifyH("CENTER")
-		E:SetFont(frame.powerText, fontSize)
+		E:SetFont(frame.powerText, powerSize > 0 and powerSize or fontSize)
 		frame.powerText:SetShown(true)
 		if position == "TOP" then
 			frame.nameText:ClearAllPoints()
@@ -3299,7 +3470,15 @@ local function LayoutCastbar(frame, db)
 	local attach = cast.iconAttach or "ATTACHED"
 	local onRight = cast.iconPosition == "RIGHT"
 	local besides = cast.icon and attach == "ATTACHED"
-	if besides then iconSize = height end
+	-- The bar's border sits one pixel outside the bar. Under a unit frame
+	-- the bar is inset by it: bar and border fill the set width and height,
+	-- as the frame's own border sits inside the frame. The player's bar on
+	-- its own mover or the cooldown row keeps its height and is inset at
+	-- the ends only. An icon beside the bar covers the border's height and
+	-- shares its line with the bar.
+	local px = E.pixel
+	local ownSpot = frame.unit == "player" and cast.detached and M.castHolder and true or false
+	if besides then iconSize = ownSpot and height + 2 * px or height end
 	if valid then
 		local status
 		amount, status = stack.Offset(cast.anchor == "COOLDOWNS_ABOVE" and "castAbove" or "cast", castbar)
@@ -3316,18 +3495,19 @@ local function LayoutCastbar(frame, db)
 	local totalWidth = CastX.CastWidth(frame, cast)
 	if valid and not valid(true) then return end
 	castbar.matchedWidth = totalWidth
-	castbar.barWidth = math.max(totalWidth - (besides and (iconSize + E.pixel) or 0), 10)
+	castbar.barWidth = math.max(totalWidth - px - (besides and iconSize or px), 10)
 	if fallback ~= "keep" then
 		castbar:ClearAllPoints()
 		if valid then phase = "cleared"; if not valid(true) then return end end
 	end
-	castbar.barHeight = height
-	castbar:SetSize(castbar.barWidth, height)
+	castbar.barHeight = ownSpot and height or math.max(height - 2 * px, 1)
+	castbar:SetSize(castbar.barWidth, castbar.barHeight)
 	if valid and not valid(true) then return end
 	castbar:SetReverseFill(castbar.reverse)
 	if valid and not valid(true) then return end
 	local holder = frame.unit == "player" and cast.detached and M.castHolder
-	local shift = (besides and onRight) and -(iconSize + E.pixel) or 0
+	-- The outer border ends at the matched edge; the icon side ends at the icon.
+	local shift = (besides and onRight) and -iconSize or -px
 	local gate = castbar.gate
 	if valid and not valid(true) then return end
 	gate:ClearAllPoints()
@@ -3352,15 +3532,15 @@ local function LayoutCastbar(frame, db)
 			if anchorTo == "COOLDOWNS_ABOVE" then
 				local offset = amount or (castStack and castStack.Offset("castAbove") or 0)
 				if valid and not valid(true) then return end
-				castbar:SetPoint("BOTTOM" .. side, cooldowns, "TOP" .. side, 0, gap + offset)
+				castbar:SetPoint("BOTTOM" .. side, cooldowns, "TOP" .. side, side == "RIGHT" and -px or px, gap + offset)
 			else
 				local offset = amount or (castStack and castStack.Offset("cast") or 0)
 				if valid and not valid(true) then return end
-				castbar:SetPoint("TOP" .. side, cooldowns, "BOTTOM" .. side, 0, -gap - offset)
+				castbar:SetPoint("TOP" .. side, cooldowns, "BOTTOM" .. side, side == "RIGHT" and -px or px, -gap - offset)
 			end
 		elseif fallback ~= "keep" then
 			-- On its own mover; a kept spot on the cooldown stack stays as it is.
-			castbar:SetPoint(side, holder, side)
+			castbar:SetPoint(side, holder, side, side == "RIGHT" and -px or px, 0)
 		end
 		if valid and not valid(false) then return end
 		castbar:SetFrameLevel(holder:GetFrameLevel() + 2)
@@ -3369,7 +3549,7 @@ local function LayoutCastbar(frame, db)
 		gate:SetAllPoints(frame)
 		local y = cast.offsetY or -6
 		if frame.unit == "player" and PowerStyle(frame, db) == "DETACHED" then y = y - CastX.PowerBelow() end
-		castbar:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", (cast.offsetX or 0) + shift, y)
+		castbar:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", (cast.offsetX or 0) + shift, y - px)
 		castbar:SetFrameLevel(frame:GetFrameLevel() + M.LEVELS.castbar)
 	end
 	-- Settings that only apply to other units start clean on the player.
@@ -3389,13 +3569,14 @@ local function LayoutCastbar(frame, db)
 	iconFrame:SetShown(cast.icon and true or false)
 	local textLeft, textRight = 4, -4
 	if attach == "INSIDE" then
-		iconFrame:SetSize(height, height)
+		local inside = castbar.barHeight
+		iconFrame:SetSize(inside, inside)
 		if onRight then
 			iconFrame:SetPoint("RIGHT", castbar, "RIGHT")
-			textRight = -(height + 4)
+			textRight = -(inside + 4)
 		else
 			iconFrame:SetPoint("LEFT", castbar, "LEFT")
-			textLeft = height + 4
+			textLeft = inside + 4
 		end
 		if not cast.icon then textLeft, textRight = 4, -4 end
 	elseif attach == "DETACHED" then
@@ -3406,9 +3587,9 @@ local function LayoutCastbar(frame, db)
 		end
 	else
 		if onRight then
-			iconFrame:SetPoint("LEFT", castbar, "RIGHT", E.pixel, 0)
+			iconFrame:SetPoint("LEFT", castbar, "RIGHT")
 		else
-			iconFrame:SetPoint("RIGHT", castbar, "LEFT", -E.pixel, 0)
+			iconFrame:SetPoint("RIGHT", castbar, "LEFT")
 		end
 	end
 	iconFrame:SetFrameLevel(castbar:GetFrameLevel() + 1)
@@ -3448,6 +3629,7 @@ local function LayoutCastbar(frame, db)
 	-- Spark on the growing edge of the fill.
 	local fill = castbar:GetStatusBarTexture()
 	castbar.spark:ClearAllPoints()
+	castbar.spark:SetWidth(E:PixelFor(castbar) * 2) -- two whole screen pixels at any scale
 	local edge = castbar.reverse and "LEFT" or "RIGHT"
 	castbar.spark:SetPoint("TOP", fill, "TOP" .. edge)
 	castbar.spark:SetPoint("BOTTOM", fill, "BOTTOM" .. edge)
@@ -3658,6 +3840,10 @@ local function RegisterFrameEvents(frame, unit)
 		end
 	end
 	for event in pairs(GLOBAL_EVENTS) do pcall(frame.RegisterEvent, frame, event) end
+	if unit == "player" then
+		pcall(frame.RegisterEvent, frame, "PVP_TIMER_UPDATE")
+		pcall(frame.RegisterEvent, frame, "PLAYER_PVP_FLAG_CHANGED")
+	end
 	local changes = CHANGE_EVENTS[frame.key]
 	local owner = changes and changes.owner
 	if type(owner) == "function" then owner = type(unit) == "string" and owner(unit) or nil end
@@ -3752,6 +3938,31 @@ end
 -- Test frames: every enabled frame with sample values, so they can be
 -- placed and styled. Out of combat only; combat ends the test.
 ---------------------------------------------------------------------------
+-- Test frames: sample buffs and debuffs in each enabled block's size,
+-- spacing, rows and growth, where the game's icons would be.
+function M.ShowTestAuras(frame)
+	local db = frame.db
+	for which, aura in pairs(frame.auras) do
+		local block, settings = db[which], aura.settings
+		local on = block and block.enabled and db.enabled and HasAuras(frame.key) and settings
+		if on then
+			local left = settings.growth == "LEFT"
+			local up = settings.wrap == "UP"
+			E:ConfigSample(aura.holder, "icons", {
+				count = math.max(1, math.min(settings.max or 1, 24)),
+				columns = math.max(1, settings.perRow or 1),
+				size = settings.size, spacing = settings.spacing,
+				pool = which == "buffs" and "buffs" or "debuffs",
+				align = (up and "BOTTOM" or "TOP") .. (left and "RIGHT" or "LEFT"),
+				flipX = left, flipY = up,
+			})
+		elseif aura.holder.configSample then
+			aura.holder.configSample:Hide()
+		end
+		aura.holder:SetShown(on and true or false)
+	end
+end
+
 local function ShowTest(frame, index)
 	frame.testing = true
 	UnbindTexts(frame)
@@ -3760,7 +3971,11 @@ local function ShowTest(frame, index)
 	local percent = 100 - index * 12
 	frame.health:SetMinMaxValues(0, 100)
 	frame.health:SetValue(percent)
-	if frame.db.healthColor == "CUSTOM" then
+	-- The player frame's sample is your own character, in class color when
+	-- the frame uses it, as the real frame would be.
+	if frame.db.classColor and frame.key == "player" then
+		frame.health:SetStatusBarColor(E:GetClassColor(select(2, UnitClass("player"))))
+	elseif frame.db.healthColor == "CUSTOM" then
 		frame.health:SetStatusBarColor(unpack(frame.db.healthCustomColor))
 	elseif frame.key == "player" or frame.key == "pet" or frame.key == "partypet" then
 		frame.health:SetStatusBarColor(ReactionColor(REACTION_FRIENDLY))
@@ -3774,14 +3989,19 @@ local function ShowTest(frame, index)
 	if manaR then frame.power:SetStatusBarColor(manaR, manaG, manaB) end
 	Relayout(frame)
 	local info = INFO[frame.key]
-	frame.nameText:SetText(info.count and ("%s %d"):format(L[info.title], index) or L[info.title])
+	local playerName = frame.key == "player" and UnitName("player")
+	if type(playerName) ~= "string" or E:IsSecret(playerName) then playerName = nil end
+	frame.nameText:SetText(playerName or (info.count and ("%s %d"):format(L[info.title], index) or L[info.title]))
 	-- A small frame whose name area is too narrow for its title shows the
 	-- short form, so the test label is never cut.
-	if info.short and frame.nameText:GetUnboundedStringWidth() > frame.nameText:GetWidth() then
+	if not playerName and info.short and frame.nameText:GetUnboundedStringWidth() > frame.nameText:GetWidth() then
 		frame.nameText:SetText(L[info.short])
 	end
-	frame.healthText:SetFormattedText("%d%%", percent)
-	frame.powerText:SetText("60")
+	-- The texts as the settings show them: a hidden text stays hidden.
+	local healthSample = M.HEALTH_SAMPLES and M.HEALTH_SAMPLES[frame.db.healthText]
+	frame.healthText:SetText(healthSample and healthSample:gsub("80%%", percent .. "%%") or "")
+	local powerMode = frame.db.powerText
+	frame.powerText:SetText((powerMode == "PERCENT" and "60%") or (powerMode and powerMode ~= "NONE" and "60") or "")
 	-- The info panel's tags read from your own character in test mode.
 	local infoOk, infoSample = pcall(E.FormatTag, E, frame.tags.info or "", "player", "UnitFrames")
 	frame.infoText:SetText(infoOk and type(infoSample) == "string" and not E:IsSecret(infoSample) and infoSample or "")
@@ -3793,6 +4013,8 @@ local function ShowTest(frame, index)
 	for key, texture in pairs(frame.indicators) do
 		if key ~= "raidMarker" then texture:Hide() end
 	end
+	if frame.pvpCountdown then UFX.UpdatePvPBadge(frame, true) end
+	frame.indicators.quest:SetShown((frame.key == "target" or frame.key == "focus") and frame.db.indicators.quest == true)
 	frame.threatGate:Clear()
 	frame.offTankGate:Clear()
 	frame.lowHealthGate:Clear()
@@ -3807,15 +4029,21 @@ local function ShowTest(frame, index)
 		frame.glowing = nil
 		E:HideGlow(frame)
 	end
-	for _, aura in pairs(frame.auras) do aura.holder:Hide() end
+	M.ShowTestAuras(frame)
+	-- Every frame of a group shows its sample cast, so the gap between boss
+	-- frames can be judged; the polled party targets have no cast bar.
 	local castbar = frame.castbar
-	if castbar.enabled and index == 1 then
+	if castbar.enabled and HasCastbar(frame.key) then
 		castbar.duration, castbar.endTime, castbar.ended = nil, nil, nil
 		castbar:SetMinMaxValues(0, 1)
 		castbar:SetValue(0.6)
-		ColorCast(castbar, false, frame.unit)
+		-- Class and reaction colors read your own character in test mode.
+		ColorCast(castbar, false, "player")
 		castbar.text:SetText(L["Sample cast"])
-		castbar.time:SetText(castbar.showTime and "1.2" or "")
+		-- A 2 second cast, 60% done, in the chosen time format.
+		local timeFormat = castbar.settings and castbar.settings.timeFormat
+		castbar.time:SetText(not castbar.showTime and ""
+			or (timeFormat == "ELAPSED" and "1.2") or (timeFormat == "REMAININGMAX" and "0.8 / 2.0") or "0.8")
 		CastX.SetCastTarget(castbar, nil)
 		castbar.icon:SetTexture(136243)
 		castbar.latency:Hide()
@@ -3831,7 +4059,11 @@ end
 
 local function EndTest(frame)
 	frame.testing = nil
+	UFX.UpdatePvPCountdown(frame, false)
 	frame.castbar:Hide()
+	for _, aura in pairs(frame.auras) do
+		if aura.holder.configSample then aura.holder.configSample:Hide() end
+	end
 end
 
 function M:SetTestMode(state)
@@ -4755,10 +4987,14 @@ function M:OnInitialize()
 end
 
 function M:OnEnable()
+	for _, frame in pairs(self.frames) do frame.questIndicatorReady = nil end
+	UFX.ListenForQuests()
 	E:RunOutOfCombat(function() Refresh(self) end)
 end
 
 function M:OnDisable()
+	if self.StopInterruptIcons then self:StopInterruptIcons() end
+	if self.frames.player then UFX.UpdatePvPCountdown(self.frames.player, false) end
 	E.Ticker:Unsubscribe(POLL_TICK)
 	CastX.StopCastTicks()
 	E:RunOutOfCombat(function()
@@ -4788,6 +5024,7 @@ function M:OnDisable()
 end
 
 function M:OnProfileChanged()
+	for _, frame in pairs(self.frames) do frame.questIndicatorReady = nil end
 	MigrateSmooth(self.db)
 	if self.active then
 		E:RunOutOfCombat(function() Refresh(self) end)

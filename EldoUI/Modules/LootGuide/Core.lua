@@ -763,6 +763,7 @@ end
 
 function M:OnDisable()
 	UnregisterAll()
+	if self.ClearForeverKills then self:ClearForeverKills() end
 	if self.OnDisableWindow then self:OnDisableWindow() end
 	if self.OnDisableTooltip then self:OnDisableTooltip() end
 	if self.OnDisableMaps then self:OnDisableMaps() end

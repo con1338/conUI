@@ -39,7 +39,8 @@ local M = E:NewModule("Skins", {
 		titleSize = 16,          -- window title text size
 		windows = {
 			spells = { skin = true, pageArt = false, spellIDs = false },
-			professions = { skin = true, reagentCounts = true, reagentAlts = true },
+			professions = { skin = true, reagentCounts = true, reagentAlts = true,
+				recipeSkill = true, recipePrices = true, recipeCounts = true },
 			trainer = { skin = true, costTotal = true, serviceList = true, showKnown = false, hideIgnored = true },
 			legacy = { skin = true },
 			achievements = { skin = true },
@@ -189,9 +190,14 @@ end
 function Kit.SkinStatusBar(bar)
 	if not Usable(bar) or not bar:IsObjectType("StatusBar") then return end
 	if E:SkinRecordIsOff(bar) then return bars[bar] end
+	local fill = bar:GetStatusBarTexture()
+	local atlas, readable
+	if fill then
+		atlas, readable = E.FrameAtlas(fill)
+		if not readable then return bars[bar] end
+	end
 	if not bars[bar] then
 		E:SkinCapture(bar)
-		local fill = bar:GetStatusBarTexture()
 		for _, region in ipairs({ bar:GetRegions() }) do
 			if region:IsObjectType("Texture") and region ~= fill and region:GetDrawLayer() ~= "HIGHLIGHT" then
 				Fade(true, region)
@@ -209,8 +215,9 @@ function Kit.SkinStatusBar(bar)
 		bars[bar]:SetBackdropColor(0, 0, 0, 0.5)
 		E:SetStyleEdge(bars[bar]) -- thin bronze line under the WoW Forever art style
 	end
-	local fill = bar:GetStatusBarTexture()
-	if fill and not (fill.GetAtlas and fill:GetAtlas()) then
+	fill = bar:GetStatusBarTexture()
+	if fill then atlas, readable = E.FrameAtlas(fill) end
+	if fill and readable and (not atlas or atlas == "") then
 		local r, g, b, a = bar:GetStatusBarColor()
 		bar:SetStatusBarTexture(E.media.statusbar)
 		if r then bar:SetStatusBarColor(r, g, b, a) end
@@ -572,7 +579,7 @@ local function HookSpellIDs()
 		local id = data and data.id
 		if (issecretvalue and issecretvalue(id)) or type(id) ~= "number" then return end
 		local tip = E:GetModule("Tooltip")
-		if tip and tip.active and tip.db and (tip.db.spellID == "always" or (tip.db.spellID == "shift" and IsShiftKeyDown())) then return end
+		if tip and tip.active and tip.db and (tip.db.ids == "always" or (tip.db.ids == "shift" and IsShiftKeyDown())) then return end
 		E.UIKit.TipPair(tooltip, L["Spell ID"], tostring(id))
 		tooltip:Show()
 	end)
@@ -693,18 +700,341 @@ local function UpdateReagents(form)
 	end
 end
 
+-- The selected recipe uses public schematic data and saved prices only.
+local recipeSummary = { states = setmetatable({}, { __mode = "k" }) }
+
+do
+	local Summary = recipeSummary
+	local UI = E.UIKit
+	local function PlainTable(value)
+		value = E.Plain(value)
+		return type(value) == "table" and (not canaccesstable or canaccesstable(value)) and value or nil
+	end
+	local function Number(value)
+		value = E.Plain(value)
+		return type(value) == "number" and value >= 0 and value < math.huge and value or nil
+	end
+	local function Read(fn, ...)
+		return E.PlainCall(fn, ...)
+	end
+	local function Enabled()
+		return M.active and E:BlizzardAllowed("professions", "improve")
+	end
+	local function CountOptions()
+		return { includeBank = true, countAlts = WDB("professions").reagentAlts, altScope = "realm", strict = true }
+	end
+	local function Money(value, complete)
+		if value == nil then return "?" end
+		local sign = value < 0 and "-" or ""
+		local amount = math.floor(math.abs(value) + 0.5)
+		return sign .. (GetMoneyString and GetMoneyString(amount, true) or tostring(amount)) .. (complete == false and " +?" or "")
+	end
+	function Summary.Recipe(form)
+		local info = PlainTable(Read(form.GetRecipeInfo, form))
+		local schematic = PlainTable(form.recipeSchematic)
+		local id = info and Number(info.recipeID)
+		if not id or id < 1 or not schematic or Number(schematic.recipeID) ~= id then return end
+		local slots = PlainTable(schematic.reagentSlotSchematics)
+		if not slots then return end
+		local recipe = { id = id, result = Number(schematic.outputItemID), reagents = {}, prices = {}, incomplete = false }
+		local low, high = Number(schematic.quantityMin), Number(schematic.quantityMax)
+		recipe.count = low and high and low > 0 and high >= low and (low + high) / 2 or nil
+		recipe.variable = low ~= high
+		for _, raw in ipairs(slots) do
+			local slot = PlainTable(raw)
+			if not slot then return end
+			local required = E.Plain(slot.required)
+			if type(required) ~= "boolean" then return end
+			if required then
+				local reagents = PlainTable(slot.reagents)
+				local reagent = reagents and #reagents == 1 and PlainTable(reagents[1])
+				local itemID = reagent and Number(reagent.itemID)
+				local quantity = Number(slot.quantityRequired)
+				if not itemID or itemID < 1 or not quantity or quantity <= 0 then
+					recipe.incomplete = true
+				else
+					recipe.prices[itemID] = (recipe.prices[itemID] or 0) + quantity
+				end
+			end
+		end
+		for itemID, quantity in pairs(recipe.prices) do
+			recipe.reagents[#recipe.reagents + 1] = { id = itemID, count = quantity }
+		end
+		table.sort(recipe.reagents, function(a, b) return a.id < b.id end)
+		return recipe
+	end
+	function Summary.Counts(recipe)
+		local planner = E.ProfessionPlanner
+		if recipe.incomplete or not planner or type(planner.Have) ~= "function" or #recipe.reagents == 0 then return end
+		local bags, total = math.huge, math.huge
+		for _, reagent in ipairs(recipe.reagents) do
+			local held = Number(Read(C_Item and C_Item.GetItemCount, reagent.id))
+			local all = Number(Read(planner.Have, planner, reagent.id, CountOptions()))
+			bags = bags and held and math.min(bags, math.floor(held / reagent.count)) or nil
+			total = total and all and math.min(total, math.floor(all / reagent.count)) or nil
+		end
+		return bags, total
+	end
+	function Summary.Lines(recipe)
+		local db, lines = WDB("professions"), {}
+		if db.recipeSkill then
+			local guide = E.LootGuide
+			local craft = guide and PlainTable(Read(guide.Craft, guide, recipe.id))
+			local info = C_TradeSkillUI and PlainTable(Read(C_TradeSkillUI.GetProfessionInfoByRecipeID, recipe.id))
+			local skill = info and Number(info.skillLevel)
+			local thresholds
+			if craft and guide.SkillBand then thresholds = select(3, guide:SkillBand(craft, skill)) end
+			if PlainTable(thresholds) and Number(thresholds.yellow) and Number(thresholds.green) and Number(thresholds.grey) then
+				lines[#lines + 1] = L["Skill %s. Estimated steps: orange to %d, yellow to %d, green to %d, then gray."]:format(
+					skill and tostring(skill) or "?", thresholds.yellow, thresholds.green, thresholds.grey)
+			else lines[#lines + 1] = L["Skill-up steps unavailable."] end
+		end
+		if db.recipePrices then
+			local auction = E.modules.Auction
+			local cost, complete
+			if auction and type(auction.GetCraftingCost) == "function" then
+				cost, complete = auction:GetCraftingCost(recipe.result, { n = 1, r = recipe.prices })
+			end
+			cost = Number(cost)
+			complete = complete and not recipe.incomplete
+			local sale = recipe.result and auction and Number(Read(auction.GetPrice, auction, recipe.result))
+			local vendor = recipe.result and Number(select(11, E.PlainCallAll(C_Item and C_Item.GetItemInfo, recipe.result)))
+			if recipe.count then
+				sale, vendor = sale and sale * recipe.count, vendor and vendor * recipe.count
+			else sale, vendor = nil, nil end
+			lines[#lines + 1] = L["Cost per craft: %s"]:format(Money(cost, complete))
+			local proceeds = sale and math.floor(sale * (1 - auction.HouseCut()))
+			lines[#lines + 1] = L["Auction value: %s. Profit: %s"]:format(Money(sale), Money(proceeds and cost and complete and proceeds - cost or nil))
+			lines[#lines + 1] = L["Vendor value: %s. Profit: %s"]:format(Money(vendor), Money(vendor and cost and complete and vendor - cost or nil))
+			if recipe.variable then lines[#lines + 1] = L["Sale values use the average output per craft."] end
+		end
+		if db.recipeCounts then
+			local bags, total = Summary.Counts(recipe)
+			local text = db.reagentAlts and L["Crafts from bags: %s. With bank and saved alts: %s."]
+				or L["Crafts from bags: %s. With bank: %s."]
+			lines[#lines + 1] = text:format(bags or "?", total or "?")
+		end
+		return lines
+	end
+	function Summary.Quantity(form)
+		local panel = Summary.states[form]
+		local value = panel and tonumber(E.Plain(panel.quantity:GetText()))
+		return value and value >= 1 and value <= 9999 and value % 1 == 0 and value or nil
+	end
+	function Summary.Build(form)
+		local panel = CreateFrame("Frame", nil, form)
+		own[panel] = true
+		E:SetTemplate(panel)
+		panel.area = UI.ScrollArea(panel)
+		panel.area:SetPoint("TOPLEFT", 8, -8)
+		panel.area:SetPoint("BOTTOMRIGHT", -8, 40)
+		panel.text = Text(panel.area.child, E.tokens.size.small, "LEFT")
+		panel.text:SetPoint("TOPLEFT")
+		panel.text:SetPoint("TOPRIGHT")
+		panel.text:SetWordWrap(true)
+		panel.send = UI.Button(panel, { text = L["Send missing to Shopping"], minWidth = 100, onClick = function()
+			local db = WDB("professions")
+			local recipe = Enabled() and (db.recipeSkill or db.recipePrices or db.recipeCounts) and Summary.Recipe(form)
+			local planner = E.ProfessionPlanner
+			if not recipe or recipe.incomplete or not planner or type(planner.SendRecipeToShopping) ~= "function" then return end
+			local ok, text = planner:SendRecipeToShopping(recipe, Summary.Quantity(form), CountOptions())
+			UI.Toast(panel, text, { warn = not ok, anchor = panel, point = "BOTTOM", y = 8 })
+		end, tipTitle = L["Send missing to Shopping"], tip = L["Adds missing reagents for the selected number of crafts to the Profession Planner shopping list. Nothing is bought or crafted."] })
+		panel.quantity = UI.Input(panel, { width = 58, numeric = true, maxLetters = 4,
+			tipTitle = L["Crafts"], tip = L["Number of crafts to include in this shopping list. The game's crafting amount stays unchanged."],
+			onChange = function() Summary.Update(form) end })
+		panel.quantity:SetText("1")
+		panel.quantityLabel = Text(panel, E.tokens.size.small, "LEFT")
+		panel.quantityLabel:SetText(L["Crafts"])
+		panel.quantity:SetPoint("BOTTOMLEFT", 8, 8)
+		panel.quantityLabel:SetPoint("BOTTOMLEFT", panel.quantity, "TOPLEFT", 0, 4)
+		panel.send:SetPoint("BOTTOMRIGHT", -8, 8)
+		E:BindOptionsLink(panel, { page = "module:Skins", key = "windows.professions.recipeSkill" })
+		Summary.states[form] = panel
+		return panel
+	end
+	function Summary.Open(form)
+		local db = WDB("professions")
+		if not Usable(form) or not Enabled() or not form:IsVisible() or E:GamepadUIActive()
+			or not (db.recipeSkill or db.recipePrices or db.recipeCounts) or not Summary.Recipe(form) then return end
+		local panel = Summary.states[form] or Summary.Build(form)
+		if not panel.window then
+			panel.window = UI.CreateToolWindow(nil, { title = L["Selected recipe summary"], width = 420, height = 300,
+				parent = form, onClose = function() panel.expanded = nil; Summary.Update(form) end })
+			panel.window:HookScript("OnSizeChanged", function()
+				if panel.expanded then Summary.Layout(form, panel) end
+			end)
+		end
+		panel.expanded = true
+		panel.window:SetTitle(L["Selected recipe summary"])
+		panel.window:Open()
+		Summary.Update(form)
+	end
+	local function FitText(panel)
+		UI.RefitButton(panel.send)
+		panel.area:ClearAllPoints()
+		panel.area:SetPoint("TOPLEFT", 8, -8)
+		local rowHeight = math.max(panel.send:GetHeight(), E:TextScale() * 18 + 4)
+		panel.quantity:SetHeight(rowHeight)
+		panel.quantity:SetWidth(math.ceil(58 * E:TextScale()))
+		E:SetFont(panel.quantity, E.tokens.size.label)
+		E:SetFont(panel.quantityLabel, E.tokens.size.small)
+		panel.area:SetPoint("BOTTOMRIGHT", -8, rowHeight + panel.quantityLabel:GetStringHeight() + 20)
+		panel.area:Update()
+		panel.text:SetHeight(0)
+		local textHeight = panel.text:GetStringHeight()
+		panel.text:SetHeight(textHeight)
+		panel.area.child:SetHeight(textHeight)
+		panel.area:Update()
+		return rowHeight + panel.quantityLabel:GetStringHeight() + E:TextScale() * 24 + 32
+	end
+	function Summary.Layout(form, panel)
+		if panel.expanded then
+			panel:SetParent(panel.window.content)
+			panel:ClearAllPoints()
+			panel:SetAllPoints(panel.window.content)
+			if panel.launcher then panel.launcher:Hide() end
+			FitText(panel)
+			panel:Show()
+			return
+		end
+		panel:SetParent(form)
+		local top, bottom, width = Read(form.GetTop, form), Read(form.GetBottom, form), Read(form.GetWidth, form)
+		if type(top) ~= "number" or type(bottom) ~= "number" or not width or width < 100 then
+			panel:Hide()
+			if panel.launcher then panel.launcher:Hide() end
+			return
+		end
+		local ceiling = top
+		local found
+		for _, key in ipairs({ "Reagents", "OptionalReagents", "FinishingReagents", "Concentrate" }) do
+			local part = form[key]
+			if part and Read(part.IsShown, part) then
+				local edge = Read(part.GetBottom, part)
+				if type(edge) ~= "number" then
+					panel:Hide()
+					if panel.launcher then panel.launcher:Hide() end
+					return
+				end
+				ceiling, found = math.min(ceiling, edge), true
+			end
+		end
+		for _, slot in ipairs(PlainTable(Read(form.GetSlots, form)) or {}) do
+			local text = reagentText[slot]
+			if text and text:IsVisible() then
+				local edge = Read(text.GetBottom, text)
+				if type(edge) ~= "number" then
+					panel:Hide()
+					if panel.launcher then panel.launcher:Hide() end
+					return
+				end
+				ceiling = math.min(ceiling, edge)
+			end
+		end
+		local floor = bottom + 8
+		for _, key in ipairs({ "TrackRecipeCheckbox", "AllocateBestQualityCheckbox", "Details" }) do
+			local part = form[key]
+			if part and Read(part.IsShown, part) then
+				local edge = Read(part.GetTop, part)
+				if type(edge) ~= "number" then
+					panel:Hide()
+					if panel.launcher then panel.launcher:Hide() end
+					return
+				end
+				floor = math.max(floor, edge + 8)
+			end
+		end
+		local height = ceiling - floor - 8
+		local minimumHeight = FitText(panel)
+		if panel.launcher then panel.launcher:Hide() end
+		local controlsWidth = panel.quantity:GetWidth() + panel.send:GetWidth() + 24
+		if not found or height < minimumHeight or width - 40 < controlsWidth then
+			panel:Hide()
+			if not panel.launcher then
+				panel.launcher = UI.Button(form, { text = L["Recipe summary"], minWidth = 100,
+					onClick = function() Summary.Open(form) end })
+				own[panel.launcher] = true
+			end
+			local button = panel.launcher
+			button:SetText(L["Recipe summary"])
+			UI.RefitButton(button)
+			button:ClearAllPoints()
+			button:SetPoint("TOPLEFT", form, "TOPLEFT", 20, ceiling - top - 8)
+			button:SetShown(found and button:GetHeight() <= height and button:GetWidth() <= width - 40)
+			return
+		end
+		panel:ClearAllPoints()
+		panel:SetPoint("TOPLEFT", form, "TOPLEFT", 20, ceiling - top - 8)
+		panel:SetWidth(width - 40)
+		panel:SetHeight(math.min(height, 200 * E:TextScale()))
+		FitText(panel)
+		panel:Show()
+	end
+	function Summary.Update(form)
+		if not Usable(form) then return end
+		local panel, db = Summary.states[form], WDB("professions")
+		local on = Enabled() and (db.recipeSkill or db.recipePrices or db.recipeCounts)
+		local recipe = on and form:IsVisible() and not E:GamepadUIActive() and Summary.Recipe(form)
+		if not recipe or not form:IsVisible() or E:GamepadUIActive() then
+			if panel then
+				panel:Hide()
+				if panel.launcher then panel.launcher:Hide() end
+				if panel.window then panel.window:Hide() end
+				panel.expanded = nil
+			end
+			return
+		end
+		panel = panel or Summary.Build(form)
+		if not panel.recipe or panel.recipe.id ~= recipe.id then panel.quantity:SetText("1") end
+		panel.recipe = recipe
+		E:SetFont(panel.text, E.tokens.size.small)
+		panel.text:SetText(table.concat(Summary.Lines(recipe), "\n"))
+		panel.send:SetEnabled(not recipe.incomplete and (Summary.Quantity(form) or 0) >= 1 and E.ProfessionPlanner ~= nil)
+		Summary.Layout(form, panel)
+	end
+	function Summary.Refresh(itemID)
+		for form, panel in pairs(Summary.states) do
+			local recipe = panel.recipe
+			if not itemID or (recipe and (recipe.result == itemID or recipe.prices[itemID])) then Summary.Update(form) end
+		end
+	end
+end
+
+M.RecipeSummary = recipeSummary
+
 local reagentHooked = setmetatable({}, { __mode = "k" })
 local function HookReagents(frame)
 	local form = frame.CraftingPage and frame.CraftingPage.SchematicForm
 	if not Usable(form) or reagentHooked[form] then return form end
 	reagentHooked[form] = true
-	for _, method in ipairs({ "Init", "UpdateAllSlots", "Refresh" }) do
+	for _, method in ipairs({ "Init", "UpdateAllSlots", "Refresh", "OnAllocationsChanged" }) do
 		if type(form[method]) == "function" then
-			hooksecurefunc(form, method, function(self) Try(UpdateReagents, self) end)
+			hooksecurefunc(form, method, function(self) Try(UpdateReagents, self); Try(recipeSummary.Update, self) end)
 		end
 	end
+	form:HookScript("OnShow", function() Try(recipeSummary.Update, form) end)
+	form:HookScript("OnHide", function()
+		local panel = recipeSummary.states[form]
+		if panel then
+			panel:Hide()
+			if panel.launcher then panel.launcher:Hide() end
+			if panel.window then panel.window:Hide() end
+			panel.expanded = nil
+		end
+	end)
+	form:HookScript("OnSizeChanged", function()
+		local panel = recipeSummary.states[form]
+		if panel and M.active and E:BlizzardAllowed("professions", "improve") then Try(recipeSummary.Update, form) end
+	end)
+	local page = frame.CraftingPage
+	if page and type(page.Refresh) == "function" then
+		hooksecurefunc(page, "Refresh", function() Try(recipeSummary.Update, form) end)
+	end
+
 	return form
 end
+
+M.HookProfessionReagents = HookReagents
 
 Window({
 	key = "professions", element = "professions", addon = "Blizzard_Professions", frame = "ProfessionsFrame",
@@ -760,7 +1090,7 @@ Window({
 	end,
 	improve = function(frame, _, on)
 		local form = on and HookReagents(frame) or (frame.CraftingPage and frame.CraftingPage.SchematicForm)
-		if form then UpdateReagents(form) end
+		if form then UpdateReagents(form); recipeSummary.Update(form) end
 	end,
 })
 
@@ -999,9 +1329,9 @@ function M:UpdateTrainerList()
 			else
 				row.name:SetText(E:TextHex("secondary") .. service.name .. "|r" .. rank)
 			end
-			row.level:SetText(service.level > 1 and (service.later and E:TextHex("bad") or E:TextHex("secondary")) .. (_G.LEVEL_ABBR or L["Lvl"]) .. " " .. service.level .. "|r" or "")
+			row.level:SetText(service.level > 1 and (service.later and E:TextHex("bad") or E:TextHex("secondary")) .. (E:GameText(_G.LEVEL_ABBR, L["Lvl"])) .. " " .. service.level .. "|r" or "")
 			if service.kind == "used" then
-				row.cost:SetText(E:TextHex("secondary") .. (ITEM_SPELL_KNOWN or L["Known"]) .. "|r")
+				row.cost:SetText(E:TextHex("secondary") .. (E:GameText(ITEM_SPELL_KNOWN, L["Known"])) .. "|r")
 			elseif service.cost > 0 then
 				row.cost:SetText((service.cost > money and E:TextHex("bad") or "|cffffffff") .. MoneyText(service.cost) .. "|r")
 			else
@@ -1635,7 +1965,7 @@ local function UpdateInspectAverage()
 	end
 	local r, g, b = Accent()
 	E:SetFont(inspect.avg, E.tokens.size.body)
-	inspect.avg:SetFormattedText("|cff%02x%02x%02x%s|r %.1f", r * 255, g * 255, b * 255, STAT_AVERAGE_ITEM_LEVEL or L["Item Level"], average) -- no-L: format only; the label is STAT_AVERAGE_ITEM_LEVEL or L["Item Level"]
+	inspect.avg:SetFormattedText("|cff%02x%02x%02x%s|r %.1f", r * 255, g * 255, b * 255, E:GameText(STAT_AVERAGE_ITEM_LEVEL, L["Item Level"]), average) -- no-L: format only; the label is E:GameText(STAT_AVERAGE_ITEM_LEVEL, L["Item Level"])
 	inspect.avg:Show()
 end
 
@@ -1855,15 +2185,29 @@ end
 
 function M:OnEnable()
 	self:Refresh()
+	local auction = E.modules.Auction
+	if auction and auction.RegisterPriceListener then auction:RegisterPriceListener(recipeSummary, recipeSummary.Refresh) end
+	local merchant = E.modules.Merchant
+	if not recipeSummary.merchantHook and merchant and type(merchant.RecordPrices) == "function" then
+		recipeSummary.merchantHook = true
+		hooksecurefunc(merchant, "RecordPrices", function() if M.active then recipeSummary.Refresh() end end)
+	end
+	if E.Characters and E.Characters.RegisterCallback then
+		E.Characters.RegisterCallback(recipeSummary, "Updated", function() recipeSummary.Refresh() end)
+	end
+	for _, event in ipairs({ "TRADE_SKILL_LIST_UPDATE", "TRADE_SKILL_DATA_SOURCE_CHANGED", "GET_ITEM_INFO_RECEIVED", "PLAYERBANKSLOTS_CHANGED" }) do
+		pcall(self.RegisterEvent, self, event, function() recipeSummary.Refresh() end)
+	end
 	self:RegisterEvent("BAG_UPDATE_DELAYED", function()
 		local frame = _G.ProfessionsFrame
-		if Usable(frame) and frame:IsShown() and frame.CraftingPage then Try(UpdateReagents, frame.CraftingPage.SchematicForm) end
+		if Usable(frame) and frame:IsShown() and frame.CraftingPage then Try(UpdateReagents, frame.CraftingPage.SchematicForm); Try(recipeSummary.Update, frame.CraftingPage.SchematicForm) end
 	end)
 	pcall(self.RegisterEvent, self, "TRAINER_UPDATE", function() C_Timer.After(0, function() Try(UpdateTrainerExtras) end) end)
 	self:RegisterEvent("PLAYER_MONEY", function()
 		if Usable(_G.ClassTrainerFrame) and _G.ClassTrainerFrame:IsShown() then Try(UpdateTrainerExtras) end
 	end)
 	self:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION", function()
+		recipeSummary.Refresh()
 		if Usable(_G.ClassTrainerFrame) and _G.ClassTrainerFrame:IsShown() then Try(UpdateTrainerExtras) end
 	end)
 	pcall(self.RegisterEvent, self, "NEW_MOUNT_ADDED", function() Try(UpdateCollections) end)
@@ -1873,7 +2217,19 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
-	for _, event in ipairs({ "BAG_UPDATE_DELAYED", "TRAINER_UPDATE", "PLAYER_MONEY", "INPUT_DEVICE_INTERFACE_TRANSITION", "NEW_MOUNT_ADDED", "INSPECT_READY" }) do
+	local auction = E.modules.Auction
+	if auction and auction.RegisterPriceListener then auction:RegisterPriceListener(recipeSummary, nil) end
+	if E.Characters and E.Characters.UnregisterCallback then
+		pcall(E.Characters.UnregisterCallback, recipeSummary, "Updated")
+	end
+	for form, panel in pairs(recipeSummary.states) do
+		panel:Hide()
+		if panel.launcher then panel.launcher:Hide() end
+		if panel.window then panel.window:Hide() end
+		panel.expanded = nil
+	end
+	for _, event in ipairs({ "BAG_UPDATE_DELAYED", "TRAINER_UPDATE", "PLAYER_MONEY", "INPUT_DEVICE_INTERFACE_TRANSITION", "NEW_MOUNT_ADDED", "INSPECT_READY",
+		"TRADE_SKILL_LIST_UPDATE", "TRADE_SKILL_DATA_SOURCE_CHANGED", "GET_ITEM_INFO_RECEIVED", "PLAYERBANKSLOTS_CHANGED" }) do
 		pcall(self.UnregisterEvent, self, event)
 	end
 	for _, id in ipairs(ELEMENTS) do self:UndoElement(id) end
@@ -1918,6 +2274,14 @@ M.options = {
 
 	{ type = "tab", label = "Professions" },
 	Note("professions"),
+	{ type = "execute", label = "Selected recipe summary", desc = "Open the current recipe summary in a resizable window when the profession window is crowded.", func = function()
+		local frame = _G.ProfessionsFrame
+		local form = frame and frame.CraftingPage and frame.CraftingPage.SchematicForm
+		recipeSummary.Open(form)
+	end, disabled = E:BlizzardNeeds("professions", "improve") },
+	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipeSkill", label = "Recipe skill-up steps", desc = "Shows estimated skill-up thresholds for the selected recipe." },
+	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipePrices", label = "Recipe cost and profit", desc = "Shows reagent costs and possible auction or vendor profit from your saved prices. Missing prices stay marked." },
+	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipeCounts", label = "Crafts from your reagents", desc = "Shows how many crafts fit your bags, bank, and saved character inventories, with a button to list missing reagents." },
 	{ type = "toggle", key = "windows.professions.skin", label = "Skin the professions window", desc = "Panel, side tabs, recipe list, search, filter and gear slots." },
 	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.reagentCounts", label = "Reagents in your bank", desc = "Under each reagent: how many more wait in your bank." },
 	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), dependsOn = "windows.professions.reagentCounts", key = "windows.professions.reagentAlts", label = "Reagents on other characters", desc = "Also counts the reagent on your other characters, from the Bags module's inventory list." },
@@ -1939,7 +2303,7 @@ M.options = {
 	{ type = "tab", label = "Collections" },
 	Note("collections"),
 	{ type = "toggle", key = "windows.collections.skin", label = "Skin collections", desc = "Mounts, pets, toys, heirlooms and appearances." },
-	{ type = "toggle", disabled = E:BlizzardNeeds("collections", "improve"), key = "windows.collections.summary", label = "Collected summary", desc = "One line in the title bar with how many mounts, pets, toys and heirlooms you have, as the game reports them." },
+	{ type = "toggle", disabled = E:BlizzardNeeds("collections", "improve"), key = "windows.collections.summary", label = "Collected summary", desc = "One line in the title bar with how many mounts, pets, toys and heirlooms you have." },
 
 	{ type = "tab", label = "Socketing" },
 	Note("item-socketing"),
@@ -1972,7 +2336,7 @@ M.options = {
 		values = { TOP = "Top", CENTER = "Center", BOTTOM = "Bottom" } },
 	{ type = "range", less = true, disabled = E:BlizzardNeeds("inspect-frame", "improve"), dependsOn = "windows.inspect.itemLevel", key = "windows.inspect.ilvlSize", label = "Item level text size", min = 8, max = 18, step = 1, desc = "Text size of the slot item levels." },
 	{ type = "toggle", disabled = E:BlizzardNeeds("inspect-frame", "improve"), key = "windows.inspect.marks", label = "Gem and enchant marks", desc = "Small icons in the slot's corner: the enchant and each socketed gem, read from the item link." },
-	{ type = "toggle", disabled = E:BlizzardNeeds("inspect-frame", "improve"), key = "windows.inspect.avgItemLevel", label = "Average item level", desc = "The inspected player's average item level as the game reports it, under the level line." },
+	{ type = "toggle", disabled = E:BlizzardNeeds("inspect-frame", "improve"), key = "windows.inspect.avgItemLevel", label = "Average item level", desc = "The inspected player's average item level, under the level line." },
 }
 
 ---------------------------------------------------------------------------
@@ -2004,10 +2368,12 @@ E:RegisterStyles("Skins", {
 	{ key = "Minimal", title = "Minimal", desc = "The look only: no extra lines, counts or buttons.",
 		settings = { transparent = false, titleSize = 15,
 			windows = AllWindows({ skin = true, spellIDs = false, reagentCounts = false, reagentAlts = false, costTotal = false,
+				recipeSkill = false, recipePrices = false, recipeCounts = false,
 				summary = false, buttons = false, resizable = false, itemLevel = false, avgItemLevel = false, marks = false }) } },
 	{ key = "Theorycrafter", title = "Theorycrafter", desc = "Every extra: spell IDs, reagents on alts, item levels and the trainer total.",
 		settings = { transparent = false, titleSize = 16,
 			windows = AllWindows({ skin = true, spellIDs = true, reagentCounts = true, reagentAlts = true, costTotal = true,
+				recipeSkill = true, recipePrices = true, recipeCounts = true,
 				summary = true, itemLevel = true, avgItemLevel = true, marks = true, ilvlSize = 13 }) } },
 	{ key = "Compact", title = "Compact", desc = "Smaller titles and item level numbers. Window sizes are on the Move windows page.",
 		settings = { titleSize = 14, windows = AllWindows({ skin = true, pageArt = false, ilvlSize = 11 }) } },

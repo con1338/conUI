@@ -7,7 +7,7 @@
 --   2. /eui capture <addon> saves its export string into EldoUIDB.captures
 --      (automatically where the addon has an export API, otherwise a paste box).
 --   3. The captured strings are moved into Data/Profiles.lua and shipped.
---   4. The installer (one checkbox per installed addon) or /eui setup
+--   4. The installer (one checkbox per installed addon) or /eui addonsetup
 --      imports them.
 --
 -- Register a setup (plugins can too):
@@ -316,6 +316,32 @@ end
 -- (optional) hears onResult(name, imported) once per setup tried, right
 -- away or, for an addon that asks the player first, after the answer.
 -- Returns the titles set up, not set up and still waiting for an answer.
+-- /eui addonsetup: asks first, naming every addon whose profile would be
+-- written, then sets them up. Nothing changes without the Yes.
+function E:ConfirmAddonSetups()
+	local names, titles = {}, {}
+	for _, name in ipairs(self.addonSetupOrder) do
+		local setup = self.addonSetups[name]
+		local checked, available = pcall(setup.available)
+		if checked and available then
+			names[name] = true
+			titles[#titles + 1] = setup.title
+		end
+	end
+	if #titles == 0 then
+		self:Print(L["None of the addons EldoUI has profiles for is loaded."])
+		return
+	end
+	self:ShowConfirm({
+		key = "ELDOUI_ADDON_SETUP",
+		title = L["Set up other addons"],
+		text = L["EldoUI writes its profile into %s and switches each to it. Your other profiles in those addons stay as they are."]:format(table.concat(titles, ", ")),
+		accept = L["Set up"],
+		cancel = L["Not now"],
+		onAccept = function() E:ApplyAddonSetups(names) end,
+	})
+end
+
 function E:ApplyAddonSetups(selected, onResult)
 	local done, skipped, waiting = {}, {}, {}
 	-- Other addons' profiles change out of combat only; a call in combat

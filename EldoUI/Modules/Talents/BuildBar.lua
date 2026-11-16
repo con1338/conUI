@@ -110,6 +110,12 @@ function M:CreateBuildBar(parent, opts)
 	bar.import = Kit.Button(bar, L["Import build"], 110, E.tokens.height.button, function() M:ShowImportBox(bar.notify) end,
 		L["Import build"], L["Paste a talent calculator link, a talent string, a talent loadout string or an EldoUI plan string. You see what it holds before it is saved as a plan; nothing is learned."])
 	Kit.FitButton(bar.import, 100)
+	if not opts.compact then
+		bar.copyCurrent = Kit.Button(bar, L["Copy my talents"], 120, E.tokens.height.button,
+			function() M:CopyCurrentTalents(Group(bar), bar.notify) end,
+			L["Copy my talents"], L["Copies the talents you have in this group as a loadout string."])
+		Kit.FitButton(bar.copyCurrent, 110)
+	end
 	bar.note = Kit.Text(bar, 12, "LEFT", "secondary")
 	bar.note:SetWordWrap(false)
 	bar.note:SetShown(not opts.compact)
@@ -132,6 +138,11 @@ function M:CreateBuildBar(parent, opts)
 			Place(own.recommend)
 		end
 		Place(own.import)
+		if own.copyCurrent then
+			local showCopy = not M:IsOtherClass(group)
+			own.copyCurrent:SetShown(showCopy)
+			if showCopy then Place(own.copyCurrent) end
+		end
 		local path = paths and M:RecommendedPath(group)
 		own.recommend:SetEnabled(path ~= nil)
 		if not opts.compact then

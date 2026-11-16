@@ -230,7 +230,7 @@ end
 
 local function CapturePin(pin, row, parent)
 	row.objects = {}
-	for _, entry in ipairs({ { pin, parent, { "GetParent", "SetParent", "Hide", "Show", "SetFrameStrata", "SetScale", "ClearAllPoints", "SetPoint", "SetSize", "GetWidth", "GetScript" } },
+	for _, entry in ipairs({ { pin, parent, { "GetParent", "SetParent", "Hide", "Show", "SetFrameLevel", "SetScale", "ClearAllPoints", "SetPoint", "SetSize", "GetWidth", "GetScript" } },
 		{ pin.edge, pin, { "GetParent", "SetTexture", "SetRotation", "SetSize" } },
 		{ pin.dot, pin, { "GetParent", "SetTexture", "SetRotation", "SetSize", "SetVertexColor" } } }) do
 		local object, methods = entry[1], {}
@@ -321,7 +321,7 @@ local function StandardWorldPins(self)
 				worldOwners[pin] = row
 			end
 			pin.uid = uid
-			pin:SetFrameStrata("HIGH")
+			E:PlaceMapPin(pin, "waypoints", map, canvas)
 			pin:SetScale(1 / max(scale or 1, 0.01))
 			StylePin(pin, self.db.pinSize, uid == self.arrowUid)
 			pin:ClearAllPoints()
@@ -408,7 +408,7 @@ local function RefreshWorldPins(self)
 			row.bridge = true
 			if not row.check() then return end
 			pin.uid = uid
-			if not Write(row.check, pin, "SetFrameStrata", "HIGH") or not Write(row.check, pin, "SetScale", 1)
+			if not Write(row.check, pin, "SetFrameLevel", E:MapPinLevel("waypoints", nil, binding.frame)) or not Write(row.check, pin, "SetScale", 1)
 				or not StylePin(pin, size, uid == arrow, row.check) or not Write(row.check, pin, "ClearAllPoints")
 				or not Write(row.check, pin, "SetPoint", "CENTER", binding.frame, "TOPLEFT", x, -y)
 				or not Write(row.check, pin, "Show") then return end
@@ -429,12 +429,10 @@ function M:RefreshWorldPins()
 	return unpack(values, 1, count)
 end
 
--- A data provider only for its callbacks (map changed, zoom, refresh).
+-- The map's changes, zoom, show and hide reach the pins through
+-- E:FollowMap, never through the map's data provider list.
 local function CreateProvider()
-	local base = _G.MapCanvasDataProviderMixin
-	local p = base and CreateFromMixins and CreateFromMixins(base) or {}
-	function p:OnAdded(owningMap) self.owningMap = owningMap end
-	function p:OnRemoved() self.owningMap = nil end
+	local p = {}
 	function p:RemoveAllData() HideWorldPins() end
 	function p:RefreshAllData() M:RefreshWorldPins() end
 	function p:OnMapChanged() M:RefreshWorldPins() end
@@ -456,10 +454,8 @@ function M:HookWorldMap()
 	local map = WorldMap()
 	if not map or self.worldHooked then return end
 	self.worldHooked = true
-	if map.AddDataProvider then
-		provider = provider or CreateProvider()
-		map:AddDataProvider(provider)
-	end
+	provider = provider or CreateProvider()
+	E:FollowMap(map, provider)
 end
 
 ---------------------------------------------------------------------------
@@ -471,14 +467,29 @@ local miniPins = {}
 -- pin is restyled only for another waypoint, a new arrow target, other
 -- colors or after a refresh from outside the ticker.
 local tickView = {}
+local minimapDirty
 local styleEpoch, tickArrow = 0, nil
 
 -- fromTick: the shared ticker (the only caller that may skip work).
-function M:RefreshMinimapPins(fromTick)
+function M:RefreshMinimapPins(fromTick, sample)
 	local minimap = _G.Minimap
-	local _, _, _, continent, north, west = (fromTick and M.SharedPlayerPos or M.PlayerPos)()
-	local view = continent and E:MinimapView(north, west, minimap, tickView)
+	if not minimap or not minimap:IsVisible() then
+		minimapDirty = true
+		for _, pin in ipairs(miniPins) do pin:Hide() pin.uid = nil end
+		return
+	end
+	if minimapDirty then fromTick, minimapDirty = nil, nil end
+	local continent, north, west
+	if sample then
+		continent, north, west = sample.continent, sample.north, sample.west
+	else
+		local _, _, _, c, n, w = (fromTick and M.SharedPlayerPos or M.PlayerPos)()
+		continent, north, west = c, n, w
+	end
+	local view = continent and E:CurrentMinimapView(north, west, minimap, tickView, sample)
 	local show = self.active and self.db.minimapPins and E:MapPinGroupShown("waypoints", "minimap") and view
+	-- A tick that hid the pins forgets the view, so the next one shows them.
+	if not show then wipe(tickView) end
 	if fromTick and show and view.same and tickArrow == self.arrowUid then
 		self.minimapSkips = (self.minimapSkips or 0) + 1
 		return
@@ -494,9 +505,9 @@ function M:RefreshMinimapPins(fromTick)
 				local pin = miniPins[i]
 				if not pin then
 					pin = CreatePin(minimap)
-					pin:SetFrameLevel(minimap:GetFrameLevel() + 5)
 					miniPins[i] = pin
 				end
+				E:PlaceMinimapPin(pin, "waypoints", minimap)
 				local arrow = uid == self.arrowUid
 				if pin.uid ~= uid or pin.arrow ~= arrow or pin.epoch ~= styleEpoch or pin.colors ~= E.colorsVersion then
 					pin.uid, pin.arrow, pin.epoch, pin.colors = uid, arrow, styleEpoch, E.colorsVersion
@@ -513,11 +524,10 @@ function M:RefreshMinimapPins(fromTick)
 	for j = i + 1, #miniPins do miniPins[j]:Hide() miniPins[j].uid = nil end
 end
 
--- Minimap pins follow you ten times a second on the shared ticker, only
--- while there are waypoints to show there.
+-- The shared minimap driver calls this layer when its view changes.
 local MINIMAP_TICK = "Waypoints:minimapPins"
-local function MinimapTick()
-	M:RefreshMinimapPins(true)
+local function MinimapTick(sample)
+	M:RefreshMinimapPins(true, sample)
 end
 
 ---------------------------------------------------------------------------
@@ -527,11 +537,7 @@ function M:RefreshPins()
 	if not self.active then return end
 	self:RefreshWorldPins()
 	self:RefreshMinimapPins()
-	if self.db.minimapPins and #self.order > 0 then
-		if not E.Ticker:IsSubscribed(MINIMAP_TICK) then E.Ticker:Subscribe(MINIMAP_TICK, 0.1, MinimapTick, M) end
-	else
-		E.Ticker:Unsubscribe(MINIMAP_TICK)
-	end
+	E:SetMinimapUpdater(MINIMAP_TICK, self.db.minimapPins and #self.order > 0, MinimapTick)
 end
 
 function M:LayoutPins()
@@ -547,7 +553,7 @@ function M:EnableMap()
 end
 
 function M:DisableMap()
-	E.Ticker:Unsubscribe(MINIMAP_TICK)
+	E:SetMinimapUpdater(MINIMAP_TICK, false)
 	HideWorldPins()
 	for _, pin in ipairs(miniPins) do pin:Hide() end
 end

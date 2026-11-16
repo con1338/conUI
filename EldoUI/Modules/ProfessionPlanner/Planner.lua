@@ -251,17 +251,20 @@ local function Characters()
 end
 
 -- total, mine, { { key, name, count } } for the other characters.
-function M:Have(itemID)
-	local mine = C_Item and C_Item.GetItemCount and tonumber(Clean(Try(C_Item.GetItemCount, itemID, self.db.includeBank))) or 0
+function M:Have(itemID, options)
+	local db = options or self.db
+	local count = C_Item and C_Item.GetItemCount and Clean(Try(C_Item.GetItemCount, itemID, db.includeBank))
+	if options and options.strict and (type(count) ~= "number" or not (count >= 0 and count < math.huge and count % 1 == 0)) then return nil end
+	local mine = tonumber(count) or 0
 	local total, alts = mine, {}
 	local C = Characters()
-	if self.db.countAlts and C then
-		for _, key in ipairs(Try(C.Keys, C, self.db.altScope) or {}) do
+	if db.countAlts and C then
+		for _, key in ipairs(Try(C.Keys, C, db.altScope) or {}) do
 			if key ~= E.charKey then
 				local record = C:Get(key)
 				local counts = record and type(record.counts) == "table" and record.counts[itemID]
 				if type(counts) == "table" then
-					local n = (counts[1] or 0) + (counts[3] or 0) + (self.db.includeBank and (counts[2] or 0) or 0)
+					local n = (counts[1] or 0) + (counts[3] or 0) + (db.includeBank and (counts[2] or 0) or 0)
 					if n > 0 then
 						total = total + n
 						alts[#alts + 1] = { key = key, name = record.name or key, count = n }
@@ -533,20 +536,41 @@ local function SetAuctionList(name, terms)
 	saved.lists[#saved.lists + 1] = { name = name, terms = terms }
 end
 
-function M:SendToShopping()
+local function SendMissing(missing)
 	if not (E.modules and E.modules.Auction) then return false, L["The Auction module is not loaded."] end
-	local missing = self:Missing()
 	if #missing == 0 then return false, L["Nothing is missing."] end
 	local terms, waiting = {}, 0
 	for _, item in ipairs(missing) do
-		local name = self:ItemName(item.id)
+		local name = M:ItemName(item.id)
 		if name then terms[#terms + 1] = '"' .. name .. '"' else waiting = waiting + 1 end
 	end
 	if #terms == 0 then return false, L["Item names are still loading. Try again in a moment."] end
-	SetAuctionList(self.LIST_NAME, terms)
+	SetAuctionList(M.LIST_NAME, terms)
 	local text = E:Plural(#terms, "%d item is on the shopping list \"Profession Planner\".", "%d items are on the shopping list \"Profession Planner\"."):format(#terms)
 	if waiting > 0 then text = text .. " " .. E:Plural(waiting, "%d name is still loading.", "%d names are still loading."):format(waiting) end
 	return true, text
+end
+
+function M:SendToShopping()
+	return SendMissing(self:Missing())
+end
+
+-- One selected recipe leaves pinned recipes and their quantities intact.
+function M:SendRecipeToShopping(recipe, crafts, options)
+	if type(recipe) ~= "table" or type(recipe.reagents) ~= "table" or recipe.incomplete then return false, L["No recipe selected."] end
+	crafts = tonumber(Clean(crafts))
+	if not crafts or not (crafts >= 1 and crafts < math.huge and crafts % 1 == 0) then return false, L["Choose a number of crafts first."] end
+	local needed, missing = {}, {}
+	for _, reagent in ipairs(recipe.reagents) do
+		needed[reagent.id] = (needed[reagent.id] or 0) + reagent.count * math.floor(crafts)
+	end
+	for itemID, count in pairs(needed) do
+		local have = self:Have(itemID, options)
+		if have == nil then return false, L["Reagent counts are unavailable."] end
+		if count > have then missing[#missing + 1] = { id = itemID, count = count - have } end
+	end
+	table.sort(missing, function(a, b) return a.id < b.id end)
+	return SendMissing(missing)
 end
 
 ---------------------------------------------------------------------------
@@ -719,7 +743,7 @@ end
 for _, row in ipairs({
 	{ type = "tab", label = "Look" },
 	{ type = "header", label = "Tracker" },
-	{ type = "range", key = "width", label = "Width", min = 180, max = 400, step = 10, desc = "Width of the Shopping List tracker." },
+	{ type = "range", unit = "px", key = "width", label = "Width", min = 180, max = 400, step = 10, desc = "Width of the Shopping List tracker." },
 	{ type = "range", key = "fontSize", label = "Text size", min = 10, max = 16, step = 1, desc = "Size of the tracker's text." },
 	{ type = "range", key = "maxLines", label = "Most lines", min = 6, max = 30, step = 1, desc = "The tracker shows at most this many lines; the planner window shows them all." },
 	{ type = "toggle", key = "icons", label = "Item icons", desc = "A small icon before each reagent." },

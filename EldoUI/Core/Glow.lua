@@ -167,6 +167,11 @@ end
 local Styles = {}
 
 Styles.pixel = {
+	Start = function(holder)
+		local lines = math.floor(Clamp(holder.opts.lines, 4, 16, 8))
+		local r, g, b, a = ColorOf(holder.opts)
+		for i = 1, lines * 2 do Texture(holder, i):SetColorTexture(r, g, b, a) end
+	end,
 	Update = function(holder, elapsed)
 		local opts = holder.opts
 		local w, h = holder:GetSize()
@@ -177,7 +182,6 @@ Styles.pixel = {
 		holder.progress = ((holder.progress or 0) + elapsed * Clamp(opts.speed, 0.1, 1, 0.25)) % 1
 		-- Each line covers half its share of the perimeter, at most one edge.
 		local length = math.min(p / lines * 0.5, math.min(w, h))
-		local r, g, b, a = ColorOf(opts)
 		for i = 1, lines do
 			local start = (holder.progress + (i - 1) / lines) * p
 			local _, _, edge = PointAt(start, w, h)
@@ -185,8 +189,6 @@ Styles.pixel = {
 			local local1 = (start % p) - edgeFrom
 			local edgeLength = EdgeLength(edge, w, h)
 			local first, second = Texture(holder, i * 2 - 1), Texture(holder, i * 2)
-			first:SetColorTexture(r, g, b, a)
-			second:SetColorTexture(r, g, b, a)
 			if local1 + length <= edgeLength then
 				DrawPiece(first, holder, edge, local1, local1 + length, w, h, t)
 				second:Hide()
@@ -316,9 +318,15 @@ Styles.blizzard = {
 	end,
 }
 
+local UPDATE_INTERVAL = 1 / 30
 local function OnUpdate(holder, elapsed)
 	local style = Styles[holder.style]
-	if style and style.Update then style.Update(holder, elapsed) end
+	if not style or not style.Update then return end
+	holder.updateElapsed = (holder.updateElapsed or 0) + elapsed
+	if elapsed > 0 and holder.updateElapsed < UPDATE_INTERVAL then return end
+	local accumulated = holder.updateElapsed
+	holder.updateElapsed = 0
+	style.Update(holder, accumulated)
 end
 
 local function Holder(frame)
@@ -342,6 +350,7 @@ local function Layout(frame, holder)
 end
 
 local function StopStyle(holder)
+	holder.updateElapsed = nil
 	local style = Styles[holder.style]
 	if style and style.Stop then style.Stop(holder) end
 	holder:SetScript("OnUpdate", nil)
@@ -679,9 +688,9 @@ local function GlowRows(options, key, info)
 		hidden = function() return NoShape() or DB().style == "pulse" end })
 	table.insert(options, { type = "range", key = p .. "speed", label = "Speed", min = 0.1, max = 1, step = 0.05, cog = true,
 		desc = "Laps per second for lines and dots; for Pulse, a higher value pulses faster.", hidden = NoShape })
-	table.insert(options, { type = "range", key = p .. "thickness", label = "Thickness", min = 1, max = 4, step = 1, cog = true,
+	table.insert(options, { type = "range", unit = "px", key = p .. "thickness", label = "Thickness", min = 1, max = 4, step = 1, cog = true,
 		desc = "Line, dot or border thickness in pixels.", hidden = NoShape })
-	table.insert(options, { type = "range", key = p .. "inset", label = "Inset", min = -4, max = 4, step = 1, cog = true,
+	table.insert(options, { type = "range", unit = "px", key = p .. "inset", label = "Inset", min = -4, max = 4, step = 1, cog = true,
 		desc = "Moves the glow inside the frame edge (positive) or outside it (negative), in pixels.", hidden = NoShape })
 end
 

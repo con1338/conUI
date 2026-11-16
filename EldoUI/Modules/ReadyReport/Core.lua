@@ -48,6 +48,7 @@ local M = E:NewModule("ReadyReport", {
 		openOn = "lead",          -- "always", "lead" (you lead or assist) or "never"
 		autoClose = true,         -- close after the ready check ends
 		closeDelay = 10,          -- seconds after the ready check ends
+		answerLine = "lead",      -- one chat line with the answers after the check: "lead", "always" or "never"
 		checks = { ready = true, buffs = true, flask = true, food = true, durability = true, version = true },
 		buffs = { FORT = true, INT = true, MOTW = true, BLESSING = true, SPIRIT = false, SHADOW = false },
 		onlyGivers = true,        -- a buff counts only when a class that gives it is in the group
@@ -95,13 +96,13 @@ local function Flat(rows)
 	return out
 end
 -- Flasks (the aura has the flask's own name). WoW: Forever adds the
--- Natural flasks (client tables of build 1.60.1.70862).
+-- Natural flasks (client tables of build 1.60.1.70938).
 M.FLASKS = Flat({
 	{ 17626, 17627, 17628, 17629, 17624 },            -- Titans, Distilled Wisdom, Supreme Power, Chromatic Resistance, Petrification
 	{ 1293740, 1293741, 1293742, 1293743, 1293562 },  -- Natural Accuracy, Aggression, Precision, Swiftness (and its name)
 })
 -- Elixirs that give a lasting aura, then WoW: Forever's own elixirs, whose
--- aura is named after the elixir (build 1.60.1.70862).
+-- aura is named after the elixir (build 1.60.1.70938).
 M.ELIXIRS = Flat({
 	{ 17538, 17539, 11405, 11390, 11474, 26276 },     -- Mongoose, Greater Arcane, Giants, Arcane, Shadow Power, Greater Firepower
 	{ 21920, 11334, 3593, 17537, 24363, 24382 },      -- Frost Power, Greater Agility, Fortitude, Brute Force, Mageblood, Spirit of Zanza
@@ -159,6 +160,7 @@ end
 local function Names()
 	if names then return names end
 	names = { buffs = {}, flask = {}, elixir = {}, food = SpellName(M.WELL_FED),
+		eating = SpellName(433), drinking = SpellName(430),
 		flaskIds = IdSet(M.FLASKS), elixirIds = IdSet(M.ELIXIRS), foodIds = IdSet(M.FOOD),
 		notBuff = IdSet(M.FLASKS, M.ELIXIRS, M.FOOD, M.LOOKALIKES) }
 	for _, buff in ipairs(M.BUFFS) do
@@ -244,7 +246,7 @@ function M.AuraNames(unit)
 	return list, nil, entries
 end
 
--- What one aura is: "flask", "elixir", "food" or nil. A readable spell ID
+-- What one aura is: "flask", "elixir", "food", "eating" or nil. A readable spell ID
 -- decides; without one the name does (a name two consumables share is
 -- read as the listed one).
 function M.AuraKind(set, aura)
@@ -255,11 +257,13 @@ function M.AuraKind(set, aura)
 		if set.foodIds[id] then return "food" end
 		-- Every "Well Fed" is food, a newer one too.
 		if set.food and name == set.food then return "food" end
+		if (set.eating and name == set.eating) or (set.drinking and name == set.drinking) then return "eating" end
 		return nil
 	end
 	if set.flask[name] then return "flask" end
 	if set.elixir[name] then return "elixir" end
 	if set.food and name == set.food then return "food" end
+	if (set.eating and name == set.eating) or (set.drinking and name == set.drinking) then return "eating" end
 	return nil
 end
 
@@ -379,12 +383,13 @@ function M:Row(unit, wanted)
 				end
 				if not has then row.missing[#row.missing + 1] = buff.key end
 			end
-			row.elixirs, row.food = 0, false
+			row.elixirs, row.food, row.eating = 0, false, false
 			for _, aura in ipairs(entries) do
 				local kind = M.AuraKind(set, aura)
 				if kind == "flask" then row.flask = true
 				elseif kind == "elixir" then row.elixirs = row.elixirs + 1
-				elseif kind == "food" then row.food = true end
+				elseif kind == "food" then row.food = true
+				elseif kind == "eating" then row.eating = true end
 			end
 		end
 	end
@@ -434,7 +439,7 @@ function M:Summary(rows)
 				end
 			end
 			if db.checks.flask and not row.flask and (row.elixirs or 0) == 0 then Add("flask", L["flask or elixir"]) end
-			if db.checks.food and not row.food then Add("food", L["food"]) end
+			if db.checks.food and not row.food and not row.eating then Add("food", L["food"]) end
 		elseif row.state == "combat" or row.state == "restricted" then
 			unknown = unknown + 1
 		end
@@ -479,6 +484,8 @@ function M.GroupChannel()
 end
 
 function M:PostText()
+	-- After a check: its answers. Before or during one: what is missing.
+	if self.answers and not self.checking then return self.answers end
 	local _, line = self:Summary(self.rows or {})
 	return L["Ready check: %s"]:format(line)
 end
@@ -532,13 +539,101 @@ end
 function M:OnReadyCheck()
 	self.checking = true
 	self.closeAt = nil
+	self.answers = nil
+	local rows = {}
+	for _, unit in ipairs(M.Units()) do
+		local name = Read(UnitName, unit)
+		if type(name) == "string" then
+			rows[#rows + 1] = {
+				unit = unit, name = name, guid = Read(UnitGUID, unit), ready = ReadyState(unit),
+				fullName = Read(E.UnitWhisperName, E, unit),
+				state = Read(UnitIsConnected, unit) == false and "offline" or nil,
+			}
+		end
+	end
+	self.answerRows = rows
+	-- The time-left bar runs from the check's own length.
+	self.checkLength = nil
+	if type(GetReadyCheckTimeLeft) == "function" then
+		local ok, left = pcall(GetReadyCheckTimeLeft)
+		if ok and not E.Secret(left) and type(left) == "number" and left > 0 then self.checkLength = left end
+	end
 	-- Nothing is sent here: sharing waits for the player's click on Share mine.
 	self.sharedThisCheck = false
 	if self:ShouldOpen() then self:Open() else self:QueueRefresh() end
 end
 
-function M:OnReadyCheckFinished()
+function M:OnReadyCheckConfirm(unit, ready)
+	if self.answerRows and not Secret(unit) and type(unit) == "string"
+		and not Secret(ready) and type(ready) == "boolean" then
+		local guid, fullName = Read(UnitGUID, unit), Read(E.UnitWhisperName, E, unit)
+		for _, row in ipairs(self.answerRows) do
+			local same = row.guid and guid and row.guid == guid
+			if same or ((not row.guid or not guid) and fullName and fullName == row.fullName
+				and (row.unit == unit or Read(UnitIsUnit, row.unit, unit))) then
+				row.unit = unit
+				row.ready = ready and "ready" or "notready"
+				break
+			end
+		end
+	end
+	self:QueueRefresh()
+end
+
+-- The answers of a finished check as one line: who is ready, who said not
+-- ready, who never answered and who is offline. A secret answer counts as
+-- unknown and is left out.
+function M:AnswerLine(rows)
+	local ready, notReady, waiting, offline = 0, {}, {}, {}
+	for _, row in ipairs(rows or {}) do
+		if row.state == "offline" then
+			offline[#offline + 1] = row.name
+		elseif row.ready == "ready" then
+			ready = ready + 1
+		elseif row.ready == "notready" then
+			notReady[#notReady + 1] = row.name
+		elseif row.ready == "waiting" then
+			waiting[#waiting + 1] = row.name
+		end
+	end
+	local parts = { L["Ready check: %d ready."]:format(ready) }
+	if #notReady > 0 then parts[#parts + 1] = L["Not ready: %s."]:format(table.concat(notReady, ", ")) end
+	if #waiting > 0 then parts[#parts + 1] = L["No answer: %s."]:format(table.concat(waiting, ", ")) end
+	if #offline > 0 then parts[#parts + 1] = L["Offline: %s."]:format(table.concat(offline, ", ")) end
+	return table.concat(parts, " ")
+end
+
+function M:WantsAnswerLine()
+	local mode = self.db.answerLine
+	if mode == "always" then return true end
+	return mode == "lead" and M.IsLead()
+end
+
+function M:OnReadyCheckFinished(preempted)
 	self.checking = false
+	-- The answers stay readable after the check: printed here for you, and
+	-- sent by Post to group only on a click. They come from the rows read
+	-- during the check; once it ends the game no longer gives the answers.
+	local rows = self.answerRows
+	self.answerRows = nil
+	if rows and #rows > 0 and not Secret(preempted) and not preempted then
+		local unitsByGUID = {}
+		for _, unit in ipairs(M.Units()) do
+			local guid = Read(UnitGUID, unit)
+			if type(guid) == "string" then unitsByGUID[guid] = unit end
+		end
+		for _, row in ipairs(rows) do
+			local unit = row.guid and unitsByGUID[row.guid]
+			if not row.guid and row.fullName and Read(E.UnitWhisperName, E, row.unit) == row.fullName then unit = row.unit end
+			if unit then
+				local connected = Read(UnitIsConnected, unit)
+				if connected == false then row.state = "offline" end
+				if connected == true then row.state = nil end
+			end
+		end
+		self.answers = self:AnswerLine(rows)
+		if self:WantsAnswerLine() then self:Print(self.answers) end
+	end
 	self:QueueRefresh()
 	if not self.db.autoClose or not self:IsOpen() then return end
 	local token = {}
@@ -585,9 +680,10 @@ function M:Command(arg)
 	end
 end
 
--- Aura changes are heard only for the group's own units, two units per
--- registration (the game's limit), so the auras of nameplates, targets and
--- other players never wake the report. The list follows the roster.
+-- Aura changes are heard only while the report is open, and only for the
+-- group's own units, two units per registration (the game's limit), so the
+-- auras of nameplates, targets and other players never wake the report.
+-- The list follows the roster.
 local auraUnits = {} -- "unit1,unit2" -> { unit1, unit2 }
 
 local function OnAura()
@@ -596,7 +692,7 @@ end
 
 function M:SyncAuraUnits()
 	local wanted = {}
-	if self.active then
+	if self.active and self:IsOpen() then
 		local units = M.Units()
 		for index = 1, #units, 2 do
 			local pair = { units[index], units[index + 1] }
@@ -627,8 +723,8 @@ end
 function M:OnEnable()
 	self:BuildWindow()
 	self:RegisterEvent("READY_CHECK", function() M:OnReadyCheck() end)
-	self:RegisterEvent("READY_CHECK_CONFIRM", function() M:QueueRefresh() end)
-	self:RegisterEvent("READY_CHECK_FINISHED", function() M:OnReadyCheckFinished() end)
+	self:RegisterEvent("READY_CHECK_CONFIRM", function(_, _, unit, ready) M:OnReadyCheckConfirm(unit, ready) end)
+	self:RegisterEvent("READY_CHECK_FINISHED", function(_, _, preempted) M:OnReadyCheckFinished(preempted) end)
 	self:RegisterEvent("START_PLAYER_COUNTDOWN", function(_, _, _, timeRemaining) M:OnPullCountdown(timeRemaining) end)
 	self:RegisterEvent("CANCEL_PLAYER_COUNTDOWN", function() M:ClearPullCountdown() end)
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function() M:ClearPullCountdown() end)
@@ -646,6 +742,7 @@ function M:OnDisable()
 	E:UnregisterComm(PREFIX)
 	self:SyncAuraUnits()
 	self.checking = false
+	self.answerRows = nil
 	self.closeToken = nil
 	self:ClearPullCountdown()
 	self:Close()

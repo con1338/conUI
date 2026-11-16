@@ -24,7 +24,7 @@
 --   | Spell ranks: [x] bar 1-3 buttons, [ ] manual bars, Keep     |
 --   | Protected: buttons and keys that stay, with the reason      |
 --   |-------------------------------------------------------------|
---   | status   [Take back spells] [Undo last Apply] [Apply]       |
+--   | status   [Take back spells] [Undo last key set] [Apply]     |
 --   +-------------------------------------------------------------+
 --
 -- Opening, switching sets, keyboards or layers, hovering and closing
@@ -794,6 +794,8 @@ function E:ConfirmKeysAndSpells(plan)
 	if c.total == 0 then return end
 	local text = L["Apply %s?\n\n%s.\n\nOnly empty buttons get a spell and your own actions stay. Your current keys are saved first, and Undo puts everything back."]:format(
 		E:Highlight(L[plan.keys.title]), table.concat(parts, ", "))
+	local scope = self.KeySetScopeText and self:KeySetScopeText()
+	if scope then text = text .. "\n\n" .. scope end
 	self:ShowConfirm({ title = L["Keys and spells"], text = text, accept = L["Apply"], data = plan,
 		onAccept = function(data) E:ApplyKeysAndSpells(data) end })
 end
@@ -1178,7 +1180,7 @@ local function Build()
 			E:ConfirmKeysAndSpells(P.combined)
 		end })
 	win.apply:SetPoint("RIGHT", -28, 0)
-	win.restore = K.Button(win.footer, { text = L["Undo last Apply"],
+	win.restore = K.Button(win.footer, { text = L["Undo last key set"],
 		tip = L["Put back the keys, spells, macros and ranks of the last Apply. A button or key you changed since stays yours."],
 		onClick = function()
 			E:RunOutOfCombat(function() E:RestoreKeysAndSpells(function(text, warn) E:ConfigNotice(text, warn) end) end, "KeybindPreview:restore")

@@ -1,11 +1,16 @@
 -- EldoUI UI scale. EldoUI is made for 1440p: every layout in Core/Layout.lua
 -- and Data/Layouts.lua is designed on a screen 1440 UI units tall.
 --
--- "auto" therefore draws that 1440-unit canvas on every screen (design
+-- "auto" therefore draws that 2560x1440 canvas on every screen (design
 -- decision): the scale is 768 / 1440 (0.5333). On a 1440p screen that is
 -- also pixel perfect (one UI unit is one screen pixel). On 1920x1080 every
 -- layout looks exactly as designed, only smaller;
--- on 4K it looks the same size as on 1440p instead of tiny. Pixel-perfect
+-- on 4K it looks the same size as on 1440p instead of tiny. A screen
+-- narrower than 16:9 (16:10, 4:3) is 2560 units wide instead and a little
+-- taller than 1440: the layouts keep all their width, and the frames anchor
+-- to the part of the screen they sit in (top, middle or bottom), so the
+-- extra height only widens the gaps between those parts. On 2560x1600 one
+-- unit is again one pixel. Pixel-perfect
 -- sizes on other screens would keep the frames at 1440p size while the
 -- layout fit moves the gaps between them, and frames would overlap.
 --
@@ -21,16 +26,23 @@ E.defaults.general.uiScale = "auto" -- "auto" (1440p canvas), "pixel" or a numbe
 -- profile that had it off moves to "pixel" (E:ApplyScale).
 E.defaults.general.layoutFitScale = true
 
-local LAYOUT_HEIGHT = 1440
+local LAYOUT_HEIGHT, LAYOUT_WIDTH = 1440, 2560
 
 function E:GetPixelPerfectScale()
 	local _, height = GetPhysicalScreenSize()
 	return 768 / height
 end
 
--- The scale that makes the screen 1440 UI units tall.
+-- The scale that draws the 2560x1440 canvas: the screen is 1440 UI units
+-- tall, and a screen narrower than 16:9 (16:10, 4:3) is 2560 units wide
+-- instead, taller than 1440, so every layout keeps the room it was made for.
 function E:GetLayoutCanvasScale()
-	return 768 / LAYOUT_HEIGHT
+	local scale = 768 / LAYOUT_HEIGHT
+	local width, height = GetPhysicalScreenSize()
+	if type(width) == "number" and type(height) == "number" and width > 0 and height > 0 then
+		scale = math.min(scale, 768 * width / (height * LAYOUT_WIDTH))
+	end
+	return scale
 end
 
 -- Does the current setting draw the 1440-unit canvas?
@@ -59,11 +71,16 @@ end
 --   small        smaller still: the smallest text gets hard to read here
 --   large        bigger than the canvas: the layouts have less room than
 --                they were made for, and frames can overlap
--- The smallest text EldoUI draws is 11 units; on screen that is
--- 11 x scale x screen height / 768 pixels, and 9 pixels is where it stops
--- reading well. value: a number, "auto" or "pixel". Returns the tier and a
--- short text for the player, or nil for no value.
+-- The smallest text EldoUI draws in its layouts is 11 units; on screen that
+-- is 11 x scale x screen height / 768 pixels, and 9 pixels is where it
+-- stops reading well. value: a number, "auto" or "pixel". Returns the tier
+-- and a short text for the player, or nil for no value.
 local READABLE_PIXELS, SMALLEST_TEXT = 9, 11
+-- The tiny size token, the smallest text in windows and lists.
+local function SmallestText()
+	local size = E.tokens and E.tokens.size and tonumber(E.tokens.size.tiny)
+	return size and size > 0 and size or 10
+end
 function E:ScaleAdvice(value)
 	local scale = value == "auto" and self:GetAutoScale() or value == "pixel" and self:GetPixelPerfectScale() or tonumber(value)
 	if not scale or scale <= 0 then return nil end
@@ -81,6 +98,25 @@ function E:ScaleAdvice(value)
 		return "supported", L["Supported: the layouts keep their room and the text gets smaller."]
 	end
 	return "small", L["Not recommended: the smallest text gets hard to read on this screen. Keep Auto, and turn on Large text on the Accessibility page for bigger text."]
+end
+
+-- Screens under 1440 pixels tall: Auto keeps the 1440-unit canvas, so the
+-- smallest text draws smaller than on the canvas. Returns that size in
+-- screen pixels with Large text as it is now, and the Large text scale
+-- (rounded up to 5 %, at most 160 %) that brings it to 9 pixels; nil when
+-- the text already reads well. A hint only: nothing changes by itself.
+function E:SmallTextAdvice()
+	local _, height = GetPhysicalScreenSize()
+	height = tonumber(height)
+	if not height or height <= 0 or height >= 1440 then return nil end
+	local scale = self.db and self:GetTargetScale()
+	if not scale or scale <= 0 then return nil end
+	local plain = SmallestText() * scale * height / 768
+	local general = self.db and self.db.general
+	local now = plain * (tonumber(general and general.textScale) or 1)
+	if now >= READABLE_PIXELS - 0.05 then return nil end
+	local need = math.ceil(READABLE_PIXELS / plain * 20 - 0.001) / 20
+	return now, math.max(1.05, math.min(1.6, need))
 end
 
 -- One screen pixel in UI units (E.pixel), for 1-pixel borders and lines.
@@ -325,8 +361,8 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 		{ type = "header", label = "Safe area" },
 		{ type = "select", key = "safeArea", label = "Usable area", values = SAFE_AREA_VALUES,
 			desc = "Whole screen: no limit. Centered 16:9: the width a 16:9 screen of the same height has (2560 on a 1440 px tall screen). Has no effect when the screen is not wider than the area." },
-		{ type = "range", key = "safeAreaWidth", label = "Custom width", min = 1024, max = 7680, step = 16,
-			desc = "Width of the area in UI units, used with \"Custom width\". With the auto UI scale the screen is 1440 units tall, so a 16:9 area is 2560 wide.",
+		{ type = "range", unit = "px", key = "safeAreaWidth", label = "Custom width", min = 1024, max = 7680, step = 16,
+			desc = "Width of the area in UI units, used with \"Custom width\". With the auto UI scale a 16:9 area is 2560 wide.",
 			hidden = function() return E.db.general.safeArea ~= "custom" end },
 		{ type = "range", key = "safeAreaMargin", label = "Side margin", min = 0, max = 400, step = 4, disabled = WholeScreen,
 			desc = "Extra space between the area's edges and the frames along them, on the left and the right." },

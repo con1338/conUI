@@ -13,6 +13,7 @@
 --   Captures.lua       base, tower and graveyard captures from map POIs
 --   Score.lua          expected winner, time left, flag back
 --   Extras.lua         share to the chat box, AV turn-ins, mine owners
+--   Resurrection.lua   the next spirit healer wave while you wait
 --   Probe.lua          /eui probe bg (widget and POI dump for in-game checks, the last 20 kept)
 --   Options.lua        the options page
 --
@@ -65,6 +66,7 @@ local M = E:NewModule("Battlegrounds", {
 		predict = true,
 		matchTime = true,
 		flagRespawn = true,
+		resurrect = true,
 		turnIns = true,
 		owners = true,
 		share = false,
@@ -256,7 +258,7 @@ function M:Decorate(data)
 		data.borderColor = GameFactionColor(data.kind)
 	end
 	data.fill = db.fill
-	data.pinned = PINNED[data.kind] or false
+	data.pinned = data.pin or PINNED[data.kind] or false
 	if data.frozenText then
 		data.timeText = db.showTime and data.frozenText or ""
 	else
@@ -268,7 +270,7 @@ end
 
 -- Start (or update) a bar. data: label, kind, duration or expires, icon,
 -- frozenText (no countdown), side ("alliance" / "horde", for sharing),
--- tooltip.
+-- pin (keep it at the top of the stack), tooltip.
 function M:Bar(key, data)
 	if not self.group or type(data) ~= "table" then return nil end
 	if IsSecret(data.label) or IsSecret(data.duration) or IsSecret(data.expires) then

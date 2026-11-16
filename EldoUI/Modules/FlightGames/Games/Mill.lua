@@ -1,4 +1,4 @@
--- EldoUI Flight Games: Mill. You and the Horde each have nine pieces.
+-- EldoUI Flight Games: Mill. You and the opponent each have nine pieces.
 -- First place them one by one on the 24 points of the board, then move
 -- them along the lines to a free neighbor. Three of yours in a row on one
 -- line make a mill and take one of the other side's pieces (a piece in a
@@ -256,8 +256,7 @@ function Mill:Play(m, v)
 	Apply(board, self.hand, { from = m.from, to = m.to }, v)
 	self.last = m.to
 	local x, y = Spot(m.to)
-	local palette = self.host.Palette()
-	self.fx:Burst(x, y, v == 1 and palette[7] or palette[6], 50, 0.35)
+	self.fx:Burst(x, y, self.host.FactionColor(v), 50, 0.35)
 	self.host.Sound("turn")
 	if InMill(board, m.to) then
 		self.quiet = 0
@@ -304,7 +303,7 @@ function Mill:Pass(v)
 	self:Draw()
 end
 
--- The Horde's move, searched on a copy of the board and the hands.
+-- The opponent's move, searched on a copy of the board and the hands.
 function Mill:Choose()
 	local board, hand = B.Copy(self.board), { [1] = self.hand[1], [-1] = self.hand[-1] }
 	local best, bestValue
@@ -382,7 +381,7 @@ end
 
 function Mill:Summary()
 	if not self.taken then return nil end
-	return E:Plural(self.taken, "%d Horde piece taken", "%d Horde pieces taken"):format(self.taken)
+	return E:Plural(self.taken, "%d %s piece taken", "%d %s pieces taken"):format(self.taken, self.host.FactionName(-1))
 end
 
 function Mill:Draw()
@@ -408,7 +407,7 @@ function Mill:Draw()
 		local piece = self.pieces[i]
 		piece:SetShown(v ~= 0)
 		if v ~= 0 then
-			local pc = v == 1 and palette[7] or palette[6]
+			local pc = self.host.FactionColor(v, palette)
 			piece:SetVertexColor(pc[1], pc[2], pc[3], 1)
 		end
 		local ring = self.rings[i]
@@ -424,18 +423,18 @@ function Mill:Draw()
 			B.Art(ring, "Ring", color("gold"), 0.7)
 		end
 	end
-	self.tally:SetText(L["In hand: you %d, the Horde %d"]:format(self.hand[1], self.hand[-1]))
+	self.tally:SetText(L["In hand: you %d, the %s %d"]:format(self.hand[1], self.host.FactionName(-1), self.hand[-1]))
 	local text
 	if self.result == "won" then
 		text = L["You win!"]
 	elseif self.result == "lost" then
-		text = L["The Horde wins."]
+		text = L["The %s wins."]:format(self.host.FactionName(-1))
 	elseif self.result == "draw" then
 		text = L["A draw."]
 	elseif self.turn ~= 1 then
-		text = L["The Horde is thinking..."]
+		text = L["The %s is thinking..."]:format(self.host.FactionName(-1))
 	elseif self.taking then
-		text = L["A mill: take one of the Horde's pieces."]
+		text = L["A mill: take one of the %s's pieces."]:format(self.host.FactionName(-1))
 	elseif self.hand[1] > 0 then
 		text = L["Place a piece on a free point."]
 	else
@@ -446,7 +445,7 @@ end
 
 M:RegisterGame({
 	key = "mill", order = 168, group = "board",
-	title = "Mill", desc = "Place and move nine pieces; three in a row takes one of the Horde's.",
+	title = "Mill", desc = "Place and move nine pieces; three in a row takes an opposing piece.",
 	controls = Key("Click a point to place; click a piece, then where it goes. P: pause."),
 	icon = "Interface\\Icons\\INV_Stone_04",
 	modes = MODES,

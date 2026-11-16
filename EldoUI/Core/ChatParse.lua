@@ -13,6 +13,7 @@
 --   local kind, fields = P:Match(text, { "reset", "tooManyInstances" })
 --   local copper = P:Money(fields.money)        -- coin words to copper
 --   local args = P:MatchFormat(text, _G.ERR_AUCTION_SOLD_S) -- { "item" } in argument order
+--   local link = P:ItemLink(fields.link)        -- "[Name]" without a link made a link
 --
 -- Kinds and their fields (numbers stay strings; tonumber them):
 --   item              link, count (nil for one)
@@ -147,6 +148,7 @@ local KINDS = {
 	},
 	skill = {
 		{ "SKILL_RANK_UP", { "skill", "rank" } },
+		{ "ERR_SKILL_UP_SI", { "skill", "rank" } },
 	},
 	-- Experience from a kill (CHAT_MSG_COMBAT_XP_GAIN). Rested bonus and
 	-- penalty lines first, then group and raid lines, then the plain ones.
@@ -272,6 +274,22 @@ function P:Match(text, kinds)
 		if fields then return kind, fields, name end
 	end
 	return nil
+end
+
+-- Some loot and crafting lines (fishing catches, a few crafted items)
+-- carry the item's name in brackets, "[Name]", and no link. The item is
+-- found by that name, and its link (or "item:<id>" while the item is not
+-- cached) takes the text's place. Linked text and names that find no item
+-- come back as they are.
+function P:ItemLink(text)
+	text = self:Readable(text)
+	if not text or text:find("|H", 1, true) then return text end
+	local name = text:match("^%[(.+)%]$")
+	if not name or not (C_Item and C_Item.GetItemInfoInstant) then return text end
+	local id = tonumber((C_Item.GetItemInfoInstant(name)))
+	if not id then return text end
+	local _, link = C_Item.GetItemInfo(id)
+	return type(link) == "string" and link or ("item:" .. id)
 end
 
 -- Copper from a money text in the client's own coin words ("1 Gold,

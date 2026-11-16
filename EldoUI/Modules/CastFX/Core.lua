@@ -79,6 +79,11 @@ local M = E:NewModule("CastFX", {
 		pinSpell = 0,           -- spell shown in the pin row
 	},
 })
+
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "spells", "themes" }
+M.keepOnResetNote = E.Key("Your pinned spells and own themes are kept too.")
 E.CastFX = M
 
 M.UNIT_KINDS = { "player", "target", "focus", "pet", "boss" }

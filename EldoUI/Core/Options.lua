@@ -49,12 +49,13 @@ function E:InitializeOptions()
 	version:SetPoint("TOP", logo, "BOTTOM", 0, -2)
 	version:SetText("v" .. E.version)
 
-	-- The config window opens only from /eui (design decision), so this
-	-- page says how, and offers only the tools that aren't the config.
+	-- The options open only from /eui and EldoUI's own buttons (design
+	-- decision), so this page says how, and offers only the tools that
+	-- aren't the options.
 	local how = E:CreateText(panel, E.tokens.size.dialogTitle, "CENTER")
 	E:SetHeaderFont(how, E.tokens.size.dialogTitle)
 	how:SetPoint("TOP", version, "BOTTOM", 0, -24)
-	how:SetText(L["Type %s in chat to open the EldoUI config."]:format(E:Highlight("/eui")))
+	how:SetText(L["Type %s in chat or use the EldoUI button in the Game Menu to open the EldoUI options."]:format(E:Highlight("/eui")))
 
 	panel.how = how
 	local why = E:CreateText(panel, E.tokens.size.body, "CENTER")
@@ -70,7 +71,7 @@ function E:InitializeOptions()
 			function() CloseSettingsThen(function() E:ToggleMoveMode() end) end },
 		{ L["Keybind mode"], L["Hover any EldoUI button and press a key to bind it. Out of combat only."],
 			function() CloseSettingsThen(function() E:ToggleKeybindMode() end) end },
-		{ L["Run the installer"], L["The setup again: scale, layout, look, role and chat. It asks before it changes anything."],
+		{ L["Run the setup again"], L["The setup again: scale, layout, look, role and chat. It asks before it changes anything."],
 			function() CloseSettingsThen(function() E:ShowInstaller() end) end },
 	}
 	-- One centered row; each button takes the width its label needs.

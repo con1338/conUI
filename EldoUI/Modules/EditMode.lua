@@ -72,6 +72,11 @@ local M = E:NewModule("EditMode", {
 	},
 })
 
+-- "Reset to defaults" keeps the player's own data and window places
+-- (E:ResetModuleSettings, Core/Config.lua).
+M.keepOnReset = { "layouts", "perLayout" }
+M.keepOnResetNote = E.Key("Positions saved per Edit Mode layout are kept too.")
+
 ---------------------------------------------------------------------------
 -- Blizzard's Edit Mode systems, by EldoUI element (Data/BlizzardElements.lua).
 -- system / index name the Enum.EditModeSystem value and its index enum;
@@ -693,14 +698,14 @@ local function Dialog()
 		self:SetHeight(math.ceil((header + bodyHeight + Kit.DIALOG_PAD + E.tokens.height.buttonLarge + Kit.DIALOG_PAD) / 4) * 4)
 	end
 	dialog:SetButtons({
-		{ RESET or L["Reset"], keepOpen = true, kind = "secondary", onClick = function()
+		{ E:GameText(RESET, L["Reset"]), keepOpen = true, kind = "secondary", onClick = function()
 			if selected and not InCombatLockdown() then
 				ResetMover(selected)
 				UpdateDialog()
 			end
 		end },
 	})
-	Kit.Tooltip(dialog.buttons[1], RESET or L["Reset"], L["Back to the position of the active EldoUI layout."])
+	Kit.Tooltip(dialog.buttons[1], E:GameText(RESET, L["Reset"]), L["Back to the position of the active EldoUI layout."])
 
 	dialog:Hide()
 	own.dialog = dialog
@@ -781,32 +786,43 @@ end)
 -- state are only read, a few times a second while Edit Mode is open.
 local DIM_ALPHA = 0.1
 local dimTicker
+local DIALOGS = { "EditModeManagerFrame", "EditModeSystemSettingsDialog" }
+-- Reused every pass (a few times a second): no new tables while idle.
+local rects, rectCount, dimmedLast = { {}, {} }, 0, true
 local function DialogRects()
-	local rects = {}
-	for _, name in ipairs({ "EditModeManagerFrame", "EditModeSystemSettingsDialog" }) do
+	rectCount = 0
+	for _, name in ipairs(DIALOGS) do
 		local frame = _G[name]
 		if Usable(frame) and frame:IsShown() then
 			local left, bottom, width, height = frame:GetRect()
-			if left and width then rects[#rects + 1] = { left, bottom, left + width, bottom + height } end
+			if left and width then
+				rectCount = rectCount + 1
+				local rect = rects[rectCount]
+				rect[1], rect[2], rect[3], rect[4] = left, bottom, left + width, bottom + height
+			end
 		end
 	end
-	return rects
 end
 
-local function Under(frame, rects)
+local function Under(frame)
 	local left, bottom, width, height = frame:GetRect()
 	if not (left and width) then return false end
-	for _, rect in ipairs(rects) do
+	for index = 1, rectCount do
+		local rect = rects[index]
 		if left < rect[3] and left + width > rect[1] and bottom < rect[4] and bottom + height > rect[2] then return true end
 	end
 	return false
 end
 
+local function Fade(region, frame)
+	if region then region:SetAlpha(rectCount > 0 and Under(frame) and DIM_ALPHA or 1) end
+end
+
 local function DimLabels()
-	local rects = inEditMode and DialogRects() or {}
-	local function Fade(region, frame)
-		if region then region:SetAlpha(#rects > 0 and Under(frame, rects) and DIM_ALPHA or 1) end
-	end
+	if inEditMode then DialogRects() else rectCount = 0 end
+	-- No dialog now and none last pass: every label is already clear.
+	if rectCount == 0 and not dimmedLast then return end
+	dimmedLast = rectCount > 0
 	for _, mover in pairs(E.movers or {}) do
 		local overlay = mover.overlay
 		if overlay then
@@ -1309,7 +1325,7 @@ local function Panel()
 				E:OpenConfigFromEditMode()
 				return
 			end
-			E:Print(L["The config window opens after combat."])
+			E:Print(L["The options open after combat."])
 			E:RunOutOfCombat(function()
 				if inEditMode then M:Refresh() end
 				E:OpenConfigFromEditMode()

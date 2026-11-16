@@ -11,7 +11,12 @@
 -- boss is added when you defeat it, with the items you see it drop.
 --
 --   key      the Journal's key for the dungeon
---   name     its English name, as the client writes it
+--   map      the instance's map ID (GetInstanceInfo's instanceID and the
+--            dungeon finder's map), from the client's Map table: matched
+--            first, so every client language finds the dungeon
+--   name     its English name; the client calls two of them "Excavation
+--            Site: Wetlands" and "The Shaper's Terrace", and the dungeon
+--            finder's own name wins once it lists the dungeon
 --   min/max  the level range given at launch
 --   zone     the zone's map ID (the client names it in your language)
 --   zoneName the zone's English name, where the map lookup can fail
@@ -21,15 +26,15 @@ local LG = E.LootGuide
 if not LG then return end
 
 LG.FOREVER = {
-	{ key = "forever:thanes", name = "The Hall of Thanes", min = 13, max = 18, zone = 1426, aliases = { "hot", "thanes" } },
-	{ key = "forever:lordaeron", name = "Ruins of Lordaeron", min = 15, max = 20, zone = 1420, aliases = { "rol", "ruins", "lordaeron" } },
-	{ key = "forever:excavation", name = "Excavation Site", min = 24, max = 29, zone = 1437, aliases = { "excavation" } },
-	{ key = "forever:dalaran", name = "City of Dalaran", min = 28, max = 33, zone = 1416, aliases = { "dalaran" } },
-	{ key = "forever:drowned", name = "The Drowned City", min = 35, max = 40, zone = 1434, aliases = { "drowned" } },
-	{ key = "forever:kroldok", name = "Krol'dok Stronghold", min = 40, max = 45, zone = 2548, zoneName = "Riverglades", aliases = { "krol", "kroldok" } },
-	{ key = "forever:alcaz", name = "Alcaz Prison", min = 48, max = 53, zone = 1445, aliases = { "alcaz" } },
-	{ key = "forever:blackmaw", name = "Blackmaw Hold", min = 55, max = 60, zone = 1447, aliases = { "blackmaw" } },
-	{ key = "forever:shaper", name = "The Shapers Terrace", min = 58, max = 60, zone = 1449, aliases = { "st", "shaper", "terrace" } },
+	{ key = "forever:thanes", map = 3065, name = "The Hall of Thanes", min = 13, max = 18, zone = 1426, aliases = { "hot", "thanes" } },
+	{ key = "forever:lordaeron", map = 2999, name = "Ruins of Lordaeron", min = 15, max = 20, zone = 1420, aliases = { "rol", "ruins", "lordaeron" } },
+	{ key = "forever:excavation", map = 2998, name = "Excavation Site", min = 24, max = 29, zone = 1437, aliases = { "excavation" } },
+	{ key = "forever:dalaran", map = 2959, name = "City of Dalaran", min = 28, max = 33, zone = 1416, aliases = { "dalaran" } },
+	{ key = "forever:drowned", map = 2970, name = "The Drowned City", min = 35, max = 40, zone = 1434, aliases = { "drowned" } },
+	{ key = "forever:kroldok", map = 3039, name = "Krol'dok Stronghold", min = 40, max = 45, zone = 2548, zoneName = "Riverglades", aliases = { "krol", "kroldok" } },
+	{ key = "forever:alcaz", map = 2994, name = "Alcaz Prison", min = 48, max = 53, zone = 1445, aliases = { "alcaz" } },
+	{ key = "forever:blackmaw", map = 2974, name = "Blackmaw Hold", min = 55, max = 60, zone = 1447, aliases = { "blackmaw" } },
+	{ key = "forever:shaper", map = 3001, name = "The Shapers Terrace", min = 58, max = 60, zone = 1449, aliases = { "st", "shaper", "terrace" } },
 }
 
 -- WoW: Forever's first raid tier, announced to open on December 9, 2026,
@@ -125,8 +130,9 @@ end
 -- What you see: bosses and their loot, from the game
 ---------------------------------------------------------------------------
 -- The game names each boss you defeat (ENCOUNTER_END) and each item a boss
--- drops for your group (ENCOUNTER_LOOT_RECEIVED). Kept per character in
--- the Loot Guide's own saved data, by dungeon key:
+-- drops (personal loot, the group's loot history, the boss's loot window;
+-- each item once per kill). Kept per character in the Loot Guide's own
+-- saved data, by dungeon key:
 --   forever[key] = { bosses = { [encounterID] = { name, order, kills } },
 --                    loot = { [encounterID] = { [itemID] = drops } } }
 local Secret = E.Secret
@@ -152,6 +158,11 @@ end
 function LG:ForeverHere()
 	local ok, name, kind, _, _, _, _, _, instanceID = pcall(GetInstanceInfo)
 	if not ok or Secret(name) or Secret(kind) or Secret(instanceID) or kind ~= "party" then return nil end
+	instanceID = tonumber(instanceID)
+	for _, def in ipairs(LG.FOREVER) do
+		if def.map and def.map == instanceID then return def.key end
+	end
+	-- By name only for a dungeon without a known map.
 	local folded = Fold(name)
 	for _, def in ipairs(LG.FOREVER) do
 		local info = self:InstanceInfo(def.key)
@@ -162,7 +173,45 @@ function LG:ForeverHere()
 	end
 end
 
-local currentBoss = {} -- encounterID -> name, while you are inside
+local kills = {} -- latest successful kill of each encounter in this visit
+local historyQueued = {}
+local fight, lastKill
+
+local function HistoryNumber(value)
+	if Secret(value) or type(value) ~= "number" or value ~= value or value < 0 or value == math.huge then return nil end
+	return value
+end
+
+local function HistoryTime()
+	local api = C_LootHistory
+	return api and HistoryNumber(E.PlainCall(api.GetLootHistoryTime))
+end
+
+local function CurrentKill(kill)
+	return kill and kills[kill.encounter] == kill and LG.active
+		and LG:Char() == kill.character and LG:ForeverHere() == kill.key
+end
+
+local function QueueHistory(kill)
+	local api = C_LootHistory
+	if not (CurrentKill(kill) and kill.cutoff and api and api.GetSortedDropsForEncounter) then return end
+	local encounterID = kill.encounter
+	local pending = historyQueued[encounterID]
+	if pending and pending.kill == kill then return end
+	local read = { kill = kill }
+	historyQueued[encounterID] = read
+	C_Timer.After(0.2, function()
+		if historyQueued[encounterID] ~= read then return end
+		historyQueued[encounterID] = nil
+		LG:ReadForeverHistory(encounterID, kill)
+	end)
+end
+
+function LG:ClearForeverKills()
+	fight, lastKill = nil, nil
+	wipe(kills)
+	wipe(historyQueued)
+end
 
 local function Entry(key)
 	local store = Store()
@@ -177,11 +226,11 @@ local function Entry(key)
 	return entry
 end
 
-function LG:LearnForeverBoss(encounterID, name)
+function LG:LearnForeverBoss(encounterID, name, npc, cutoff)
 	encounterID = not Secret(encounterID) and tonumber(encounterID)
 	if not encounterID or Secret(name) or type(name) ~= "string" or name == "" then return end
-	local key = self:ForeverHere()
-	local entry = key and Entry(key)
+	local key, character = self:ForeverHere(), self:Char()
+	local entry = key and character and Entry(key)
 	if not entry then return end
 	local boss = entry.bosses[encounterID]
 	if type(boss) ~= "table" then
@@ -191,17 +240,22 @@ function LG:LearnForeverBoss(encounterID, name)
 		entry.bosses[encounterID] = boss
 	end
 	boss.kills = (tonumber(boss.kills) or 0) + 1
-	currentBoss[encounterID] = key
+	local kill = { key = key, character = character, encounter = encounterID, npc = npc, cutoff = cutoff, items = {}, history = {} }
+	kills[encounterID], lastKill = kill, kill
 	self:Fire("forever")
+	return kill
 end
 
 function LG:LearnForeverLoot(encounterID, itemID)
 	encounterID = not Secret(encounterID) and tonumber(encounterID)
 	itemID = not Secret(itemID) and tonumber(itemID)
 	if not (encounterID and itemID) then return end
-	local key = currentBoss[encounterID] or self:ForeverHere()
-	local entry = key and Entry(key)
-	if not entry or type(entry.bosses[encounterID]) ~= "table" then return end
+	local kill = kills[encounterID]
+	if not CurrentKill(kill) or kill.items[itemID] then return end
+	local entry = self:ForeverLearned(kill.key)
+	if not entry or type(entry.bosses) ~= "table" or type(entry.bosses[encounterID]) ~= "table" then return end
+	-- Personal loot, history and the loot window share one count per kill.
+	kill.items[itemID] = true
 	local drops = entry.loot[encounterID]
 	if type(drops) ~= "table" then
 		drops = {}
@@ -211,13 +265,111 @@ function LG:LearnForeverLoot(encounterID, itemID)
 	self:Fire("forever")
 end
 
-LG:Listen("ENCOUNTER_END", "forever", function(_, encounterID, name, _, _, success)
-	if Secret(success) or not (success == 1 or success == true) then return end
-	LG:LearnForeverBoss(encounterID, name)
+local function ItemOf(link)
+	if type(link) ~= "string" or Secret(link) then return nil end
+	return tonumber(link:match("item:(%d+)"))
+end
+
+-- The creature ID in a unit GUID, or nil (a secret GUID is never read).
+local function NpcOf(guid)
+	if type(guid) ~= "string" or Secret(guid) then return nil end
+	local kind, _, _, _, _, npc = strsplit("-", guid)
+	if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
+	return tonumber(npc)
+end
+
+-- The boss's creature ID, read while the fight is on its frame.
+local function BossNpc()
+	local ok, guid = pcall(UnitGUID, "boss1")
+	return ok and NpcOf(guid) or nil
+end
+
+LG:Listen("ENCOUNTER_START", "forever", function(_, encounterID)
+	encounterID = HistoryNumber(encounterID)
+	local key = encounterID and LG:ForeverHere()
+	fight = key and { encounter = encounterID, key = key, character = LG:Char(), npc = BossNpc(), cutoff = HistoryTime() } or nil
 end)
+LG:Listen("ENCOUNTER_END", "forever", function(_, encounterID, name, _, _, success)
+	local started = fight
+	fight = nil
+	if Secret(success) or not (success == 1 or success == true) then return end
+	encounterID = HistoryNumber(encounterID)
+	if not encounterID then return end
+	if started and (started.encounter ~= encounterID or started.character ~= LG:Char() or started.key ~= LG:ForeverHere()) then
+		started = nil
+	end
+	lastKill = nil
+	local kill = LG:LearnForeverBoss(encounterID, name, BossNpc() or (started and started.npc),
+		(started and started.cutoff) or HistoryTime())
+	-- A loot-history update can reach us before the encounter ends.
+	QueueHistory(kill)
+end)
+-- Personal loot, the group's loot history, and the boss's own loot window
+-- show the same drop in different ways.
 LG:Listen("ENCOUNTER_LOOT_RECEIVED", "forever", function(_, encounterID, itemID)
 	LG:LearnForeverLoot(encounterID, itemID)
 end)
+
+function LG:ReadForeverHistory(encounterID, kill)
+	local api = C_LootHistory
+	if not (api and api.GetSortedDropsForEncounter and CurrentKill(kill) and kill.cutoff) then return end
+	local nextFight = fight and fight.encounter == encounterID and fight.character == kill.character and fight.key == kill.key
+	if nextFight and not fight.cutoff then return end
+	local upper = nextFight and fight.cutoff
+	local drops = E.PlainCall(api.GetSortedDropsForEncounter, encounterID)
+	if type(drops) ~= "table" or (canaccesstable and not canaccesstable(drops)) then return end
+	for _, drop in ipairs(drops) do
+		if not CurrentKill(kill) then return end
+		if type(drop) == "table" and not Secret(drop) and (not canaccesstable or canaccesstable(drop)) then
+			local key, started = HistoryNumber(drop.lootListKey), HistoryNumber(drop.startTime)
+			-- History can contain older rolls and rolls from a fight still in progress.
+			if key and started and started >= kill.cutoff and (not upper or started < upper) and kill.history[key] ~= started then
+				local itemID = ItemOf(drop.itemHyperlink)
+				if itemID then
+					kill.history[key] = started
+					self:LearnForeverLoot(encounterID, itemID)
+				end
+			end
+		end
+	end
+end
+LG:Listen("LOOT_HISTORY_UPDATE_ENCOUNTER", "forever", function(_, encounterID)
+	encounterID = HistoryNumber(encounterID)
+	local kill = encounterID and kills[encounterID]
+	QueueHistory(kill)
+end)
+LG:Listen("LOOT_HISTORY_CLEAR_HISTORY", "forever", function()
+	wipe(historyQueued)
+	local cutoff = HistoryTime()
+	if fight then fight.cutoff = cutoff end
+	for _, kill in pairs(kills) do
+		kill.cutoff = cutoff
+		wipe(kill.history)
+	end
+end)
+LG:Listen("PLAYER_ENTERING_WORLD", "forever", function() LG:ClearForeverKills() end)
+
+function LG:ReadForeverLootWindow()
+	local kill = lastKill
+	if not (CurrentKill(kill) and kill.npc and GetNumLootItems and GetLootSourceInfo and GetLootSlotLink) then return end
+	local ok, count = pcall(GetNumLootItems)
+	if not ok or Secret(count) or type(count) ~= "number" then return end
+	for slot = 1, count do
+		local fromBoss = false
+		local sources = { pcall(GetLootSourceInfo, slot) }
+		if sources[1] then
+			for index = 2, #sources, 2 do
+				if NpcOf(sources[index]) == kill.npc then fromBoss = true end
+			end
+		end
+		if fromBoss then
+			local fine, link = pcall(GetLootSlotLink, slot)
+			local itemID = fine and ItemOf(link)
+			if itemID then self:LearnForeverLoot(kill.encounter, itemID) end
+		end
+	end
+end
+LG:Listen("LOOT_OPENED", "forever", function() LG:ReadForeverLootWindow() end)
 
 -- The Journal's loot for a Forever dungeon: the bosses you defeated there,
 -- in the order you first met them, each with what you saw it drop.

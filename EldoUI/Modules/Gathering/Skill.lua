@@ -17,59 +17,59 @@ local Kit = E.UIKit
 
 local Clean = E.Plain
 
--- English node name -> { required skill, object ids... }
+-- English node name -> { required skill, main yield item ID, object IDs... }
 local NODE_DATA = {
 	herb = {
-		["Peacebloom"] = { 1, 1618, 3724 },
-		["Silverleaf"] = { 1, 1617, 3725 },
-		["Earthroot"] = { 15, 1619, 3726 },
-		["Mageroyal"] = { 50, 1620, 3727 },
-		["Briarthorn"] = { 70, 1621, 3729 },
-		["Stranglekelp"] = { 85, 2045 },
-		["Bruiseweed"] = { 100, 1622, 3730 },
-		["Wild Steelbloom"] = { 115, 1623 },
-		["Grave Moss"] = { 120, 1628 },
-		["Kingsblood"] = { 125, 1624 },
-		["Liferoot"] = { 150, 2041 },
-		["Fadeleaf"] = { 160, 2042 },
-		["Goldthorn"] = { 170, 2046 },
-		["Khadgar's Whisker"] = { 185, 2043 },
-		["Wintersbite"] = { 195, 2044 },
-		["Firebloom"] = { 205, 2866 },
-		["Purple Lotus"] = { 210, 142140, 180165 },
-		["Arthas' Tears"] = { 220, 142141, 176642 },
-		["Sungrass"] = { 230, 142142, 176636, 180164 },
-		["Blindweed"] = { 235, 142143, 183046 },
-		["Ghost Mushroom"] = { 245, 142144 },
-		["Gromsblood"] = { 250, 142145, 176637 },
-		["Golden Sansam"] = { 260, 176583, 176638, 180167 },
-		["Dreamfoil"] = { 270, 176584, 176639, 180168 },
-		["Mountain Silversage"] = { 280, 176586, 176640, 180166 },
-		["Plaguebloom"] = { 285, 176587, 176641 },
-		["Icecap"] = { 290, 176588 },
-		["Black Lotus"] = { 300, 176589 },
+		["Peacebloom"] = { 1, 2447, 1618, 3724 },
+		["Silverleaf"] = { 1, 765, 1617, 3725 },
+		["Earthroot"] = { 15, 2449, 1619, 3726 },
+		["Mageroyal"] = { 50, 785, 1620, 3727 },
+		["Briarthorn"] = { 70, 2450, 1621, 3729 },
+		["Stranglekelp"] = { 85, 3820, 2045 },
+		["Bruiseweed"] = { 100, 2453, 1622, 3730 },
+		["Wild Steelbloom"] = { 115, 3355, 1623 },
+		["Grave Moss"] = { 120, 3369, 1628 },
+		["Kingsblood"] = { 125, 3356, 1624 },
+		["Liferoot"] = { 150, 3357, 2041 },
+		["Fadeleaf"] = { 160, 3818, 2042 },
+		["Goldthorn"] = { 170, 3821, 2046 },
+		["Khadgar's Whisker"] = { 185, 3358, 2043 },
+		["Wintersbite"] = { 195, 3819, 2044 },
+		["Firebloom"] = { 205, 4625, 2866 },
+		["Purple Lotus"] = { 210, 8831, 142140, 180165 },
+		["Arthas' Tears"] = { 220, 8836, 142141, 176642 },
+		["Sungrass"] = { 230, 8838, 142142, 176636, 180164 },
+		["Blindweed"] = { 235, 8839, 142143, 183046 },
+		["Ghost Mushroom"] = { 245, 8845, 142144 },
+		["Gromsblood"] = { 250, 8846, 142145, 176637 },
+		["Golden Sansam"] = { 260, 13464, 176583, 176638, 180167 },
+		["Dreamfoil"] = { 270, 13463, 176584, 176639, 180168 },
+		["Mountain Silversage"] = { 280, 13465, 176586, 176640, 180166 },
+		["Plaguebloom"] = { 285, 13466, 176587, 176641 },
+		["Icecap"] = { 290, 13467, 176588 },
+		["Black Lotus"] = { 300, 13468, 176589 },
 	},
 	ore = {
-		["Copper Vein"] = { 1, 1731, 2055, 3763, 103713, 181248 },
-		["Tin Vein"] = { 65, 1732, 2054, 3764, 103711, 181249 },
-		["Incendicite Mineral Vein"] = { 65, 1610, 1667 },
-		["Silver Vein"] = { 75, 1733, 105569 },
-		["Ooze Covered Silver Vein"] = { 75, 73940 },
-		["Lesser Bloodstone Deposit"] = { 75, 2653 },
-		["Iron Deposit"] = { 125, 1735 },
-		["Indurium Mineral Vein"] = { 150, 19903 },
-		["Gold Vein"] = { 155, 1734, 150080, 181109 },
-		["Ooze Covered Gold Vein"] = { 155, 73941 },
-		["Mithril Deposit"] = { 175, 2040, 150079, 176645 },
-		["Ooze Covered Mithril Deposit"] = { 175, 123310 },
-		["Truesilver Deposit"] = { 230, 2047, 150081, 181108 },
-		["Ooze Covered Truesilver Deposit"] = { 230, 123309 },
-		["Dark Iron Deposit"] = { 230, 165658 },
-		["Small Thorium Vein"] = { 245, 324, 150082, 176643 },
-		["Ooze Covered Thorium Vein"] = { 245, 123848 },
-		["Rich Thorium Vein"] = { 275, 175404 },
-		["Ooze Covered Rich Thorium Vein"] = { 275, 177388 },
-		["Hakkari Thorium Vein"] = { 275, 180215 },
+		["Copper Vein"] = { 1, 2770, 1731, 2055, 3763, 103713, 181248 },
+		["Tin Vein"] = { 65, 2771, 1732, 2054, 3764, 103711, 181249 },
+		["Incendicite Mineral Vein"] = { 65, 3340, 1610, 1667 },
+		["Silver Vein"] = { 75, 2775, 1733, 105569 },
+		["Ooze Covered Silver Vein"] = { 75, 2775, 73940 },
+		["Lesser Bloodstone Deposit"] = { 75, 4278, 2653 },
+		["Iron Deposit"] = { 125, 2772, 1735 },
+		["Indurium Mineral Vein"] = { 150, 5833, 19903 },
+		["Gold Vein"] = { 155, 2776, 1734, 150080, 181109 },
+		["Ooze Covered Gold Vein"] = { 155, 2776, 73941 },
+		["Mithril Deposit"] = { 175, 3858, 2040, 150079, 176645 },
+		["Ooze Covered Mithril Deposit"] = { 175, 3858, 123310 },
+		["Truesilver Deposit"] = { 230, 7911, 2047, 150081, 181108 },
+		["Ooze Covered Truesilver Deposit"] = { 230, 7911, 123309 },
+		["Dark Iron Deposit"] = { 230, 11370, 165658 },
+		["Small Thorium Vein"] = { 245, 10620, 324, 150082, 176643 },
+		["Ooze Covered Thorium Vein"] = { 245, 10620, 123848 },
+		["Rich Thorium Vein"] = { 275, 10620, 175404 },
+		["Ooze Covered Rich Thorium Vein"] = { 275, 10620, 177388 },
+		["Hakkari Thorium Vein"] = { 275, 10620, 180215 },
 	},
 }
 
@@ -81,10 +81,10 @@ M.REQUIRED_SKILL = {}
 for kind, list in pairs(NODE_DATA) do
 	M.REQUIRED_SKILL[kind] = {}
 	for name, data in pairs(list) do
-		local info = { kind = kind, name = name, rank = data[1] }
+		local info = { kind = kind, name = name, rank = data[1], itemID = data[2] }
 		M.REQUIRED_SKILL[kind][name] = data[1]
 		Nodes.byName[name] = info
-		for index = 2, #data do Nodes.byEntry[data[index]] = info end
+		for index = 3, #data do Nodes.byEntry[data[index]] = info end
 	end
 end
 
@@ -115,7 +115,7 @@ local function LootNames()
 end
 
 -- The node for a shown name and/or object id: { kind = "herb" or "ore",
--- name = the English name, rank = the skill it needs }, or nil.
+-- name = the English name, rank = the skill it needs, itemID = its main yield }, or nil.
 function Nodes:Find(name, entry)
 	name = Clean(name)
 	if type(name) ~= "string" or name == "" then name = nil end

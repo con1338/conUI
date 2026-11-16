@@ -1600,6 +1600,51 @@ function E.MigrateEconomyScales(profile)
 end
 E:RegisterProfileMigration(E.MigrateEconomyScales, "economyWindowScale", 1)
 
+-- The places of the dragged game windows (position, scale, side panels),
+-- for "All frame positions": { [key] = { pos, scale, children, center } }.
+-- The window switches (on, keys) are settings and stay out.
+local PLACE_KEYS = { "pos", "scale", "children", "center" }
+function E:WindowPlaces(windows)
+	local out = {}
+	for key, rec in pairs(type(windows) == "table" and windows or {}) do
+		if type(key) == "string" and type(rec) == "table" then
+			local place = {}
+			for _, field in ipairs(PLACE_KEYS) do
+				local value = rec[field]
+				if value ~= nil then place[field] = type(value) == "table" and CopyTable(value) or value end
+			end
+			if next(place) then out[key] = place end
+		end
+	end
+	return out
+end
+
+-- Writes places from E:WindowPlaces into this profile: every window takes
+-- the place given, or its default place when the set has none.
+function E:SetWindowPlaces(places)
+	local db = DB()
+	if not db or type(places) ~= "table" then return end
+	db.windows = type(db.windows) == "table" and db.windows or {}
+	for key, rec in pairs(db.windows) do
+		if type(rec) == "table" and not places[key] then
+			for _, field in ipairs(PLACE_KEYS) do rec[field] = nil end
+			rec.scale = 1
+		end
+	end
+	for key, place in pairs(places) do
+		if type(key) == "string" and type(place) == "table" then
+			local rec = type(db.windows[key]) == "table" and db.windows[key] or { on = true }
+			for _, field in ipairs(PLACE_KEYS) do
+				local value = place[field]
+				rec[field] = type(value) == "table" and CopyTable(value) or value
+			end
+			if type(rec.scale) ~= "number" then rec.scale = 1 end
+			db.windows[key] = rec
+		end
+	end
+	self:WindowMoverProfileChanged()
+end
+
 -- Called by E:SetProfile once the new profile is in E.db.
 function E:WindowMoverProfileChanged()
 	wipe(session)
@@ -1650,6 +1695,11 @@ local function WindowRows(options, key)
 		func = function() E:ResetWindow(key, "position") end })
 end
 
+-- The drag, scale and reset keys do nothing while the windows are locked.
+local function LockedReason()
+	return E.db.windowMover.lock and L["Windows are locked. Unlock them to drag, scale or reset a window."] or nil
+end
+
 local function SwitchOptions()
 	return {
 		{ type = "tab", label = "Windows" },
@@ -1661,7 +1711,7 @@ local function SwitchOptions()
 			func = function() E:AllowAllWindowMoves(); E:RefreshConfig() end },
 		{ type = "toggle", key = "lock", label = "Lock windows", dependsOn = "enabled",
 			desc = "No dragging, scaling or resetting until you unlock them. Saved places still apply. Also /eui windows lock." },
-		{ type = "select", key = "dragMod", label = "Key to drag", values = ModValues(true, true), dependsOn = "enabled",
+		{ type = "select", key = "dragMod", label = "Key to drag", values = ModValues(true, true), dependsOn = "enabled", disabled = LockedReason,
 			desc = "Hold this key (or both keys) to drag a window, so a slipped click, on a quest's Accept button for example, never moves it. No key: a plain drag moves it. Move mode needs no key." },
 	}
 end
@@ -1670,14 +1720,14 @@ local function BehaviorOptions()
 	return {
 		{ type = "tab", label = "Behavior" },
 		{ type = "header", label = "Mouse and keys" },
-		{ type = "select", key = "dragMode", label = "Drag by", dependsOn = "enabled",
+		{ type = "select", key = "dragMode", label = "Drag by", dependsOn = "enabled", disabled = LockedReason,
 			values = { title = "The title bar", anywhere = "Any empty part of the window" },
 			desc = "Where a press starts a drag. Windows with secure parts always drag by the title bar." },
-		{ type = "select", key = "scaleMod", label = "Key to scale", values = ModValues(true), dependsOn = "enabled",
+		{ type = "select", key = "scaleMod", label = "Key to scale", values = ModValues(true), dependsOn = "enabled", disabled = LockedReason,
 			desc = "Hold it and turn the mouse wheel over the title bar to scale the window; with a right-click it sets the normal size again." },
-		{ type = "select", key = "resetMod", label = "Key to reset", values = ModValues(false), dependsOn = "enabled",
+		{ type = "select", key = "resetMod", label = "Key to reset", values = ModValues(false), dependsOn = "enabled", disabled = LockedReason,
 			desc = "Hold it and right-click the title bar to put the window back where Blizzard places it." },
-		{ type = "select", key = "detachMod", label = "Key to detach side panels", values = ModValues(false), cog = true,
+		{ type = "select", key = "detachMod", label = "Key to detach side panels", values = ModValues(false), cog = true, disabled = LockedReason,
 			desc = "Hold it and drag a side panel (calendar events, raid info, macro icons, ...) to place it on its own; with a right-click it goes back." },
 		{ type = "toggle", key = "hints", label = "Help on the title bar", cog = true,
 			desc = "Pointing at a movable window's title bar lists the keys and the window's scale." },

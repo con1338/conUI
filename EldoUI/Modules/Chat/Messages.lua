@@ -9,7 +9,7 @@
 --   * Line hooks for the other chat files: colors and Quiet text
 --     (Colors.lua), sender icons, levels, names and whisper markers
 --     (Senders.lua).
---   * Icons on item and spell links, quest status marks.
+--   * Icons on item and spell links, gear slots and types, quest status marks.
 --   * Keyword alert: highlight, a sound and a taskbar flash, outside chat
 --     lockdown only. EldoUI never answers for you.
 --   * Whisper alert: an extra sound and taskbar flash on whispers.
@@ -66,18 +66,19 @@ function M:Confirm(text, accept, cancel)
 		end
 	end
 	data.accept, data.cancel = Once(accept), Once(cancel)
-	return E:ShowConfirm({ key = "ELDOUI_CHAT_CONFIRM", title = L["Chat"], text = text, accept = YES or L["Yes"], danger = true,
+	return E:ShowConfirm({ key = "ELDOUI_CHAT_CONFIRM", title = L["Chat"], text = text, accept = E:GameText(YES, L["Yes"]), danger = true,
 		data = data, onAccept = function(own) own.accept() end, onCancel = function(own) own.cancel() end })
 end
 
 ---------------------------------------------------------------------------
 -- Saved data: EldoUIMessagesDB (per character) holds EIM's contacts and the
--- chat history. Older versions kept contacts at the top level; version 2
+-- chat history and the acquired Alerts window identity. Older versions
+-- kept contacts at the top level; version 2
 -- moves each one into `contacts` (a contact already there keeps its place
 -- and the older entry is set aside, never dropped). A registered saved
 -- store (Core/Database.lua): a copy is kept before the move.
 ---------------------------------------------------------------------------
-local OWN_KEYS = { contacts = true, chat = true, _quarantine = true }
+local OWN_KEYS = { contacts = true, chat = true, _alertWindow = true, _releasedAlertWindows = true, _quarantine = true }
 
 E:RegisterStoreStep("EldoUIMessagesDB", 2, function(db)
 	if type(db.contacts) ~= "table" then db.contacts = E:KeepInNewTable(db.contacts, "contacts") end
@@ -99,6 +100,23 @@ end)
 E:RegisterStore("EldoUIMessagesDB", { validate = function(db, C)
 	C.Table(db, "contacts")
 	C.Table(db, "chat")
+	local alert = C.Table(db, "_alertWindow")
+	for key, value in pairs(alert) do
+		local valid = key == "index" and type(value) == "number" and value >= 1 and value % 1 == 0
+			or key == "name" and type(value) == "string" and value ~= ""
+			or key == "released" and type(value) == "boolean"
+		if not valid then
+			C.Keep("_alertWindow." .. tostring(key), value, "Expected a chat window index, name or release state.")
+			alert[key] = nil
+		end
+	end
+	local released = C.Table(db, "_releasedAlertWindows")
+	for index, name in pairs(released) do
+		if type(index) ~= "number" or index < 1 or index % 1 ~= 0 or type(name) ~= "string" or name == "" then
+			C.Keep("_releasedAlertWindows." .. tostring(index), name, "Expected a chat window index and name.")
+			released[index] = nil
+		end
+	end
 end })
 
 local messagesChecked = setmetatable({}, { __mode = "k" })
@@ -326,6 +344,7 @@ M.IsMe = IsMe
 local function MatchKeyword(event, eventArgs)
 	local scope = event and PLAYER_EVENTS[event]
 	if not scope or type(eventArgs) ~= "table" or M.db.keywordsPaused then return nil end
+	if IsSecret(eventArgs) or (canaccesstable and not canaccesstable(eventArgs)) then return nil end
 	if M.db.keywordScope == "public" and scope ~= "public" then return nil end
 	if InLockdown() then return nil end
 	local message = Readable(eventArgs[1])
@@ -419,7 +438,7 @@ local function MentionPlain(text)
 	end))
 end
 
--- Mentions are colored in players' lines only, and never during chat lockdown.
+-- Mentions are colored in players' lines only, and never during boss fights.
 local function WantsMentions(event)
 	if not (M.db.mentions and event and PLAYER_EVENTS[event]) then return false end
 	if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return false end
@@ -430,24 +449,28 @@ end
 ---------------------------------------------------------------------------
 -- EldoUI timestamps: gray and clickable (copies the line)
 ---------------------------------------------------------------------------
-local function Stamp(text)
+-- time (optional): the time the line was first seen, for a copy made later.
+local function Stamp(text, time)
 	-- The raw line; it becomes plain text only when its stamp is clicked.
 	local id = stamped:Add(text)
 	local color = Hex(unpack(M.db.timestampColor))
-	return ("|c%s|Haddon:EldoUITime:%d|h[%s]|h|r %s"):format(color, id, E:FormatTime(), text)
+	return ("|c%s|Haddon:EldoUITime:%d|h[%s]|h|r %s"):format(color, id, time or E:FormatTime(), text)
 end
 
 ---------------------------------------------------------------------------
--- Link extras: the icon in front of item and spell link names, and
--- a mark after quest links (in your log, or done). Only the link label
--- gets the icon; the link itself is unchanged, so clicks and tooltips work
+-- Link extras: icons, gear slots and types, and a mark after quest links.
+-- The icon and gear information change only the displayed label.
+-- The link data stays intact, so clicks and tooltips work
 -- as before. Items the client hasn't loaded yet are requested (at most 100
--- per session) and their lines updated when the data arrives.
+-- waiting at once; one the game never answers makes room after 10 seconds)
+-- and their lines updated when the data arrives.
 ---------------------------------------------------------------------------
 local QUEST_DONE_ATLAS = "common-icon-checkmark"
 local QUEST_DONE_TEXTURE = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local QUEST_ACTIVE_TEXTURE = "Interface\\GossipFrame\\ActiveQuestIcon"
-local itemWaiting, itemRequests = {}, 0   -- itemID -> true while requested
+local itemWaiting, itemRequests = {}, 0   -- itemID -> request time while waiting
+local itemReady = {}                     -- answered requests held through chat lockdown
+local ITEM_MAX, ITEM_WAIT = 100, 10
 
 local function AtlasExists(atlas)
 	return C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) and true or false
@@ -485,36 +508,125 @@ local function LinkIconOf(kind, id)
 	return nil
 end
 
-local function RequestItem(id)
-	if itemWaiting[id] or itemRequests >= 100 then return end
-	if not (C_Item and C_Item.RequestLoadItemDataByID) then return end
-	itemWaiting[id] = true
-	itemRequests = itemRequests + 1
-	C_Item.RequestLoadItemDataByID(id)
+local function Unwait(id)
+	if itemWaiting[id] then
+		itemWaiting[id], itemReady[id] = nil, nil
+		itemRequests = math.max(itemRequests - 1, 0)
+	end
 end
 
-local function LinkExtras(text)
+local function RequestItem(id)
+	if not (C_Item and C_Item.RequestLoadItemDataByID) then return end
+	local now = GetTime()
+	local since = itemWaiting[id]
+	if itemReady[id] or (since and now - since < ITEM_WAIT) then return true end
+	Unwait(id)
+	if itemRequests >= ITEM_MAX then
+		for waiting, at in pairs(itemWaiting) do
+			if not itemReady[waiting] and now - at >= ITEM_WAIT then Unwait(waiting) end
+		end
+		if itemRequests >= ITEM_MAX then return end
+	end
+	itemWaiting[id] = now
+	itemRequests = itemRequests + 1
+	C_Item.RequestLoadItemDataByID(id)
+	return true
+end
+M.ItemRequestsWaiting = function() return itemRequests end
+
+-- A colored suffix inside the brackets. A color/reset without visible text
+-- marks only readable links whose item data is still loading.
+local ITEM_TYPE_COLOR = E:TextHex("secondary")
+local ITEM_TYPE_MARK = ITEM_TYPE_COLOR .. " · "
+local ITEM_TYPE_PENDING = ITEM_TYPE_COLOR .. "|r"
+local ITEM_LINK = "|H(%a+):(%d+)([^|]*)|h(.-)|h"
+local ITEM_TYPE_PATTERN = ITEM_TYPE_MARK:gsub("%p", "%%%0") .. "[^|]+|r|c%x%x%x%x%x%x%x%x%]$"
+local ITEM_TYPE_NO_COLOR = ITEM_TYPE_MARK:gsub("%p", "%%%0") .. "[^|]+|r%]$"
+local PENDING_PATTERN = ITEM_TYPE_PENDING .. "|c%x%x%x%x%x%x%x%x%]$"
+local PENDING_NO_COLOR = ITEM_TYPE_PENDING .. "%]$"
+local itemTypesInChat, clearItemTypes
+local itemRestrictionOwner = {}
+
+local function StripTypeLabel(label)
+	local clean, count = label:gsub(ITEM_TYPE_PATTERN, "]", 1)
+	if count == 0 then clean, count = label:gsub(ITEM_TYPE_NO_COLOR, "]", 1) end
+	return clean, count > 0
+end
+
+local function StripPendingLabel(label)
+	local clean, count = label:gsub(PENDING_PATTERN, "]", 1)
+	if count == 0 then clean, count = label:gsub(PENDING_NO_COLOR, "]", 1) end
+	return clean, count > 0
+end
+
+local function StripItemTypes(text)
+	if not text:find(ITEM_TYPE_COLOR, 1, true) then return text end
+	return (text:gsub(ITEM_LINK, function(kind, id, rest, label)
+		if kind ~= "item" then return nil end
+		local clean, marked = StripTypeLabel(label)
+		local plain, pending = StripPendingLabel(clean)
+		if marked or pending then return ("|Hitem:%s%s|h%s|h"):format(id, rest, plain) end
+	end))
+end
+
+local function ItemType(id)
+	local getter = C_Item and C_Item.GetItemInfoInstant
+	if type(getter) ~= "function" then return end
+	local ok, resolved, _, subtype, equip, _, class = pcall(getter, id)
+	if not ok or IsSecret(resolved) or IsSecret(subtype) or IsSecret(equip) or IsSecret(class) then return end
+	if resolved == nil then return nil, true end
+	if resolved ~= id or type(equip) ~= "string" or not equip:match("^INVTYPE_[A-Z0-9_]+$")
+		or equip == "INVTYPE_NON_EQUIP" or equip == "INVTYPE_NON_EQUIP_IGNORE" then return end
+	local slot = Readable(rawget(_G, equip))
+	if type(slot) ~= "string" or slot == "" or slot:find("|", 1, true) then return end
+	local classes = Enum and Enum.ItemClass
+	if classes and (class == classes.Weapon or class == classes.Armor) and type(subtype) == "string"
+		and subtype ~= "" and subtype ~= slot and not subtype:find("|", 1, true) then
+		return slot .. ", " .. subtype
+	end
+	return slot
+end
+
+local function LinkExtras(text, itemOnly, failed)
 	local db = M.db
-	local icons, marks = db.linkIcons, db.questMarks
-	if not (icons or marks) or not text:find("|H", 1, true) then return text end
+	local icons, marks, itemTypes = db.linkIcons, db.questMarks, db.linkItemTypes
+	if not (icons or marks or itemTypes or itemOnly) or IsSecret(text) or not text:find("|H", 1, true) then return text end
 	local out, pos = {}, 1
 	while true do
-		local first, last, kind, id, rest, label = text:find("|H(%a+):(%d+)([^|]*)|h(.-)|h", pos)
+		local first, last, kind, id, rest, label = text:find(ITEM_LINK, pos)
 		if not first then break end
 		out[#out + 1] = text:sub(pos, first - 1)
-		local link = text:sub(first, last)
 		pos = last + 1
-		local number = tonumber(id)
-		if icons and (kind == "item" or kind == "spell") and not label:find("^|T") then
-			local icon = LinkIconOf(kind, number)
-			if icon then
-				link = ("|H%s:%s%s|h|T%s:0|t%s|h"):format(kind, id, rest, tostring(icon), label)
-			elseif kind == "item" then
-				RequestItem(number)
+		local number, added = tonumber(id), label
+		if number and number > 0 and number < math.huge and (not itemOnly or (kind == "item" and number == itemOnly)) then
+			if kind == "item" then
+				local clean, pending = StripPendingLabel(label)
+				added = clean
+				if not failed and itemTypes and (pending or not itemOnly) and clean:sub(-1) == "]" then
+					local _, marked = StripTypeLabel(clean)
+					if not marked then
+						local details, uncached = ItemType(number)
+						if details or (uncached and not itemOnly and RequestItem(number)) then
+							local color = text:sub(math.max(1, first - 10), first - 1)
+							if not color:match("^|c%x%x%x%x%x%x%x%x$") then color = "" end
+							local suffix = details and (ITEM_TYPE_MARK .. details .. "|r") or ITEM_TYPE_PENDING
+							added = clean:sub(1, -2) .. suffix .. color .. "]"
+							itemTypesInChat = true
+						end
+					end
+				end
+			end
+			if not failed and icons and (kind == "item" or kind == "spell") and not label:find("^|T") then
+				local icon = LinkIconOf(kind, number)
+				if icon then
+					added = ("|T%s:0|t%s"):format(tostring(icon), added)
+				elseif kind == "item" and not itemOnly then
+					RequestItem(number)
+				end
 			end
 		end
-		out[#out + 1] = link
-		if marks and kind == "quest" then
+		out[#out + 1] = added == label and text:sub(first, last) or ("|H%s:%s%s|h%s|h"):format(kind, id, rest, added)
+		if not itemOnly and marks and kind == "quest" then
 			-- After the link's color end, so the mark keeps its own colors.
 			if text:sub(pos, pos + 1) == "|r" then
 				out[#out + 1] = "|r"
@@ -531,30 +643,64 @@ local function LinkExtras(text)
 end
 M.LinkExtras = LinkExtras
 
--- An item arrived: its lines in every chat window get the icon now.
+local function TransformLinkMessages(needle, transform, bareLink)
+	local function Match(message)
+		return type(message) == "string" and not IsSecret(message)
+			and (message:find(needle, 1, true) ~= nil or (bareLink and message:find(bareLink, 1, true) ~= nil))
+	end
+	local function RewriteLink(message, ...)
+		return transform(message), ...
+	end
+	for _, frame in M:IterateFrames() do frame:TransformMessages(Match, RewriteLink) end
+	local panel = M.rightPanel
+	if panel and panel.messages then panel.messages:TransformMessages(Match, RewriteLink) end
+end
+
+local function ApplyItemTypes()
+	if not itemTypesInChat or InLockdown() then return end
+	if clearItemTypes or not Improve() or not M.db.linkItemTypes then
+		TransformLinkMessages(ITEM_TYPE_COLOR, StripItemTypes)
+		itemTypesInChat, clearItemTypes = nil, nil
+	end
+end
+
+local function FinishItem(itemID, success)
+	Unwait(itemID)
+	if not Improve() then return end
+	local needle = "|Hitem:" .. tostring(itemID)
+	TransformLinkMessages(needle .. ":", function(message) return LinkExtras(message, itemID, not success) end, needle .. "|h")
+end
+
+local function RefreshUnlockedLinks()
+	if InLockdown() then return end
+	ApplyItemTypes()
+	for itemID, result in pairs(itemReady) do FinishItem(itemID, result == "ready") end
+	if not M.active then E:UnregisterEvent("ADDON_RESTRICTION_STATE_CHANGED", itemRestrictionOwner) end
+end
+
+-- An item arrived: finish only that item's extras in its chat lines.
 function M:OnItemData(itemID, success)
-	if not itemWaiting[itemID] then return end
-	itemWaiting[itemID] = nil
-	if not success or not Improve() or not self.db.linkIcons then return end
-	local needle = "|Hitem:" .. tostring(itemID) .. ":"
-	for _, frame in self:IterateFrames() do
-		frame:TransformMessages(function(message)
-			return type(message) == "string" and not IsSecret(message) and message:find(needle, 1, true) ~= nil
-		end, function(message, ...)
-			return LinkExtras(message), ...
-		end)
+	if IsSecret(itemID) or type(itemID) ~= "number" or not itemWaiting[itemID] then return end
+	local loaded = not IsSecret(success) and success == true
+	if InLockdown() then
+		itemReady[itemID] = loaded and "ready" or "failed"
+	else
+		FinishItem(itemID, loaded)
 	end
 end
 
 ---------------------------------------------------------------------------
 -- The rewrite of one line
 ---------------------------------------------------------------------------
-local function Rewrite(text, highlight, mentions)
+local function Rewrite(text, highlight, mentions, time)
 	local db = M.db
 	if db.shortChannels then
 		text = text:gsub("|Hchannel:([^|]-)|h%[([^%]]-)%]|h", ShortChannel)
 	end
-	if (db.linkIcons or db.questMarks) and not InLockdown() then text = LinkExtras(text) end
+	if (db.linkIcons or db.questMarks or db.linkItemTypes) and not InLockdown() then
+		if clearItemTypes then ApplyItemTypes() end
+		text = LinkExtras(text)
+	end
 	if db.urls or highlight or mentions then
 		text = EachPlain(text, function(plain)
 			if db.urls then plain = LinkPlain(plain) end
@@ -569,7 +715,7 @@ local function Rewrite(text, highlight, mentions)
 			return plain
 		end)
 	end
-	if db.eldoTimestamps then text = Stamp(text) end
+	if db.eldoTimestamps then text = Stamp(text, time) end
 	return text
 end
 M.RewriteLine = Rewrite
@@ -606,7 +752,7 @@ local mirroredCount = 0
 
 -- Copy a line into the right panel once, however many windows show it.
 -- Returns true when the line is in the right panel (now or already).
-local function Mirror(frame, text, r, g, b, eventArgs)
+local function Mirror(frame, text, r, g, b, eventArgs, event)
 	local lineID = type(eventArgs) == "table" and Readable(eventArgs[11])
 	if lineID then
 		if mirrored[lineID] then return true end
@@ -617,7 +763,8 @@ local function Mirror(frame, text, r, g, b, eventArgs)
 		-- The game keeps the line ID secret: copy from the main window only.
 		return false
 	end
-	M.rightPanel.messages:AddMessage(text, r, g, b)
+	-- The event goes with the copy, so the saved history knows a whisper.
+	M.rightPanel.messages:AddMessage(text, r, g, b, nil, nil, nil, event)
 	return true
 end
 
@@ -646,9 +793,10 @@ M.ReadableArgs = ReadableArgs
 
 -- The whole rewrite of one (readable) line, without side effects: the
 -- chat windows, the Alert tab copies and the options preview use it.
-local function Format(frame, text, r, g, b, event, eventArgs, highlight)
+-- time (optional): the stamp a copy keeps (the Alerts tab).
+local function Format(frame, text, r, g, b, event, eventArgs, highlight, time)
 	local args = ReadableArgs(eventArgs)
-	local ok, result = pcall(Rewrite, text, highlight, WantsMentions(event))
+	local ok, result = pcall(Rewrite, text, highlight, WantsMentions(event), time)
 	if ok and type(result) == "string" then text = result end
 	for _, hook in ipairs(lineHooks) do
 		local done, newText, nr, ng, nb = pcall(hook.fn, text, r, g, b, event, args, frame)
@@ -662,7 +810,28 @@ local function Format(frame, text, r, g, b, event, eventArgs, highlight)
 end
 M.FormatLine = Format
 
-local function OnAddMessage(frame, text, r, g, b, _, _, _, event, eventArgs)
+
+-- The line being rewritten, read by the two callbacks below: one pair of
+-- functions for every line, not two new ones per line.
+local rewriting = {}
+local function SameArgs(_, _, _, _, _, _, _, _, args)
+	return args == rewriting.args
+end
+local function IsThisLine(message, _, _, _, _, _, _, _, args)
+	if rewriting.done then return false end
+	if rewriting.byArgs then
+		if args ~= rewriting.args then return false end
+	elseif IsSecret(message) or message ~= rewriting.text then
+		return false
+	end
+	rewriting.done = true
+	return true
+end
+local function RewriteLine(_, _, _, _, ...)
+	return rewriting.rewritten, rewriting.r, rewriting.g, rewriting.b, ...
+end
+
+local function OnAddMessage(frame, text, r, g, b, _, _, _, event, eventArgs, formatter)
 	if not Improve() then return end
 	-- A whisper Instant Messages shows in its own window and takes out of
 	-- this one: no rewrite, right-panel copy, keyword alert or
@@ -681,17 +850,18 @@ local function OnAddMessage(frame, text, r, g, b, _, _, _, event, eventArgs)
 	local rewritten, nr, ng, nb = text, r, g, b
 	if not secret then
 		local highlight = CheckKeywords(event, eventArgs)
+		if event == "CHAT_MSG_CHANNEL" and M.ReadTradeLine then M:ReadTradeLine(text, eventArgs, formatter) end
 		rewritten, nr, ng, nb = Format(frame, text, r, g, b, event, eventArgs, highlight)
 	end
 	-- A line arrived while this window is scrolled up: mark the jump button.
 	if M.MarkNewBelow then M:MarkNewBelow(frame) end
 
 	if group then
-		local copied = Mirror(frame, rewritten, nr, ng, nb, eventArgs)
+		local copied = Mirror(frame, rewritten, nr, ng, nb, eventArgs, event)
 		if copied and M.db.rightMove and type(eventArgs) == "table" then
-			frame:RemoveMessagesByPredicate(function(_, _, _, _, _, _, _, _, args)
-				return args == eventArgs
-			end)
+			rewriting.args = eventArgs
+			frame:RemoveMessagesByPredicate(SameArgs)
+			rewriting.args = nil
 			return
 		end
 	end
@@ -701,20 +871,10 @@ local function OnAddMessage(frame, text, r, g, b, _, _, _, event, eventArgs)
 	-- so the identity picks exactly this line. Lines added by other code
 	-- have none; then the first entry still holding the raw text is used
 	-- (any such entry gets the same rewrite).
-	local done = false
-	local byArgs = type(eventArgs) == "table"
-	frame:TransformMessages(function(message, _, _, _, _, _, _, _, args)
-		if done then return false end
-		if byArgs then
-			if args ~= eventArgs then return false end
-		elseif IsSecret(message) or message ~= text then
-			return false
-		end
-		done = true
-		return true
-	end, function(_, _, _, _, ...)
-		return rewritten, nr, ng, nb, ...
-	end)
+	rewriting.done, rewriting.byArgs, rewriting.args, rewriting.text = false, type(eventArgs) == "table", eventArgs, text
+	rewriting.rewritten, rewriting.r, rewriting.g, rewriting.b = rewritten, nr, ng, nb
+	frame:TransformMessages(IsThisLine, RewriteLine)
+	rewriting.args, rewriting.text, rewriting.rewritten = nil, nil, nil
 end
 
 local hookedFrames = setmetatable({}, { __mode = "k" })
@@ -775,11 +935,9 @@ end
 ---------------------------------------------------------------------------
 local function MessageFilter(frame, event, ...)
 	if not (Improve() and M.FilterLine) then return false end
-	local ok, hide
-	if event == "CHAT_MSG_SYSTEM" then
+	local ok, hide = pcall(M.FilterLine, M, event, ...)
+	if ok and not hide and event == "CHAT_MSG_SYSTEM" then
 		ok, hide = pcall(M.FoldRoster, M, frame, ...)
-	else
-		ok, hide = pcall(M.FilterLine, M, event, ...)
 	end
 	if not ok then
 		geterrorhandler()(hide)
@@ -896,22 +1054,48 @@ local function Round(value)
 	return type(value) == "number" and math.floor(value * 100 + 0.5) / 100 or 1
 end
 
+-- A whisper line: the event of the line, also for right-panel and Alerts
+-- copies and for lines restored from history (they carry their event).
+local function IsWhisperEvent(event)
+	return type(event) == "string" and not IsSecret(event) and WHISPER_EVENTS[event] or false
+end
+
 local function CollectLines(frame, limit)
 	local lines = {}
 	local count = frame:GetNumMessages() or 0
+	local keepWhispers = M.db.historyWhispers
 	for index = math.max(1, count - limit + 1), count do
 		local text, r, g, b, _, _, _, event = frame:GetMessageInfo(index)
+		local whisper = IsWhisperEvent(event)
 		if type(text) == "string" and not IsSecret(text) and #text <= MAX_LINE and not text:find(HISTORY_MARK, 1, true)
-			and not (not IsSecret(event) and event and WHISPER_EVENTS[event] and not M.db.historyWhispers) then
+			and (keepWhispers or not whisper) then
 			-- Timestamp links point into this session's memory: keep their text only.
 			text = text:gsub("|Haddon:EldoUITime:%d+|h(.-)|h", "%1")
 			-- Saved lines stay plain: icons and marks are drawn again live.
-			text = text:gsub("|T.-|t", ""):gsub("|A.-|a", "")
+			text = StripItemTypes(text):gsub("|T.-|t", ""):gsub("|A.-|a", "")
 			text = E.MaskProtectedNames(text)
-			lines[#lines + 1] = { text, Round(r), Round(g), Round(b) }
+			lines[#lines + 1] = { text, Round(r), Round(g), Round(b), w = whisper and 1 or nil }
 		end
 	end
 	return lines
+end
+
+-- "Save whispers" off: whispers already in the saved history go too.
+function M:DropSavedWhispers()
+	if self.db.historyWhispers then return 0 end
+	local dropped = 0
+	for _, entry in pairs(E:GetMessagesDB().chat) do
+		if type(entry) == "table" and type(entry.lines) == "table" then
+			for index = #entry.lines, 1, -1 do
+				local line = entry.lines[index]
+				if type(line) == "table" and line.w then
+					table.remove(entry.lines, index)
+					dropped = dropped + 1
+				end
+			end
+		end
+	end
+	return dropped
 end
 
 -- The tab name of a chat window ("General", "Trade"...). Saved lines go
@@ -942,11 +1126,11 @@ function M:SaveHistory()
 	if not (self.active and self:Allowed("improve")) then return end
 	local limit = self:HistoryLimit()
 	local saved = {}
+	-- Every tab, the Alerts tab too: its lines are rewritten copies that
+	-- come back like any other tab's.
 	for _, frame in self:IterateFrames() do
-		if not (self.IsAlertFrame and self:IsAlertFrame(frame)) then
-			local lines = CollectLines(frame, limit)
-			if #lines > 0 then saved[frame:GetName()] = { t = time(), lines = lines, name = self:TabName(frame) } end
-		end
+		local lines = CollectLines(frame, limit)
+		if #lines > 0 then saved[frame:GetName()] = { t = time(), lines = lines, name = self:TabName(frame) } end
 	end
 	if self.rightPanel then
 		local lines = CollectLines(self.rightPanel.messages, limit)
@@ -1036,7 +1220,9 @@ local function Restore(target, entry)
 	for index = #entry.lines, 1, -1 do
 		local line = entry.lines[index]
 		if type(line) == "table" and type(line[1]) == "string" then
-			target:BackFillMessage(line[1], line[2] or 1, line[3] or 1, line[4] or 1)
+			-- A saved whisper keeps its whisper event, so turning Save
+			-- whispers off later leaves it out of the next save.
+			target:BackFillMessage(line[1], line[2] or 1, line[3] or 1, line[4] or 1, nil, nil, nil, line.w and "CHAT_MSG_WHISPER" or nil)
 		end
 	end
 end
@@ -1648,13 +1834,47 @@ local CHANNEL_SOUND_EVENTS = {
 }
 local lastChannelSound = {}
 
-local function OnChannelMessage(_, event, _, sender)
+-- Would the chat hide this line (blocked phrases, channel mutes, repeated
+-- lines, a muted guild)? A hidden line makes no sound, flash or Alerts tab
+-- copy. Both filters keep their answer per line, so asking again here costs
+-- nothing and the hidden-lines log counts the line once.
+function M:LineHidden(event, ...)
+	for _, filter in ipairs({ self.FilterLine, self.GuildMuteFilter }) do
+		local ok, hide = pcall(filter, self, event, ...)
+		if ok and hide then return true end
+	end
+	return false
+end
+
+-- A channel line that no chat tab shows (a joined channel left out of
+-- every window) makes no sound either.
+local function ChannelShown(channelBase, channel)
+	local name = M.ChannelName and M.ChannelName(Readable(channelBase) or Readable(channel))
+	if not name then return true end
+	for _, frame in M:IterateFrames() do
+		if not (M.IsAlertFrame and M:IsAlertFrame(frame)) then
+			if not frame.ContainsChannel or frame:ContainsChannel(name) then return true end
+			for _, listed in pairs(frame.channelList or {}) do
+				if type(listed) == "string" and listed:lower() == name then return true end
+			end
+		end
+	end
+	return false
+end
+
+local function OnChannelMessage(_, event, message, sender, ...)
 	if not Improve() or M:QuietNow() then return end
 	local group = CHANNEL_SOUND_EVENTS[event]
 	local sound = group and M.db.channelSounds[group]
 	if not sound or sound == "none" then return end
+	local rawSender = sender
 	sender = Readable(sender)
 	if type(sender) ~= "string" or IsMe(sender) then return end
+	if M:LineHidden(event, message, rawSender, ...) then return end
+	if event == "CHAT_MSG_CHANNEL" then
+		local _, channel, _, _, _, _, channelBase = ...
+		if not ChannelShown(channelBase, channel) then return end
+	end
 	local now = GetTime()
 	if lastChannelSound[group] and now - lastChannelSound[group] < 2 then return end
 	lastChannelSound[group] = now
@@ -1680,11 +1900,14 @@ function M:ApplyMessages()
 	if self.RefreshPreview then self:RefreshPreview() end
 	if self.RestyleListEditors then self:RestyleListEditors() end
 	self:GuardHistory()
+	self:DropSavedWhispers()
 	self:RestoreHistory()
+	RefreshUnlockedLinks()
 	self:ApplyScrolling()
 end
 
 function M:RestoreMessages()
+	ApplyItemTypes()
 	for frame in pairs(hookedFrames) do self:StyleMessages(frame) end
 	if self.RestoreChatColors then self:RestoreChatColors() end
 	if self.ApplyLevels then self:ApplyLevels() end
@@ -1696,8 +1919,9 @@ end
 -- Whisper alert: tied to the whisper events only. The message itself is
 -- never read, so it works the same during chat lockdown.
 local lastWhisper = 0
-local function OnWhisper()
+local function OnWhisper(_, event, ...)
 	if not Improve() or M:QuietNow() then return end
+	if M:LineHidden(event, ...) then return end
 	local now = GetTime()
 	if now - lastWhisper < 2 then return end
 	lastWhisper = now
@@ -1713,6 +1937,9 @@ function M:EnableMessages()
 	self:RegisterEvent("CHAT_MSG_WHISPER", OnWhisper)
 	self:RegisterEvent("CHAT_MSG_BN_WHISPER", OnWhisper)
 	self:RegisterEvent("ITEM_DATA_LOAD_RESULT", function(_, _, itemID, success) M:OnItemData(itemID, success) end)
+	E:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED", function(_, _, _, state)
+		E:AfterRestrictionEnds(state, RefreshUnlockedLinks)
+	end, itemRestrictionOwner)
 	for event in pairs(CHANNEL_SOUND_EVENTS) do self:RegisterEvent(event, OnChannelMessage) end
 	for _, event in ipairs(ROSTER_EVENTS) do self:RegisterEvent(event, function() namesDirty = true end) end
 	if self.EnableColors then self:EnableColors() end
@@ -1723,6 +1950,17 @@ function M:DisableMessages()
 	self:UnregisterEvent("CHAT_MSG_WHISPER")
 	self:UnregisterEvent("CHAT_MSG_BN_WHISPER")
 	self:UnregisterEvent("ITEM_DATA_LOAD_RESULT")
+	wipe(itemWaiting)
+	wipe(itemReady)
+	itemRequests = 0
+	-- Drop the old annotations once chat is writable, even if this module
+	-- stays off or is switched on again before the restriction ends.
+	clearItemTypes = itemTypesInChat
+	if clearItemTypes then
+		RefreshUnlockedLinks()
+	else
+		E:UnregisterEvent("ADDON_RESTRICTION_STATE_CHANGED", itemRestrictionOwner)
+	end
 	for event in pairs(CHANNEL_SOUND_EVENTS) do self:UnregisterEvent(event) end
 	for _, event in ipairs(ROSTER_EVENTS) do self:UnregisterEvent(event) end
 	if self.DisableColors then self:DisableColors() end

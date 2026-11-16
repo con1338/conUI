@@ -28,7 +28,7 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 -- The faction, area and spell IDs are checked against the WoW: Forever client
--- tables of build 1.60.1.70862.
+-- tables of build 1.60.1.70938.
 local _, E = ...
 
 local D = { classes = {} }
@@ -386,6 +386,13 @@ do
 	local THROWN = 2567
 	local CROSSBOWS = 5011
 	local FIST_WEAPONS = 15590
+	D.weaponSkillNames = {
+		Axes = ONE_HANDED_AXES, ["One-Handed Axes"] = ONE_HANDED_AXES, ["Two-Handed Axes"] = TWO_HANDED_AXES,
+		Maces = ONE_HANDED_MACES, ["One-Handed Maces"] = ONE_HANDED_MACES, ["Two-Handed Maces"] = TWO_HANDED_MACES,
+		Swords = ONE_HANDED_SWORDS, ["One-Handed Swords"] = ONE_HANDED_SWORDS, ["Two-Handed Swords"] = TWO_HANDED_SWORDS,
+		Polearms = POLEARMS, Staves = STAVES, Bows = BOWS, Guns = GUNS, Daggers = DAGGERS,
+		Thrown = THROWN, Crossbows = CROSSBOWS, ["Fist Weapons"] = FIST_WEAPONS,
+	}
 
 	local zones = {
 		[IRONFORGE] = { uiMapId = 1455, iconId = 135757 },

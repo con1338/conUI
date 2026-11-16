@@ -201,8 +201,11 @@ local function IsContinent(uiMapID)
 	return kind == continentType
 end
 
--- Every stop of the data table, with its destinations.
+-- Every stop of the data table, with its destinations. The table is the
+-- same for the whole session, so it is built once; callers only read it.
+local dataStops
 function M:DataStops()
+	if dataStops then return dataStops end
 	local list = {}
 	for index, route in ipairs(E.transportData and E.transportData.routes or {}) do
 		local stops = route.stops or {}
@@ -224,6 +227,7 @@ function M:DataStops()
 			end
 		end
 	end
+	dataStops = list
 	return list
 end
 
@@ -457,9 +461,10 @@ function M:RefreshPins()
 			pin = CreatePin(canvas)
 			worldPins[count] = pin
 		end
-		pin:SetFrameStrata("HIGH")
+		E:PlaceMapPin(pin, "transport", map, canvas)
 		pin:SetScale(1 / math.max(scale or 1, 0.01))
 		self:StylePin(pin, point)
+		pin.mapX, pin.mapY = point.x, point.y
 		pin:ClearAllPoints()
 		pin:SetPoint("CENTER", canvas, "TOPLEFT", point.x * width * (scale or 1), -point.y * height * (scale or 1))
 		pin:Show()
@@ -468,14 +473,13 @@ function M:RefreshPins()
 end
 
 local function CreateProvider()
-	local base = _G.MapCanvasDataProviderMixin
-	local p = base and CreateFromMixins and CreateFromMixins(base) or {}
-	function p:OnAdded(owningMap) self.owningMap = owningMap end
-	function p:OnRemoved() self.owningMap = nil end
+	local p = {}
 	function p:RemoveAllData() M:HidePins() end
 	function p:RefreshAllData() M:RefreshPins() end
 	function p:OnMapChanged() M:RefreshPins() end
-	function p:OnCanvasScaleChanged() M:RefreshPins() end
+	function p:OnCanvasScaleChanged()
+		if not E:RescaleMapPins(WorldMap(), worldPins, M.pinCount) then M:RefreshPins() end
+	end
 	function p:OnCanvasSizeChanged() M:RefreshPins() end
 	function p:OnShow() M:RefreshPins() end
 	function p:OnHide() M:HidePins() end
@@ -486,10 +490,8 @@ function M:HookWorldMap()
 	local map = WorldMap()
 	if not map or self.worldHooked then return end
 	self.worldHooked = true
-	if map.AddDataProvider then
-		provider = provider or CreateProvider()
-		map:AddDataProvider(provider)
-	end
+	provider = provider or CreateProvider()
+	E:FollowMap(map, provider)
 end
 
 ---------------------------------------------------------------------------
@@ -700,7 +702,7 @@ M.options = {
 	{ type = "toggle", key = "kinds.zeppelin", label = "Zeppelins", desc = "Zeppelin towers and where they fly." },
 	{ type = "toggle", key = "kinds.tram", label = "Tram", desc = "Both ends of the Deeprun Tram." },
 	{ type = "toggle", key = "kinds.portal", label = "Portals", desc = "Portals that always stand in the same place." },
-	{ type = "toggle", key = "myFaction", label = "Only my faction", desc = "Hide the other faction's flight masters, docks and towers. Neutral ones always show." },
+	{ type = "toggle", key = "myFaction", label = "Only your faction", desc = "Hide the other faction's flight masters, docks and towers. Neutral ones always show." },
 	{ type = "toggle", key = "continentPins", label = "Show on continent maps", desc = "Boats, zeppelins, the tram and portals also show on Kalimdor and the Eastern Kingdoms." },
 	{ type = "header", label = "Look" },
 	{ type = "select", key = "pinStyle", label = "Pin look", order = { "icons", "dots", "contrast", "bronze", "minimal" },

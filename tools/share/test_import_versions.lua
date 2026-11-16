@@ -5,14 +5,14 @@
 -- EldoUI/Core/Database.lua (between fixed markers, so a renamed function
 -- makes the test fail instead of testing a stale copy) and runs them with
 -- small stand-ins for the rest of EldoUI:
---   * E:ProfileVersionProblem: which baseline/schema pairs are "newer",
---     "older" or fine;
---   * the import messages for them, and that a sender's version text is only
---     shown when it looks like a version;
+--   * Stamps: which migration stamps of a string count;
 --   * MigratePart: a part of a profile (module, general, positions) gets the
 --     default changes and the migrations it missed, keyed migrations only
 --     with the sender's stamps, and the receiver's own settings stay as
 --     they are.
+-- Since EldoUI 0.7.3000 the message for a string from a newer or an
+-- unreadable EldoUI is EldoUI's own (PayloadAdmit in Share.lua); the fork's
+-- version messages and their checks are gone.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/share/") or "./"
 
 local function ReadFile(path)
@@ -64,13 +64,10 @@ local source = table.concat({
 	Between(share, "local function Plain(value)", "local function Completion(", "Share.lua"),
 	Between(share, "local function ProfileKind(kind)", "local function SourceAdmit(", "Share.lua"),
 	Between(database, "\tlocal function Integer(value)", "\tlocal function Same(a, b)", "Database.lua"),
-	Between(database, "\tfunction E:ProfileVersionProblem(", "\tRebindProfileWrite = function", "Database.lua"),
 	Between(database, "local function ProfileSchema(profile)", "local CheckProfile", "Database.lua"),
 	Between(database, "E.profileMigrations = {}", "function E:RefreshModule(", "Database.lua"),
-	Between(share, "local function ShownVersion(version)", "local function ParseString(text)", "Share.lua"),
 	Between(share, "local function Stamps(value)", "local function Finish(kind)", "Share.lua"),
-	"return { VersionProblem = VersionProblem, VersionMessage = VersionMessage, Stamps = Stamps,",
-	"\tMigratePart = MigratePart, MigratedPart = MigratedPart }",
+	"return { Stamps = Stamps, MigratePart = MigratePart, MigratedPart = MigratedPart }",
 }, "\n")
 local chunk = assert(loadstring(source, "=extracted"))
 local api = chunk(E, L, FIRST_SCHEMA)
@@ -89,49 +86,9 @@ local function Same(a, b)
 	return true
 end
 
--- E:ProfileVersionProblem
-local cases = {
-	{ PROFILE_BASELINE, PROFILE_SCHEMA, nil },
-	{ PROFILE_BASELINE, FIRST_SCHEMA, nil },
-	{ PROFILE_BASELINE, PROFILE_SCHEMA + 1, "newer" },
-	{ PROFILE_BASELINE + 1, PROFILE_SCHEMA, "newer" },
-	{ PROFILE_BASELINE + 1, nil, "newer" },
-	{ nil, 3, "older" },
-	{ nil, nil, "older" },
-	{ PROFILE_BASELINE - 1, PROFILE_SCHEMA, "older" },
-	{ PROFILE_BASELINE, FIRST_SCHEMA - 1, "older" },
-	{ "1000", PROFILE_SCHEMA, nil },
-	{ PROFILE_BASELINE, "5", nil },
-	{ PROFILE_BASELINE, nil, nil },
-	{ PROFILE_BASELINE, PROFILE_SCHEMA - 0.5, nil },
-	{ PROFILE_BASELINE + 0.5, PROFILE_SCHEMA, nil },
-}
-for _, case in ipairs(cases) do
-	local got = E:ProfileVersionProblem(case[1], case[2])
-	Check(got == case[3], ("ProfileVersionProblem(%s, %s) = %s, expected %s"):format(tostring(case[1]), tostring(case[2]),
-		tostring(got), tostring(case[3])))
-end
-
--- Which payloads get a version message (only the profile kinds).
 local function Payload(kind, baseline, version)
 	return { kind = kind, data = {}, profileBaseline = baseline, schema = { unit = "profile", version = version } }
 end
-Check(api.VersionProblem(Payload("module:Chat", PROFILE_BASELINE, PROFILE_SCHEMA + 1)) == "newer", "newer module string")
-Check(api.VersionProblem(Payload("all", nil, 3)) == "older", "string from before 0.7.1000")
-Check(api.VersionProblem(Payload("general", PROFILE_BASELINE, PROFILE_SCHEMA)) == nil, "current string")
-Check(api.VersionProblem(Payload("global", nil, nil)) == nil, "account-wide lists have no profile version")
-Check(api.VersionProblem({ kind = "positions", data = {}, profileBaseline = PROFILE_BASELINE, schema = "x" }) == nil,
-	"a schema that is no table is just damaged")
-
--- The messages
-local newer = api.VersionMessage("newer", "0.8.0-beta2")
-Check(newer:find("(0.8.0-beta2)", 1, true) ~= nil, "newer: sender's version shown")
-for _, bad in ipairs({ "|cffff0000red|r", "0.8.0|Hitem:1|h[x]|h", ("1"):rep(30), 8, "dev" }) do
-	local text = api.VersionMessage("newer", bad)
-	Check(text == L["the string comes from a newer EldoUI. Update EldoUI, then import it again."],
-		"newer: version text not shown: " .. tostring(bad))
-end
-Check(api.VersionMessage("older", "0.6.0"):find("before 0.7.1000", 1, true) ~= nil, "older message")
 
 -- Stamps
 Check(Same(api.Stamps({ a = 1, b = 2 }), { a = 1, b = 2 }), "stamps kept")

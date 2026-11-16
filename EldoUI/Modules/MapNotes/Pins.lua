@@ -143,6 +143,14 @@ local function SetMasked(pin, on)
 	end
 end
 
+-- The draw order group of a point (E:MapPinTier): your notes, city
+-- services, or rares and treasures.
+local function PinLayer(point)
+	if point.kind == "note" then return "user" end
+	if point.kind == "service" then return "services" end
+	return "classicRares"
+end
+
 local function StylePin(pin, point, size)
 	pin.point = point
 	local shape = PinShape()
@@ -419,9 +427,10 @@ function M:RefreshWorldPins()
 			pin = CreatePin(canvas)
 			worldPins[i] = pin
 		end
-		pin:SetFrameStrata("HIGH")
+		E:PlaceMapPin(pin, PinLayer(point), map, canvas)
 		pin:SetScale(1 / max(scale or 1, 0.01))
 		StylePin(pin, point, PinSize(point, self.db.pinScale))
+		pin.mapX, pin.mapY = point.x, point.y
 		pin:ClearAllPoints()
 		pin:SetPoint("CENTER", canvas, "TOPLEFT", point.x * width * (scale or 1), -point.y * height * (scale or 1))
 		pin:Show()
@@ -431,14 +440,13 @@ function M:RefreshWorldPins()
 end
 
 local function CreateProvider()
-	local base = _G.MapCanvasDataProviderMixin
-	local p = base and CreateFromMixins and CreateFromMixins(base) or {}
-	function p:OnAdded(owningMap) self.owningMap = owningMap end
-	function p:OnRemoved() self.owningMap = nil end
+	local p = {}
 	function p:RemoveAllData() for _, pin in ipairs(worldPins) do pin:Hide() end end
 	function p:RefreshAllData() M:RefreshWorldPins() end
 	function p:OnMapChanged() M:RefreshWorldPins() end
-	function p:OnCanvasScaleChanged() M:RefreshWorldPins() end
+	function p:OnCanvasScaleChanged()
+		if not E:RescaleMapPins(WorldMap(), worldPins, M.worldPinCount) then M:RefreshWorldPins() end
+	end
 	function p:OnCanvasSizeChanged() M:RefreshWorldPins() end
 	function p:OnShow() M:RefreshWorldPins() end
 	function p:OnHide()
@@ -452,10 +460,8 @@ function M:HookWorldMap()
 	local map = WorldMap()
 	if not map or self.worldHooked then return end
 	self.worldHooked = true
-	if map.AddDataProvider then
-		provider = provider or CreateProvider()
-		map:AddDataProvider(provider)
-	end
+	provider = provider or CreateProvider()
+	E:FollowMap(map, provider)
 	if self.CreateButton then self:CreateButton(map) end
 end
 
@@ -482,13 +488,23 @@ local miniList, miniMap
 -- The ticker's view, refilled each tick: while nothing that places a pin
 -- changed, the ticker leaves the pins alone.
 local tickView = {}
+local minimapDirty
 
 -- fromTick: the shared ticker (the only caller that may skip work).
-function M:RefreshMinimapPins(rebuild, fromTick)
+function M:RefreshMinimapPins(rebuild, fromTick, sample)
 	local minimap = _G.Minimap
+	if not minimap or not minimap:IsVisible() then
+		minimapDirty = true
+		for _, pin in ipairs(miniPins) do pin:Hide() pin.point = nil end
+		self.miniPinCount = 0
+		return
+	end
+	if minimapDirty then rebuild, fromTick, minimapDirty = true, nil, nil end
 	local WP = E.Waypoints
 	local mapID, _, _, continent, north, west
-	if WP and WP.PlayerPos then
+	if sample then
+		mapID, continent, north, west = sample.mapID, sample.continent, sample.north, sample.west
+	elseif WP and WP.PlayerPos then
 		mapID, _, _, continent, north, west = (fromTick and WP.SharedPlayerPos or WP.PlayerPos)()
 	end
 	local sameMap = miniMap == mapID
@@ -496,10 +512,13 @@ function M:RefreshMinimapPins(rebuild, fromTick)
 		miniMap = mapID
 		miniList = (mapID and self.active and self.db.minimapPins) and self:Points(mapID, "minimap") or nil
 	end
-	local hybrid = C_Minimap and C_Minimap.ShouldUseHybridMinimap and Try(C_Minimap.ShouldUseHybridMinimap)
+	local hybrid
+	if sample then hybrid = sample.hybrid else hybrid = E:ReadMinimapHybrid() end
 	local i = 0
-	local view = self.active and miniList and #miniList > 0 and minimap and continent and not hybrid
-		and E:MinimapView(north, west, minimap, tickView)
+	local view = self.active and miniList and #miniList > 0 and minimap and continent and hybrid == false
+		and E:CurrentMinimapView(north, west, minimap, tickView, sample)
+	-- A tick that hid the pins forgets the view, so the next one shows them.
+	if not view then wipe(tickView) end
 	if fromTick and sameMap and view and view.same then
 		self.minimapSkips = (self.minimapSkips or 0) + 1
 		return
@@ -515,10 +534,9 @@ function M:RefreshMinimapPins(rebuild, fromTick)
 					local pin = miniPins[i]
 					if not pin then
 						pin = CreatePin(minimap)
-						-- Under Gathering (+4) and Waypoints (+5) pins.
-						pin:SetFrameLevel(minimap:GetFrameLevel() + 3)
 						miniPins[i] = pin
 					end
+					E:PlaceMinimapPin(pin, PinLayer(point), minimap)
 					if pin.point ~= point then StylePin(pin, point, PinSize(point, self.db.minimapScale)) end
 					if outside then pin:SetAlpha(self.db.pinAlpha * 0.5) elseif not M:IsDone(point) then pin:SetAlpha(self.db.pinAlpha) end
 					pin:ClearAllPoints()
@@ -532,8 +550,7 @@ function M:RefreshMinimapPins(rebuild, fromTick)
 	self.miniPinCount = i
 end
 
--- Minimap pins keep their place while you move: every 0.2 s on the shared
--- ticker, and only while the map you are on has notes for the minimap. A
+-- The shared minimap driver updates these pins while the map has notes. A
 -- change to another map (a sub-zone with its own map, a cave, a city) comes
 -- with a zone event, which looks again, and so does stopping to move.
 local MINIMAP_TICK = "MapNotes:minimapPins"
@@ -543,18 +560,15 @@ local function MinimapWanted()
 	return M.active and M.db.minimapPins and E:MapPinsShown() and true or false
 end
 
-local function MinimapTick()
-	M:RefreshMinimapPins(nil, true)
-	if not (MinimapWanted() and miniList and #miniList > 0) then E.Ticker:Unsubscribe(MINIMAP_TICK) end
+local function MinimapTick(sample)
+	M:RefreshMinimapPins(nil, true, sample)
+	if not (MinimapWanted() and miniList and #miniList > 0) then E:SetMinimapUpdater(MINIMAP_TICK, false) end
 end
 
 function M:WatchMinimapPins()
 	local wanted = MinimapWanted()
-	if wanted and miniList and #miniList > 0 then
-		if not E.Ticker:IsSubscribed(MINIMAP_TICK) then E.Ticker:Subscribe(MINIMAP_TICK, 0.2, MinimapTick, self) end
-	else
-		E.Ticker:Unsubscribe(MINIMAP_TICK)
-	end
+	local hidden = _G.Minimap and not _G.Minimap:IsVisible()
+	E:SetMinimapUpdater(MINIMAP_TICK, wanted and (hidden or (miniList and #miniList > 0)), MinimapTick)
 	if wanted then
 		zoneEvents:RegisterEvent("ZONE_CHANGED")
 		zoneEvents:RegisterEvent("ZONE_CHANGED_INDOORS")
@@ -595,7 +609,7 @@ function M:EnablePins()
 end
 
 function M:DisablePins()
-	E.Ticker:Unsubscribe(MINIMAP_TICK)
+	E:SetMinimapUpdater(MINIMAP_TICK, false)
 	zoneEvents:UnregisterAllEvents()
 	for _, pin in ipairs(worldPins) do pin:Hide() pin.point = nil end
 	for _, pin in ipairs(miniPins) do pin:Hide() pin.point = nil end

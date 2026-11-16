@@ -57,6 +57,16 @@ E:RegisterCharacterKeyMove(function(db, oldKey, newKey)
 	end
 end)
 
+-- Forget takes the character's snapshot list; a profile that showed it
+-- goes back to this character's own.
+E:RegisterCharacterForget(function(db, key)
+	local global = type(db.global) == "table" and db.global.BarSnapshots
+	if type(global) == "table" and type(global.chars) == "table" then global.chars[key] = nil end
+	for _, settings in ipairs(E.EachProfileModule(db, "Snapshots")) do
+		if settings.source == key then settings.source = nil end
+	end
+end)
+
 local function Store()
 	local global = E:GetGlobal("BarSnapshots") or { chars = {} }
 	global.chars = global.chars or {}
@@ -1284,7 +1294,7 @@ function M:Command(arg)
 		end
 		E:ShowConfirm({ key = "ELDOUI_SNAPSHOT_DELETE", title = L["Bar Snapshots"],
 			text = L["Delete the snapshot %s? This can't be undone."]:format(self:Describe(s)),
-			accept = DELETE or L["Delete"], danger = true,
+			accept = E:GameText(DELETE, L["Delete"]), danger = true,
 			onAccept = function()
 				-- The list may have changed while the question was open.
 				for i, entry in ipairs(list) do

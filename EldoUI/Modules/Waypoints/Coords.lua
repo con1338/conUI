@@ -101,7 +101,7 @@ function M:BuildCoords()
 	E:BindOptionsLink(frame, { page = "module:Waypoints", key = "coordBox" })
 	self.coordFrame = frame
 
-	E:CreateMover(holder, "EldoUI_WaypointCoords", "Waypoint Coordinates", { "TOP", "UIParent", "TOP", 0, -210 },
+	E:CreateMover(holder, "EldoUI_WaypointCoords", L["Waypoint Coordinates"], { "TOP", "UIParent", "TOP", 0, -210 },
 		{ enabledPath = { "coordBox" }, followShown = true })
 	-- Its right-click Hide is the module's own coordinate box switch.
 	E:SetHideableSetting("EldoUI_WaypointCoords", function() return not M.db.coordBox end,
@@ -176,7 +176,7 @@ local function BuildEntry()
 	end)
 	frame:SetButtons({
 		{ L["Add"], keepOpen = true, kind = "primary", onClick = Submit },
-		{ CANCEL or L["Cancel"] },
+		{ E:GameText(CANCEL, L["Cancel"]) },
 	})
 	frame:HookScript("OnHide", function() box:ClearFocus() end)
 	return frame

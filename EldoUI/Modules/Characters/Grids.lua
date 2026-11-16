@@ -127,7 +127,8 @@ local GRIDS = {
 								local entry = type(record.profs) == "table" and record.profs[name]
 								if not entry then return Grey("-") end
 								local text = ("%d/%d"):format(entry.rank or 0, entry.max or 0)
-								if (entry.rank or 0) >= (entry.max or 1) then text = M.Warn(text) end
+								-- At its cap with a next rank to train: no more skill until then.
+								if (entry.rank or 0) >= (entry.max or 1) and (entry.max or 0) < 300 then text = M.Warn(text) end
 								return text
 							end,
 						}

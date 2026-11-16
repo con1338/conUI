@@ -50,8 +50,9 @@ local M = E:NewModule("SystemUI", {
 		quickKeybindEldo = true, -- EldoUI buttons bindable in Blizzard's Quick Keybind mode
 		quickKeybindPresets = true,
 		clickCastLine = true,    -- Click-Cast Tips line under the click-binding window
-		fillDelete = true,       -- type DELETE into the delete-item pop-up
+		fillDelete = false,      -- type DELETE into the delete-item pop-up (acts for you: off until ticked)
 		deleteContext = true,    -- quest context under the delete-item pop-up
+		holdShiftRelease = false, -- require Shift for ordinary instance releases
 		popupMover = true,       -- pop-ups follow the "Pop-up Dialogs" mover
 		hideStoreButton = true,  -- hide the Shop micro button (needs the element's Hide switch)
 		-- pop-up scale (needs the dialogs element's Move switch); windows are
@@ -380,7 +381,7 @@ function UpdateMenuButton()
 		button:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			GameTooltip:AddLine("EldoUI") -- no-L: addon name
-			E:TooltipHint(GameTooltip, { L["Click"], L["open the EldoUI settings"] })
+			E:TooltipHint(GameTooltip, { L["Click"], L["open the EldoUI options"] })
 			E:TooltipHint(GameTooltip, { L["Right-click"], L["move EldoUI's frames"] })
 			E.UIKit.TipText(GameTooltip, L["Also /eui in chat."])
 			GameTooltip:Show()
@@ -837,6 +838,270 @@ local function SkinStackSplit()
 	if Usable(frame) then Want("stackSplit", frame, SkinOn("dialogs", "skinStackSplit"), SkinStackSplitFrame, frame) end
 end
 
+-- Keep the native release decision intact and cover its place until Shift.
+local releaseGuards = setmetatable({}, { __mode = "k" })
+local releaseButtons = setmetatable({}, { __mode = "k" })
+local releaseEvents = {}
+local releaseListening = false
+local releaseEventNames = {
+	"MODIFIER_STATE_CHANGED", "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
+}
+local RefreshReleaseGuards
+local refreshingRelease
+
+local function ReleaseObject(frame)
+	return not E.Secret(frame) and type(frame) == "table" and (not canaccesstable or canaccesstable(frame))
+end
+
+local function ReleaseFrame(frame)
+	return ReleaseObject(frame) and Usable(frame) and not E.FrameCheck(frame, "IsProtected")
+end
+
+local function ReleaseEnabled()
+	return Allowed("dialogs", "improve") and M.db.holdShiftRelease
+end
+
+local function ReleaseAllowed(dialog)
+	if not (ReleaseEnabled()
+		and E.PlainCall(dialog.IsShown, dialog) == true) then return false end
+	local inside, kind = E.PlainCallAll(IsInInstance)
+	if inside ~= true or (kind ~= "party" and kind ~= "raid") then return false end
+	local rules = C_GameRules
+	return rules and E.PlainCall(rules.IsHardcoreActive) == false
+end
+
+-- A known replacement retires the old lease. An unreadable owner keeps it.
+local function ReleaseButton(dialog)
+	if not ReleaseObject(dialog) or E.FrameCheck(dialog, "IsForbidden") then return end
+	local which = dialog.which
+	if E.Secret(which) then return end
+	if which ~= "DEATH" then return false end
+	local button = E.PlainCall(dialog.GetButton1, dialog)
+	if not ReleaseObject(button) then return end
+	local parent
+	if not E.FrameCheck(button, "IsForbidden") then
+		parent = E.PlainCall(button.GetParent, button)
+	end
+	return button, ReleaseObject(parent) and parent or nil
+end
+
+local function SameReleaseButton(guard, button, parent)
+	if button == nil then return end
+	if button ~= guard.button then return false end
+	if parent ~= nil then return parent == guard.parent end
+end
+
+local function OwnsReleaseButton(guard)
+	return SameReleaseButton(guard, ReleaseButton(guard.dialog))
+end
+
+local function CanChangeRelease(guard)
+	return ReleaseFrame(guard.dialog) and ReleaseFrame(guard.button) and ReleaseFrame(guard.parent)
+end
+
+local function ForgetReleaseCover(guard)
+	if guard.placeholder then guard.placeholder:Hide() end
+	if guard.hint then guard.hint:Hide() end
+end
+
+local function SetReleaseShown(guard, shown)
+	if OwnsReleaseButton(guard) ~= true or not CanChangeRelease(guard) then return false end
+	local button = guard.button
+	local current = E.PlainCall(button.IsShown, button)
+	if type(current) ~= "boolean" then return false end
+	if current == shown then return true end
+	if not shown then guard.ownedHidden = true end
+	guard.writing = true
+	pcall(button.SetShown, button, shown)
+	guard.writing = nil
+	return OwnsReleaseButton(guard) == true and E.PlainCall(button.IsShown, button) == shown
+end
+
+local function ClearReleaseGuard(guard, owner)
+	if guard.writing then return end
+	ForgetReleaseCover(guard)
+	guard.active = nil
+	if guard.ownedHidden and owner ~= false then
+		if owner ~= true then return end
+		if guard.nativeVisibilityUnknown then
+			if not CanChangeRelease(guard) or E.PlainCall(guard.button.IsShown, guard.button) ~= true then return end
+		elseif not SetReleaseShown(guard, true) then
+			return
+		end
+	end
+	guard.ownedHidden, guard.nativeVisibilityUnknown = nil, nil
+end
+
+local function ReleasePlaceholder(guard)
+	local button, parent, dialog = guard.button, guard.parent, guard.dialog
+	if E.FrameCheck(button, "IsAnchoringRestricted") or E.FrameCheck(parent, "IsAnchoringRestricted")
+		or E.FrameCheck(dialog, "IsAnchoringRestricted") then return end
+	local placeholder = guard.placeholder
+	if not placeholder then
+		placeholder = CreateFrame("Button", nil, parent)
+		placeholder:Hide()
+		E:SkinButton(placeholder)
+		placeholder:Disable()
+		local text = E:CreateText(placeholder, E.tokens.size.body, "CENTER")
+		text:SetAllPoints()
+		guard.placeholder, guard.text = placeholder, text
+		local hint = CreateFrame("Frame", nil, dialog)
+		hint:SetPoint("TOPLEFT", dialog, "BOTTOMLEFT", 0, -2)
+		hint:SetPoint("TOPRIGHT", dialog, "BOTTOMRIGHT", 0, -2)
+		hint.ignoreInLayout = true
+		E:SetPanelTemplate(hint)
+		hint:Hide()
+		guard.hint = hint
+		guard.hintText = E:CreateText(hint, E.tokens.size.small, "CENTER")
+		guard.hintText:SetPoint("TOPLEFT", 8, -6)
+		guard.hintText:SetPoint("TOPRIGHT", -8, -6)
+		guard.hintText:SetWordWrap(true)
+	end
+	if guard.anchor ~= button or guard.anchorParent ~= parent then
+		if placeholder:GetParent() ~= parent then placeholder:SetParent(parent) end
+		placeholder:SetAllPoints(button)
+		guard.anchor, guard.anchorParent = button, parent
+	end
+	return placeholder
+end
+
+local function ApplyReleaseGuard(guard)
+	local button = guard.button
+	local shown = E.PlainCall(button.IsShown, button)
+	if guard.nativeVisibilityUnknown then
+		if shown ~= true then ForgetReleaseCover(guard) return end
+		guard.ownedHidden, guard.nativeVisibilityUnknown = nil, nil
+	end
+	local held = E.PlainCall(IsShiftKeyDown)
+	local enabled = E.PlainCall(button.IsEnabled, button)
+	local text = E.PlainCall(button.GetText, button)
+	if type(held) ~= "boolean" or type(shown) ~= "boolean"
+		or type(enabled) ~= "boolean" or type(text) ~= "string" then
+		ClearReleaseGuard(guard, OwnsReleaseButton(guard))
+		return
+	end
+	if held or not (shown or guard.ownedHidden) then
+		ForgetReleaseCover(guard)
+		if guard.ownedHidden then
+			if SetReleaseShown(guard, true) then guard.ownedHidden = nil
+			else ClearReleaseGuard(guard, OwnsReleaseButton(guard)) end
+		end
+		return
+	end
+	local placeholder = ReleasePlaceholder(guard)
+	if not placeholder or not SetReleaseShown(guard, false) then
+		ClearReleaseGuard(guard, OwnsReleaseButton(guard))
+		return
+	end
+	if guard.text:GetText() ~= text then guard.text:SetText(text) end
+	local hint = L["Hold Shift to release your spirit."]
+	if guard.hintText:GetText() ~= hint then guard.hintText:SetText(hint) end
+	local height = guard.hintText:GetStringHeight() + 12
+	if guard.hint:GetHeight() ~= height then guard.hint:SetHeight(height) end
+	if not placeholder:IsShown() then placeholder:Show() end
+	if not guard.hint:IsShown() then guard.hint:Show() end
+end
+
+local function WatchReleaseButton(guard, button, parent)
+	if guard.button and releaseButtons[guard.button] == guard then releaseButtons[guard.button] = false end
+	local watched = releaseButtons[button] ~= nil
+	guard.button, guard.parent = button, parent
+	releaseButtons[button] = guard
+	if watched then return end
+
+	local function Current()
+		local current = releaseButtons[button]
+		if current and current.button == button and not current.writing and (current.active or current.ownedHidden) then
+			return current
+		end
+	end
+	local function Changed(requested)
+		local current = Current()
+		if not current then return end
+		local owner = OwnsReleaseButton(current)
+		if owner ~= false then
+			local shown = owner and E.PlainCall(button.IsShown, button)
+			if requested ~= nil and type(shown) == "boolean" and requested == shown then
+				-- The native owner has superseded the visibility lease.
+				current.ownedHidden, current.nativeVisibilityUnknown = nil, nil
+			elseif (type(shown) ~= "boolean" or requested == nil) and current.ownedHidden then
+				-- An unreadable native write may be newer than our hide.
+				current.nativeVisibilityUnknown = true
+			end
+		end
+		RefreshReleaseGuards(current.dialog, current)
+	end
+	hooksecurefunc(button, "Show", function() Changed(true) end)
+	hooksecurefunc(button, "Hide", function() Changed(false) end)
+	hooksecurefunc(button, "SetShown", function(_, shown)
+		shown = E.Plain(shown)
+		if type(shown) ~= "boolean" then shown = nil end
+		Changed(shown)
+	end)
+	hooksecurefunc(button, "SetText", function()
+		local current = Current()
+		if current then RefreshReleaseGuards(current.dialog, current) end
+	end)
+end
+
+local function UpdateReleaseGuard(dialog, guard)
+	if guard and guard.writing then return end
+	local button, parent = ReleaseButton(dialog)
+	local allowed = button and ReleaseFrame(dialog) and ReleaseFrame(button) and ReleaseFrame(parent) and ReleaseAllowed(dialog)
+	if guard and guard.button then
+		local owner = SameReleaseButton(guard, button, parent)
+		if owner ~= true or not allowed then
+			ClearReleaseGuard(guard, owner)
+			if owner ~= false then return end
+		end
+	end
+	if not allowed then return end
+	if not guard then
+		guard = { dialog = dialog }
+		releaseGuards[dialog] = guard
+	end
+	if guard.button ~= button or guard.parent ~= parent then WatchReleaseButton(guard, button, parent) end
+	guard.active = true
+	ApplyReleaseGuard(guard)
+end
+
+local function SyncReleaseListeners()
+	local needed = false
+	for _, guard in pairs(releaseGuards) do
+		if guard.active or guard.ownedHidden then needed = true break end
+	end
+	if needed == releaseListening then return end
+	releaseListening = needed
+	for _, event in ipairs(releaseEventNames) do
+		if needed then E:RegisterEvent(event, function() RefreshReleaseGuards() end, releaseEvents)
+		else E:UnregisterEvent(event, releaseEvents) end
+	end
+end
+
+local function RefreshAllReleaseGuards()
+	for dialog, guard in pairs(releaseGuards) do UpdateReleaseGuard(dialog, guard) end
+	if ReleaseEnabled() then
+		for i = 1, POPUP_COUNT do
+			local dialog = Popup(i)
+			if ReleaseObject(dialog) and not releaseGuards[dialog] then UpdateReleaseGuard(dialog) end
+		end
+	end
+end
+
+RefreshReleaseGuards = function(dialog, guard)
+	if refreshingRelease then return end
+	refreshingRelease = true
+	if guard then Try(UpdateReleaseGuard, dialog, guard)
+	else Try(RefreshAllReleaseGuards) end
+	refreshingRelease = nil
+	SyncReleaseListeners()
+end
+
+function M:ClearReleaseGuards()
+	for _, guard in pairs(releaseGuards) do ClearReleaseGuard(guard, OwnsReleaseButton(guard)) end
+	SyncReleaseListeners()
+end
+
 -- Type DELETE into the delete-item pop-up. The Yes button stays yours.
 local function FillDelete(dialog)
 	if not (Allowed("dialogs", "improve") and M.db.fillDelete) then return end
@@ -999,11 +1264,12 @@ local function ScalePopup(dialog)
 end
 
 local function OnPopupShow(dialog)
-	if not M.active then return end
+	if not M.active then RefreshReleaseGuards() return end
 	SkinPopup(dialog)
 	ScalePopup(dialog)
 	FillDelete(dialog)
 	ShowDeleteContext(dialog)
+	RefreshReleaseGuards()
 end
 
 local function ApplyDialogs()
@@ -1015,6 +1281,7 @@ local function ApplyDialogs()
 					dialog:HookScript("OnShow", OnPopupShow)
 					dialog:HookScript("OnHide", function(self)
 						if contextStrips[self] then contextStrips[self]:Hide() end
+						RefreshReleaseGuards()
 					end)
 				end
 			end
@@ -1033,6 +1300,7 @@ local function ApplyDialogs()
 		end
 	end
 	PositionPopups()
+	RefreshReleaseGuards()
 	SkinColorPicker()
 	SkinStackSplit()
 end
@@ -1040,8 +1308,8 @@ end
 local TEST_POPUP_TEXT = E.Key("EldoUI test pop-up. This is how pop-ups look and where they appear.")
 StaticPopupDialogs.ELDOUI_SYSTEM_TEST = { -- luacheck: ignore 122 (popups are registered this way)
 	text = TEST_POPUP_TEXT,
-	button1 = OKAY or L["Okay"],
-	button2 = CANCEL or L["Cancel"],
+	button1 = E:GameText(OKAY, L["Okay"]),
+	button2 = E:GameText(CANCEL, L["Cancel"]),
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -1104,6 +1372,7 @@ end
 
 -- Put everything back: the recorded skins come off, the extras go.
 function M:Restore()
+	RefreshReleaseGuards()
 	for _, key in pairs(RECORDS) do E:SkinRecordOff(key) end
 	Try(UpdateMenuButton)
 	Try(RefreshAddonRows)
@@ -1128,11 +1397,13 @@ function M:OnEnable()
 end
 
 function M:OnDisable()
+	self:ClearReleaseGuards()
 	E:RunOutOfCombat(function() M:Restore() end)
 end
 
 function M:OnProfileChanged()
 	if not self.active then return end
+	RefreshReleaseGuards()
 	E:RunOutOfCombat(function()
 		if M.active then M:Apply() end
 	end)
@@ -1241,8 +1512,11 @@ M.options = {
 		desc = L["Flat panel and buttons for the color picker."], disabled = E:BlizzardNeeds("dialogs", "skin") },
 	{ type = "toggle", key = "skinStackSplit", label = "EldoUI look for stack splitting",
 		desc = L["Flat panel and buttons for the split-stack box."], disabled = E:BlizzardNeeds("dialogs", "skin") },
-	{ type = "toggle", key = "fillDelete", label = "Type DELETE for me",
-		desc = L["Fills in the word on the 'delete this item' pop-up. You still press Yes yourself; EldoUI never confirms a pop-up."], disabled = E:BlizzardNeeds("dialogs", "improve") },
+	{ type = "toggle", acts = true, key = "fillDelete", label = "Fill in DELETE automatically",
+		desc = L["Fills in the word on the 'delete this item' pop-up. You still press Yes yourself; EldoUI never confirms a pop-up. Off by default."], disabled = E:BlizzardNeeds("dialogs", "improve") },
+	{ type = "toggle", key = "holdShiftRelease", label = "Hold Shift to release in instances",
+		desc = "In dungeons and raids, hold Shift before pressing Release Spirit. The game must also allow release. Does not apply in Hardcore.",
+		disabled = E:BlizzardNeeds("dialogs", "improve") },
 	{ type = "toggle", key = "deleteContext", label = "Quest context when deleting",
 		desc = L["Under the 'delete this item' pop-up: which quest the item belongs to or starts, and whether you are on it. Text only; you still decide."], disabled = E:BlizzardNeeds("dialogs", "improve") },
 	{ type = "toggle", key = "popupMover", label = "Pop-ups follow their mover",
@@ -1257,7 +1531,7 @@ M.options = {
 		end },
 
 	{ type = "tab", label = "Shop" },
-	{ type = "description", label = "The shop, help, report and GM windows run in Blizzard's secure environment. EldoUI never skins or moves them." },
+	{ type = "description", label = "The shop, help, report and GM windows always keep the game's own look and place." },
 	{ type = "toggle", key = "hideStoreButton", label = "Hide the Shop micro button",
 		desc = L["Removes the Shop button from Blizzard's micro menu. The shop stays reachable from the game menu."], disabled = E:BlizzardNeeds("shop-help-report", "hide") },
 }
@@ -1284,7 +1558,7 @@ end
 E:RegisterStyles("SystemUI", {
 	{ key = "EldoUI", title = "EldoUI", desc = "Every window in the EldoUI look, solid panels, all helpers on, normal size.",
 		settings = Style(ALL_SKINS, { transparent = false, menuButton = true, addonConflicts = true, quickKeybindEldo = true,
-			quickKeybindPresets = true, clickCastLine = true, fillDelete = true, popupMover = true, scale = Scales(1) }) },
+			quickKeybindPresets = true, clickCastLine = true, popupMover = true, scale = Scales(1) }) },
 	{ key = "Glass", title = "Glass", desc = "The EldoUI look with see-through panels.",
 		settings = Style(ALL_SKINS, { transparent = true, menuButton = true, addonConflicts = true, scale = Scales(1) }) },
 	{ key = "Compact", title = "Compact", desc = "EldoUI look, pop-ups a little smaller for small screens. Window sizes are on the Move windows page.",
@@ -1293,8 +1567,15 @@ E:RegisterStyles("SystemUI", {
 		settings = Style(ALL_SKINS, { transparent = false, scale = Scales(1.15) }) },
 	{ key = "BlizzardPlus", title = "Blizzard plus", desc = "Blizzard's own look, with EldoUI's helpers: menu button, conflict tags, presets and DELETE.",
 		settings = Style(NO_SKINS, { menuButton = true, addonConflicts = true, quickKeybindEldo = true,
-			quickKeybindPresets = true, clickCastLine = true, fillDelete = true, scale = Scales(1) }) },
+			quickKeybindPresets = true, clickCastLine = true, scale = Scales(1) }) },
 	{ key = "Minimal", title = "Minimal", desc = "EldoUI look only: no extra buttons, strips or tags.",
 		settings = Style(ALL_SKINS, { menuButton = false, addonConflicts = false, quickKeybindPresets = false,
 			clickCastLine = false, scale = Scales(1) }) },
 })
+
+-- Filling in DELETE acts for the player: listed for the setup's Convenience
+-- step and the Conveniences page (Core/Conveniences.lua), off until ticked.
+E:RegisterConvenience({ id = "fillDelete", module = "SystemUI", setting = "fillDelete", order = 180,
+	label = "Fill in DELETE automatically",
+	desc = "Acts for you: the word the game asks for before you destroy a rare item or a quest item is typed in. You still press Yes yourself.",
+	blocked = function() return E:BlizzardNeedsReason("dialogs", "improve") end })
