@@ -16,7 +16,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (Forever hat Weltbuffs, laut Nutzer) | mittel | umgesetzt | `2b77920` |
-| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen | mittel | offen | |
+| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen (Wunsch des Nutzers) | mittel | umgesetzt | `597197f` |
 | B6 | Signal, wenn Essen und Trinken fertig sind (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
 | B7 | Taschen fast voll: früher Hinweis und Liste „Platz schaffen“ | klein–mittel | offen | |
 | B8 | Quest-EP hinter jedem Titel im Questlog (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
@@ -39,12 +39,15 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | `d83f389` |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B5, B7, B11, B12, C1 (Rest), E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B7, B11, B12, C1 (Rest), E1.
 **Stand 16.11.2026:** B5 bis B12 kommen aus einer Suche nach QoL-Lücken (Abschnitt B, „QoL-Vorschläge“). Der Nutzer
 hat B6, B8 und B10 gewählt. B9 wartet, bis er Stufe 60 erreicht und Gruppeninhalte spielt (seine Auskunft). Bei B11
 erst im Spiel prüfen, ob Forever schon von selbst absitzt. B6 und B8 sind neue Dateien in der `EldoUI.toc`: Nach dem
 Kopieren das Spiel ganz neu starten, denn `/reload` liest die Dateiliste nicht neu (wie bei C6). Ohne Neustart fehlen
 nur die beiden Funktionen, Fehler gibt es keine, weil nichts in `QoL.lua` sie aufruft.
+Danach wählte der Nutzer B5. Auch B5 ist eine neue Datei in der TOC, dazu kommen neue Einträge in `Bindings.xml`:
+wieder das Spiel ganz neu starten. Die zwei offenen Fragen zu B8 (eigene EP je Quest, Häkchen) prüft der Nutzer am
+Abend des 16.11. im Spiel.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
@@ -284,6 +287,86 @@ Geprüft und verworfen:
 - Herbeirufen oder Wiederbeleben automatisch annehmen: gegen die Fair-Play-Regel. Die Abfragen gibt es schon.
 - Entfernung zum Ziel in Metern: Reichweiten-Abfragen sind im Kampf eingeschränkt. Das Fadenkreuz nutzt schon die
   Reichweitenprüfung des Spiels.
+
+**B5 – Leiste mit Questgegenständen (umgesetzt):**
+- Neu: Modul „Quest Item Bar“, deutsch „Questgegenstandsleiste“ (`Modules/QuestBar.lua`). Es steht in der
+  Kategorie „Quality of Life“ und ist standardmäßig an.
+- Jeder benutzbare Questgegenstand aus den Taschen bekommt einen Platz, höchstens 12. Ein Klick oder die Taste des
+  Platzes benutzt ihn, über Blizzards sichere Aktion „item“. Ohne Klick oder Tastendruck passiert nichts.
+- Welche Gegenstände, in der Reihenfolge der Taschen, jeder nur einmal:
+  - Der Gegenstand, den das Questlog für eine Quest nennt (`GetQuestLogSpecialItemInfo`), solange er in der Tasche
+    liegt. Bei einer Quest, die zum Abgeben bereit ist, nur wenn das Spiel ihn dafür behält
+    (`showWhenComplete`) oder „Auch abgeschlossene Quests“ an ist.
+  - Gegenstände, die das Spiel als Questgegenstand markiert (`GetContainerItemQuestInfo`) oder deren Klasse
+    „Quest“ ist (12). Sie brauchen eine Benutzung: einen Zauber (`GetItemSpell`) oder einen Inhalt zum Öffnen
+    (`hasLoot`). Reine Questbeute wie Felle bleibt weg, ebenso Tränke.
+  - Gegenstände, die eine Quest beginnen, die Ihr nicht habt und nicht erledigt habt, mit dem „!“ der Taschen.
+    Der Schalter „Gegenstände, die Quests beginnen“ nimmt sie heraus.
+- Umschalt-Rechtsklick nimmt einen Gegenstand von der Leiste, mit einer Chatzeile. „Ausgeblendete Gegenstände
+  zeigen“ holt alle zurück. Ein normaler Rechtsklick tut nichts, so wird beim Ausblenden nichts benutzt.
+- Regeln:
+  - Welcher Gegenstand auf welchem Platz liegt, welche Plätze zu sehen sind, Größe und Lage ändern sich nur
+    außerhalb des Kampfs (`E:RunOutOfCombat`). Im Kampf behalten die Plätze ihre Gegenstände. Anzahl und
+    Abklingzeit laufen weiter, ein verbrauchter Gegenstand wird grau. Am Kampfende liest die Leiste die Taschen neu.
+  - Jede Antwort des Spiels läuft über `pcall`. Eine geheime Antwort zählt als „nicht da“ und wird nie verglichen.
+  - Die Abklingzeit kommt aus der gemeinsamen Quelle des Kampf-Kits, wie bei der Verbrauchsgüterleiste.
+  - Reichweite: rotes Symbol, wenn das Spiel „außer Reichweite“ meldet (`IsQuestLogSpecialItemInRange`). Das gibt es
+    nur für die Gegenstände des Questlogs und nur, solange einer davon zu sehen ist (fünfmal pro Sekunde).
+  - Bündel von Taschen- und Quest-Events werden einmal gelesen (0,2 s). Bringt ein Event dieselben Gegenstände,
+    wird nichts neu gesetzt.
+- Einstellungen: Starter, abgeschlossene Quests, „Ausgeblendete Gegenstände zeigen“, „Tasten belegen“
+  (Tastenbelegungsmodus mit allen 12 Plätzen), Tastentext, Größe, Abstand, vertikal, Anzahlen, Farbe außer
+  Reichweite, Leuchten bei neuem Gegenstand, Masque, dazu die gemeinsamen Sichtbarkeitsregeln.
+- Tastenbelegung: 12 Einträge „Questgegenstand 1 … 12“ unter „EldoUI Questgegenstandsleiste“ im Tastenbelegungsfenster
+  (`Bindings.xml`). Platz 1 hält den ersten Questgegenstand in den Taschen, und so weiter.
+- Mover „Questgegenstandsleiste“ unten rechts über dem Extra-Aktionsknopf, in der Gruppe „Aktionsleisten“ und im
+  Kampfmodus. Gruppe und Kampfmodus gibt das Modul beim Anlegen des Movers an (`E:CreateMover`, `opts.group` und
+  `opts.combat`). Die Kategorie setzt die Optionsseite in die Gruppe „Quality of Life“. So braucht es keine Einträge in
+  `Movers.lua` oder `Config.lua`.
+- Upstream-Dateien (D1): nur eine Zeile in `EldoUI.toc` und 12 Zeilen in `Bindings.xml`.
+- Die Schaltfläche für Questgegenstand der Questverfolgung bleibt, wie sie ist. Sie hält den Gegenstand der verfolgten
+  Quest auf ihrer eigenen Taste. Dieser Gegenstand steht deshalb auch auf der Leiste.
+- Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (23 Texte). „Keys“ heißt im Paket schon „Schlüssel“, deshalb
+  heißt der Abschnitt „Keybinds“ („Tastenbelegungen“).
+- Test: `tools/questbar/test_quest_bar.lua` (läuft in `tools/ci/check_all.sh tests`, 142 Prüfungen). Er lädt die
+  Datei ganz, dazu EldoUIs echtes `Core/Safe.lua` (geheime Werte) und `Core/BagCache.lua` (Taschen). Ein sicherer
+  Knopf, der im Kampf gezeigt, versteckt, verschoben oder mit einem Attribut versehen wird, zählt als blockiert, wie
+  im Spiel. Geprüft werden:
+  - Welche Gegenstände kommen, in welcher Reihenfolge, einer pro Gegenstand, höchstens 12.
+  - Abgeschlossene Quests mit und ohne `showWhenComplete` und Schalter, Starter an und aus, erledigte und
+    angenommene Quests.
+  - Geheime oder fehlerhafte Antworten, die Leiste ohne Gegenstände und im Verschiebemodus.
+  - Kampf: nichts blockiert, Änderungen kommen am Kampfende. Dieselben Gegenstände werden nicht neu gesetzt.
+  - Ein Lesen pro Bündel von Events, Layout waagrecht und senkrecht.
+  - Anzahl, Aufladungen, „!“, Tastentext, Abklingzeiten, Reichweitenfarbe (auch abgeschaltet), Leuchten nur für Neues.
+  - Umschalt-Rechtsklick auch im Kampf, Tasten belegen, Tooltip, Modul aus im Kampf, Masque.
+  - Namen der Tastenbelegungen, Standards, Optionen.
+  - Gegenprobe: Drei absichtlich eingebaute Fehler (kein Kampfschutz, keine Benutzung nötig, Reichweite trotz
+    Schalter) lassen den Test fehlschlagen.
+- Grenzen:
+  - Gegenstände, die eine Quest braucht, die das Spiel aber weder als Questgegenstand markiert noch dem Questlog
+    zuordnet, fehlen. Ein Beispiel wäre ein normales Verbrauchsgut, das man für eine Quest auf ein Ziel anwendet.
+    Die Questdaten des Loot Guides kennen solche Gegenstände, würden aber auch Tränke und Stoffe bringen, die eine
+    Quest nur abholt.
+  - Ein Questgegenstand mit Benutzung, dessen Quest schon erledigt ist, bleibt, bis man ihn wegwirft oder ausblendet.
+  - Reichweite gibt es nur für die Gegenstände des Questlogs. Für andere Gegenstände ist die Reichweitenabfrage im
+    Kampf eingeschränkt.
+- Im Spiel prüfen (nach einem Neustart des Spiels, siehe „Stand 16.11.2026“):
+  - Mit einem benutzbaren Questgegenstand in der Tasche: Die Leiste erscheint unten rechts über dem Extra-Knopf, mit
+    dem Symbol. Ein Klick benutzt ihn (z. B. auf ein Ziel oder einen Ort).
+  - Ein Gegenstand, der eine Quest beginnt: Er steht mit „!“ auf der Leiste. Ein Klick öffnet das Questfenster.
+  - Quest annehmen, Gegenstand plündern, Quest abgeben: Die Leiste passt sich an. Ein neuer Gegenstand leuchtet kurz.
+  - Im Kampf einen Questgegenstand plündern: Er erscheint erst nach dem Kampf. Danach `/eui errors`: kein
+    „Blocked …“-Eintrag.
+  - Optionen › Questgegenstandsleiste › „Tasten belegen“: alle 12 Plätze sind zu sehen. Eine Taste auf Platz 1
+    legen, speichern, danach benutzt die Taste den ersten Gegenstand, auch im Kampf.
+  - Umschalt-Rechtsklick auf einen Platz: Der Gegenstand verschwindet, mit einer Chatzeile. „Ausgeblendete
+    Gegenstände zeigen“ holt ihn zurück.
+  - Mit einem Ziel außer Reichweite eines Questlog-Gegenstands: Das Symbol wird rot.
+  - Tooltip: Bei Questlog-Gegenständen der Gegenstand mit Questbezug, sonst der Gegenstand aus der Tasche, darunter
+    die Taste und der Hinweis zum Ausblenden.
+  - `/eui move`: Die Leiste lässt sich unter „Aktionsleisten“ verschieben.
+  - Danach `/eui errors`: keine Lua-Fehler.
 
 **B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
 - Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
