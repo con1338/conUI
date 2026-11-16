@@ -7,18 +7,23 @@
 -- stand-ins for the QoL module, the bags, the item API, the cursor, the
 -- combat lockdown, the alert cards, item protection and the Merchant's
 -- "never sell" list.
--- Checked: when the card comes (a drop to the limit, not at login, once
--- until more than the limit is free again, after combat for a drop in
--- combat, not when freed in combat), that it follows the bags while it
--- shows and goes away once there is room; which items "Make room" lists
--- (gray first, then by what the stack sells for, five at most) and which
--- it leaves out (protected, no vendor price, locked, equipment sets,
+-- Checked: when the card comes (a drop to the limit, not at login or right
+-- after a loading screen, once until more than the limit is free again,
+-- after combat for a drop in combat, not when freed in combat, not again
+-- after another setting of the page changed; anew with a new profile or
+-- limit); that it follows the bags while it shows or waits, catches up
+-- after combat and goes away once there is room (not one sliding out); that
+-- it is always a card, also without lines; the card asked for with
+-- /eui room or Show now, which stays with room; which items "Make room"
+-- lists (gray first, then by what the stack sells for, five at most) and
+-- which it leaves out (protected, no vendor price, locked, equipment sets,
 -- refundable, "never sell", food and potions, reagents, ammo, recipes,
 -- quivers, quest items, keys, items in profession bags, secret links);
--- picking an item up (only with an empty cursor, from where it is now, the
--- hint once a session); the sound; the switch, the limit, a new profile,
--- the module turned off; /eui room and Show now; defaults, Minimal and
--- options.
+-- picking an item up (only with an empty cursor, from where it is now and
+-- only a copy that passes the checks, the hint once a session); the sound;
+-- the switch, the module turned off; defaults, Minimal and options. The
+-- notice queue is modeled as far as the part sees it (E:NoticeQueue,
+-- E:DismissAlert, the lane for alerts without lines).
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/qol/") or "./"
 
 local function ReadFile(path)
@@ -110,6 +115,7 @@ C_Item = {
 	end,
 }
 function CursorHasItem() return world.cursor end
+function GetCursorInfo() return world.cursorInfo end
 function InCombatLockdown() return world.combat end
 function GetTime() return world.now end
 function wipe(t)
@@ -125,20 +131,35 @@ local test
 
 local function Setup()
 	world = { now = 100, combat = false, cursor = false, items = {}, bags = {}, protected = {}, neverSell = {},
-		pickups = {}, printed = {}, alerts = {}, dismissed = {}, cards = {}, events = {}, callbacks = {} }
+		pickups = {}, printed = {}, alerts = {}, dismissed = {}, cards = {}, waiting = {}, lane = {}, events = {}, newCards = 0 }
 	test = { parts = {}, options = {}, commands = {} }
 	local L = setmetatable({}, { __index = function(_, key) return key end })
 	local E = { L = L, modules = {} }
 	local M = { name = "QoL", defaults = {}, active = false }
 	function M:AddPart(name, hooks) test.parts[name] = hooks end
 	function M:AddOptions(tab, rows) test.options[#test.options + 1] = { tab = tab, rows = rows } end
+	-- EldoUI's notice queue as far as the part sees it (Core/Alerts.lua): an
+	-- alert without lines or buttons that is not closable goes to the alert
+	-- lane as a toast; the rest become cards, three on screen, the others
+	-- wait. A key refreshes the card on screen or the waiting one (not one
+	-- that slides out).
 	function M:PushAlert(data)
 		table.insert(world.alerts, data)
-		-- The card shows (a card with the same key is refreshed).
-		for index, card in ipairs(world.cards) do
-			if card.data.key == data.key then table.remove(world.cards, index) break end
+		local hasLines = type(data.lines) == "table" and #data.lines > 0
+		if not hasLines and not data.closable then
+			table.insert(world.lane, data)
+			return
 		end
-		table.insert(world.cards, { data = data, IsShown = function() return true end })
+		for _, list in ipairs({ world.cards, world.waiting }) do
+			for _, entry in ipairs(list) do
+				if not entry.closing and entry.data.key == data.key then
+					entry.data = data
+					return
+				end
+			end
+		end
+		world.newCards = world.newCards + 1
+		table.insert(#world.cards < 3 and world.cards or world.waiting, { data = data })
 	end
 	function E:GetModule(name) if name == "QoL" then return M end end
 	E.styles = { QoL = { { key = "Minimal", settings = {} }, { key = "Default", settings = {} } } }
@@ -146,17 +167,27 @@ local function Setup()
 	function E:UnregisterEvent(event, owner) world.events[event .. ":" .. tostring(owner)] = nil end
 	function E:DismissAlert(key)
 		table.insert(world.dismissed, key)
-		for index = #world.cards, 1, -1 do
-			if world.cards[index].data.key == key then table.remove(world.cards, index) end
+		for _, list in ipairs({ world.cards, world.waiting }) do
+			for index = #list, 1, -1 do
+				if not list[index].closing and list[index].data.key == key then table.remove(list, index) end
+			end
 		end
 	end
-	function E:AlertCards() return world.cards, {} end
+	function E:NoticeQueue()
+		local shown, waiting = {}, {}
+		for _, entry in ipairs(world.cards) do shown[#shown + 1] = { holder = "card", data = entry.data, closing = entry.closing } end
+		for _, entry in ipairs(world.waiting) do waiting[#waiting + 1] = { holder = "card", data = entry.data } end
+		return { holders = { "card" }, shown = shown, waiting = waiting }
+	end
 	function E:EconomyMoney(copper) return copper .. "c" end
 	function E:Print(text) table.insert(world.printed, text) end
 	function E:AddCommand(name, usage, fn, group) test.commands[name] = { usage = usage, fn = fn, group = group } end
 	function E:ModuleOffHint(name) return "off: " .. name end
 	E.Key = function(text) return text end
-	function E:IsItemProtected(itemID) return world.protected[itemID] == true end
+	function E:IsItemProtected(itemID, bag, slot)
+		world.protectArgs = { itemID, bag, slot }
+		return world.protected[itemID] == true
+	end
 	E.modules.Merchant = { db = {} }
 	function E.modules.Merchant:NeverSell(itemID) return world.neverSell[itemID] == true end
 	SAFE(nil, E)
@@ -180,9 +211,12 @@ local function Settle()
 	if delayed then delayed() end
 end
 
-local function Enable(M)
+-- Turn the part on; unless `settling`, the bags have settled since (the
+-- first seconds after login don't count).
+local function Enable(M, settling)
 	M.active = true
 	test.parts.BagSpace.enable(M)
+	if not settling then world.now = world.now + 10 end
 end
 
 local function EndCombat()
@@ -220,6 +254,7 @@ local function Item(id, fields)
 end
 
 local function LastAlert() return world.alerts[#world.alerts] end
+local function OurCard() return { data = { key = "QoL:bagSpace" } } end
 local function LineIDs(data)
 	local ids = {}
 	for _, line in ipairs(data.lines or {}) do ids[#ids + 1] = tostring(line.text:match("item:(%d+)")) end
@@ -313,7 +348,7 @@ do
 	Check(#world.alerts == 2, "a further drop after the card closed: no new card")
 	SetFree(3)
 	Check(#world.alerts == 2, "back to the limit from below: none")
-	world.cards = { { data = { key = "QoL:bagSpace" }, IsShown = function() return true end } }
+	world.cards = { OurCard() }
 	SetFree(4)
 	Check(world.dismissed[#world.dismissed] == "QoL:bagSpace" and #world.cards == 0, "room again: the card goes away")
 	SetFree(3)
@@ -343,22 +378,31 @@ do
 	SetFree(3)
 	Check(#world.alerts == 0 and M.BagSpaceState().pending == true, "a drop in combat: no card yet")
 	EndCombat()
-	Check(#world.alerts == 1, "combat over: the card")
+	Check(#world.alerts == 1 and world.newCards == 1, "combat over: the card")
 	EndCombat()
-	Check(#world.alerts == 1, "only once")
+	Check(world.newCards == 1, "only once")
 	SetFree(6)
 	world.combat = true
 	SetFree(2)
 	SetFree(5)
 	EndCombat()
-	Check(#world.alerts == 1, "room again before combat ended: no card")
-	world.cards = { { data = { key = "QoL:bagSpace" }, IsShown = function() return true end } }
+	Check(world.newCards == 1 and #world.cards == 0, "room again before combat ended: no card")
+	world.cards = { OurCard() }
 	world.combat = true
+	local before = #world.alerts
 	SetFree(3)
 	SetFree(2)
-	Check(#world.alerts == 1, "in combat the shown card is not refreshed")
+	Check(#world.alerts == before, "in combat the shown card is not refreshed")
 	EndCombat()
-	Check(#world.alerts == 2, "after combat it comes")
+	Check(#world.alerts == before + 1 and LastAlert().title == "Bags almost full" and LastAlert().text:find("left: 2.", 1, true),
+		"after combat it comes")
+	-- A card that is up while the hint is used up: it catches up after combat.
+	world.combat = true
+	SetFree(1)
+	Check(#world.alerts == before + 1, "a further drop in combat: nothing yet")
+	EndCombat()
+	Check(#world.alerts == before + 2 and LastAlert().text:find("left: 1.", 1, true) and LastAlert().sound == nil,
+		"after combat the card shows the bags as they are, quietly")
 end
 
 -- The sound.
@@ -381,7 +425,8 @@ do
 	Bags(3, { { id = 5000 } })
 	Enable(M)
 	M:ShowBagSpace(true)
-	Check(#LastAlert().lines == 0 and LastAlert().text:find("Nothing cheap to part with", 1, true), "nothing to part with: it says why")
+	Check(#LastAlert().lines == 0 and LastAlert().text:find("Nothing to offer", 1, true), "nothing to part with: it says why")
+	Check(LastAlert().closable == true and #world.lane == 0 and #world.cards == 1, "without lines it is still a card, not a toast in the lane")
 end
 
 -- Picking an item up.
@@ -400,7 +445,12 @@ do
 	Check(world.pickups[2] == "0:2" and #world.printed == 1, "the hint only once a session")
 	world.cursor = true
 	lines[3].func()
-	Check(#world.pickups == 2 and world.printed[2] == "Put down the item on your cursor first.", "something on the cursor: nothing picked up")
+	Check(#world.pickups == 2 and world.printed[2] == "Clear your cursor first.", "an item on the cursor: nothing picked up")
+	world.cursor = false
+	world.cursorInfo = "money"
+	lines[3].func()
+	Check(#world.pickups == 2 and world.printed[3] == "Clear your cursor first.", "money on the cursor: nothing picked up")
+	world.cursorInfo = nil
 	world.cursor = false
 	world.bags[0][19] = world.bags[0][4] -- the trade goods moved
 	world.bags[0][4] = nil
@@ -427,17 +477,18 @@ do
 	SetFree(2)
 	Check(#world.alerts == 1, "switched on: the next drop brings it")
 	M.db.bagSpaceFree = 6
+	world.cards = {} -- the card closed
 	test.parts.BagSpace.profile(M)
 	Check(#world.alerts == 1, "a new limit starts from the bags as they are")
 	SetFree(1)
-	Check(#world.alerts == 2, "and works from there")
-	world.cards = { { data = { key = "QoL:bagSpace" }, IsShown = function() return true end } }
+	Check(#world.alerts == 2 and world.newCards == 2, "and works from there")
+	world.cards = { OurCard() }
 	M.db.bagSpace = false
 	test.parts.BagSpace.profile(M)
 	Check(#world.cards == 0, "switched off: the card goes")
 	M.db.bagSpace = true
 	test.parts.BagSpace.profile(M)
-	world.cards = { { data = { key = "QoL:bagSpace" }, IsShown = function() return true end } }
+	world.cards = { OurCard() }
 	M.active = false
 	test.parts.BagSpace.disable(M)
 	Check(#world.cards == 0 and M.BagSpaceState() == nil, "module off: the card goes, the state too")
@@ -445,6 +496,118 @@ do
 	local count = #world.alerts
 	SetFree(0)
 	Check(#world.alerts == count, "module off: the bags wake nothing")
+end
+
+-- The card asked for with /eui room: it follows the bags, stays with room.
+do
+	local M = Setup()
+	StandardWorld()
+	SetFree(8)
+	Enable(M)
+	test.commands.room.fn()
+	Check(LastAlert().title == "Make room" and world.newCards == 1, "/eui room: a card titled Make room")
+	SetFree(7)
+	Check(#world.alerts == 2 and #world.cards == 1 and LastAlert().title == "Make room" and LastAlert().text:find("left: 7.", 1, true),
+		"with many free slots it follows the bags and stays")
+	SetFree(8)
+	Check(#world.cards == 1 and LastAlert().text:find("left: 8.", 1, true), "more room: it still stays")
+	SetFree(3)
+	Check(LastAlert().title == "Bags almost full" and LastAlert().sound == nil and #world.cards == 1,
+		"the hint takes its place when the bags get full")
+	SetFree(4)
+	Check(#world.cards == 0, "and the hint goes once there is room")
+	M.db.bagSpace = false
+	test.parts.BagSpace.profile(M)
+	test.commands.room.fn()
+	SetFree(5)
+	Check(#world.cards == 1 and LastAlert().text:find("left: 5.", 1, true), "with the hint off, the card asked for still follows the bags")
+	world.cards = {}
+	SetFree(6)
+	Check(#world.alerts == 6, "a closed card is not brought back")
+end
+
+-- A card waiting for its turn, and one that slides out.
+do
+	local M = Setup()
+	StandardWorld()
+	SetFree(5)
+	Enable(M)
+	world.cards = { { data = { key = "a" } }, { data = { key = "b" } }, { data = { key = "c" } } }
+	SetFree(3)
+	Check(#world.waiting == 1 and world.waiting[1].data.key == "QoL:bagSpace", "behind three cards the hint waits")
+	SetFree(2)
+	Check(#world.waiting == 1 and world.waiting[1].data.text:find("left: 2.", 1, true) and world.newCards == 1,
+		"a waiting card follows the bags")
+	SetFree(4)
+	Check(#world.waiting == 0, "room again: the waiting card is dropped")
+	world.cards = { { data = { key = "QoL:bagSpace" }, closing = true } }
+	SetFree(3)
+	local count = #world.alerts
+	world.cards[2] = nil
+	SetFree(2)
+	Check(#world.alerts == count, "a card that slides out is not refreshed")
+end
+
+-- Other changes on the page, a new profile, a lower limit.
+do
+	local M = Setup()
+	StandardWorld()
+	SetFree(5)
+	Enable(M)
+	SetFree(2)
+	Check(world.newCards == 1, "the hint came")
+	world.cards = {}
+	test.parts.BagSpace.profile(M) -- another setting of the page changed
+	SetFree(1)
+	Check(world.newCards == 1, "another setting changed: the hint does not come again")
+	M.db = {}
+	for key, value in pairs(M.defaults) do M.db[key] = value end
+	test.parts.BagSpace.profile(M) -- a new profile
+	SetFree(0)
+	Check(world.newCards == 2, "a new profile starts anew")
+	SetFree(3)
+	Check(#world.cards == 1, "the card is up")
+	M.db.bagSpaceFree = 2
+	test.parts.BagSpace.profile(M)
+	Check(#world.cards == 0, "a limit lowered below the free slots: the card goes")
+end
+
+-- After login or a loading screen the bags settle first.
+do
+	local M = Setup()
+	StandardWorld()
+	SetFree(5)
+	Enable(M, true)
+	SetFree(3)
+	Check(world.newCards == 0, "a drop in the first seconds after login: no card")
+	world.now = world.now + 10
+	SetFree(2)
+	Check(world.newCards == 1, "later the next drop brings it")
+	SetFree(5)
+	world.events["PLAYER_ENTERING_WORLD:QoL:BagSpace"]()
+	SetFree(3)
+	Check(world.newCards == 1, "right after a loading screen: no card")
+end
+
+-- An item that moved: only a copy that passes the checks is picked up.
+do
+	local M = Setup()
+	StandardWorld()
+	SetFree(5)
+	Enable(M)
+	local entry = M:RoomCandidates()[3]
+	Check(entry.id == 3003 and entry.slot == 4, "the trade goods in slot 4")
+	Check(world.protectArgs and world.protectArgs[2] == 0 and type(world.protectArgs[3]) == "number", "protection is asked with bag and slot")
+	world.bags[0][4] = nil
+	world.bags[0][25] = { id = 3003, set = true }
+	world.bags[1][2] = { id = 3003 }
+	world.now = world.now + 1
+	M:PickUpForRoom(entry)
+	Check(#world.pickups == 0 and world.printed[1]:find("no longer in your bags", 1, true), "not the copy in an equipment set, not one in a herb bag")
+	world.bags[0][24] = { id = 3003 }
+	world.now = world.now + 1
+	M:PickUpForRoom(entry)
+	Check(world.pickups[1] == "0:24", "a plain copy is picked up")
 end
 
 -- /eui room, Show now, defaults, Minimal and options.

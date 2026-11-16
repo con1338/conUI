@@ -5,16 +5,19 @@
 -- default), one card comes up: how many are left, and under it "Make
 -- room", the five cheapest things you carry, gray items first. A click on
 -- one puts it on your cursor; a click outside your bags then brings up
--- the game's own "Destroy this item?" question, and at a vendor a click on
--- the vendor sells it. EldoUI never deletes, sells or moves an item itself,
--- and never opens a Blizzard dialog from its own code.
+-- the game's own "Destroy this item?" question, and dropped on an open
+-- vendor window it is sold. EldoUI never deletes, sells or moves an item
+-- itself, and never opens a Blizzard dialog from its own code.
 --
--- When it comes: once each time the free slots drop to the limit or below
--- (not at login: the slots you log in with are where it starts); again
--- only after more than the limit were free once more. Never in combat: a
+-- When it comes: once each time the free slots drop to the limit or below;
+-- again only after more than the limit were free once more. Not at login
+-- or after a loading screen: the bags you have then are where it starts,
+-- and for a few seconds the bags may still be loading. Never in combat: a
 -- drop in combat shows its card when combat ends, if the bags are still
--- that full. While the card shows it follows the bags, and it goes away
--- once more than the limit is free. /eui room shows the list any time.
+-- that full. While the card shows or waits for its turn it follows the
+-- bags, and it goes away once more than the limit is free. /eui room and
+-- "Show now" bring the same list any time (titled "Make room"); that card
+-- also follows the bags but stays until it times out or is closed.
 --
 -- What "Make room" leaves out: items one of your quests or a recipe one of
 -- your characters can learn needs (Core/ItemProtect.lua), items without a
@@ -45,9 +48,10 @@ end
 
 local Plain, PlainCall, PlainEach = E.Plain, E.PlainCall, E.PlainCallEach
 local OWNER = "QoL:BagSpace" -- its own event owner: Tweaks already has the module's PLAYER_REGEN_ENABLED
-local KEY = "QoL:bagSpace"   -- the card's key: a new card replaces the one on screen
+local KEY = "QoL:bagSpace"   -- the card's key: a new card replaces the one on screen or waiting
 local SHOWN = 5
 local DURATION = 30
+local SETTLE = 5             -- seconds after login or a loading screen before a drop counts
 local ICON = "Interface\\Icons\\INV_Misc_Bag_08"
 
 -- Item classes a vendor price tells little about (Enum.ItemClass).
@@ -58,6 +62,8 @@ for _, id in ipairs({ ITEM_CLASS.Consumable or 0, ITEM_CLASS.Reagent or 5, ITEM_
 	SKIP_CLASS[id] = true
 end
 M.BAG_SPACE_SKIP_CLASS = SKIP_CLASS
+
+local function Limit() return tonumber(M.db.bagSpaceFree) or 3 end
 
 ---------------------------------------------------------------------------
 -- The bags
@@ -110,28 +116,32 @@ local function NeverSell(itemID, name)
 	return ok and keep == true
 end
 
+-- The item in a slot of an ordinary bag, when you could part with it:
+-- { bag, slot, id, link, count, value, icon, gray }, else nil.
+local function Candidate(bag, slot)
+	local info = E.BagCache:Info(bag, slot)
+	local itemID = info and Plain(info.itemID)
+	local link = info and Plain(info.hyperlink)
+	if type(itemID) ~= "number" or type(link) ~= "string" then return nil end
+	if Plain(info.hasNoValue) == true or Plain(info.isLocked) == true or SKIP_CLASS[ItemClass(link) or -1] then return nil end
+	local price, name = SellPrice(link)
+	if type(price) ~= "number" or price <= 0 then return nil end
+	if InEquipmentSet(bag, slot) or Refundable(bag, slot) or NeverSell(itemID, name) then return nil end
+	if E.IsItemProtected and E:IsItemProtected(itemID, bag, slot) then return nil end
+	local count = Plain(info.stackCount)
+	count = type(count) == "number" and count > 0 and count or 1
+	return { bag = bag, slot = slot, id = itemID, link = link, count = count, value = price * count,
+		icon = Plain(info.iconFileID), gray = Plain(info.quality) == 0 }
+end
+
 -- Everything you could part with, cheapest first: gray items first, then
--- by what the stack sells for. { bag, slot, id, link, count, value, icon, gray }.
+-- by what the stack sells for.
 function M:RoomCandidates()
 	local list = {}
-	local bags = OrdinaryBags()
-	for _, bag in ipairs(bags) do
+	for _, bag in ipairs((OrdinaryBags())) do
 		for slot = 1, E.BagCache:NumSlots(bag) do
-			local info = E.BagCache:Info(bag, slot)
-			local itemID = info and Plain(info.itemID)
-			local link = info and Plain(info.hyperlink)
-			if type(itemID) == "number" and type(link) == "string" and Plain(info.hasNoValue) ~= true
-				and Plain(info.isLocked) ~= true and not SKIP_CLASS[ItemClass(link) or -1] then
-				local price, name = SellPrice(link)
-				if type(price) == "number" and price > 0 and not InEquipmentSet(bag, slot) and not Refundable(bag, slot)
-					and not NeverSell(itemID, name) and not (E.IsItemProtected and E:IsItemProtected(itemID, bag, slot)) then
-					local count = Plain(info.stackCount)
-					count = type(count) == "number" and count > 0 and count or 1
-					local quality = Plain(info.quality)
-					list[#list + 1] = { bag = bag, slot = slot, id = itemID, link = link, count = count, value = price * count,
-						icon = Plain(info.iconFileID), gray = quality == 0 }
-				end
-			end
+			local entry = Candidate(bag, slot)
+			if entry then list[#list + 1] = entry end
 		end
 	end
 	table.sort(list, function(a, b)
@@ -146,18 +156,26 @@ end
 ---------------------------------------------------------------------------
 -- Picking an item up
 ---------------------------------------------------------------------------
--- Where the item is now: its slot from the list, else the first slot that
--- holds it.
+-- Where the item is now: its slot from the list, else another slot that
+-- holds it and still passes every check of the list.
 local function FindItem(entry)
-	if E.BagCache:ItemID(entry.bag, entry.slot) == entry.id then return entry.bag, entry.slot end
-	for bag, slot, info in E.BagCache:Items() do
-		if Plain(info.itemID) == entry.id then return bag, slot end
+	local here = Candidate(entry.bag, entry.slot)
+	if here and here.id == entry.id then return entry.bag, entry.slot end
+	for _, bag in ipairs((OrdinaryBags())) do
+		for slot = 1, E.BagCache:NumSlots(bag) do
+			if E.BagCache:ItemID(bag, slot) == entry.id then
+				local other = Candidate(bag, slot)
+				if other then return bag, slot end
+			end
+		end
 	end
 end
 
 function M:PickUpForRoom(entry)
-	if PlainCall(CursorHasItem) == true then
-		E:Print(L["Put down the item on your cursor first."])
+	-- Anything on the cursor (an item, money, a spell, a macro) would meet
+	-- the bag slot instead of being picked up.
+	if PlainCall(GetCursorInfo) ~= nil or PlainCall(CursorHasItem) == true then
+		E:Print(L["Clear your cursor first."])
 		return false
 	end
 	local bag, slot = FindItem(entry)
@@ -171,7 +189,7 @@ function M:PickUpForRoom(entry)
 	-- Once a session: what to do with it now.
 	if not self.roomHintShown then
 		self.roomHintShown = true
-		E:Print(L["%s is on your cursor: click outside your bags to destroy it (the game asks first), click a vendor to sell it, or put it back in a bag."]:format(entry.link))
+		E:Print(L["%s is on your cursor: click outside your bags to destroy it (the game asks first), drop it on an open vendor window to sell it, or put it back in a bag."]:format(entry.link))
 	end
 	return true
 end
@@ -179,6 +197,10 @@ end
 ---------------------------------------------------------------------------
 -- The card
 ---------------------------------------------------------------------------
+-- true while the card on screen (or waiting) is one the player asked for
+-- (/eui room, Show now): it follows the bags but stays when there is room.
+local asked = false
+
 local function Lines(list)
 	local lines = {}
 	for index = 1, math.min(#list, SHOWN) do
@@ -189,90 +211,141 @@ local function Lines(list)
 			icon = entry.icon,
 			func = function() M:PickUpForRoom(entry) end,
 			label = L["Make room"],
-			tip = L["Puts it on your cursor: click outside your bags to destroy it (the game asks first), or click a vendor to sell it."],
+			tip = L["Puts it on your cursor: click outside your bags to destroy it (the game asks first), or drop it on an open vendor window to sell it."],
 		}
 	end
 	return lines
 end
 
 -- The card with the free slots and the list. quiet: no sound (a refresh).
-function M:ShowBagSpace(quiet)
+-- byPlayer: true for /eui room and Show now, false for the hint; nil keeps
+-- what the card is (a refresh).
+function M:ShowBagSpace(quiet, byPlayer)
+	if byPlayer ~= nil then asked = byPlayer end
 	local free = M.FreeBagSlots()
 	local list = self:RoomCandidates()
 	local text = L["Free slots left: %d."]:format(free)
 	if #list > 0 then
 		text = text .. " " .. L["Make room: the cheapest things you carry."]
 	else
-		text = text .. " " .. L["Nothing cheap to part with: the rest is protected, has no vendor price or is food, a reagent or ammo."]
+		text = text .. " " .. L["Nothing to offer: the rest is needed or kept, has no vendor price, or is food, a reagent, ammo or the like."]
 	end
 	local sound = self.db.bagSpaceSound
 	self:PushAlert({
 		key = KEY,
-		title = L["Bags almost full"],
+		title = asked and L["Make room"] or L["Bags almost full"],
 		text = text,
 		icon = ICON,
 		lines = Lines(list),
 		duration = DURATION,
+		-- Always a card, also without lines: the alert lane would show it as
+		-- a toast beside the card it should replace.
+		closable = true,
 		sound = (not quiet and sound and sound ~= "none") and sound or nil,
 	})
 end
 
--- Is the card still up? (It stays while the mouse is over it.)
-local function CardShown()
-	if type(E.AlertCards) ~= "function" then return false end
-	local cards = E:AlertCards()
-	for _, card in ipairs(cards or {}) do
-		if type(card) == "table" and card.data and card.data.key == KEY and card:IsShown() then return true end
+-- Is the card on screen (not sliding out) or waiting for its turn?
+local function CardUp()
+	if type(E.NoticeQueue) ~= "function" then return false end
+	local ok, queue = pcall(E.NoticeQueue, E)
+	if not ok or type(queue) ~= "table" then return false end
+	for _, entry in ipairs(queue.shown or {}) do
+		if not entry.closing and type(entry.data) == "table" and entry.data.key == KEY then return true end
+	end
+	for _, entry in ipairs(queue.waiting or {}) do
+		if type(entry.data) == "table" and entry.data.key == KEY then return true end
 	end
 	return false
 end
-M.BagSpaceCardShown = CardShown
+M.BagSpaceCardUp = CardUp
+
+-- A card that is up follows the bags: the hint goes once there is room,
+-- the one the player asked for stays. Out of combat only.
+local function Follow(free)
+	if not CardUp() then
+		asked = false
+		return
+	end
+	if free > Limit() and not asked then
+		E:DismissAlert(KEY)
+		return
+	end
+	M:ShowBagSpace(true)
+end
 
 ---------------------------------------------------------------------------
 -- When it comes
 ---------------------------------------------------------------------------
 -- { last = free slots at the last read, armed = a drop may bring the card,
---   pending = a drop in combat waits for its end }
+--   pending = a drop in combat waits for its end, db and limit it started
+--   with }
 local state
+-- No drop counts before this time: after login and loading screens the
+-- bags may still be loading.
+local settleUntil = 0
 
 function M:CheckBagSpace()
-	if not (self.active and self.db.bagSpace) then
+	if not self.active then
 		state = nil
 		return
 	end
 	local free = M.FreeBagSlots()
-	local limit = tonumber(self.db.bagSpaceFree) or 3
-	if not state then
-		-- The first read is where it starts: no card at login.
-		state = { last = free, armed = true }
+	local combat = InCombatLockdown()
+	if not self.db.bagSpace then
+		state = nil
+		if not combat then
+			if asked then
+				Follow(free)
+			elseif CardUp() then
+				E:DismissAlert(KEY)
+			end
+		end
+		return
+	end
+	local limit = Limit()
+	if not state or state.db ~= self.db or state.limit ~= limit then
+		-- Switched on, a new profile or a new limit: start from the bags as
+		-- they are. Any other change on the page keeps where it stands.
+		state = { last = free, armed = true, db = self.db, limit = limit }
+		if not combat then Follow(free) end
 		return
 	end
 	local dropped = free < state.last
 	state.last = free
 	if free > limit then
 		state.armed, state.pending = true, nil
-		if CardShown() then E:DismissAlert(KEY) end
+		if not combat then Follow(free) end
 		return
 	end
-	if dropped and state.armed then
+	if dropped and state.armed and GetTime() >= settleUntil then
 		state.armed = false
-		if InCombatLockdown() then
+		if combat then
 			state.pending = true
 		else
-			self:ShowBagSpace()
+			self:ShowBagSpace(false, false)
 		end
-	elseif not InCombatLockdown() and CardShown() then
-		-- The card follows the bags while it shows.
-		self:ShowBagSpace(true)
+	elseif not combat then
+		Follow(free)
 	end
 end
 
+-- After login and loading screens the bags settle before a drop counts.
+function M:BagSpaceSettle()
+	settleUntil = GetTime() + SETTLE
+end
+
 function M:BagSpaceCombatEnded()
-	if not (state and state.pending) then return end
-	state.pending = nil
-	if self.active and self.db.bagSpace and M.FreeBagSlots() <= (tonumber(self.db.bagSpaceFree) or 3) then
-		self:ShowBagSpace()
+	if not self.active then return end
+	if state and state.pending then
+		state.pending = nil
+		if self.db.bagSpace and M.FreeBagSlots() <= Limit() then
+			self:ShowBagSpace(false, false)
+			return
+		end
 	end
+	-- A card that was up in combat catches up.
+	self:CheckBagSpace()
 end
 
 M.BagSpaceState = function() return state end -- tools/qol/test_bag_space.lua
@@ -281,21 +354,21 @@ M:AddPart("BagSpace", {
 	enable = function(self)
 		E.BagCache:RegisterCallback(OWNER, function() M:CheckBagSpace() end)
 		E:RegisterEvent("PLAYER_REGEN_ENABLED", function() M:BagSpaceCombatEnded() end, OWNER)
+		E:RegisterEvent("PLAYER_ENTERING_WORLD", function() M:BagSpaceSettle() end, OWNER)
 		state = nil
+		self:BagSpaceSettle()
 		self:CheckBagSpace()
 	end,
 	disable = function()
 		E.BagCache:UnregisterCallback(OWNER)
 		E:UnregisterEvent("PLAYER_REGEN_ENABLED", OWNER)
-		state = nil
+		E:UnregisterEvent("PLAYER_ENTERING_WORLD", OWNER)
+		state, asked = nil, false
 		E:DismissAlert(KEY)
 	end,
-	-- A new limit or profile starts from the bags as they are.
-	profile = function(self)
-		state = nil
-		if not self.db.bagSpace then E:DismissAlert(KEY) end
-		self:CheckBagSpace()
-	end,
+	-- Every change on the page comes here: only the switch, the limit and
+	-- a new profile start anew (CheckBagSpace).
+	profile = function(self) self:CheckBagSpace() end,
 })
 
 E:AddCommand("room", "the cheapest things in your bags, to make room", function()
@@ -303,17 +376,17 @@ E:AddCommand("room", "the cheapest things in your bags, to make room", function(
 		E:Print(E:ModuleOffHint("QoL"))
 		return
 	end
-	M:ShowBagSpace(true)
+	M:ShowBagSpace(true, true)
 end, "Tools")
 
 M:AddOptions(E.Key("Sound and misc"), {
 	{ type = "header", label = "Bag space" },
 	{ type = "toggle", key = "bagSpace", label = "Hint when the bags are almost full",
-		desc = "A card when your ordinary bags get down to a few free slots, with the five cheapest things you carry. A click on one puts it on your cursor: click outside your bags to destroy it (the game asks first), or click a vendor to sell it. Never in combat." },
+		desc = "A card when your ordinary bags get down to a few free slots, with the five cheapest things you carry. A click on one puts it on your cursor: click outside your bags to destroy it (the game asks first), or drop it on an open vendor window to sell it. Never in combat." },
 	{ type = "range", key = "bagSpaceFree", label = "Free slots", min = 1, max = 10, step = 1, dependsOn = "bagSpace",
 		desc = "The card comes when this many slots or fewer are free." },
 	{ type = "media", key = "bagSpaceSound", label = "Sound", mediaKind = "sound", none = true, dependsOn = "bagSpace",
 		desc = "The sound with the card. None for silence." },
-	{ type = "execute", label = "Show now", dependsOn = "bagSpace", desc = "Shows the card with the cheapest things you carry now (also /eui room).",
-		func = function() M:ShowBagSpace(true) end },
+	{ type = "execute", label = "Show now", desc = "Shows the card with the cheapest things you carry now (also /eui room).",
+		func = function() M:ShowBagSpace(true, true) end },
 })
