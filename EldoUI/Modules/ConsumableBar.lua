@@ -545,14 +545,18 @@ local MASQUE_GROUP = "Consumable Bar"
 function M:CreateButton(category, index)
 	local button = CreateFrame("Button", "EldoUI_ConsumableButton" .. index, self.bar, "SecureActionButtonTemplate")
 	button.key = category.key
-	-- Left button only ("type1"); right-click opens the picker in PostClick
-	-- and never uses an item. The left button takes the press and the
-	-- release, so the item is used on whichever one the game's "cast on key
-	-- press" setting asks for, by click and by key. The right button takes
-	-- the release only, so the picker opens once per click.
+	-- Left button only ("*type1"); right-click opens the picker in PostClick
+	-- and never uses an item. The "*" is any modifier: a plain "type1" is the
+	-- unmodified left click only (Blizzard_FrameXML/SecureTemplates.lua), so a
+	-- key with Shift, Ctrl or Alt, such as the key sets' Ctrl keys on bar 3,
+	-- or a macro's /click while a modifier is held would use nothing. The left
+	-- button takes the press and the release, so the item is used on
+	-- whichever one the game's "cast on key press" setting asks for, by click
+	-- and by key. The right button takes the release only, so the picker
+	-- opens once per click.
 	button:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp")
 	button:SetAttribute("type", nil)
-	button:SetAttribute("type1", "item")
+	button:SetAttribute("*type1", "item")
 	E:SetTemplate(button)
 	button.icon = button:CreateTexture(nil, "ARTWORK")
 	button.icon:SetPoint("TOPLEFT", E.pixel, -E.pixel)
@@ -715,11 +719,11 @@ function M:ApplySecure()
 	for _, button in ipairs(self:OrderedButtons()) do
 		local pick = chosen[button.key]
 		if pick and pick.spell then
-			button:SetAttribute("type1", "spell")
+			button:SetAttribute("*type1", "spell")
 			button:SetAttribute("spell", pick.spell)
 			button:SetAttribute("item", nil)
 		else
-			button:SetAttribute("type1", "item")
+			button:SetAttribute("*type1", "item")
 			button:SetAttribute("spell", nil)
 			button:SetAttribute("item", pick and ("item:" .. pick.id) or nil)
 		end

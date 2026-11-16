@@ -260,11 +260,14 @@ function M:CreateButton(index)
 	button.command = ("CLICK %s%d:LeftButton"):format(BUTTON, index)
 	-- The left button takes the press and the release, so the item is used
 	-- on whichever one the game's "cast on key down" setting asks for, by
-	-- click and by key. The right button has no action: Shift-right-click
-	-- leaves the item off the bar (PostClick), nothing is used.
+	-- click and by key. "*type1" is the left button with any modifier: a
+	-- plain "type1" is the unmodified click only (SecureTemplates.lua), and a
+	-- key bound with Shift, Ctrl or Alt would use nothing. The right button
+	-- has no action: Shift-right-click leaves the item off the bar
+	-- (PostClick), nothing is used.
 	button:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp")
 	button:SetAttribute("type", nil)
-	button:SetAttribute("type1", "item")
+	button:SetAttribute("*type1", "item")
 	E:SetTemplate(button)
 	button.icon = button:CreateTexture(nil, "ARTWORK")
 	button.icon:SetPoint("TOPLEFT", E.pixel, -E.pixel)
