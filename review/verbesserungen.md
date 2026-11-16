@@ -16,9 +16,9 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | B2 | Castbars an Party-/Raid-Frames | mittel | umgesetzt | `0192bd9` |
 | B3 | DKP-/EPGP-Stände anzeigen | klein–mittel | umgesetzt | `66b7bee`, `2101fcd` |
 | B4 | Weltbuff-Tracker (Forever hat Weltbuffs, laut Nutzer) | mittel | umgesetzt | `2b77920` |
-| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen (Wunsch des Nutzers) | mittel | umgesetzt | `597197f`, `c64271e` |
+| B5 | Leiste mit allen benutzbaren Questgegenständen aus den Taschen (Wunsch des Nutzers) | mittel | umgesetzt | `597197f`, `c64271e`, `bbc944e` |
 | B6 | Signal, wenn Essen und Trinken fertig sind (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
-| B7 | Taschen fast voll: früher Hinweis und Liste „Platz schaffen“ | klein–mittel | offen | |
+| B7 | Taschen fast voll: früher Hinweis und Liste „Platz schaffen“ | klein–mittel | umgesetzt | `86fba91`, `fc8f1ee` |
 | B8 | Quest-EP hinter jedem Titel im Questlog (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d`, `f90e7f1` |
 | B9 | „Wer fehlt?“ für Gruppe und Raid (Herbeirufen) | mittel | abwarten | |
 | B10 | Wowhead-Links in der Spielsprache (Wunsch des Nutzers) | klein | umgesetzt | `7213a3d` |
@@ -39,7 +39,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | E3 | Combat Text setzt pro Frame Punkt, Skalierung, Alpha jeder Zeile | klein | umgesetzt | `d83f389` |
 | E4 | Infoleiste: Speicher-Block hält das Spiel alle 30 s an (mit `/eui perf` gefunden) | klein | umgesetzt | `4c6cf53` |
 
-**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B7, B11, B12, C1 (Rest), E1.
+**Reihenfolge der offenen Punkte** (für „nächster offener Punkt“): B11, B12, C1 (Rest), E1.
 **Stand 16.11.2026:** B5 bis B12 kommen aus einer Suche nach QoL-Lücken (Abschnitt B, „QoL-Vorschläge“). Der Nutzer
 hat B6, B8 und B10 gewählt. B9 wartet, bis er Stufe 60 erreicht und Gruppeninhalte spielt (seine Auskunft). Bei B11
 erst im Spiel prüfen, ob Forever schon von selbst absitzt. B6 und B8 sind neue Dateien in der `EldoUI.toc`: Nach dem
@@ -47,7 +47,8 @@ Kopieren das Spiel ganz neu starten, denn `/reload` liest die Dateiliste nicht n
 nur die beiden Funktionen, Fehler gibt es keine, weil nichts in `QoL.lua` sie aufruft.
 Danach wählte der Nutzer B5. Auch B5 ist eine neue Datei in der TOC, dazu kommen neue Einträge in `Bindings.xml`:
 wieder das Spiel ganz neu starten. Die zwei offenen Fragen zu B8 (eigene EP je Quest, Häkchen) prüft der Nutzer am
-Abend des 16.11. im Spiel.
+Abend des 16.11. im Spiel. Nach dem Merge von B5 (PR #31) ging es mit dem nächsten offenen Punkt weiter, B7. Auch B7 ist
+eine neue Datei in der TOC (`Modules/QoL/BagSpace.lua`): wieder ganz neu starten.
 **Stand 14.11.2026:** Was offline ging, ist erledigt. C1 (Rest) und E3 gehen wir gemeinsam an, sobald jemand im Spiel
 testen kann (Absprache mit dem Nutzer). Der Rest von C1 (Auren, Combat HUD) braucht einen Test mit Masque. E3 ändert
 das Zeichnen von Combat Text, das sieht man nur im Spiel. E1 plant Upstream (`EldoUI/Core/Modules.lua:252`), und
@@ -386,6 +387,110 @@ was daraus wurde (Korrekturen in `c64271e`, jeder Fall im Test, der gegen den al
 | 3 | „Tasten belegen“ bei einer Sichtbarkeitsregel wie „Im Kampf“: Der sichere Treiber versteckt die Leiste, nichts zum Zeigen | klein | behoben (`opts.condition`, `forceShow`) |
 | 4 | Leuchten ohne neuen Gegenstand: nach „Ausgeblendete Gegenstände zeigen“ und Schaltern (bestätigt), beim Login mit spät geladenen Daten (plausibel) | klein | behoben: nur, was neu in die Taschen kam |
 | 5 | Test: Einige Fälle (Modul aus, Einstellung im Kampf) laufen im Spiel so nicht, weil die Optionen und der Modulschalter bis zum Kampfende warten | klein | bleibt als Prüfung der eigenen Schutzabfragen, im Test vermerkt |
+
+**Nachtrag zu B5 (PR #32, `bbc944e`, aus einer anderen Sitzung):** Die Knöpfe setzten ihre Aktion als `type1`. Das
+liest das Spiel nur für den Linksklick ohne Umschalt, Strg oder Alt (`SecureTemplates.lua`). Eine Taste mit
+Modifikator oder ein `/click` mit gehaltener Taste benutzte deshalb nichts, bei der Verbrauchsgüterleiste ebenso.
+Jetzt `*type1` (Linksklick mit jedem Modifikator). Weder die eigene Prüfung noch die Gegenprüfung hatten das gesehen;
+der Test von B5 bildet die Attributsuche des Spiels seither nach. Im Spiel prüfen: eine Taste mit Strg oder Umschalt
+auf einen Platz der Questgegenstandsleiste legen, sie benutzt den Gegenstand.
+
+**B7 – Hinweis bei fast vollen Taschen (umgesetzt):**
+- Neu: `Modules/QoL/BagSpace.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound und Sonstiges“, Abschnitt
+  „Taschenplatz“), standardmäßig an.
+- Sinken die freien Plätze der normalen Taschen auf die Grenze (Standard 3, einstellbar 1–10), kommt eine Karte
+  „Taschen fast voll“: „Noch freie Plätze: 3. Platz schaffen: …“, darunter die fünf billigsten Gegenstände.
+  - Graue Gegenstände stehen zuerst, dann geht es nach dem Verkaufswert des Stapels.
+  - Jede Zeile nennt den Gegenstand, die Anzahl und den Verkaufspreis.
+  - Die Karte bleibt 30 Sekunden, solange die Maus darauf ist auch länger. Ein Sound ist wählbar, standardmäßig keiner.
+  - Es ist immer eine Karte (`closable`), auch ohne Zeilen. Sonst ginge sie als Toast in die Alarmleiste.
+- Ein Klick auf eine Zeile legt den Gegenstand an den Mauszeiger (`PickupContainerItem`, die Stelle wird neu
+  gesucht, falls er gewandert ist, aber nur in normalen Taschen und nur, wenn er noch jede Prüfung der Liste besteht).
+  Ein Klick außerhalb der Taschen öffnet dann Blizzards eigenen Löschdialog, mit „LÖSCHEN vorausfüllen“ und der
+  Quest-Zeile aus `Modules/SystemUI.lua`. Auf einem offenen Händlerfenster abgelegt wird er verkauft. Hängt schon
+  etwas am Mauszeiger (auch Geld oder ein Zauber, `GetCursorInfo`), passiert nichts außer einem Hinweis. Beim ersten Mal pro Sitzung erklärt eine
+  Chatzeile, was man jetzt tun kann.
+- Abweichung vom Vorschlag („ein Klick öffnet Blizzards Löschdialog“):
+  - Den Dialog öffnet nur das Spiel selbst, wenn ein Gegenstand außerhalb der Taschen abgelegt wird.
+  - `StaticPopup_Show("DELETE_ITEM")` aus EldoUIs Code würde das Popup-System mit Taint belegen.
+  - `DeleteCursorItem` mit einem eigenen Dialog würde selbst löschen und ist unter den Midnight-Regeln vielleicht
+    gesperrt.
+  - Deshalb zwei Klicks, und das Löschen bleibt ganz bei Blizzard.
+- Wann die Karte kommt:
+  - Einmal pro Abfall auf die Grenze oder darunter. Erst wenn wieder mehr als die Grenze frei war, kann sie erneut
+    kommen.
+  - Beim Login nicht: Die Plätze beim Login sind der Ausgangspunkt. Fällt danach ein Platz weg, kommt sie. In den
+    ersten 5 Sekunden nach dem Login oder einem Ladebildschirm zählt kein Abfall, weil die Taschen dann vielleicht
+    noch laden.
+  - Nie im Kampf. Ein Abfall im Kampf zeigt die Karte am Kampfende, wenn die Taschen dann noch so voll sind. Eine
+    Karte, die im Kampf zu sehen war, holt am Kampfende nach.
+  - Solange die Karte zu sehen ist oder auf ihren Platz wartet, folgt sie den Taschen, ohne Sound. Ist wieder Platz,
+    verschwindet sie, auch aus der Warteschlange (`E:NoticeQueue`, `E:DismissAlert`).
+  - Nur der Schalter, die Grenze und ein neues Profil fangen neu an. Andere Einstellungen der QoL-Seite lassen den
+    Stand, wie er ist. Eine Grenze unter den freien Plätzen nimmt die Karte weg.
+  - `/eui room` und „Jetzt zeigen“ zeigen die Karte jederzeit, als „Platz schaffen“, auch mit ausgeschaltetem Hinweis.
+    Sie folgt den Taschen, bleibt aber, wenn Platz ist. Kommt der Hinweis, nimmt er ihren Platz ein.
+- Was „Platz schaffen“ weglässt:
+  - Gegenstände, die eine Quest oder ein lernbares Rezept braucht (`E:IsItemProtected`, `Core/ItemProtect.lua`).
+  - Gegenstände ohne Händlerpreis oder mit der Spielmarke „kein Wert“, gesperrte Gegenstände, Ausrüstungssets, noch
+    erstattbare Käufe und die Liste „nie verkaufen“ des Händler-Moduls (auch wenn das Modul aus ist).
+  - Essen, Trinken und Tränke, Reagenzien, Munition, Köcher, Rezepte, Questgegenstände und Schlüssel. Bei ihnen sagt
+    der Händlerpreis wenig über den Wert.
+  - Gegenstände in Berufs- und Spezialtaschen. Nur normale Taschen zählen, auch beim Zählen der freien Plätze.
+- Regeln: Die Taschen werden über den gemeinsamen Bag-Cache gelesen, jede Antwort in `pcall`. Eine geheime Antwort zählt
+  als „nicht da“. Ein eigener Event-Besitzer für das Kampfende, wie bei B6. Die Liste wird nur gebaut, wenn die Karte
+  kommt oder zu sehen ist.
+- „Minimal“ schaltet es aus. Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua` (19 Texte), „zerstören“ wie im
+  Löschdialog des Clients.
+- Test: `tools/qol/test_bag_space.lua` (läuft in `tools/ci/check_all.sh tests`, 89 Prüfungen). Er lädt die Datei ganz,
+  dazu EldoUIs echtes `Core/Safe.lua` und `Core/BagCache.lua`. Die Alarm-Warteschlange ist nachgebaut, soweit der Teil
+  sie sieht: Alarmleiste für Meldungen ohne Zeilen, drei Karten, wartende und schließende Karten. Geprüft werden:
+  - Wann die Karte kommt: Abfall auf die Grenze, nicht beim Login, einmal bis wieder Platz ist, nach dem Kampf, nicht
+    wenn im Kampf wieder Platz wurde.
+  - Die Karte folgt den Taschen, auch wartend, holt nach dem Kampf nach und verschwindet bei Platz, nicht beim Schließen.
+  - Andere Einstellungen, neues Profil, niedrigere Grenze, die ersten Sekunden nach Login und Ladebildschirm.
+  - Die Karte von `/eui room`, auch bei ausgeschaltetem Hinweis.
+  - Welche Gegenstände die Liste nennt und in welcher Reihenfolge, höchstens fünf, und was sie weglässt.
+  - Aufnehmen: nur mit leerem Mauszeiger (auch ohne Geld), von der aktuellen Stelle und nur ein Exemplar, das die
+    Prüfungen besteht, der Hinweis einmal pro Sitzung.
+  - Sound, Schalter, Grenze, neues Profil, Modul aus, `/eui room`, „Jetzt zeigen“, Standards, „Minimal“, Optionen.
+  - Gegenprobe: Drei absichtlich eingebaute Fehler (Karte im Kampf, geschützte Gegenstände in der Liste, Karte beim
+    Login) lassen den Test fehlschlagen.
+- Grenzen:
+  - „Billig“ heißt Händlerpreis. Ein Gegenstand, der im Auktionshaus viel wert ist (z. B. ein seltener Stoff), kann
+    trotzdem auf der Liste stehen.
+  - Gegenstände, deren Daten der Client noch nicht geladen hat, fehlen in der Liste, bis sie geladen sind.
+- Im Spiel prüfen (nach einem Neustart des Spiels):
+  - Taschen bis auf 4 freie Plätze füllen, dann einen Gegenstand plündern. Erwartung: Die Karte „Taschen fast voll“
+    mit „Noch freie Plätze: 3.“ und bis zu fünf Gegenständen, graue zuerst.
+  - Noch einen Gegenstand plündern, während die Karte zu sehen ist: Die Zahl und die Liste ändern sich, keine zweite
+    Karte.
+  - Auf eine Zeile klicken: Der Gegenstand hängt am Mauszeiger, beim ersten Mal mit einer Chatzeile. Außerhalb der
+    Taschen klicken: Blizzards Dialog „… zerstören?“ erscheint. Abbrechen legt ihn zurück.
+  - Bei einem Händler eine Zeile anklicken, dann auf das offene Händlerfenster klicken: verkauft.
+  - Questgegenstände, Essen, Munition und Gegenstände eines Ausrüstungssets stehen nie auf der Liste.
+  - Im Kampf plündern, bis die Grenze erreicht ist: Die Karte kommt erst nach dem Kampf.
+  - Platz schaffen, bis wieder 4 frei sind: Die Karte verschwindet. Beim nächsten Abfall kommt sie wieder.
+  - `/eui room`: Die Karte „Platz schaffen“ kommt auch mit vielen freien Plätzen und bleibt, wenn man etwas verkauft.
+  - Danach `/eui errors`: keine Lua-Fehler.
+
+**Gegenprüfung von B7 (16.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las den Commit `86fba91` und
+die EldoUI-Funktionen, die er nutzt, und ließ alle Prüfungen laufen (grün). Er fand keine Lua-Fehler, nichts, was ohne
+Klick löscht, verkauft oder bewegt, keine geschützten Aufrufe und keine Blizzard-Dialoge. Die Befunde und was daraus
+wurde (Korrekturen in `fc8f1ee`, jeder Fall im Test, der gegen den alten Stand fehlschlägt):
+
+| # | Befund | Schwere | Ergebnis |
+|---|---|---|---|
+| 1 | Die Karte von `/eui room` verschwand beim nächsten Taschen-Event, wenn mehr als die Grenze frei war | mittel | behoben: bleibt, Titel „Platz schaffen“ |
+| 2 | Leere Liste: Die Meldung ging ohne Zeilen als Toast in die Alarmleiste, die alte Karte blieb mit toten Zeilen | mittel | behoben (`closable`) |
+| 3 | Eine wartende Karte wurde nie weggenommen oder aktualisiert und kam später mit alter Liste. Eine Karte, die gerade schließt, zählte als sichtbar | mittel | behoben (`E:NoticeQueue`) |
+| 4 | Jede Einstellung der QoL-Seite setzte den Hinweis zurück, er konnte erneut kommen. Eine niedrigere Grenze ließ die Karte stehen | klein | behoben |
+| 5 | Ein gewanderter Gegenstand wurde ohne die Filter gesucht (Ausrüstungsset, Berufstasche, gesperrt …) | klein | behoben |
+| 6 | Eine sichtbare Karte wurde nach dem Kampf nicht aktualisiert | klein | behoben |
+| 7 | Karte beim Login, wenn die Taschen erst spät geladen sind (plausibel) | klein | abgesichert: 5 Sekunden nach Login und Ladebildschirm |
+| 8 | Geld oder ein Zauber am Mauszeiger wurde nicht erkannt (plausibel) | klein | behoben (`GetCursorInfo`) |
+| 9 | Texte: Titel bei `/eui room`, Begründung der leeren Liste unvollständig, „klickt auf einen Händler“ statt Händlerfenster | klein | behoben |
+| 10 | Test: Der Nachbau zeigte jede Karte sofort, Alarmleiste und Warteschlange fehlten | klein | behoben |
 
 **B6 – Signal, wenn Essen und Trinken fertig sind (umgesetzt):**
 - Neu: `Modules/QoL/MealDone.lua`, ein Teil des Moduls Quality of Life (Reiter „Sound and misc“, Abschnitt „Essen
