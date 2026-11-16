@@ -72,7 +72,8 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 
 ## A – Deutsche Übersetzung
 
-> **Umgesetzt:** `EldoUI_Locale_deDE` ist vollständig (20.827 von 20.827 Texten), Anrede „Ihr/Euch“, Begriffe des
+> **Umgesetzt:** `EldoUI_Locale_deDE` ist vollständig (20.827 von 20.827 Texten; seit EldoUI 0.7.3001 wieder
+> vollständig mit 21.525, siehe D1), Anrede „Ihr/Euch“, Begriffe des
 > deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/` (`deDE.py status|check|xref`). Im Code:
 > deutsches Datumsformat (`Core/Dates.lua`) und `E:InSentence` für Wörter, die in Sätze eingesetzt werden.
 > Nicht geprüft am deutschen Client sind Zauber-, Gegenstands- und Gebietsnamen, die die Übersetzer aus dem
@@ -1007,9 +1008,13 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     - Angepasst, weil EldoUI den Code umgebaut hat: F18 (Reihenfolge in EldoUIs neuen `Set`/`Apply`), E3 (EldoUIs
       Ereignis-Sounds im schlankeren Updater), C1 (Masque bekommt `button.hover` aus EldoUIs `E:SkinHudButton`;
       vorher zeigte der Code auf eine nicht mehr vorhandene Variable).
-    - Deutsches Paket: 292 Texte, die die dänische Liste nicht mehr hat, sind raus; 989 neue fehlen noch
-      (20.536 von 21.525, sie erscheinen bis zur Übersetzung auf Englisch). Dezimalkomma an
-      (`E.decimalCommas.deDE`, neu in 0.7.3000).
+    - Deutsches Paket: 292 Texte, die die dänische Liste nicht mehr hat, sind raus. Die 989 neuen sind übersetzt
+      (eigener PR nach dem Update): sieben Übersetzer-Agenten mit Glossar, der dänischen Fassung als
+      Bedeutungshilfe und den alten Texten samt Übersetzung als Vorlage, wo EldoUI nur umformuliert hat; jede
+      Antwort mit `deDE.py`s eigener Prüfung, danach `check` und `xref` über das ganze Paket. Wieder
+      vollständig: 21.525 von 21.525. Dezimalkomma an (`E.decimalCommas.deDE`, neu in 0.7.3000).
+      Nicht übersetzbar ohne Code-Änderung: die Rangnamen der Berufe in
+      `Modules/Notifications/Professions.lua` (`NEXT_RANK`, nicht durch `L`), sie bleiben englisch.
     - Prüfungen: 21 neue WoW-API-Namen in `tools/ci/globals.lua`; Platzhalter in vier Tests für EldoUIs neue
       Helfer; `check_all.sh tests` läuft jetzt ganz durch und nennt am Ende alle roten Tests. Offline-Start:
       630 bzw. 636 Dateien, 103 Module (84 an), 0 Fehler, englischer und deutscher Client.
