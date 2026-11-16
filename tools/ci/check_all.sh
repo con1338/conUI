@@ -106,6 +106,11 @@ check_tests() {
 	lua5.1 tools/questbar/test_quest_bar.lua || return 1
 	step "Consumable Bar: buttons work with Shift, Ctrl or Alt held"
 	lua5.1 tools/consumablebar/test_modifier_clicks.lua || return 1
+	step "Bar Snapshots: which action bars are on"
+	lua5.1 tools/snapshots/test_bar_toggles.lua | tail -n 1
+	[ "${PIPESTATUS[0]}" -eq 0 ] || return 1
+	step "Loot Sim: Judgement rolls as a ranged attack"
+	lua5.1 tools/lootsim/test_judgement.lua || return 1
 	step "German pack: Fork.lua rules"
 	python3 tools/locale/test_fork.py || return 1
 	step "Version watcher (offline)"
