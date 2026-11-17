@@ -78,6 +78,8 @@ check_tests() {
 	lua5.1 tools/infobar/test_broker.lua || bad+=("$name")
 	name="Info Bar memory block: rare readings, fresh on hover"; step "$name"
 	lua5.1 tools/infobar/test_memory_poll.lua || bad+=("$name")
+	name="Info Bar guild tooltip: no guild message in combat"; step "$name"
+	lua5.1 tools/infobar/test_guild_motd.lua || bad+=("$name")
 	name="Masque on the Consumable Bar, totem bars and Quickdraw"; step "$name"
 	lua5.1 tools/masque/test_masque.lua || bad+=("$name")
 	name="DKP and EPGP standings from the guild notes"; step "$name"
