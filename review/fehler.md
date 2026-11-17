@@ -30,6 +30,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F20 | Angeln: Die Angeltaste erreicht den Schwimmer nicht, „Ihr müsst Euch näher an Eurem Ziel befinden …“ (im Spiel gefunden) | mittel | behoben | `cfebaee` |
 | F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
 | F22 | Auktionshaus: Verkaufen-Seite bleibt nach „Schnellverkauf“ leer; Rechtsklick in die Taschen verboten (im Spiel gefunden) | mittel | teilweise | `391f0b7` |
+| F23 | Gilden-Tooltip der Infoleiste fragt im Kampf die Gildennachricht ab → ADDON_ACTION_BLOCKED (im Fehlerlog gefunden) | niedrig | behoben | `bb28608` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -466,7 +467,9 @@ den Teil, den EldoUI nicht abdeckt. Geprüft wurde jeder Fix-Commit gegen den Co
   - Andere Beute zählt nie.
   - Fehlt `LOOT_CLOSED`, zählt nach dem nächsten Auswurf wieder ein Fang.
   - Außerhalb des Angelmodus zählt nichts.
-- **Nicht geprüft:** ob die Skill-ups im Protokoll ankommen (`GetProf### F22 – Auktionshaus: leere Verkaufen-Seite, Rechtsklick in die Taschen verboten (mittel, teilweise)
+- **Nicht geprüft:** ob die Skill-ups im Protokoll ankommen (`GetProfessions` auf diesem Client).
+
+### F22 – Auktionshaus: leere Verkaufen-Seite, Rechtsklick in die Taschen verboten (mittel, teilweise)
 - **Gefunden:** 16.11.2026. Im Fehlerlog stand aus Sitzung 59 (15.11. 23:32 bis 16.11. 00:18, Orgrimmar, außerhalb des
   Kampfes, 51-mal) „Forbidden: EldoUI tried to call the protected function UNKNOWN() at
   Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua:1611“: `UseContainerItem` aus `ContainerFrameItemButton_OnClick`, also
@@ -503,11 +506,30 @@ den Teil, den EldoUI nicht abdeckt. Geprüft wurde jeder Fix-Commit gegen den Co
   Schnellverkauf (von Verkaufen und von Kaufen aus); Schließen; eine geschützte Seite wartet bis nach dem Kampf.
 - **Im Spiel prüfen:** wie oben nachgestellt (Verkaufen, Gegenstand, Schnellverkauf, Verkaufen). Erwartung: Blizzards
   Verkaufen-Seite mit dem Gegenstand ist wieder da, er lässt sich einstellen.
-- **Nebenbei im Fehlerlog gesehen:** „Blocked: … at EldoUI/Modules/InfoBar.lua:800“ (`GuildTooltip`, im Kampf, Eschental,
-  3-mal, zuletzt 16.11. 11:11 in Sitzung 65): Der Gilden-Tooltip der Infoleiste fragt im Kampf `C_GuildInfo.GetMOTD` ab.
-  Nicht untersucht.
+- **Nebenbei im Fehlerlog gesehen:** der gesperrte Gilden-Tooltip der Infoleiste, jetzt F23.
 
-b es sich nachstellen lässt.
+### F23 – Gilden-Tooltip der Infoleiste fragt im Kampf die Gildennachricht ab (niedrig, im Fehlerlog gefunden)
+- **Gefunden:** 16.11.2026 im Fehlerlog, neben F22: „Blocked: EldoUI tried to call the protected function UNKNOWN() at
+  EldoUI/Modules/InfoBar.lua:800“, im Kampf, Eschental, 3-mal, zuletzt 16.11. 11:11 in Sitzung 65. Der Fehler steckt
+  schon in EldoUI 0.7.2001 (Upstream); 0.7.3001 hat an der Stelle nichts geändert (jetzt Zeile 833).
+- **Stelle:** `Modules/InfoBar.lua` (`M.GuildTooltip`)
+- **Problem:** Zeile 800 las die Gildennachricht (`C_GuildInfo.GetMOTD`). EldoUIs Fehlerlog hängt bei „UNKNOWN()“ die
+  erste Addon-Zeile im Stapel an (`FirstCallSite` in `Core/Errors.lua`); in dieser Zeile ruft EldoUI nur `GetMOTD` auf,
+  die Prüfungen in `E:CommRestricted` laufen in `Core/Comm.lua`. EldoUI ließ die Nachricht nur bei einer Chat-Sperre weg
+  (Bosskampf, Schlüsselstein, PvP). WoW: Forever sperrt sie offenbar in jedem Kampf. Folgen: ein Eintrag im Fehlerlog
+  und eine Gildennachricht, die im Kampf ohnehin fehlt.
+- **Umsetzung:** Im Kampf (`InCombatLockdown()`) liest der Tooltip die Gildennachricht nicht und lässt sie weg, wie bei
+  einer Chat-Sperre. Gilde, Rang, Anzahl und die Mitglieder zeigt er weiter. Beim nächsten Darüberfahren nach dem Kampf
+  ist sie wieder da. `E:CommRestricted` bleibt, wie es ist: EldoUI fragt damit auch, ob es Addon-Nachrichten senden darf.
+- **Test:** `tools/infobar/test_guild_motd.lua` (läuft in `tools/ci/check_all.sh tests`, 15 Prüfungen). Er schneidet den
+  echten Tooltip aus `InfoBar.lua` und lässt ihn gegen ein Modell laufen: eine Gilde, Kampf, Chat-Sperre und ein
+  `GetMOTD`, das im Kampf und bei einer Chat-Sperre gesperrt ist. Geprüft wird:
+  - Außerhalb des Kampfs wird die Nachricht einmal gelesen und gezeigt.
+  - Im Kampf und bei einer Chat-Sperre wird sie nicht gelesen; der Rest des Tooltips ist da.
+  - Nach dem Kampf zeigt sie der nächste Tooltip wieder.
+  - Eine leere Nachricht fügt keine Zeilen hinzu; ohne Gilde wird nichts abgefragt.
+  - Gegenprobe: Ohne die Kampfprüfung ruft der Tooltip im Kampf die gesperrte Funktion auf, wie im Fehlerlog.
+- **Im Spiel prüfen:** siehe Tabelle unten.
 
 ## Sonstiges
 
@@ -535,6 +557,7 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F20 | vorher die Soft-Interaktion auf die Vorgaben zurück (`/console SoftTargetInteract 1`, `/console SoftTargetInteractRange 10`, `/console SoftTargetInteractArc 0`); Angel anlegen, mit der Angeltaste auswerfen, ein entferntes Ziel ausgewählt lassen, beim Platschen die Taste drücken | der Fang kommt; währenddessen zeigt `/run local g=C_CVar.GetCVar print(g("SoftTargetInteract"),g("SoftTargetInteractRange"),g("SoftTargetInteractArc"))` `3 30 1` | offen |
 | F20 | Angel ablegen (der Angelmodus endet), derselbe Befehl | wieder `1 10 0` | offen |
 | F21 | ein paar Fische fangen, Maus auf die Zählung der Angelleiste | die Zahl steigt pro Fang um 1, der Tooltip zeigt Ort und Fische | offen |
+| F23 | in einer Gilde, mit dem Block „Gilde“ auf der Infoleiste: im Kampf die Maus auf den Block; nach dem Kampf noch einmal | im Kampf Gilde und Mitglieder ohne Gildennachricht, kein neuer Eintrag „Blocked: … InfoBar.lua“ in `/eui errors`; nach dem Kampf mit Gildennachricht | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |
