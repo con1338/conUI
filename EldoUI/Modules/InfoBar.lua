@@ -829,8 +829,11 @@ function M.GuildTooltip(tooltip)
 	if guildName then tooltip:AddDoubleLine("<" .. guildName .. ">", rankName or "", 1, 1, 1, 0.65, 0.65, 0.65) end
 	if M.calendar then M.calendar.AddGuildLine(tooltip) end
 	-- The game blocks the guild message itself while chat is locked down
-	-- (encounters, keys, PvP): it is left out then, not read and dropped.
-	local motd = not E:CommRestricted() and C_GuildInfo and C_GuildInfo.GetMOTD and C_GuildInfo.GetMOTD()
+	-- (encounters, keys, PvP) and, on WoW: Forever, in any fight (seen as
+	-- "Blocked: ... UNKNOWN() at" this line): it is left out then, not read
+	-- and dropped. The next hover after the fight shows it again.
+	local motd = not InCombatLockdown() and not E:CommRestricted()
+		and C_GuildInfo and C_GuildInfo.GetMOTD and C_GuildInfo.GetMOTD()
 	if type(motd) == "string" and motd ~= "" then
 		tooltip:AddLine(" ")
 		tooltip:AddLine(motd, E:TokenColor("good", true))
