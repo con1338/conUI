@@ -1,25 +1,33 @@
 -- EldoUI Minimap: the layer chip and layer hops.
 --
 -- The chip shows the layer you are on as a short code in a corner of the
--- map. The code is read from the GUIDs of the creatures around you: the
--- fifth part of a Creature or Vehicle GUID is the same for every creature
--- of one layer and differs between layers. It is an observed fingerprint,
--- not an official layer number, and it can change with the zone. GUIDs are
+-- map. The code is read from the GUIDs of the creatures around you: on the
+-- live realms the server part of a Creature or Vehicle GUID (its third
+-- part) is the same for every creature of one layer and differs between
+-- layers. It is an observed fingerprint, not an official layer number. A
+-- layer is believed once two creatures agree, and a new one replaces it
+-- only with three of the last five. Pets, totems and other units a player
+-- controls carry the place they were made and are never read; GUIDs are
 -- read only while they are plain values and never in an instance.
 --
--- A hop: joining a group led by a player on another layer moves you to
--- that layer after a moment; you leave the group again. EldoUI asks the
--- players who offer help, with addon messages only:
---   * your guild (EldoUI players who turned on "Help others hop");
---   * the layer network, a hidden chat channel that the layer addon's
---     players share too (opt-in, off by default). EldoUI speaks that
---     addon's messages, written from scratch; its names and message
---     prefix live in Data/AddonFit.lua.
--- No chat text is ever sent to anyone. Every step that touches the group
--- is a click: the helper's Invite, the game's own invite popup on your
--- side (EldoUI never accepts it), and Leave group once the layer changed.
--- Nothing is sent in combat or in an instance, and a packet EldoUI does
--- not understand is ignored.
+-- A hop: joining a group led by a player on another layer of the same zone
+-- moves you to that layer (the game may count down first); you leave the
+-- group again. EldoUI shares the hop network of the most used layer addon,
+-- whose messages it speaks, written from scratch (its names and message
+-- prefix live in Data/AddonFit.lua):
+--   * Hop to another layer asks the game who is in your zone (the player
+--     search, on your click) and sends each of them a hidden addon whisper
+--     with your zone and the layer you leave. Only players running EldoUI or
+--     that addon read it; nothing shows in anyone's chat.
+--   * A player who helps ("Help others hop") on another layer of your zone
+--     answers "heard" and invites you. You accept in the game's own popup;
+--     EldoUI never accepts an invite for you.
+--   * Once your layer changed, Leave group is one click, or EldoUI leaves a
+--     few seconds later when you turned that on.
+-- A player asked lately who never answered is not asked again for six
+-- hours, a helper invites at most six players in ten minutes, and nothing
+-- is sent in combat or in an instance. A message EldoUI does not
+-- understand is ignored.
 --
 -- With the layer addon installed (and "Use the layer addon" on), EldoUI's
 -- network side stays silent and a click on the chip opens that addon's
@@ -34,42 +42,78 @@ local IsSecret = E.Secret
 local Read = E.PlainCall
 
 local Layer = {
-	maps = {},          -- [mapID] = { [key] = last seen (GetTime) }
-	offered = {},       -- [sender .. "#" .. id] = { sender, id, key, at } (as helper)
-	lastOffer = {},     -- [sender] = time of the last accepted request
-	cards = {},         -- [sender .. "#" .. id] = { sender, id, timer } (as helper)
+	seen = {},          -- [zone] = { [key] = { id = whole id, at = GetTime() } }
+	votes = {},         -- the keys of the last creatures read, newest last
+	voted = {},         -- [guid] = true: creatures already read on this layer
+	replied = {},       -- [asker] = GetTime() of our last "heard" (as helper)
+	invited = {},       -- [asker] = GetTime() of our last invite (as helper)
+	hosted = {},        -- [name] = true: players this session invited
+	sent = {},          -- GetTime() of each invite, for the helper's limit
+	cards = {},         -- [asker] = { sender, timer } (as helper)
+	book = {},          -- [name] = true: players who answered as helpers this session
 }
 M.Layer = Layer
 
-local CHANGE_WINDOW = 10      -- two creatures within this many seconds confirm a new layer
-local OFFER_WAIT = 3          -- seconds the asker collects offers
-local ANSWER_WAIT = 25        -- seconds a chosen helper has to answer
-local DECIDE_WAIT = 20        -- seconds a helper's card waits for a click
-local HOP_LIMIT = 120         -- the whole hop ends after this, unless the game has a move scheduled
-local MOVE_RECHECK = 5        -- seconds between looks at a scheduled move once HOP_LIMIT has passed
-local MAX_KNOWN = 12          -- layer keys sent along with a request
-local OFFER_COOLDOWN = 10     -- seconds between offers to the same asker
-local MAX_OFFERS = 32         -- simultaneous choices and recent askers
+E:RegisterPrivate("layerHop", { asked = {} })
+
+local VOTES = 5               -- creatures kept for the vote
+local STALE_FOR = 10          -- creatures in view at a move belong to the layer left
+local ASK_COOLDOWN = 10       -- seconds between two hop requests
+local ASK_TTL = 120           -- a request waits this long for an invite
+local SEARCH_WAIT = 5         -- seconds for the player search to answer
+local SEARCH_LATE = 30        -- a late answer to our search is ignored after this
+local BURST = 8               -- whispers per second
+local MAX_ASKED = 49          -- players asked per request
+local ASKED_FOR = 6 * 3600    -- a player who did not answer is not asked again for this long
+local ASKED_KEEP = 3000       -- names kept for that rule
+local AGAIN_WAIT = 3          -- seconds after the whispers before helpers with an unread layer are asked again
+local AGAIN_LATE = 10         -- ... or after a helper on another layer had this long to invite
+local SAME_AFTER = 15         -- in a helper's group without a move this long: the helper is on your layer
+local LEAVE_AFTER = 4         -- seconds after the move before the group is left (automatic leave)
 local MARK_TIME = 60          -- the chip stays marked this long after a hop
+local REPLY_COOLDOWN = 10     -- seconds between two "heard" replies to one asker
+local INVITE_COOLDOWN = 60    -- seconds before the same asker is invited again
+local HOST_CAP = 6            -- invites a helper sends ...
+local HOST_WINDOW = 600       -- ... in this many seconds
+local DECIDE_WAIT = 20        -- seconds a helper's card waits for a click
+local PARTY_MAX = 5
+-- The player search filters by class: each later click asks one class of
+-- the zone, so a crowded zone shows other players each time.
+local CLASSES = { 1, 2, 3, 4, 5, 7, 8, 9, 11 }
+local WHO_LISTS = { "LFGWhoListFrame", "FriendsFrame" }
+local ZONE_MAP = (Enum and Enum.UIMapType and Enum.UIMapType.Zone) or 3
 
 local function Now() return GetTime() end
 
 ---------------------------------------------------------------------------
 -- Reading the layer
 ---------------------------------------------------------------------------
--- The layer key of a GUID: its fifth part for a Creature or Vehicle, a
--- whole number above 0; nil for anything else.
-function Layer.KeyFromGUID(guid)
+-- The whole id of a GUID ("6843-8": server part and zone part) and its
+-- layer key (the server part), for a Creature or Vehicle; nil otherwise.
+function Layer.IdFromGUID(guid)
 	if IsSecret(guid) or type(guid) ~= "string" or guid == "" then return nil end
-	local kind, _, _, _, zone = strsplit("-", guid)
+	local kind, _, server, _, zone = strsplit("-", guid)
 	if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
-	if type(zone) ~= "string" or not zone:match("^%d+$") or tonumber(zone) == 0 then return nil end
-	return zone
+	if type(server) ~= "string" or not server:match("^%d+$") or tonumber(server) == 0 then return nil end
+	if type(zone) ~= "string" or not zone:match("^%d+$") then return nil end
+	return server .. "-" .. zone, server
 end
 
+function Layer.KeyFromGUID(guid)
+	local _, key = Layer.IdFromGUID(guid)
+	return key
+end
+
+-- The layer key of a whole id another player sent ("6843-8" or "6843").
+local function KeyOf(id)
+	if type(id) ~= "string" then return nil end
+	return id:match("^(%d+)%-") or id:match("^(%d+)$")
+end
+Layer.KeyOf = KeyOf
+
 local function InInstance()
-	local ok, inside, kind = pcall(IsInInstance)
-	if not ok or IsSecret(inside) or IsSecret(kind) then return true end
+	local ok, inside = pcall(IsInInstance)
+	if not ok or IsSecret(inside) then return true end
 	return inside and true or false
 end
 
@@ -77,14 +121,34 @@ local function InCombat()
 	return InCombatLockdown() or Read(UnitAffectingCombat, "player") and true or false
 end
 
-local function CurrentMap()
+-- The zone you stand in as its zone map: a cave or a building counts as
+-- its zone, since the layer is the zone's. Every client shares the number.
+function Layer.Zone()
 	local map = C_Map and C_Map.GetBestMapForUnit and Read(C_Map.GetBestMapForUnit, "player")
-	if type(map) ~= "number" then return nil end
+	if type(map) ~= "number" or map <= 0 then return nil end
+	local zone = map
+	for _ = 1, 6 do
+		local info = C_Map.GetMapInfo and Read(C_Map.GetMapInfo, zone)
+		if type(info) ~= "table" or type(info.mapType) ~= "number" or IsSecret(info.mapType) then break end
+		if info.mapType == ZONE_MAP then return zone end
+		local up = info.parentMapID
+		if info.mapType < ZONE_MAP or IsSecret(up) or type(up) ~= "number" or up <= 0 then break end
+		zone = up
+	end
 	return map
 end
 
+local function ZoneName(zone)
+	local info = zone and C_Map and C_Map.GetMapInfo and Read(C_Map.GetMapInfo, zone)
+	local name = type(info) == "table" and info.name
+	if IsSecret(name) or type(name) ~= "string" or name == "" then return nil end
+	return name
+end
+
 function Layer.Reset()
-	Layer.key, Layer.map, Layer.confirmed, Layer.candidate = nil, nil, nil, nil
+	Layer.key, Layer.id, Layer.zone = nil, nil, nil
+	wipe(Layer.votes)
+	wipe(Layer.voted)
 end
 
 -- "2:41" for a number of seconds.
@@ -93,16 +157,16 @@ local function Clock(seconds)
 	return ("%d:%02d"):format(math.floor(seconds / 60), seconds % 60)
 end
 
--- The keys seen on a map, the current one first, then the newest.
-function Layer.Known(map)
-	local seen = Layer.maps[map or Layer.map or 0]
+-- The keys seen in a zone, the current one first, then the newest.
+function Layer.Known(zone)
+	local seen = Layer.seen[zone or Layer.zone or 0]
 	local keys = {}
 	if not seen then return keys end
 	for key in pairs(seen) do keys[#keys + 1] = key end
 	table.sort(keys, function(a, b)
 		if a == Layer.key then return true end
 		if b == Layer.key then return false end
-		return seen[a] > seen[b]
+		return seen[a].at > seen[b].at
 	end)
 	return keys
 end
@@ -113,60 +177,97 @@ local function Short(key)
 end
 Layer.Short = Short
 
--- One creature seen. The first key on a map is taken at once; a different
--- key afterwards needs a second creature within CHANGE_WINDOW seconds.
-function Layer.Observe(guid)
+local function Remember(zone, key, id)
+	local seen = Layer.seen[zone] or {}
+	Layer.seen[zone] = seen
+	seen[key] = { id = id, at = Now() }
+end
+
+-- One creature seen. unit, when given, is checked for a player's control.
+function Layer.Observe(guid, unit)
 	if not M.active or InInstance() then return end
-	local key = Layer.KeyFromGUID(guid)
-	if not key then return end
-	local map = CurrentMap()
-	if not map then return end
-	if map ~= Layer.map then
-		Layer.key, Layer.map, Layer.candidate = nil, map, nil
+	local id, key = Layer.IdFromGUID(guid)
+	if not id then return end
+	if unit and Read(UnitPlayerControlled, unit) then return end
+	local stale = Layer.stale
+	if stale and Now() < stale.untilAt and stale.guid[guid] then return end
+	local zone = Layer.Zone()
+	if not zone then return end
+	if zone ~= Layer.zone then
+		Layer.key, Layer.id, Layer.zone = nil, nil, zone
+		wipe(Layer.votes)
+		wipe(Layer.voted)
 	end
-	local now = Now()
-	local seen = Layer.maps[map] or {}
-	Layer.maps[map] = seen
-	-- After the game moved you, the first creature names the new layer.
-	local moved = Layer.movedFrom
-	if not Layer.key and moved then
-		Layer.movedFrom = nil
-		Layer.key, Layer.confirmed, Layer.candidate = key, now, nil
-		seen[key] = now
-		if moved.map == map and moved.key ~= key then Layer.Changed(moved.key, key) end
-		Layer.Refresh()
+	if Layer.voted[guid] then
+		if key == Layer.key then Remember(zone, key, id) end
 		return
 	end
+	Layer.voted[guid] = true
+	local votes = Layer.votes
+	votes[#votes + 1] = key
+	if #votes > VOTES then table.remove(votes, 1) end
 	if key == Layer.key then
-		Layer.confirmed, Layer.candidate = now, nil
-		seen[key] = now
+		Layer.id = id
+		Remember(zone, key, id)
 		return
 	end
-	local candidate = Layer.candidate
-	if Layer.key and not (candidate and candidate.key == key and candidate.guid ~= guid and now - candidate.at <= CHANGE_WINDOW) then
-		if not (candidate and candidate.key == key and now - candidate.at <= CHANGE_WINDOW) then
-			Layer.candidate = { key = key, guid = guid, at = now }
-		end
-		return
+	local count = 0
+	for _, vote in ipairs(votes) do
+		if vote == key then count = count + 1 end
 	end
+	if count < (Layer.key and 3 or 2) then return end
 	local before = Layer.key
-	Layer.key, Layer.confirmed, Layer.candidate = key, now, nil
-	seen[key] = now
-	if before then Layer.Changed(before, key) end
+	local moved = not before and Layer.movedFrom
+	Layer.key, Layer.id = key, id
+	Remember(zone, key, id)
+	wipe(Layer.voted)
+	Layer.voted[guid] = true
+	if before then
+		Layer.Changed(before, key)
+	elseif moved then
+		Layer.movedFrom = nil
+		if moved.zone == zone and moved.key ~= key then Layer.Changed(moved.key, key) end
+	end
 	Layer.Refresh()
 end
 
 local function ObserveUnit(unit)
 	local guid = Read(UnitGUID, unit)
-	if guid then Layer.Observe(guid) end
+	if guid then Layer.Observe(guid, unit) end
+end
+
+-- The units in view, read again: after a move or when a request arrives.
+function Layer.Scan()
+	for index = 1, 40 do
+		local unit = "nameplate" .. index
+		if Read(UnitExists, unit) then ObserveUnit(unit) end
+	end
+	ObserveUnit("target")
+	ObserveUnit("mouseover")
+end
+
+-- The creatures in view when the game moves you are the old layer's: they
+-- do not count for STALE_FOR seconds.
+local function MarkStale()
+	local guids = {}
+	for guid in pairs(Layer.voted) do guids[guid] = true end
+	local function Add(unit)
+		if not Read(UnitExists, unit) then return end
+		local guid = Read(UnitGUID, unit)
+		if type(guid) == "string" then guids[guid] = true end
+	end
+	for index = 1, 40 do Add("nameplate" .. index) end
+	Add("target")
+	Add("mouseover")
+	Layer.stale = { untilAt = Now() + STALE_FOR, guid = guids }
 end
 
 function Layer.Changed(before, after)
 	Layer.changedAt = Now()
 	local hop = Layer.request
-	if hop and hop.from == before and (hop.state == "invited" or hop.state == "pending" or hop.state == "asked" or hop.state == "queued") then
+	if hop and hop.from == before and (hop.state == "invited" or hop.state == "joined") then
 		hop.state = "changed"
-		Layer.OfferLeave()
+		Layer.Arrived()
 	end
 	if M.db.layerNotice then
 		E:Print(L["Your layer changed: %s to %s."]:format(Short(before), Short(after)))
@@ -192,77 +293,79 @@ end
 ---------------------------------------------------------------------------
 -- Messages
 ---------------------------------------------------------------------------
-local function ClientID()
-	local guid = Read(UnitGUID, "player")
-	local id = type(guid) == "string" and guid ~= "" and guid or (E:PlayerName() or "player")
-	return (id:gsub("[|:]", "_"))
-end
-
-local function Wire(payload)
-	local wire = payload .. "|CID=" .. ClientID()
-	if #wire > 255 then wire = payload end
-	return wire
-end
-
--- The channel number of the layer network while EldoUI is in it.
-function Layer.NetworkID()
-	if not (M.db.layerNetwork and NET.channel) or Layer.Integrated() then return nil end
-	local id = GetChannelName and Read(GetChannelName, NET.channel)
-	if type(id) ~= "number" or id <= 0 then return nil end
-	return id
-end
-
-local function Send(payload, channel, target)
+local function Send(target, text)
 	if not NET.prefix or E:CommRestricted() then return false end
-	return E:SendComm(NET.prefix, Wire(payload), channel, target, { raw = true }) and true or false
+	return E:SendComm(NET.prefix, text, "WHISPER", target, { raw = true }) and true or false
 end
 
-local function Whisper(target, payload) return Send(payload, "WHISPER", target) end
-
-local function Compact(name)
-	name = tostring(name or ""):gsub("^%s*%d+%.%s*", "")
-	return (name:lower():gsub("[^%a%d]", ""))
+-- A name as the game shows it to you (no realm for your own realm).
+local function Shown(name)
+	local shown = Ambiguate and Read(Ambiguate, name, "none")
+	if type(shown) ~= "string" or shown == "" then return name end
+	return shown
 end
 
--- Fields of a packet, without the CID tail. Every field is plain text.
-local function Fields(text)
-	local parts = { strsplit("|", text) }
-	if parts[#parts] and parts[#parts]:find("^CID=") then parts[#parts] = nil end
-	return parts
+-- A sender's name without the realm: "First Surname".
+local function Bare(name)
+	if IsSecret(name) or type(name) ~= "string" then return nil end
+	return name:match("^([^%-]+)") or name
 end
 
-local function Number(value)
-	local n = tonumber(value)
-	if not n or n ~= n or n % 1 ~= 0 then return nil end
-	return n
+-- The route of a request: "<LS 1429 not 6843-8 48.2,42.5>" - the zone, the
+-- layer left (or "want <id>" for one layer) and where you stand on the
+-- zone map in percent, which helpers that keep their farming spot read.
+local function Route(zone, want, leave, x, y)
+	local parts = { "<LS", tostring(zone) }
+	if want then parts[#parts + 1] = "want " .. want elseif leave then parts[#parts + 1] = "not " .. leave end
+	if x and y then parts[#parts + 1] = ("%.1f,%.1f"):format(x * 100, y * 100) end
+	return table.concat(parts, " ") .. ">"
 end
 
-local function ValidKey(value)
-	return type(value) == "string" and value:match("^%d+$") and tonumber(value) > 0 and value or nil
+-- The route read back, or nil: { zone, want, avoid, avoids }.
+function Layer.ParseRoute(text)
+	if IsSecret(text) or type(text) ~= "string" then return nil end
+	local body = text:match("<LS([^<>]*)>")
+	if not body then return nil end
+	local zone = body:match("^%s*(%d+)%s") or body:match("^%s*(%d+)%s*$")
+	if not zone then return nil end
+	local avoids = {}
+	for id in body:gmatch("not%s+(%d+%-%d+)") do avoids[#avoids + 1] = id end
+	return { zone = zone, want = body:match("want%s+(%d+%-%d+)"), avoid = avoids[1], avoids = avoids }
+end
+
+local function MapSpot(zone)
+	local pos = C_Map and C_Map.GetPlayerMapPosition and Read(C_Map.GetPlayerMapPosition, zone, "player")
+	if type(pos) ~= "table" then return nil end
+	local x, y = pos.x, pos.y
+	if type(pos.GetXY) == "function" then
+		local ok, a, b = pcall(pos.GetXY, pos)
+		if ok then x, y = a, b end
+	end
+	if IsSecret(x) or IsSecret(y) or type(x) ~= "number" or type(y) ~= "number" then return nil end
+	if x < 0 or x > 1 or y < 0 or y > 1 then return nil end
+	return x, y
 end
 
 ---------------------------------------------------------------------------
 -- Asking for a hop
 ---------------------------------------------------------------------------
+local function SearchAvailable()
+	local who = C_FriendList
+	return type(who) == "table" and type(who.SendWho) == "function" and type(who.GetNumWhoResults) == "function"
+		and type(who.GetWhoInfo) == "function"
+end
+
 -- Why a hop can't start now, or nil.
 function Layer.CantAsk()
 	if not M.active then return L["The minimap is off."] end
 	if InInstance() then return L["Layers don't apply in an instance."] end
 	if InCombat() then return L["Not in combat."] end
-	if not (Layer.key and Layer.map) then return L["Your layer isn't known yet. Look at a creature nearby first."] end
-	if Read(IsInRaid) then return L["Leave the raid first."] end
-	if not (Layer.NetworkID() or (Read(IsInGuild) and true)) then
-		return L["Join the layer network or a guild first."]
-	end
-end
-
-local function KnownCSV()
-	local keys = {}
-	for _, key in ipairs(Layer.Known()) do
-		if #keys >= MAX_KNOWN then break end
-		keys[#keys + 1] = key
-	end
-	return table.concat(keys, ",")
+	if not (Layer.key and Layer.zone) then return L["Your layer isn't known yet. Look at a creature nearby first."] end
+	if Read(IsInGroup) then return L["Leave your group first."] end
+	if not SearchAvailable() then return L["This game client has no player search."] end
+	if E:CommRestricted() then return L["The game is holding back addon messages right now."] end
+	local last = Layer.askedAt
+	if last and Now() - last < ASK_COOLDOWN then return L["Wait a few seconds before you ask again."] end
 end
 
 local function Status(text)
@@ -271,37 +374,199 @@ local function Status(text)
 	Layer.Refresh()
 end
 
+local function AskedStore()
+	local store = E:GetPrivate("layerHop")
+	if type(store) ~= "table" then return {} end
+	if type(store.asked) ~= "table" then store.asked = {} end
+	return store.asked
+end
+
+-- Forget the names asked longer ago than ASKED_FOR, and keep at most ASKED_KEEP.
+local function PruneAsked()
+	local asked, now, names = AskedStore(), time(), {}
+	for name, at in pairs(asked) do
+		if type(at) ~= "number" or now - at >= ASKED_FOR then asked[name] = nil else names[#names + 1] = name end
+	end
+	if #names > ASKED_KEEP then
+		table.sort(names, function(a, b) return asked[a] > asked[b] end)
+		for index = ASKED_KEEP + 1, #names do asked[names[index]] = nil end
+	end
+	return asked
+end
+
+-- The game's own who lists stay closed while our search is out.
+local function HushLists()
+	Layer.muted = Layer.muted or {}
+	for _, name in ipairs(WHO_LISTS) do
+		local frame = _G[name]
+		if type(frame) == "table" and not Layer.muted[name] and type(frame.IsEventRegistered) == "function" then
+			local registered = Read(frame.IsEventRegistered, frame, "WHO_LIST_UPDATE")
+			local shown = Read(frame.IsVisible, frame)
+			if registered and not shown and pcall(frame.UnregisterEvent, frame, "WHO_LIST_UPDATE") then
+				Layer.muted[name] = frame
+			end
+		end
+	end
+end
+
+local function ReleaseLists()
+	Layer.searching = nil
+	for name, frame in pairs(Layer.muted or {}) do
+		pcall(frame.RegisterEvent, frame, "WHO_LIST_UPDATE")
+		Layer.muted[name] = nil
+	end
+	local toUI = C_FriendList and C_FriendList.SetWhoToUi
+	if type(toUI) ~= "function" then return end
+	for _, name in ipairs(WHO_LISTS) do
+		local frame = _G[name]
+		if type(frame) == "table" and type(frame.IsVisible) == "function" and Read(frame.IsVisible, frame) then return end
+	end
+	pcall(toUI, false)
+end
+
+-- Asks the game who is in your zone: one class of it after the first
+-- click, so each click can reach other players. Runs only from a click.
+local function Search(zone)
+	local who = C_FriendList
+	local name = ZoneName(zone)
+	local tag = _G.WHO_TAG_ZONE
+	if IsSecret(tag) or type(tag) ~= "string" or tag == "" then tag = "z-" end
+	local text = name and (tag .. '"' .. name .. '"') or ""
+	Layer.round = ((Layer.round or -1) + 1) % (#CLASSES + 1)
+	local class = Layer.round > 0 and CLASSES[Layer.round] or nil
+	local origin = Enum and Enum.SocialWhoOrigin and Enum.SocialWhoOrigin.Social or 1
+	HushLists()
+	if type(who.SetWhoToUi) == "function" then pcall(who.SetWhoToUi, true) end
+	local ok = pcall(who.SendWho, text, origin, { classIDs = class and { class } or {}, raceIDs = {}, uiMapIDs = { zone } })
+	if not ok and name then ok = pcall(who.SendWho, text, origin) end
+	if not ok then ReleaseLists() end
+	return ok
+end
+
 function Layer.Ask(wanted)
 	local why = Layer.CantAsk()
 	if why then E:Print(why) return false end
 	if Layer.request and Layer.request.state ~= "done" then return false end
-	wanted = ValidKey(wanted) or "*"
-	local id = math.random(100000, 999999)
-	local hop = { id = id, wanted = wanted, map = Layer.map, from = Layer.key, offers = {}, tried = {},
-		state = "asking", at = Now() }
-	Layer.request = hop
-	local payload = ("LQ|%d|%d|%s|%s|%s|LANG=any"):format(id, Layer.map, wanted, Layer.key, KnownCSV())
-	local sent = false
-	local network = Layer.NetworkID()
-	if network then sent = Send(payload, "CHANNEL", network) or sent end
-	if Read(IsInGuild) then sent = Send(payload, "GUILD") or sent end
-	if not sent then
-		Layer.Finish(L["The hop request could not be sent."])
+	local want
+	if wanted and wanted ~= "*" then
+		local entry = Layer.seen[Layer.zone] and Layer.seen[Layer.zone][wanted]
+		want = entry and entry.id or nil
+	end
+	local x, y = MapSpot(Layer.zone)
+	local hop = { want = want, from = Layer.key, zone = Layer.zone, replies = {}, queue = {}, sent = 0,
+		state = "searching", at = Now(),
+		line = "inv layer " .. Route(Layer.zone, want, not want and Layer.id or nil, x, y) }
+	Layer.request, Layer.askedAt = hop, Now()
+	if not Search(Layer.zone) then
+		Layer.Finish(L["The player search did not start. Try again in a moment."])
 		return false
 	end
-	Status(L["Asking for a hop..."])
-	C_Timer.After(OFFER_WAIT, function() if Layer.request == hop and hop.state == "asking" then Layer.Choose() end end)
-	-- The hop ends after HOP_LIMIT, but never while the game has a move
-	-- scheduled: its own countdown can be longer.
-	local function Expire()
-		if Layer.request ~= hop or hop.state == "done" or hop.state == "changed" then return end
-		if hop.moving then C_Timer.After(MOVE_RECHECK, Expire) return end
-		-- Invited but never moved: the game limits how often a layer changes.
-		Layer.Finish(hop.state == "invited" and L["The game limits how often you can change layer. Try again in a few minutes."]
-			or L["No hop this time."])
-	end
-	C_Timer.After(HOP_LIMIT, Expire)
+	Layer.searching = hop
+	Status(L["Looking for players in your zone..."])
+	C_Timer.After(SEARCH_WAIT, function()
+		if Layer.request == hop and hop.state == "searching" then
+			Layer.Finish(L["The player search got no answer. Try again in a moment."])
+		end
+	end)
+	C_Timer.After(SEARCH_LATE, function() if Layer.searching == hop then ReleaseLists() end end)
 	return true
+end
+
+-- WHO_LIST_UPDATE: the answer to our own search, the players to ask. The
+-- players in your zone first, players who helped before ahead of them,
+-- your guild last; nobody asked lately who never answered.
+function Layer.OnWhoList()
+	local hop = Layer.searching
+	if not hop then return end
+	ReleaseLists()
+	if Layer.request ~= hop or hop.state ~= "searching" then return end
+	local who = C_FriendList
+	local count = tonumber(Read(who.GetNumWhoResults)) or 0
+	local asked = PruneAsked()
+	local zoneName = ZoneName(hop.zone)
+	local guild = Read(IsInGuild) and Read(GetGuildInfo, "player") or nil
+	local first, here, rest, mates, skipped, seen = {}, {}, {}, {}, 0, {}
+	for index = 1, math.min(count, 50) do
+		local info = Read(who.GetWhoInfo, index)
+		local name = type(info) == "table" and info.fullName
+		if type(name) == "string" and not IsSecret(name) and name ~= "" and not seen[name] and not E:IsMe(name) then
+			seen[name] = true
+			local bare = Bare(name)
+			local known = Layer.book[bare]
+			if asked[name] and not known then
+				skipped = skipped + 1
+			elseif known then
+				first[#first + 1] = name
+			elseif type(guild) == "string" and info.fullGuildName == guild then
+				mates[#mates + 1] = name
+			elseif zoneName and info.area == zoneName then
+				here[#here + 1] = name
+			else
+				rest[#rest + 1] = name
+			end
+		end
+	end
+	for _, list in ipairs({ first, here, rest, mates }) do
+		for _, name in ipairs(list) do
+			if #hop.queue < MAX_ASKED then hop.queue[#hop.queue + 1] = name end
+		end
+	end
+	if #hop.queue == 0 then
+		Layer.Finish(skipped > 0 and L["Everyone found here was asked lately. Try again later or in a busier zone."]
+			or L["Nobody else was found in this zone. Try again in a moment."])
+		return
+	end
+	hop.state = "asked"
+	hop.askedAt = Now()
+	Layer.Whisper(hop)
+	C_Timer.After(ASK_TTL, function()
+		if Layer.request == hop and hop.state == "asked" then Layer.Finish(L["No player invited you this time."]) end
+	end)
+end
+
+-- BURST whispers a second until the list is done or someone invites.
+function Layer.Whisper(hop)
+	if Layer.request ~= hop or hop.state ~= "asked" then return end
+	local asked = AskedStore()
+	local count = 0
+	while hop.queue[1] and count < BURST do
+		local name = table.remove(hop.queue, 1)
+		if Send(name, hop.line) then
+			hop.sent = hop.sent + 1
+			asked[name] = time()
+		end
+		count = count + 1
+	end
+	Status(E:Plural(hop.sent, "Asked %d player in your zone. Waiting for an invite...",
+		"Asked %d players in your zone. Waiting for an invite..."):format(hop.sent))
+	if hop.queue[1] then
+		C_Timer.After(1, function() Layer.Whisper(hop) end)
+		return
+	end
+	hop.doneAt = Now()
+	C_Timer.After(AGAIN_WAIT, function() Layer.AskAgain(hop) end)
+	C_Timer.After(AGAIN_LATE, function() Layer.AskAgain(hop) end)
+end
+
+-- Helpers who answered without knowing their own layer skip a request
+-- that names the layer you leave. When no invite came, each of them is
+-- asked once more without it.
+function Layer.AskAgain(hop)
+	if Layer.request ~= hop or hop.state ~= "asked" or hop.want or not hop.doneAt then return end
+	local since = Now() - hop.doneAt
+	local other = false
+	for _, reply in pairs(hop.replies) do
+		if reply.host and reply.layer and KeyOf(reply.layer) ~= hop.from and reply.zone == tostring(hop.zone) then other = true end
+	end
+	if other and since < AGAIN_LATE then return end
+	local x, y = MapSpot(hop.zone)
+	local line = "inv layer " .. Route(hop.zone, nil, nil, x, y)
+	for _, reply in pairs(hop.replies) do
+		if reply.host and not reply.layer and not reply.same and not reply.again and reply.zone == tostring(hop.zone) then
+			reply.again = true
+			Send(reply.sender, line)
+		end
+	end
 end
 
 function Layer.Cancel()
@@ -314,44 +579,108 @@ function Layer.Finish(text)
 	local hop = Layer.request
 	if not hop then return end
 	hop.state = "done"
+	wipe(hop.queue)
+	if Layer.searching == hop then ReleaseLists() end
 	if text then E:Print(text) end
 	Layer.request = nil
 	E:DismissAlert("EldoUI.LayerLeave")
 	Layer.Refresh()
 end
 
--- The next helper: the least busy one, then the smallest group.
-function Layer.Choose()
+-- "heard <you>|<their layer>|<their zone>|<h when they can invite>" and
+-- "same" from a helper on your own layer.
+local function OnReply(sender, text)
 	local hop = Layer.request
-	if not hop then return end
-	local best
-	for name, offer in pairs(hop.offers) do
-		if not hop.tried[name] and (not best or offer.load < best.load
-			or (offer.load == best.load and offer.group < best.group)) then
-			best = offer
+	local bare = Bare(sender)
+	if not bare then return end
+	if text == "same" then
+		Layer.book[bare] = true
+		if hop and hop.state ~= "done" then
+			local reply = hop.replies[bare] or { sender = sender }
+			reply.same, reply.host = true, true
+			hop.replies[bare] = reply
 		end
-	end
-	if not best then
-		Layer.Finish(L["No player could help this time."])
 		return
 	end
-	hop.tried[best.sender] = true
-	hop.helper, hop.state = best.sender, "asked"
-	Whisper(best.sender, ("LR|%d|%d|%s|%s"):format(hop.id, hop.map, best.key, NET.wire or "0.1.3"))
-	Status(L["Asked %s to invite you."]:format(Ambiguate and Ambiguate(best.sender, "none") or best.sender))
-	local helper = best.sender
-	C_Timer.After(ANSWER_WAIT, function()
-		if Layer.request == hop and hop.helper == helper and (hop.state == "asked" or hop.state == "pending" or hop.state == "queued") then
-			Layer.Choose()
-		end
+	local target, layer, zone, host = text:match("^heard (.-)|([^|]*)|([^|]*)|([^|]*)$")
+	if not target or not E:IsMe(target) then return end
+	if host == "h" then Layer.book[bare] = true end
+	if not hop or hop.state == "done" then return end
+	local reply = hop.replies[bare] or { sender = sender }
+	reply.layer = layer ~= "-" and layer or nil
+	reply.zone = zone ~= "-" and zone or nil
+	reply.host = reply.host or host == "h"
+	hop.replies[bare] = reply
+	if reply.host and not reply.layer then Layer.AskAgain(hop) end
+end
+
+-- PARTY_INVITE_REQUEST while a request waits: accepting is the player's,
+-- in the game's own popup.
+function Layer.Invited(name)
+	local hop = Layer.request
+	if not hop or hop.state ~= "asked" or IsSecret(name) or type(name) ~= "string" then return end
+	hop.state, hop.inviter = "invited", name
+	wipe(hop.queue)
+	Status(L["%s invites you. Accept in the game's popup."]:format(Shown(name)))
+	C_Timer.After(ASK_TTL, function()
+		if Layer.request == hop and hop.state == "invited" then Layer.Finish(L["No hop this time."]) end
 	end)
 end
 
-function Layer.OfferLeave()
-	Status(L["You are on a new layer."])
+-- GROUP_JOINED: in the helper's group. The game moves you to its layer;
+-- without a move after SAME_AFTER seconds the helper is on your layer.
+function Layer.Joined()
+	local hop = Layer.request
+	if not hop or hop.state ~= "invited" then return end
+	hop.state, hop.joinedAt = "joined", Now()
+	Status(L["In the group. The game moves you to the helper's layer."])
+	for _, delay in ipairs({ 1, 3, 6 }) do C_Timer.After(delay, Layer.Scan) end
+	local tries = 0
+	local function Judge()
+		if Layer.request ~= hop or hop.state ~= "joined" then return end
+		tries = tries + 1
+		-- A move the game counts down to, or a new layer not read yet.
+		if (hop.moving or Layer.MoveLeft() or not Layer.key) and tries < 24 then C_Timer.After(5, Judge) return end
+		Layer.Scan()
+		if Layer.key == hop.from then
+			hop.state = "changed"
+			Layer.Arrived(true)
+		end
+	end
+	C_Timer.After(SAME_AFTER, Judge)
+end
+
+function Layer.GroupLeft()
+	local hop = Layer.request
+	if hop and (hop.state == "joined" or hop.state == "changed") then
+		Layer.Finish()
+		Layer.markedUntil = Now() + MARK_TIME
+		Layer.Refresh()
+	end
+end
+
+-- Your layer changed in the helper's group (same = it did not change):
+-- leave the group with a click, or by itself with "Leave the group by
+-- itself" on.
+function Layer.Arrived(same)
+	local hop = Layer.request
+	if same then
+		Status(L["This player is on your layer, so nothing changed."])
+	else
+		Status(L["You are on a new layer."])
+	end
+	if M.db.layerAutoLeave then
+		E:Print(same and L["This player is on your layer. Leaving the group."]
+			or L["You are on a new layer. Leaving the group in a few seconds."])
+		C_Timer.After(same and 0 or LEAVE_AFTER, function()
+			if Layer.request == hop and Read(IsInGroup) then Layer.Leave() end
+		end)
+		return
+	end
 	M:PushAlert({
-		key = "EldoUI.LayerLeave", title = L["Layer changed"],
-		text = L["You are on a new layer. Leave the group to stay here."],
+		key = "EldoUI.LayerLeave", title = same and L["Layer unchanged"] or L["Layer changed"],
+		text = same and L["This player is on your layer. Leave the group and ask again."]
+			or L["You are on a new layer. Leave the group to stay here."],
 		icon = 134400, duration = 30,
 		actions = {
 			{ label = L["Leave group"], func = function() Layer.Leave() end },
@@ -370,10 +699,9 @@ end
 ---------------------------------------------------------------------------
 -- The game's own layer move
 ---------------------------------------------------------------------------
--- WoW: Forever does not move you the moment you join a group on another
--- layer: it schedules the move (SHARD_TRANSFER_IMMINENT, the time left in
--- GetEvictionTimeRemaining), shows its own window with a countdown and a
--- Transfer now button, and moves you (SHARD_TRANSFER) or calls it off
+-- WoW: Forever can schedule the move (SHARD_TRANSFER_IMMINENT, the time
+-- left in GetEvictionTimeRemaining), show its own window with a countdown
+-- and a Transfer now button, and move you (SHARD_TRANSFER) or call it off
 -- (SHARD_TRANSFER_CANCELLED). EldoUI shows the countdown and waits for it;
 -- moving early is always the game's own button.
 function Layer.MoveLeft()
@@ -387,7 +715,7 @@ function Layer.MoveScheduled()
 	local left = tonumber(Read(GetEvictionTimeRemaining))
 	Layer.moveEnds = left and left > 0 and Now() + left or nil
 	local hop = Layer.request
-	if hop and hop.state ~= "done" and hop.state ~= "changed" then
+	if hop and (hop.state == "invited" or hop.state == "joined") then
 		hop.moving = true
 		Status(L["The game moves you to the group's layer."])
 	end
@@ -395,12 +723,12 @@ function Layer.MoveScheduled()
 end
 
 function Layer.MoveCancelled()
-	Layer.moveEnds = nil
+	local left = tonumber(Read(GetEvictionTimeRemaining))
+	Layer.moveEnds = left and left > 0 and Now() + left or nil
 	local hop = Layer.request
-	if hop and hop.moving then
+	if hop and hop.moving and not Layer.moveEnds then
 		hop.moving = nil
 		E:Print(L["The game called off the layer move."])
-		if hop.state ~= "done" and hop.state ~= "changed" then Layer.Choose() end
 	end
 	Layer.Refresh()
 end
@@ -408,244 +736,150 @@ end
 function Layer.Moved()
 	Layer.moveEnds = nil
 	Layer.movedAt = Now()
-	-- The old key no longer holds; the next creature names the new one.
-	if Layer.key then Layer.movedFrom = { key = Layer.key, map = Layer.map } end
-	Layer.key, Layer.confirmed, Layer.candidate = nil, nil, nil
+	MarkStale()
+	-- The old key no longer holds; the next creatures name the new one.
+	if Layer.key then Layer.movedFrom = { key = Layer.key, zone = Layer.zone } end
+	Layer.key, Layer.id = nil, nil
+	wipe(Layer.votes)
+	wipe(Layer.voted)
 	local hop = Layer.request
-	if hop then
-		hop.moving = nil
-		if hop.state ~= "done" and hop.state ~= "changed" and Read(UnitInPartyShard, "player") then
-			hop.state = "changed"
-			Layer.OfferLeave()
-		end
-	end
+	if hop then hop.moving = nil end
+	for _, delay in ipairs({ 2, 5, STALE_FOR + 2 }) do C_Timer.After(delay, Layer.Scan) end
 	Layer.Refresh()
-end
-
--- Answers to the asker.
-local function OnOffer(sender, parts)
-	local hop = Layer.request
-	local id, map, key = Number(parts[2]), Number(parts[3]), ValidKey(parts[4])
-	if not hop or hop.state ~= "asking" or id ~= hop.id or map ~= hop.map or not key or key == hop.from then return end
-	if hop.wanted ~= "*" and key ~= hop.wanted then return end
-	hop.offers[sender] = { sender = sender, key = key, group = Number(parts[5]) or 0, load = Number(parts[6]) or 0 }
-end
-
-local function OnReply(sender, parts)
-	local hop = Layer.request
-	local command, id = parts[1], Number(parts[2])
-	if not hop or id ~= hop.id or sender ~= hop.helper then return end
-	if command == "LW" then
-		hop.state = "pending"
-		Status(L["Waiting for %s to invite you."]:format(Ambiguate and Ambiguate(sender, "none") or sender))
-	elseif command == "HQ" then
-		hop.state = "queued"
-		Status(L["In line for an invite."])
-	elseif command == "LI" then
-		hop.state = "invited"
-		Status(L["If an invite appears, accept it in the game's popup."])
-	elseif command == "LN" or command == "LD" or command == "LA" then
-		Layer.Choose()
-	end
 end
 
 ---------------------------------------------------------------------------
 -- Helping others
 ---------------------------------------------------------------------------
-local function CanInvite()
-	if not Read(IsInGroup) then return true end
-	if Read(IsInRaid) then return false end
-	return Read(UnitIsGroupLeader, "player") and (Read(GetNumGroupMembers) or 5) < 5 and true or false
+-- "First Surname" of a group member.
+local function MemberName(unit)
+	return E.UnitWhisperName and E:UnitWhisperName(unit) or Read(UnitName, unit)
 end
 
--- Whether this character answers a request that came on `channel`.
-function Layer.Helping(channel)
-	if not (M.active and M.db.layerHelp) or Layer.Integrated() then return false end
-	if channel == "GUILD" then return true end
-	if channel == "CHANNEL" or channel == "WHISPER" then return Layer.NetworkID() ~= nil end
+local function Listed()
+	if C_LFGList and C_LFGList.HasActiveEntryInfo and Read(C_LFGList.HasActiveEntryInfo) then return true end
 	return false
 end
 
-local function OnRequest(sender, parts, channel)
-	if not Layer.Helping(channel) or InInstance() or InCombat() or not CanInvite() then return end
-	local id, map, wanted, theirs = Number(parts[2]), Number(parts[3]), parts[4], ValidKey(parts[5])
-	local mine = Layer.key
-	if not (id and map and mine) or map ~= Layer.map or theirs == mine then return end
-	if wanted ~= "*" and wanted ~= mine then return end
-	local tag = sender .. "#" .. id
-	local now = Now()
-	if Layer.offered[tag] or (Layer.lastOffer[sender] and now - Layer.lastOffer[sender] < OFFER_COOLDOWN) then return end
-	local offers, askers = 0, 0
-	for _ in pairs(Layer.offered) do offers = offers + 1 end
-	for asker, at in pairs(Layer.lastOffer) do
-		if now - at >= OFFER_COOLDOWN then Layer.lastOffer[asker] = nil else askers = askers + 1 end
+-- Whether this character can invite a player who asked, right now.
+function Layer.CanHost()
+	if InInstance() or InCombat() or Listed() or Layer.MoveLeft() then return false end
+	local hop = Layer.request
+	if hop and hop.state ~= "done" then return false end
+	local now, kept = Now(), {}
+	for _, at in ipairs(Layer.sent) do
+		if now - at < HOST_WINDOW then kept[#kept + 1] = at end
 	end
-	if offers >= MAX_OFFERS or askers >= MAX_OFFERS then return end
-	Layer.lastOffer[sender] = now
-	local offer = { sender = sender, id = id, key = mine, map = map, at = now }
-	Layer.offered[tag] = offer
-	-- Most askers choose someone else: the offer is forgotten once the
-	-- asker could no longer pick it (OnChosen refuses it after 60 s too).
-	offer.expiry = C_Timer.NewTimer(61, function()
-		if Layer.offered[tag] == offer and not Layer.cards[tag] then Layer.offered[tag] = nil end
-	end)
-	C_Timer.After(0.2 + math.random() * 1.0, function()
-		if Layer.offered[tag] ~= offer or not Layer.Helping(channel) or Layer.key ~= mine or Layer.map ~= map
-			or InCombat() or not CanInvite() then return end
-		local group = Read(IsInGroup) and (Read(GetNumGroupMembers) or 0) or 0
-		Whisper(sender, ("LO|%d|%d|%s|%d|%d|ACT=1|LANG=any"):format(id, map, mine, group, Layer.Load()))
-	end)
-end
-
-local function ForgetOffer(tag)
-	local offer = Layer.offered[tag]
-	if offer and offer.expiry then offer.expiry:Cancel() end
-	Layer.offered[tag] = nil
-end
-
--- How many hops this character helped with in the last ten minutes.
-function Layer.Load()
-	local now, count = Now(), 0
-	for at in pairs(Layer.helped or {}) do
-		if now - at < 600 then count = count + 1 else Layer.helped[at] = nil end
-	end
-	return count
-end
-
-function Layer.Decide(tag, invite)
-	local card = Layer.cards[tag]
-	if not card then return end
-	if card.expiry then card.expiry:Cancel() end
-	Layer.cards[tag] = nil
-	ForgetOffer(tag)
-	if invite and not InCombat() and C_PartyInfo and C_PartyInfo.InviteUnit then
-		local called, result = pcall(C_PartyInfo.InviteUnit, card.sender)
-		-- The client returns no result for an attempt and can still ask for
-		-- confirmation. An explicit refusal must not send the invite reply.
-		if called and not E.Secret(result) and result ~= false then
-			Layer.helped = Layer.helped or {}
-			Layer.helped[Now()] = true
-			Whisper(card.sender, "LI|" .. card.id)
-			return
+	Layer.sent = kept
+	if #kept >= HOST_CAP then return false end
+	if not Read(IsInGroup) then return true end
+	if Read(IsInRaid) or not Read(UnitIsGroupLeader, "player") then return false end
+	if (Read(GetNumGroupMembers) or PARTY_MAX) >= PARTY_MAX then return false end
+	-- Only a group of players who came for a hop: never anyone else's group.
+	for index = 1, PARTY_MAX - 1 do
+		local unit = "party" .. index
+		if Read(UnitExists, unit) then
+			local name = MemberName(unit)
+			if not (name and Layer.hosted[Bare(name)]) then return false end
 		end
-		Whisper(card.sender, ("LN|%d|invite failed"):format(card.id))
-		return
 	end
-	Whisper(card.sender, (invite and "LN|%d|busy" or "LD|%d"):format(card.id))
+	return true
 end
 
-local function OnChosen(sender, parts)
-	local id = Number(parts[2])
-	if not id then return end
-	local tag = sender .. "#" .. id
-	local offer = Layer.offered[tag]
-	-- Only a player this character sent an offer to gets an answer (fork,
-	-- F05). Anyone else whispering "LR" hears nothing, so a stranger can't
-	-- use it to see who is online with EldoUI.
-	if not offer then return end
-	if Now() - offer.at > 60 then
-		ForgetOffer(tag)
-		offer = nil
-	end
-	if not offer or not (Layer.Helping("WHISPER") or Layer.Helping("GUILD")) then
-		Whisper(sender, ("LN|%d|busy"):format(id))
+-- Whether this character answers hop requests.
+function Layer.Helping()
+	return M.active and M.db.layerHelp and not Layer.Integrated() and true or false
+end
+
+function Layer.Invite(sender)
+	local bare = Bare(sender)
+	if not bare or not Layer.CanHost() or not (C_PartyInfo and C_PartyInfo.InviteUnit) then return false end
+	-- The game invites by "First Surname"; the realm stays out.
+	local called, result = pcall(C_PartyInfo.InviteUnit, bare)
+	if not called or (not IsSecret(result) and result == false) then return false end
+	Layer.invited[bare] = Now()
+	Layer.hosted[bare] = true
+	Layer.sent[#Layer.sent + 1] = Now()
+	return true
+end
+
+function Layer.Decide(bare, invite)
+	local card = Layer.cards[bare]
+	if not card then return end
+	if card.timer then card.timer:Cancel() end
+	Layer.cards[bare] = nil
+	if invite then Layer.Invite(card.sender) end
+end
+
+-- A card for a request: Invite or Not now. One card at a time.
+local function Offer(sender, bare)
+	if M.db.layerHelpAuto then
+		Layer.Invite(sender)
 		return
 	end
-	if InCombat() or InInstance() or not CanInvite() or Layer.key ~= offer.key then
-		ForgetOffer(tag)
-		Whisper(sender, ("LN|%d|layer changed"):format(id))
-		return
-	end
-	if Layer.cards[tag] then return end
-	if next(Layer.cards) then
-		Whisper(sender, ("LN|%d|busy"):format(id))
-		return
-	end
-	Whisper(sender, "LW|" .. id)
-	local name = Ambiguate and Ambiguate(sender, "none") or sender
-	local card = { sender = sender, id = id }
-	Layer.cards[tag] = card
+	if next(Layer.cards) then return end
+	local card = { sender = sender }
+	Layer.cards[bare] = card
 	M:PushAlert({
 		key = "EldoUI.LayerHelp", title = L["Layer hop"],
-		text = L["%s wants to hop to your layer."]:format(name),
+		text = L["%s wants to hop to your layer."]:format(Shown(sender)),
 		icon = 134400, duration = DECIDE_WAIT,
 		actions = {
-			{ label = L["Invite"], func = function() Layer.Decide(tag, true) end },
-			{ label = L["Not now"], func = function() Layer.Decide(tag, false) end },
+			{ label = L["Invite"], func = function() Layer.Decide(bare, true) end },
+			{ label = L["Not now"], func = function() Layer.Decide(bare, false) end },
 		},
 	})
-	card.expiry = C_Timer.NewTimer(DECIDE_WAIT, function()
-		if Layer.cards[tag] == card then
-			Layer.cards[tag] = nil
-			ForgetOffer(tag)
+	card.timer = C_Timer.NewTimer(DECIDE_WAIT, function()
+		if Layer.cards[bare] == card then
+			Layer.cards[bare] = nil
 			E:DismissAlert("EldoUI.LayerHelp")
-			Whisper(sender, "LA|" .. id)
 		end
 	end)
 end
 
-local function OnPresence(sender, parts)
-	local id = Number(parts[2])
-	if not id or not Layer.NetworkID() then return end
-	local realm = (GetNormalizedRealmName and Read(GetNormalizedRealmName)) or ""
-	Whisper(sender, ("WR|%d|%s|%s|%d|%s|%d|LANG=any|POP=0|BUILD=EldoUI"):format(id, realm, NET.wire or "0.1.3",
-		Layer.map or 0, Layer.key or "", Layer.Helping("CHANNEL") and 1 or 0))
+-- A request by hidden whisper: "inv layer <LS zone not/want id x,y>".
+function Layer.OnAsk(sender, text)
+	if not Layer.Helping() then return end
+	local bare = Bare(sender)
+	local route = Layer.ParseRoute(text)
+	if not (bare and route) then return end
+	local zone = Layer.Zone()
+	if zone and zone ~= Layer.zone then Layer.Reset() end
+	if not Layer.key then Layer.Scan() end
+	local now = Now()
+	local can = Layer.CanHost()
+	if not (Layer.replied[bare] and now - Layer.replied[bare] < REPLY_COOLDOWN) then
+		Layer.replied[bare] = now
+		local heard = ("heard %s|%s|%s|%s"):format(bare, Layer.key and Layer.id or "-", zone and tostring(zone) or "-", can and "h" or "-")
+		Send(sender, heard)
+	end
+	if not (can and zone and tostring(zone) == route.zone) then return end
+	if route.want and KeyOf(route.want) ~= Layer.key then return end
+	if route.avoid then
+		if not Layer.key then return end
+		if KeyOf(route.avoid) == Layer.key then
+			Send(sender, "same")
+			return
+		end
+	end
+	for index = 2, #route.avoids do
+		if KeyOf(route.avoids[index]) == Layer.key then return end
+	end
+	if Layer.invited[bare] and now - Layer.invited[bare] < INVITE_COOLDOWN then return end
+	Offer(sender, bare)
 end
 
--- CHAT_MSG_ADDON on the layer prefix. Only plain text from another
--- player; the network channel only when it is ours.
-function Layer.OnMessage(prefix, text, channel, sender, target, _, _, channelName)
+-- CHAT_MSG_ADDON on the layer prefix: whispers from another player only.
+function Layer.OnMessage(prefix, text, channel, sender)
 	if IsSecret(prefix) or IsSecret(text) or IsSecret(channel) or IsSecret(sender) then return end
-	if prefix ~= NET.prefix or type(text) ~= "string" or type(sender) ~= "string" or #text > 255 then return end
-	if not M.active or Layer.Integrated() or E:IsMe(Ambiguate and Ambiguate(sender, "none") or sender) then return end
-	if channel == "CHANNEL" then
-		local network = NET.channel and Compact(NET.channel)
-		if not Layer.NetworkID() or IsSecret(channelName) or IsSecret(target) then return end
-		local named = Compact(channelName)
-		if named ~= "" and named ~= network then return end
-		if named == "" and Compact(target) ~= network then return end
-	elseif channel ~= "WHISPER" and channel ~= "GUILD" then
-		return
-	end
-	local parts = Fields(text)
-	local command = parts[1]
-	if command == "LQ" then
-		OnRequest(sender, parts, channel)
-	elseif channel ~= "WHISPER" then
-		if command == "WP" and channel == "CHANNEL" then OnPresence(sender, parts) end
-	elseif command == "LO" then
-		OnOffer(sender, parts)
-	elseif command == "LR" then
-		OnChosen(sender, parts)
-	elseif command == "LW" or command == "LI" or command == "HQ" or command == "LN" or command == "LD" or command == "LA" then
-		OnReply(sender, parts)
+	if prefix ~= NET.prefix or channel ~= "WHISPER" or type(text) ~= "string" or type(sender) ~= "string" or #text > 255 then return end
+	if not M.active or Layer.Integrated() or E:IsMe(sender) then return end
+	if text:find("^inv layer") then
+		Layer.OnAsk(sender, text)
+	else
+		OnReply(sender, text)
 	end
 	Layer.Refresh()
-end
-
----------------------------------------------------------------------------
--- The layer network channel
----------------------------------------------------------------------------
-function Layer.ApplyNetwork()
-	if not NET.channel then return end
-	local want = M.active and M.db.layerNetwork and not Layer.Integrated()
-	local id = GetChannelName and Read(GetChannelName, NET.channel)
-	local inside = type(id) == "number" and id > 0
-	if want and not inside then
-		if JoinChannelByName then pcall(JoinChannelByName, NET.channel) end
-		-- A hidden channel: it never shows in a chat window.
-		for index = 1, (NUM_CHAT_WINDOWS or 10) do
-			local frame = _G["ChatFrame" .. index]
-			if frame and type(frame.RemoveChannel) == "function" then pcall(frame.RemoveChannel, frame, NET.channel) end
-		end
-		Layer.joined = true
-	elseif not want and inside and Layer.joined then
-		Send("BY|" .. (NET.wire or "0.1.3"), "CHANNEL", id)
-		C_Timer.After(1, function()
-			if not (M.active and M.db.layerNetwork) and LeaveChannelByName then pcall(LeaveChannelByName, NET.channel) end
-		end)
-		Layer.joined = nil
-	end
 end
 
 ---------------------------------------------------------------------------
@@ -662,7 +896,8 @@ function Layer.ShowTooltip(chip)
 	GameTooltip:AddLine(L["Layer hop"], r, g, b)
 	if Layer.key then
 		E.UIKit.TipPair(GameTooltip, L["You are on"], Short(Layer.key))
-		if Layer.confirmed then E.UIKit.TipPair(GameTooltip, L["Last seen"], Ago(math.floor(Now() - Layer.confirmed))) end
+		local seen = Layer.seen[Layer.zone] and Layer.seen[Layer.zone][Layer.key]
+		if seen then E.UIKit.TipPair(GameTooltip, L["Last seen"], Ago(math.floor(Now() - seen.at))) end
 		local others = {}
 		for _, key in ipairs(Layer.Known()) do
 			if key ~= Layer.key then others[#others + 1] = Short(key) end
@@ -776,16 +1011,19 @@ local EVENTS = {
 	PLAYER_SOFT_ENEMY_CHANGED = function() ObserveUnit("softenemy") end,
 	PLAYER_SOFT_INTERACT_CHANGED = function() ObserveUnit("softinteract") end,
 	ZONE_CHANGED_NEW_AREA = function()
-		local map = CurrentMap()
-		if map ~= Layer.map then Layer.Reset() end
+		if Layer.Zone() ~= Layer.zone then Layer.Reset() end
 		Layer.Refresh()
 	end,
 	PLAYER_ENTERING_WORLD = function()
 		Layer.Reset()
 		Layer.Refresh()
-		C_Timer.After(5, function() if M.active then Layer.ApplyNetwork() end end)
+		C_Timer.After(2, Layer.Scan)
 	end,
 	CHAT_MSG_ADDON = function(_, _, ...) Layer.OnMessage(...) end,
+	WHO_LIST_UPDATE = function() Layer.OnWhoList() end,
+	PARTY_INVITE_REQUEST = function(_, _, name) Layer.Invited(name) end,
+	GROUP_JOINED = function() Layer.Joined() end,
+	GROUP_LEFT = function() Layer.GroupLeft() end,
 	SHARD_TRANSFER_IMMINENT = function() Layer.MoveScheduled() end,
 	SHARD_TRANSFER_CANCELLED = function() Layer.MoveCancelled() end,
 	SHARD_TRANSFER = function() Layer.Moved() end,
@@ -799,25 +1037,26 @@ local function EventKnown(event)
 end
 
 function Layer.Apply()
-	local on = M.active and (M.db.layer or M.db.layerHelp or M.db.layerNetwork)
+	local on = M.active and (M.db.layer or M.db.layerHelp)
 	for event, handler in pairs(EVENTS) do
 		if on and EventKnown(event) then E:RegisterEvent(event, handler, Layer) else E:UnregisterEvent(event, Layer) end
 	end
 	if on and NET.prefix and C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
 		pcall(C_ChatInfo.RegisterAddonMessagePrefix, NET.prefix)
 	end
-	Layer.ApplyNetwork()
+	if not M.db.layerHelp then
+		for bare in pairs(Layer.cards) do Layer.Decide(bare, false) end
+		E:DismissAlert("EldoUI.LayerHelp")
+	end
 	Layer.Refresh()
 end
 
 function Layer.Disable()
 	for event in pairs(EVENTS) do E:UnregisterEvent(event, Layer) end
 	if Layer.request then Layer.Finish() end
-	for tag in pairs(Layer.offered) do ForgetOffer(tag) end
-	for _, card in pairs(Layer.cards) do if card.expiry then card.expiry:Cancel() end end
+	for _, card in pairs(Layer.cards) do if card.timer then card.timer:Cancel() end end
 	if next(Layer.cards) then E:DismissAlert("EldoUI.LayerHelp") end
 	wipe(Layer.cards)
-	wipe(Layer.lastOffer)
-	Layer.ApplyNetwork()
+	if Layer.searching then ReleaseLists() end
 	if Layer.chip then Layer.chip:Hide() end
 end

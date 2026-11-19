@@ -67,7 +67,8 @@ local M = E:NewModule("Minimap", {
 		layerPosition = "BOTTOMLEFT",
 		layerNotice = false,       -- a chat line when your layer changes
 		layerHelp = false,         -- answer other players' hop requests (with a click to invite)
-		layerNetwork = false,      -- join the hidden layer network channel
+		layerHelpAuto = false,     -- invite a player who asks without the card
+		layerAutoLeave = false,    -- leave the helper's group by itself once the layer changed
 		layerAddon = true,         -- with the layer addon installed, the chip opens it instead
 		wheelZoom = true,
 		overlaySize = 0.75,
@@ -696,17 +697,28 @@ function M:PlaceInCorner(entries)
 	cornerPlacing = false
 end
 
--- Minimap pings arrive as an ordinary frame event, separate from world
--- pings. The game's own event callback table is closed to addons, so the
--- module listens through its regular event registration.
+-- Minimap ping names listen to the minimap ping event through the module's
+-- regular event registration. Some game builds deliver that event only to
+-- the game's own callback table, which is closed to addons; a frame cannot
+-- register it there, so the feature stays off and its option is hidden.
 do
 	local EVENT, TICK = "MINIMAP_PING", "Minimap:ping-name"
 	local HOLD, FADE, REPEAT = 3, 0.4, 0.25
 	local RECENT_LIMIT = 16
 	local recent, nextRecent = {}, 1
 
+	-- True when a frame can register the ping event on this client.
+	function M:PingNamesAvailable()
+		local utils = C_EventUtils
+		if not utils then return true end
+		if utils.IsCallbackEvent and utils.IsCallbackEvent(EVENT) then return false end
+		if utils.IsEventValid and not utils.IsEventValid(EVENT) then return false end
+		return true
+	end
+
 	local function Enabled()
 		return M.active and M.db.pingNames and M.improved and E:BlizzardAllowed(MAP, "improve")
+			and M:PingNamesAvailable()
 	end
 
 	local function Finite(value)
@@ -3259,7 +3271,8 @@ for _, row in ipairs({
 	{ type = "select", key = "clockPosition", label = "Clock position", desc = "Corner or edge of the map.", values = POSITIONS },
 	{ type = "range", key = "textSize", label = "Text size", desc = "Font size of the clock and coordinates.", min = 8, max = 20, step = 1 },
 	{ type = "toggle", key = "pingNames", label = "Show minimap ping names",
-		desc = "Briefly shows who pinged the minimap, in their class color." },
+		desc = "Briefly shows who pinged the minimap, in their class color.",
+		hidden = function() return not M:PingNamesAvailable() end },
 	{ type = "header", label = "Day and night" },
 	{ type = "toggle", key = "diel", label = "Day/night indicator", desc = "Forever's day and night cycle as a small icon on the map." },
 	{ type = "select", key = "dielPosition", label = "Indicator position", desc = "Corner or edge of the map.", values = POSITIONS },
@@ -3271,16 +3284,21 @@ for _, row in ipairs({
 	{ type = "select", key = "layerPosition", label = "Chip position", desc = "Corner or edge of the map.", values = POSITIONS },
 	{ type = "toggle", key = "layerNotice", label = "Say when your layer changes", desc = "A line in your chat each time the layer you are on changes." }, -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
 	{ type = "header", label = "Hopping" },
-	{ type = "description", label = "A player on another layer invites you; you accept in the game's popup and leave the group once your layer changes. Each step is a click." },
-	{ type = "toggle", key = "layerNetwork", label = "Join the layer network", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = function()
-			return L["Joins a hidden chat channel shared by EldoUI and %s for asking for and offering layer hops. Off: use your guild only."]:format(E.LayerNetwork.folder)
+	{ type = "description", label = function()
+			return L["Asks EldoUI and %s players in your zone in hidden whispers. A player on another layer invites you; you leave once your layer changes."]:format(E.LayerNetwork.folder)
 		end },
+	{ type = "toggle", key = "layerAutoLeave", label = "Leave the group by itself", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
+		desc = "Leaves the helper's group a few seconds after your layer changed, so the helper is free for the next player. Off: a card offers Leave group." },
 	{ type = "toggle", key = "layerHelp", label = "Help others hop", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = "Answers hop requests from your guild and, while you are in the layer network, from its players. Each request shows a card: Invite or Not now. Never in combat or in an instance." },
+		desc = function()
+			return L["Answers hop requests from EldoUI and %s players in your zone while you are on another layer, with an Invite card. Never in combat, in an instance or while listed in the group finder."]:format(E.LayerNetwork.folder)
+		end },
+	{ type = "toggle", key = "layerHelpAuto", label = "Invite without a card", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
+		desc = "Invites a player who asks at once, without the card. At most six invites in ten minutes.",
+		hidden = function() return not M.db.layerHelp end },
 	{ type = "toggle", key = "layerAddon", label = function() return L["Use %s"]:format(E.LayerNetwork.folder) end, -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
 		desc = function()
-			return L["Opens the %s window from the layer chip and lets it handle layer network requests."]:format(E.LayerNetwork.folder)
+			return L["Opens the %s window from the layer chip and lets it answer hop requests."]:format(E.LayerNetwork.folder)
 		end,
 		hidden = function() return not (M.Layer and M.Layer.AddonLoaded()) end },
 

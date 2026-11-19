@@ -17,6 +17,11 @@
 --     "hide" only change the alpha and the anchor, which run no Blizzard code.
 --   * The anchor is set with two points (top and bottom), so Blizzard's own
 --     SetHeight calls change nothing and cannot start a resize loop.
+--   * Sizes of the tracker and its lines are read only once the game has
+--     laid them out (E.RectReady). An earlier read makes the game lay them
+--     out inside EldoUI's code, the tracker's own size handler then queues
+--     its next update from there, and that update and every later one run
+--     tainted (in a battleground its aura check then fails).
 --   * Skins only set alpha, textures, fonts and colors on Blizzard regions,
 --     and add child frames/regions; no Blizzard table gets a new field.
 --   * Objective counts (valueCounts) are drawn the same way, after
@@ -472,7 +477,9 @@ function M:SetUserCollapsed(collapsed)
 	collapsed = collapsed and true or false
 	if (self.userCollapsed or false) == collapsed then return end
 	local tracker = Tracker()
-	if collapsed and tracker and not self.userCollapsed then
+	-- Its corner is read only once the game has laid the tracker out (see
+	-- the taint notes); otherwise the button keeps its own spot.
+	if collapsed and tracker and not self.userCollapsed and E.RectReady(tracker) then
 		local right, top = E.PlainCall(tracker.GetRight, tracker), E.PlainCall(tracker.GetTop, tracker)
 		local scale = E.PlainCall(tracker.GetEffectiveScale, tracker)
 		local parent = UIParent:GetEffectiveScale()
@@ -584,7 +591,28 @@ local function RestoreCount(line, parts)
 	parts.short, parts.full = nil, nil
 end
 
-local function CountLine(line, on)
+-- Lines whose count waits for the game's layout: one pass on the next frame.
+local CountLine
+local countQueue = setmetatable({}, { __mode = "k" })
+local countQueued = false
+local function QueueCount(line)
+	countQueue[line] = true
+	if countQueued then return end
+	countQueued = true
+	C_Timer.After(0, function()
+		countQueued = false
+		local on = Can("skin") and M.db.valueCounts and true or false
+		local lines = {}
+		for queued in pairs(countQueue) do lines[#lines + 1] = queued end
+		wipe(countQueue)
+		for _, queued in ipairs(lines) do
+			-- Only a line the game still shows and has laid out by now.
+			if queued.IsShown and queued:IsShown() and E.RectReady(queued.Text) then CountLine(queued, on) end
+		end
+	end)
+end
+
+CountLine = function(line, on)
 	local text = type(line) == "table" and line.Text
 	local parts = countParts[line]
 	if not (text and text.GetText) then return end
@@ -617,6 +645,15 @@ local function CountLine(line, on)
 	fs:SetPoint("TOPRIGHT", line, "TOPRIGHT", 0, 0)
 	fs:SetText(count)
 	if done then fs:SetTextColor(text:GetTextColor()) else fs:SetTextColor(E:TokenColor("accent")) end
+	-- The line's width is read only once the game has laid it out (see the
+	-- taint notes); until then the line keeps the game's text, and the
+	-- count moves out on the next frame.
+	if not E.RectReady(text) then
+		fs:Hide()
+		parts.short, parts.full = nil, nil
+		QueueCount(line)
+		return
+	end
 	-- Only when the text and the count fit side by side on one line.
 	local room = text:GetWidth() - fs:GetStringWidth() - 6
 	text:SetText(label)

@@ -5,7 +5,9 @@
 --                                  order inside a layer by the parents above
 --   A.ChainView.Create(parent, host[, source])  the flowchart: nodes, edges
 --                                  with right-angle bends, side box, pan by
---                                  drag, wheel scrolls, Ctrl+wheel zooms 60-150 %
+--                                  drag, a scroll bar when the chain is taller
+--                                  than the view, wheel scrolls, Shift+wheel
+--                                  scrolls sideways, Ctrl+wheel zooms 60-150 %
 --   A.ChainView.List(flow, host, key)  the same steps as rows in a P.Flow
 --
 -- host: OnStep(step, mouseButton), StepTooltip(tooltip, step), Selected().
@@ -26,6 +28,9 @@ local COL_GAP = 16
 local PAD = 12
 local SIDE_W, SIDE_ROW = 200, 26
 local ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 0.6, 1.5, 0.1
+local WHEEL_STEP = 40
+-- Pan limits: the chain may move this far past the view's top and bottom.
+local TOP_ROOM, BOTTOM_ROOM = 8, 40
 A.ZOOM_MIN, A.ZOOM_MAX = ZOOM_MIN, ZOOM_MAX
 A.NODE_W, A.NODE_H = NODE_W, NODE_H
 
@@ -459,12 +464,40 @@ function Chart:Apply()
 	local cw, ch = layout and layout.width * z or 0, layout and layout.height * z or 0
 	local x, y = self.panX or 0, self.panY or 0
 	if cw <= vw then x = (vw - cw) / 2 else x = Clamp(x, vw - cw - 40, 40) end
-	if ch <= vh then y = math.min(math.max(y, 0), math.max(vh - ch, 0)) else y = Clamp(y, vh - ch - 40, 8) end
+	if ch <= vh then y = math.min(math.max(y, 0), math.max(vh - ch, 0)) else y = Clamp(y, vh - ch - BOTTOM_ROOM, TOP_ROOM) end
 	self.panX, self.panY = x, y
 	self.canvas:SetScale(z)
 	self.canvas:ClearAllPoints()
 	self.canvas:SetPoint("TOPLEFT", self.view, "TOPLEFT", x / z, y / z)
+	self:SyncBar(ch > vh and ch + TOP_ROOM + BOTTOM_ROOM - vh or 0, TOP_ROOM - y)
 	if self.onZoom then self.onZoom(z) end
+end
+
+-- The scroll bar follows the pan: value 0 is the top of the chain. Shown
+-- only while the chain is taller than the view.
+function Chart:SyncBar(range, value)
+	local bar = self.bar
+	if not bar then return end
+	local scrolls = range > 0
+	bar:SetShown(scrolls)
+	if not scrolls then return end
+	self.syncing = true
+	bar:SetMinMaxValues(0, math.floor(range + 0.5))
+	bar:SetValue(Clamp(math.floor(value + 0.5), 0, math.floor(range + 0.5)))
+	self.syncing = false
+end
+
+-- Wheel: down scrolls down, Shift sideways, Ctrl zooms.
+function Chart:Wheel(delta)
+	if IsControlKeyDown() then
+		self:SetZoom(self.source.View().zoom + delta * ZOOM_STEP)
+	elseif IsShiftKeyDown() then
+		self.panX = (self.panX or 0) + delta * WHEEL_STEP
+		self:Apply()
+	else
+		self.panY = (self.panY or 0) + delta * WHEEL_STEP
+		self:Apply()
+	end
 end
 
 function Chart:SetZoom(z)
@@ -490,7 +523,7 @@ end
 
 -- New entry: back to the top.
 function Chart:Reset()
-	self.panX, self.panY = 0, 8
+	self.panX, self.panY = 0, TOP_ROOM
 end
 
 -- Scroll so a step's node is in view.
@@ -559,14 +592,17 @@ function ChainView.Create(parent, host, source)
 		chart.drag = nil
 		self:SetScript("OnUpdate", nil)
 	end)
-	chart.view:SetScript("OnMouseWheel", function(_, delta)
-		if IsControlKeyDown() then
-			chart:SetZoom(chart.source.View().zoom + delta * ZOOM_STEP)
-		else
-			chart.panY = (chart.panY or 0) + delta * 40
-			chart:Apply()
-		end
+	chart.view:SetScript("OnMouseWheel", function(_, delta) chart:Wheel(delta) end)
+	-- The kit's scroll bar on the right edge, above the chain.
+	chart.bar = E.UIKit.ScrollBar(chart, function(value)
+		if chart.syncing then return end
+		chart.panY = TOP_ROOM - value
+		chart:Apply()
 	end)
+	chart.bar:SetFrameLevel(chart.view:GetFrameLevel() + 20)
+	chart.bar:EnableMouseWheel(chart.source.wheel ~= false)
+	chart.bar:SetScript("OnMouseWheel", function(_, delta) chart:Wheel(delta) end)
+	chart.bar:Hide()
 	chart.view:SetScript("OnSizeChanged", function() chart:Apply() end)
 	return chart
 end

@@ -18,6 +18,53 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3005",
+		date = Key("November 2026"),
+		summary = Key("8 fixes."),
+		items = {
+			Key("Windows and skins: The battleground results window opens without a stutter at the end of a large match, and the score table styling no longer logs time limit errors."),
+			Key("Tooltips: Pointing at a player in a battleground no longer shows an error when a part of EldoUI that adds tooltip lines turns on or off."),
+			Key("Setup and profiles: Pointing at the Apply button under Preset packs in the setup shows its tooltip again instead of an error."),
+			Key("General: Entering a battleground no longer shows an error from the character overview's calendar check."),
+			Key("Chat: At the start of a battleground, \"players have joined the battle\" no longer repeats in chat with an error flood and lag; later joins and leaves show one line each."),
+			Key("Map and minimap: Opening the world map with its key in a battleground no longer reports a blocked action, after the Info Bar, the flight view or the experience bar opened the map earlier."),
+			Key("Leveling and quests: The quest tracker no longer reports aura errors in battlegrounds, and the objective counts and quest title colors appear one frame after the game lays the tracker out."),
+			Key("Bags and loot: Turning off the loot window's Move switch gives the game's loot window its own scale back without upsetting Edit Mode."),
+		},
+	},
+	{
+		version = "0.7.3004",
+		date = Key("November 2026"),
+		summary = Key("2 fixes."),
+		items = {
+			Key("Journal: A long attunement or key chain in the Flowchart view has a scroll bar that reaches the last step, and Shift+mouse wheel scrolls a wide chain sideways, so you no longer need to make the window taller to see the end."),
+			Key("General: In Gnome Dash you steer an animated gnome and, after a mushroom, a dwarf that runs, jumps and faces the way it moves, instead of a portrait picture."),
+		},
+	},
+	{
+		version = "0.7.3003",
+		date = Key("November 2026"),
+		summary = Key("3 fixes."),
+		items = {
+			Key("General: Names in Cyrillic, Korean and Chinese show their letters on nameplates, unit frames and every other place EldoUI shows a name, where they were empty boxes before."),
+			Key("General: In Gnome Dash, the gnome and the dwarf wear their own clothes and colors instead of showing plain white."),
+			Key("General: Gnome Dash has calm scenery on every course, and coins and opponents show as round pictures without boxes, so it is easy to see what you can stand on."),
+		},
+	},
+	{
+		version = "0.7.3002",
+		date = Key("November 2026"),
+		summary = Key("1 new feature, 2 improvements and 3 fixes."),
+		items = {
+			Key("Map and minimap: Layer hop has two new options, Leave the group by itself and Invite without a card, both off until you turn them on."),
+			Key("Map and minimap: Layer hop asks the players in your zone directly and also works with players who use the most common layer addon, so many more players can invite you to another layer."),
+			Key("Map and minimap: The layer chip reads your layer the way the live realms keep it, so it shows the same layer as other players near you."),
+			Key("General: In Gnome Dash, the gnome and the dwarf face the way they run instead of running backwards."),
+			Key("Map and minimap: The minimap starts without an error again after you log in."),
+			Key("Nameplates: Changing your target with an ability or key no longer shows an error from the target's nameplate."),
+		},
+	},
+	{
 		version = "0.7.3001",
 		date = Key("November 2026"),
 		summary = Key("2 fixes."),

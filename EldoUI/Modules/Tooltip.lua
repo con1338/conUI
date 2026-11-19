@@ -361,10 +361,12 @@ function E:TooltipSections()
 end
 
 -- Redraw the tooltip under the cursor with the game's own refresh, so a
--- section switched on or off shows at once. Out of combat only.
+-- section switched on or off shows at once. Out of combat only, and never
+-- on a tooltip about a unit the game keeps secret (M.SafeToRedraw, below).
 function E:RefreshTooltipSections()
 	local tooltip = GameTooltip
 	if InCombatLockdown() or not tooltip or not tooltip:IsShown() or E.FrameCheck(tooltip, "IsForbidden") or not tooltip.RefreshData then return end
+	if M.SafeToRedraw and not M.SafeToRedraw(tooltip) then return end
 	pcall(tooltip.RefreshData, tooltip)
 end
 
@@ -1641,7 +1643,7 @@ end
 -- color, a secret line). The redraw would hand them to the game's line code
 -- outside the game's own call and fail there. Only checked, never read:
 -- a secret value is never indexed or compared.
-local LINE_FIELDS = { "leftText", "leftColor", "rightText", "rightColor" }
+local LINE_FIELDS = { "leftText", "leftColor", "rightText", "rightColor", "unitToken" }
 local function SecretLinesTooltip(tooltip)
 	if type(tooltip.GetPrimaryTooltipData) ~= "function" then return false end
 	local ok, data = pcall(tooltip.GetPrimaryTooltipData, tooltip)
@@ -1661,6 +1663,13 @@ local function SecretLinesTooltip(tooltip)
 	return false
 end
 
+-- True when the game's own redraw may run on this tooltip from EldoUI's
+-- code: no secret unit and no secret line (a unit the game restricts, as
+-- in a battleground, has its name line carry a secret unit).
+function M.SafeToRedraw(tooltip)
+	return not (SecretUnitTooltip(tooltip) or SecretLinesTooltip(tooltip))
+end
+
 -- Holding or releasing a modifier redraws the tooltip, so rows set to
 -- "With Shift" appear at once. Only out of combat, only Blizzard's own
 -- refresh is used, and never on a tooltip about a secret unit or with
@@ -1677,7 +1686,7 @@ local function OnModifier()
 	-- Training adds price, rank and click hints after the game's spell data.
 	local training = E.modules.Training
 	if training and training:OwnsRowTooltip(tooltip) then return end
-	if SecretUnitTooltip(tooltip) or SecretLinesTooltip(tooltip) then return end
+	if not M.SafeToRedraw(tooltip) then return end
 	pcall(tooltip.RefreshData, tooltip)
 end
 
