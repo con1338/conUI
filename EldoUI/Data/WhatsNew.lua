@@ -18,6 +18,15 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3004",
+		date = Key("November 2026"),
+		summary = Key("2 fixes."),
+		items = {
+			Key("Journal: A long attunement or key chain in the Flowchart view has a scroll bar that reaches the last step, and Shift+mouse wheel scrolls a wide chain sideways, so you no longer need to make the window taller to see the end."),
+			Key("General: In Gnome Dash you steer an animated gnome and, after a mushroom, a dwarf that runs, jumps and faces the way it moves, instead of a portrait picture."),
+		},
+	},
+	{
 		version = "0.7.3003",
 		date = Key("November 2026"),
 		summary = Key("3 fixes."),
