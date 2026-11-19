@@ -1132,9 +1132,10 @@ do
 		end,
 		-- A click on the block goes through the game's own map button (a secure
 		-- overlay, so the game opens it, in combat too). This runs only from
-		-- the "»" menu or without that button, and only out of combat.
+		-- the "»" menu or without that button: the game's own map request,
+		-- never the toggle, so the game's later opens of the map stay clean.
 		onClick = function()
-			if ToggleWorldMap then ToggleWorldMap() end
+			E:OpenWorldMapAt()
 		end,
 		onShiftClick = InsertPlayerLocation,
 	})
@@ -1156,9 +1157,10 @@ do
 		end,
 		-- A click on the block goes through the game's own map button (a secure
 		-- overlay, so the game opens it, in combat too). This runs only from
-		-- the "»" menu or without that button, and only out of combat.
+		-- the "»" menu or without that button: the game's own map request,
+		-- never the toggle, so the game's later opens of the map stay clean.
 		onClick = function()
-			if ToggleWorldMap then ToggleWorldMap() end
+			E:OpenWorldMapAt()
 		end,
 		onShiftClick = InsertPlayerLocation,
 	})
@@ -1959,9 +1961,11 @@ E:RegisterDataText("Quests", {
 	end,
 	-- A click on the block goes through the game's own quest log button (a secure
 	-- overlay, so the game opens it, in combat too). This runs only from
-	-- the "»" menu or without that button, and only out of combat.
+	-- the "»" menu or without that button: the game's own map request (the
+	-- quest log sits on the map), never the toggle, so the game's later
+	-- opens of the map stay clean.
 	onClick = function()
-		if ToggleQuestLog then ToggleQuestLog() end
+		E:OpenWorldMapAt()
 	end,
 })
 

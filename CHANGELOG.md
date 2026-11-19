@@ -6,6 +6,109 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 ## [Unreleased]
 
+## [0.7.3005] - 2026-11-18
+
+### Setup and profiles
+
+#### Fixed
+
+- Pointing at the Apply button under Preset packs in the setup shows its tooltip again instead of an error.
+
+### Chat
+
+#### Fixed
+
+- At the start of a battleground, "players have joined the battle" no longer repeats in chat with an error flood and lag; later joins and leaves show one line each.
+
+### Tooltips
+
+#### Fixed
+
+- Pointing at a player in a battleground no longer shows an error when a part of EldoUI that adds tooltip lines turns on or off.
+
+### Bags and loot
+
+#### Fixed
+
+- Turning off the loot window's Move switch gives the game's loot window its own scale back without upsetting Edit Mode.
+
+### Leveling and quests
+
+#### Fixed
+
+- The quest tracker no longer reports aura errors in battlegrounds, and the objective counts and quest title colors appear one frame after the game lays the tracker out.
+
+### Map and minimap
+
+#### Fixed
+
+- Opening the world map with its key in a battleground no longer reports a blocked action, after the Info Bar, the flight view or the experience bar opened the map earlier.
+
+### Windows and skins
+
+#### Fixed
+
+- The battleground results window opens without a stutter at the end of a large match, and the score table styling no longer logs time limit errors.
+
+### General
+
+#### Fixed
+
+- Entering a battleground no longer shows an error from the character overview's calendar check.
+
+## [0.7.3004] - 2026-11-17
+
+### Journal
+
+#### Fixed
+
+- A long attunement or key chain in the Flowchart view has a scroll bar that reaches the last step, and Shift+mouse wheel scrolls a wide chain sideways, so you no longer need to make the window taller to see the end.
+
+### General
+
+#### Fixed
+
+- In Gnome Dash you steer an animated gnome and, after a mushroom, a dwarf that runs, jumps and faces the way it moves, instead of a portrait picture.
+
+## [0.7.3003] - 2026-11-16
+
+### General
+
+#### Fixed
+
+- Names in Cyrillic, Korean and Chinese show their letters on nameplates, unit frames and every other place EldoUI shows a name, where they were empty boxes before.
+- In Gnome Dash, the gnome and the dwarf wear their own clothes and colors instead of showing plain white.
+- Gnome Dash has calm scenery on every course, and coins and opponents show as round pictures without boxes, so it is easy to see what you can stand on.
+
+## [0.7.3002] - 2026-11-16
+
+### Nameplates
+
+#### Fixed
+
+- Changing your target with an ability or key no longer shows an error from the target's nameplate.
+
+### Map and minimap
+
+#### New
+
+- Layer hop has two new options, Leave the group by itself and Invite without a card, both off until you turn them on.
+
+#### Improved
+
+- Layer hop asks the players in your zone directly and also works with players who use the most common layer addon, so many more players can invite you to another layer.
+- The layer chip reads your layer the way the live realms keep it, so it shows the same layer as other players near you.
+
+#### Fixed
+
+- The minimap starts without an error again after you log in. Minimap ping names are not available on the current game client, so their setting is hidden.
+
+### General
+
+#### Fixed
+
+- In Gnome Dash, the gnome and the dwarf face the way they run instead of running backwards.
+
 ## [0.7.3001] - 2026-11-16
 
 ### Bags and loot
@@ -2296,7 +2399,11 @@ The versions from 0.5.0 to 0.6.6005 in short: what they brought that is still in
 - **Paladin:** The Blessing Plan (/eui blessings) plans which blessing each paladin keeps up on each class.
 - **Shaman:** Shaman Totems: a totem bar, a cooldown bar with your shield, weapon imbues, Reincarnation and Ankhs, up to eight totem loadouts, and a group plan for Mana Tide Totem and the resistance totems.
 
-[Unreleased]: https://github.com/Eldodeldo/EldoUI/compare/v0.7.3001...HEAD
+[Unreleased]: https://github.com/Eldodeldo/EldoUI/compare/v0.7.3005...HEAD
+[0.7.3005]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3005
+[0.7.3004]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3004
+[0.7.3003]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3003
+[0.7.3002]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3002
 [0.7.3001]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3001
 [0.7.3000]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3000
 [0.7.2001]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.2001

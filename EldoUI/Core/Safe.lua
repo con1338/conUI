@@ -112,6 +112,19 @@ function E.PlainCallAll(fn, ...)
 	return CheckedAll(pcall(fn, ...))
 end
 
+-- True when the game has already worked out a region's size and place.
+-- Reading the size of one it has not (GetWidth, GetNumLines) makes the
+-- game work it out right then, and the size handlers of the game's frames
+-- around it would run from EldoUI's code; such a read waits a frame.
+-- True on a client without the check.
+function E.RectReady(region)
+	if type(region) ~= "table" then return false end
+	local check = region.IsRectValid
+	if type(check) ~= "function" then return true end
+	local ok, valid = pcall(check, region)
+	return ok and valid == true
+end
+
 function E.PlainCallEach(fn, ...)
 	if type(fn) ~= "function" then return end
 	local ok, count, results = Packed(pcall(fn, ...))

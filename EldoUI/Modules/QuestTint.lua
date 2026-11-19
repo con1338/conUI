@@ -632,6 +632,28 @@ function M:FitTrackerTitle(own, title, questID, lines, width)
 	return result
 end
 
+-- Blocks whose title waits for the game's layout: one pass next frame.
+local dressQueue = setmetatable({}, { __mode = "k" })
+local dressQueued = false
+local function QueueDress(block, questID)
+	dressQueue[block] = questID or false
+	if dressQueued then return end
+	dressQueued = true
+	C_Timer.After(0, function()
+		dressQueued = false
+		local blocks = {}
+		for queued, id in pairs(dressQueue) do blocks[#blocks + 1] = { queued, id } end
+		wipe(dressQueue)
+		for _, entry in ipairs(blocks) do
+			local queued = entry[1]
+			local text = queued.HeaderText
+			if queued.IsShown and queued:IsShown() and text and E.RectReady(text) then
+				M:DressTrackerBlock(queued, entry[2] or queued.poiQuestID)
+			end
+		end
+	end)
+end
+
 function M:DressTrackerBlock(block, questID)
 	local text = type(block) == "table" and block.HeaderText
 	if not (text and text.GetText) then return end
@@ -646,6 +668,10 @@ function M:DressTrackerBlock(block, questID)
 	local word = allowed and self.db.levelWord and self:ColorBlind()
 	local title = Clean(text:GetText())
 	if type(title) ~= "string" or title == "" or not (tint or word) then return HideOverlay(block) end
+	-- The title is measured only once the game has laid the block out:
+	-- measuring it earlier would lay out the game's tracker inside EldoUI's
+	-- code, and its next updates would run tainted. It waits a frame.
+	if not E.RectReady(text) then return QueueDress(block, questID) end
 	local shown = title
 	if tint then shown = title:gsub("^|c%x%x%x%x%x%x%x%x", self:Hex()) end
 	local own, width = Overlay(block, text)

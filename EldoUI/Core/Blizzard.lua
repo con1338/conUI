@@ -1775,6 +1775,120 @@ function E:OpenPvPPage()
 end
 
 ---------------------------------------------------------------------------
+-- Battleground join summary. At the start of a battleground the game
+-- gathers "X has joined the battle" lines into one summary ("15 players
+-- have joined the battle.") every few seconds. When that summary code runs
+-- tainted it prints the line and then fails before it clears its list, so
+-- the same summary comes back every frame with an error each time. This
+-- guard notices the summary repeating within a second (the game's own
+-- interval is five) and asks the game's own code to stop its summary for
+-- this match: the game's secure method clears the list itself, and EldoUI
+-- never reads or changes the game's lists. The extra copies are taken out
+-- of the chat window; the first one stays. Later joins and leaves then show
+-- one line each. Always on: it only acts when that loop has started.
+---------------------------------------------------------------------------
+do
+	local SUMMARY_GLOBALS = {
+		"ERR_PLAYERS_JOINED_BATTLE_D", "ERR_PLAYERLIST_JOINED_BATTLE", "ERR_PLAYER_JOINED_BATTLE_D",
+		"ERR_PLAYERS_LEFT_BATTLE_D", "ERR_PLAYERLIST_LEFT_BATTLE", "ERR_PLAYER_LEFT_BATTLE_D",
+	}
+	local REPEAT_WINDOW = 1 -- seconds; the game prints its summary every 5
+	local patterns
+	local inBattleground = false
+	local hooked = setmetatable({}, { __mode = "k" })
+	local last = { text = nil, time = 0, frame = nil }
+
+	-- A Lua pattern for one of the game's summary lines: its %d, %s and
+	-- %1$s parts match anything.
+	local function Pattern(format)
+		if E:IsSecret(format) or type(format) ~= "string" or format == "" then return nil end
+		local marked = format:gsub("%%%d*%$?[ds]", "\001")
+		marked = marked:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+		return "^" .. marked:gsub("\001", ".-") .. "$"
+	end
+
+	local function Patterns()
+		if patterns then return patterns end
+		patterns = {}
+		for _, name in ipairs(SUMMARY_GLOBALS) do
+			local pattern = Pattern(rawget(_G, name))
+			if pattern then patterns[#patterns + 1] = pattern end
+		end
+		return patterns
+	end
+
+	local function IsSummary(text)
+		for _, pattern in ipairs(Patterns()) do
+			if text:find(pattern) then return true end
+		end
+		return false
+	end
+
+	-- Every copy of `text` after the first one leaves the chat window (a
+	-- copy may carry a time stamp or other additions in front).
+	local function RemoveRepeats(frame, text)
+		if type(frame.RemoveMessagesByPredicate) ~= "function" then return end
+		local kept = false
+		pcall(frame.RemoveMessagesByPredicate, frame, function(message)
+			if E:IsSecret(message) or type(message) ~= "string" or not message:find(text, 1, true) then return false end
+			if not kept then
+				kept = true
+				return false
+			end
+			return true
+		end)
+	end
+
+	-- The game's own stop for its summary (a secure method of its frame),
+	-- which also clears its list. Should that fail, only the frame's update
+	-- script is taken off, so the loop ends; the game sets it again at the
+	-- start of the next battleground and clears the list when you leave.
+	local function StopSummary()
+		local filters = rawget(_G, "BattlegroundChatFilters")
+		if type(filters) ~= "table" or type(filters.GetScript) ~= "function" then return end
+		local stop = filters.StopBGChatFilter
+		if type(stop) == "function" then pcall(stop, filters) end
+		local ok, running = pcall(filters.GetScript, filters, "OnUpdate")
+		if ok and running ~= nil then pcall(filters.SetScript, filters, "OnUpdate", nil) end
+	end
+
+	local function OnAddMessage(frame, text)
+		if not inBattleground or E:IsSecret(text) or type(text) ~= "string" then return end
+		local now = GetTime()
+		if text == last.text and frame == last.frame and now - last.time < REPEAT_WINDOW and IsSummary(text) then
+			if not last.stopped then
+				last.stopped = true
+				StopSummary()
+			end
+			RemoveRepeats(frame, text)
+		elseif text ~= last.text or frame ~= last.frame then
+			last.stopped = nil
+		end
+		last.text, last.time, last.frame = text, now, frame
+	end
+
+	local function HookChat()
+		local frame = rawget(_G, "DEFAULT_CHAT_FRAME")
+		if type(frame) ~= "table" or hooked[frame] or type(frame.AddMessage) ~= "function" then return end
+		hooked[frame] = true
+		hooksecurefunc(frame, "AddMessage", OnAddMessage)
+	end
+
+	local function Update()
+		local _, kind = IsInInstance()
+		inBattleground = not E:IsSecret(kind) and kind == "pvp"
+		last.text, last.frame, last.stopped = nil, nil, nil
+		if inBattleground then HookChat() end
+	end
+
+	local owner = {}
+	E:RegisterEvent("PLAYER_LOGIN", function()
+		E:RegisterEvent("PLAYER_ENTERING_WORLD", Update, owner)
+		Update()
+	end, owner, "engines")
+end
+
+---------------------------------------------------------------------------
 -- Startup: migrate, build the page, apply after modules are on.
 ---------------------------------------------------------------------------
 E:RegisterEvent("PLAYER_LOGIN", function()

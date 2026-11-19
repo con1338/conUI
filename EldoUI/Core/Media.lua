@@ -724,6 +724,78 @@ function E:TextScale()
 	return math.max(1, math.min(1.6, scale))
 end
 
+-- Plain fonts as font objects: one per font, size and outline, made once.
+-- A font string that was given a font with SetFont keeps drawing in that
+-- font even after a font object (a name font family) is set on it, so
+-- EldoUI's own texts take their font through a font object and can switch
+-- to the name font later. False marks a font the client refused.
+local plainFonts, plainMade = {}, 0
+local function PlainFontObject(path, size, flags)
+	if type(CreateFont) ~= "function" then return nil end
+	local key = path:lower() .. "|" .. size .. "|" .. flags
+	local font = plainFonts[key]
+	if font ~= nil then return font or nil end
+	local name
+	repeat
+		plainMade = plainMade + 1
+		name = "EldoUI_PlainFont" .. plainMade
+	until rawget(_G, name) == nil
+	local ok, object = pcall(CreateFont, name)
+	if not ok or type(object) ~= "table" or not object.SetFont then return nil end
+	local okSet, set = pcall(object.SetFont, object, path, size, flags)
+	if not okSet or set == false then
+		plainFonts[key] = false
+		return nil
+	end
+	-- The look stays the text's own: white, no shadow, as a new font string.
+	pcall(object.SetTextColor, object, 1, 1, 1, 1)
+	pcall(object.SetShadowOffset, object, 0, 0)
+	plainFonts[key] = object
+	return object
+end
+
+-- Set a font object on a text and keep the look the text was given: the
+-- color and alignment stay the text's own, as with SetFont.
+local function SetFontObjectKeepLook(fontString, object)
+	local okColor, r, g, b, a = pcall(fontString.GetTextColor, fontString)
+	local okH, justifyH = pcall(fontString.GetJustifyH, fontString)
+	local okV, justifyV = pcall(fontString.GetJustifyV, fontString)
+	fontString:SetFontObject(object)
+	if okColor and type(r) == "number" and not (E:IsSecret(r) or E:IsSecret(g) or E:IsSecret(b) or E:IsSecret(a)) then
+		fontString:SetTextColor(r, g, b, a)
+	end
+	if okH and type(justifyH) == "string" then fontString:SetJustifyH(justifyH) end
+	if okV and type(justifyV) == "string" then fontString:SetJustifyV(justifyV) end
+end
+
+-- Put a plain font on a text: through a font object, so the text never
+-- holds a font of its own. A text that already holds one (set by other
+-- code) ignores the object, so it takes SetFont as before. False when the
+-- client refuses the font.
+local function PutPlainFont(fontString, path, size, flags)
+	local object = PlainFontObject(path, size, flags)
+	if object then
+		SetFontObjectKeepLook(fontString, object)
+		-- Only a font read back that differs means the text holds one of its
+		-- own; a font the text can't answer for is left on the object.
+		local okRead, drawn, drawnSize = pcall(fontString.GetFont, fontString)
+		if not okRead or E:IsSecret(drawn) or E:IsSecret(drawnSize) or type(drawn) ~= "string" then return true end
+		if SamePath(drawn, path) and (type(drawnSize) ~= "number" or math.abs(drawnSize - size) < 0.5) then
+			return true
+		end
+	end
+	return fontString:SetFont(path, size, flags) ~= false
+end
+
+-- Put a font on a text the way EldoUI's own texts take it (through a font
+-- object), with no theme record: for helpers that pick a font themselves.
+-- False when the client refuses the font.
+function E:SetPlainFont(fontString, path, size, flags)
+	if not fontString or type(path) ~= "string" or path == "" then return false end
+	local general = self.db and self.db.general or self.defaults.general
+	return PutPlainFont(fontString, path, size or general.fontSize, flags or "")
+end
+
 local function ApplyFont(fontString, header, size, outline, font)
 	-- font: an own font path, or a function that returns one (re-read on each
 	-- theme refresh); nil follows the theme font.
@@ -734,21 +806,26 @@ local function ApplyFont(fontString, header, size, outline, font)
 	local realSize = (size or general.fontSize) * E:TextScale()
 	local flags = TextFlags(fontString, outline or general.fontOutline)
 	-- An own font the client refuses (a pack that is gone) falls back to the theme.
-	if fontString:SetFont(path, realSize, flags) == false and font then
+	if font and not PlainFontObject(path, realSize, flags) and type(CreateFont) == "function" then
 		path = header and E.media.fontHeader or E.media.font
-		fontString:SetFont(path, realSize, flags)
 	end
-	E:ApplyFontShadow(fontString, flags)
 	local record = themedFonts[fontString] or {}
 	record.path, record.size, record.realSize, record.outline, record.header = path, size, realSize, outline, header
 	record.font = font
 	themedFonts[fontString] = record
-	-- A plain font replaces a name font set before; a name text takes the
-	-- name font of what was just set.
 	nameFonts[fontString] = nil
+	-- A name text takes the name font straight away: a plain font set first
+	-- would stay on it and draw other alphabets as empty boxes.
 	if nameTexts[fontString] and E.SetNameFont then
-		E:SetNameFont(fontString, path, realSize, flags, not font)
+		E:ApplyFontShadow(fontString, flags)
+		if E:SetNameFont(fontString, path, realSize, flags, not font) then return end
 	end
+	if not PutPlainFont(fontString, path, realSize, flags) and font then
+		path = header and E.media.fontHeader or E.media.font
+		record.path = path
+		PutPlainFont(fontString, path, realSize, flags)
+	end
+	E:ApplyFontShadow(fontString, flags)
 end
 
 -- Apply the EldoUI font to a FontString. Size defaults to the profile size,
@@ -970,7 +1047,7 @@ do
 	function E:SetNameFont(fontString, path, size, flags, theme)
 		local font = fontString and self:NameFontObject(path, size, flags)
 		if not font then return false end
-		fontString:SetFontObject(font)
+		SetFontObjectKeepLook(fontString, font)
 		fontString:SetShadowOffset(0, 0)
 		-- A name on a light fill keeps the halo's shadow.
 		if lightFillTexts[fontString] then self:ApplyFontShadow(fontString, flags) end

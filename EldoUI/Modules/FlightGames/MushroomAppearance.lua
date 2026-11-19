@@ -1,28 +1,25 @@
--- Gnome Dash's private preview models and native portrait fallbacks.
+-- Gnome Dash's hero: an animated gnome or dwarf character model, with the
+-- race portrait while the model loads or when creature models are off.
 local _, E = ...
 local M = E.FlightGames
 local Board = M.Board
 
+-- Each form tries the game's own dressed character displays in order (a
+-- gnome or dwarf with baked skin, hair and clothes) until one loads. files
+-- are the race's model files as the client reports them for a loaded
+-- display (the character model the game draws, then the newer model files
+-- of the same race); a display that reports another model file is passed
+-- over.
 local Appearance = {
-	small = { race = 7, display = 51877, male = 900914, female = 940356, distance = 2.20, height = 0.76,
-		icon = "Interface\\Icons\\Achievement_Character_Gnome_Male" },
-	big = { race = 3, display = 49242, male = 878772, female = 950080, distance = 2.58, height = 0.89,
-		icon = "Interface\\Icons\\Achievement_Character_Dwarf_Male" },
+	small = { displays = { 146970, 13260, 7831 }, files = { [119159] = true, [900914] = true, [940356] = true },
+		distance = 2.20, height = 0.76, icon = "Interface\\Icons\\Achievement_Character_Gnome_Male" },
+	big = { displays = { 147595, 15565, 14404 }, files = { [118355] = true, [878772] = true, [950080] = true },
+		distance = 2.58, height = 0.89, icon = "Interface\\Icons\\Achievement_Character_Dwarf_Male" },
 	jumpAnimation = 38,
+	-- Seconds one display may take to load before the next one is tried.
+	loadWait = 4,
 }
 M.MushroomAppearance = Appearance
-
--- Item ID and its default modified appearance in the Forever client.
-local outfit = {
-	{ item = 14168, appearance = 161299 },  -- Buccaneer's Gloves
-	{ item = 2302, appearance = 156759 },  -- Handstitched Leather Boots
-}
-
-local reasons = Enum and Enum.ItemTryOnReason
-local SUCCESS = reasons and reasons.Success or 0
-local PENDING = reasons and reasons.DataPending or 3
-local Hero = {}
-Hero.__index = Hero
 
 local Read = E.PlainCall or function(method, ...)
 	if type(method) ~= "function" then return nil end
@@ -30,20 +27,14 @@ local Read = E.PlainCall or function(method, ...)
 	if ok and not (issecretvalue and issecretvalue(value)) then return value end
 end
 
-local function PlayerPreviewAllowed()
-	if E.IdentitySecret then return not E.IdentitySecret("player") end
-	local check = C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret
-	return not check or Read(check, "player") == false
-end
-
-local function TryPiece(actor, piece)
-	local info = Read(ItemUtil and ItemUtil.CreateItemTransmogInfo, piece.appearance)
-	local result = info and Read(actor.SetItemTransmogInfo, actor, info, nil, true)
-	if result == SUCCESS then return result end
-	local tried = Read(actor.TryOn, actor, "item:" .. piece.item)
-	if tried == SUCCESS then return tried end
-	if result == PENDING or tried == PENDING then return PENDING end
-end
+---------------------------------------------------------------------------
+-- Two ways to draw the hero. A model scene gives the board its own camera
+-- and light; a character model frame is the fallback when the scene draws
+-- none of the displays. Both turn with the same yaw: +pi/2 faces the right
+-- of the screen.
+---------------------------------------------------------------------------
+local Scene = {}
+Scene.__index = Scene
 
 local function ConfigureCamera(scene, style)
 	scene:SetCameraNearClip(0.05)
@@ -57,61 +48,174 @@ local function ConfigureCamera(scene, style)
 	scene:SetLightDirection(1, -1, -1)
 end
 
-function Hero:UseDisplay(now)
-	self.usedDisplay = true
-	self.modelDeadline = now + 3
-	return Read(self.actor.SetModelByCreatureDisplayID, self.actor, self.style.display, false) == true
-end
-
-function Hero:BuildScene()
-	local scene = CreateFrame("ModelScene", nil, self.frame)
-	self.scene = scene
-	scene:SetAllPoints(self.frame)
+function Scene.New(parent, style)
+	local scene = CreateFrame("ModelScene", nil, parent)
+	scene:SetAllPoints(parent)
 	scene:SetAlpha(0)
 	scene:EnableMouse(false)
-	ConfigureCamera(scene, self.style)
+	ConfigureCamera(scene, style)
 	local actor = scene:CreateActor(nil, "ModelSceneActorTemplate")
-	if not actor then return false end
-	self.actor = actor
+	if not actor then
+		scene:Hide()
+		return nil
+	end
 	actor:Show()
-	actor:SetYaw(self.facing or 0)
-	local now = GetTime()
-	self.modelDeadline = now + 3
-	local loaded = PlayerPreviewAllowed() and Read(actor.SetModelByUnit, actor, "player", true, false, true, true, false, self.style.race)
-	return loaded == true or self:UseDisplay(now)
+	return setmetatable({ frame = scene, actor = actor }, Scene)
 end
 
+-- false when the client refuses the display; true or nothing otherwise.
+function Scene:Load(display)
+	Read(self.actor.ClearModel, self.actor)
+	-- The display alone: never the player's own customizations, which a
+	-- gnome or dwarf may lack and which then draw untextured.
+	return Read(self.actor.SetModelByCreatureDisplayID, self.actor, display, false)
+end
+
+function Scene:Loaded()
+	return Read(self.actor.IsLoaded, self.actor) == true
+end
+
+function Scene:ModelFile()
+	return Read(self.actor.GetModelFileID, self.actor)
+end
+
+function Scene:Face(yaw)
+	Read(self.actor.SetYaw, self.actor, yaw)
+end
+
+function Scene:Animate(animation)
+	Read(self.actor.SetAnimation, self.actor, animation)
+end
+
+-- The pause stays on this scene; it never pauses other models.
+function Scene:Pause(paused)
+	Read(self.frame.SetPaused, self.frame, paused, false)
+end
+
+local Figure = {}
+Figure.__index = Figure
+
+function Figure.New(parent)
+	local model = CreateFrame("PlayerModel", nil, parent)
+	model:SetAllPoints(parent)
+	model:SetAlpha(0)
+	model:EnableMouse(false)
+	local figure = setmetatable({ frame = model }, Figure)
+	model:SetScript("OnModelLoaded", function() figure.loaded = true end)
+	return figure
+end
+
+function Figure:Load(display)
+	self.loaded = false
+	Read(self.frame.ClearModel, self.frame)
+	Read(self.frame.SetPortraitZoom, self.frame, 0)
+	return Read(self.frame.SetDisplayInfo, self.frame, display)
+end
+
+function Figure:Loaded()
+	if self.loaded then return true end
+	local model = self:ModelFile()
+	return type(model) == "number" and model > 0
+end
+
+function Figure:ModelFile()
+	return Read(self.frame.GetModelFileID, self.frame)
+end
+
+function Figure:Face(yaw)
+	Read(self.frame.SetFacing, self.frame, yaw)
+end
+
+function Figure:Animate(animation)
+	Read(self.frame.SetAnimation, self.frame, animation)
+end
+
+function Figure:Pause(paused)
+	Read(self.frame.SetPaused, self.frame, paused)
+end
+
+local VIEWS = { Scene, Figure }
+
+---------------------------------------------------------------------------
+-- The hero
+---------------------------------------------------------------------------
+local Hero = {}
+Hero.__index = Hero
+
+-- Builds the next view (scene first, then the model frame) and starts its
+-- first display. False when no view is left.
+function Hero:NextView(now)
+	if self.view then
+		self.view.frame:Hide()
+		self.view = nil
+	end
+	while self.viewIndex < #VIEWS do
+		self.viewIndex = self.viewIndex + 1
+		local ok, view = pcall(VIEWS[self.viewIndex].New, self.frame, self.style)
+		if ok and view then
+			self.view, self.displayIndex = view, 0
+			if self:NextDisplay(now) then return true end
+			view.frame:Hide()
+			self.view = nil
+		end
+	end
+	return false
+end
+
+-- Starts the next display on the current view. False when none is left.
+function Hero:NextDisplay(now)
+	local displays = self.style.displays
+	while self.displayIndex < #displays do
+		self.displayIndex = self.displayIndex + 1
+		local display = displays[self.displayIndex]
+		local ok, result = pcall(self.view.Load, self.view, display)
+		if ok and result ~= false then
+			self.deadline = now + Appearance.loadWait
+			return true
+		end
+		self:Note(display, "refused")
+	end
+	return false
+end
+
+-- What each display did, for the error log when none draws.
+function Hero:Note(display, outcome)
+	self.trail = self.trail or {}
+	self.trail[#self.trail + 1] = ("%s %d %s"):format(self.viewIndex == 1 and "scene" or "frame", display, outcome)
+end
+
+-- Moves on to the next display, then the next view; the portrait stays
+-- when nothing is left.
+function Hero:Skip(now)
+	if self:NextDisplay(now) or self:NextView(now) then return end
+	self.unavailable = true
+	if E.errors and E.errors.Add then
+		E.errors:Add("warning", ("EldoUI Flight Games: Gnome Dash could not load a hero model (%s); the portrait is shown instead."):format(
+			table.concat(self.trail or {}, ", ")))
+	end
+end
+
+-- A display counts as drawn once loaded with one of the race's model
+-- files, or with a model file the client does not tell.
 function Hero:FinishLoading(now)
-	local actor = self.actor
-	if not self.costume then
-		local loaded = Read(actor.IsLoaded, actor) == true
-		if not loaded and now < self.modelDeadline then return end
-		local model = loaded and Read(actor.GetModelFileID, actor)
-		if model ~= self.style.male and model ~= self.style.female then
-			if self.usedDisplay or not self:UseDisplay(now) then self.unavailable = true end
-			return
+	local view = self.view
+	local display = self.style.displays[self.displayIndex]
+	if not view:Loaded() then
+		if now >= self.deadline then
+			self:Note(display, "not loaded")
+			self:Skip(now)
 		end
-		self.costume = {}
-		self.outfitDeadline = now + 2
+		return
 	end
-	local wait = false
-	for index, piece in ipairs(outfit) do
-		if not self.costume[index] then
-			local result = TryPiece(actor, piece)
-			local canWait = now < self.outfitDeadline
-			if result == SUCCESS then
-				self.costume[index] = true
-			elseif result == PENDING and canWait then
-				wait = true
-			else
-				self.unavailable = true
-				return
-			end
-		end
+	local model = view:ModelFile()
+	if type(model) == "number" and model > 0 and not self.style.files[model] then
+		self:Note(display, "model " .. model)
+		self:Skip(now)
+		return
 	end
-	if wait then return end
 	self.ready = true
-	Read(actor.SetAnimation, actor, self.animation or Board.ANIM.stand)
+	view:Face(self.facing or 0)
+	view:Animate(self.animation or Board.ANIM.stand)
 end
 
 function Hero:ApplyPause()
@@ -119,16 +223,17 @@ function Hero:ApplyPause()
 	local paused = not (self.running and self.showModel and self.frame:IsVisible())
 	if self.paused == paused then return end
 	self.paused = paused
-	Read(self.scene.SetPaused, self.scene, paused, false)
+	self.view:Pause(paused)
 end
 
 function Hero:Refresh()
 	local want = self.visible and self.frame:IsVisible() and M.db and M.db.models
-	if want and not self.scene and not self.unavailable then
-		local ok, created = pcall(self.BuildScene, self)
-		self.unavailable = not (ok and created)
+	if want and not self.started then
+		self.started = true
+		self.viewIndex = 0
+		if not self:NextView(GetTime()) then self.unavailable = true end
 	end
-	if want and self.actor and not self.ready and not self.unavailable then
+	if want and self.view and not self.ready and not self.unavailable then
 		local now = GetTime()
 		if not self.nextPoll or now >= self.nextPoll then
 			self.nextPoll = now + 0.15
@@ -136,9 +241,9 @@ function Hero:Refresh()
 		end
 	end
 	local showModel = want and self.ready and not self.unavailable and true or false
-	if self.scene then
-		self.scene:SetShown(want and not self.unavailable and true or false)
-		if self.showModel ~= showModel then self.scene:SetAlpha(showModel and 1 or 0) end
+	if self.view then
+		self.view.frame:SetShown(want and not self.unavailable and true or false)
+		if self.showModel ~= showModel then self.view.frame:SetAlpha(showModel and 1 or 0) end
 	end
 	self.showModel = showModel
 	self.icon:SetShown(not showModel)
@@ -185,13 +290,13 @@ end
 function Hero:Face(facing)
 	if self.facing == facing then return end
 	self.facing = facing
-	if self.actor then Read(self.actor.SetYaw, self.actor, facing) end
+	if self.ready then self.view:Face(facing) end
 end
 
 function Hero:Animate(animation)
 	if self.animation == animation then return end
 	self.animation = animation
-	if self.ready then Read(self.actor.SetAnimation, self.actor, animation) end
+	if self.ready then self.view:Animate(animation) end
 end
 
 function Hero:SetRunning(running)

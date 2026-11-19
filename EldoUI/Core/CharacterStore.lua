@@ -1086,11 +1086,14 @@ local function DayNumber(year, month, day)
 		+ math.floor((153 * (month - 3) + 2) / 5) + day
 end
 
+-- Nil for a time the game keeps secret (in a battleground, for one).
 local function CalendarMinutes(t)
-	if type(t) ~= "table" or type(t.year) ~= "number" or type(t.month) ~= "number" then return nil end
-	local day = t.monthDay or t.day
-	if type(day) ~= "number" then return nil end
-	return DayNumber(t.year, t.month, day) * 1440 + (tonumber(t.hour) or 0) * 60 + (tonumber(t.minute) or tonumber(t.min) or 0)
+	if type(t) ~= "table" then return nil end
+	local year, month, day = t.year, t.month, t.monthDay or t.day
+	local hour, minute = t.hour, t.minute or t.min
+	if IsSecret(year) or IsSecret(month) or IsSecret(day) or IsSecret(hour) or IsSecret(minute) then return nil end
+	if type(year) ~= "number" or type(month) ~= "number" or type(day) ~= "number" then return nil end
+	return DayNumber(year, month, day) * 1440 + (tonumber(hour) or 0) * 60 + (tonumber(minute) or 0)
 end
 C.CalendarMinutes = CalendarMinutes
 
@@ -1110,7 +1113,8 @@ function Scan.calendar()
 	local nowMinutes = CalendarMinutes(current)
 	if not nowMinutes then return end
 	local month = Read(K.GetMonthInfo, 0)
-	if type(month) ~= "table" or not month.numDays then return end
+	if type(month) ~= "table" or IsSecret(month.numDays) or IsSecret(month.month) or IsSecret(month.year) then return end
+	if not month.numDays then return end
 	if month.month ~= current.month or month.year ~= current.year then return end
 	local me = C:Me()
 	local now = Now()

@@ -1,7 +1,8 @@
 # Code-Review EldoUI 0.7.2001
 
 Ergebnisse der Prüfung vom November 2026: private Notizen, nicht für Upstream gedacht. Seit dem 16.11.2026 steht
-der Fork auf EldoUI 0.7.3001; was das an den Befunden ändert, steht in beiden Dateien im Abschnitt zum Update.
+der Fork auf EldoUI 0.7.3001, seit dem 19.11.2026 auf 0.7.3005; was das an den Befunden ändert, steht in beiden
+Dateien in den Abschnitten zu den Updates.
 
 | Datei | Inhalt |
 |---|---|

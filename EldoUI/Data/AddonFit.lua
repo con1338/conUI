@@ -22,10 +22,9 @@ local Fit = E.addonFit
 
 -- The layer addon's network (Modules/MinimapLayer.lua). EldoUI speaks the
 -- same addon messages, written from scratch, so players of either can hop
--- through the other. Checked against release 0.1.6 (wire version 0.1.3).
+-- through the other. Checked against release 1.14.25.
 E.LayerNetwork = {
-	folder = "ForeverLayerHop", slash = "FOREVERLAYERHOP",
-	prefix = "FLHNET2", channel = "ForeverLayerHopNet", wire = "0.1.3",
+	folder = "LayerSwap", slash = "LAYERSWAP", prefix = "LayerSwap",
 }
 
 ---------------------------------------------------------------------------

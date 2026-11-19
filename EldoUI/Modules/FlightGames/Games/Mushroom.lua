@@ -16,9 +16,7 @@ local BANNER = "Interface\\Icons\\INV_Banner_01"
 local SPIKES = "Interface\\Icons\\INV_Misc_Bomb_09"
 local SPIDER = "Interface\\Icons\\Ability_Hunter_Pet_Spider"
 local BOAR = "Interface\\Icons\\Ability_Hunter_Pet_Boar"
-local GROVE_ART = {
-	"Interface\\Icons\\INV_Mushroom_04", "Interface\\Icons\\INV_Mushroom_07", CAPS,
-}
+local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local HEROES = {
 	small = { w = 21, h = 26, size = 35, icon = "Interface\\Icons\\Achievement_Character_Gnome_Male" },
 	big = { w = 29, h = 39, size = 49, icon = "Interface\\Icons\\Achievement_Character_Dwarf_Male" },
@@ -32,9 +30,23 @@ local VIEWS = {
 	thorn = 12, checkpoint = 5, exit = 1, crawler = 10, spore = 10,
 }
 local ICONS = { block = CAPS, coin = COINS, mushroom = CAPS, thorn = SPIKES, checkpoint = BANNER, exit = BANNER, crawler = BOAR, spore = SPIDER }
+-- The scenery of each landscape: a sky from top to horizon, two rows of
+-- hills (far, near), the ground and its top edge, and the ledges. Muted,
+-- with the hills darker than the ground, so the play field stands out.
+local HORIZON = 300
 local LANDSCAPES = {
-	grove = { 7, 3, 5 }, quarry = { 1, 4, 3 }, cavern = { 2, 1, 5 },
-	marsh = { 3, 7, 5 }, forge = { 6, 4, 2 }, ridge = { 2, 7, 5 },
+	grove = { skyTop = { 0.30, 0.50, 0.70 }, skyLow = { 0.66, 0.80, 0.84 }, far = { 0.40, 0.56, 0.48 }, near = { 0.27, 0.42, 0.32 },
+		ground = { 0.40, 0.29, 0.19 }, rim = { 0.46, 0.70, 0.31 }, ledge = { 0.60, 0.44, 0.28 } },
+	quarry = { skyTop = { 0.42, 0.53, 0.68 }, skyLow = { 0.84, 0.77, 0.62 }, far = { 0.64, 0.52, 0.40 }, near = { 0.50, 0.39, 0.29 },
+		ground = { 0.42, 0.34, 0.28 }, rim = { 0.66, 0.56, 0.44 }, ledge = { 0.56, 0.52, 0.48 } },
+	cavern = { skyTop = { 0.05, 0.06, 0.10 }, skyLow = { 0.17, 0.16, 0.24 }, far = { 0.16, 0.15, 0.22 }, near = { 0.11, 0.10, 0.16 },
+		ground = { 0.32, 0.29, 0.36 }, rim = { 0.42, 0.66, 0.68 }, ledge = { 0.48, 0.42, 0.54 } },
+	marsh = { skyTop = { 0.28, 0.38, 0.42 }, skyLow = { 0.60, 0.70, 0.62 }, far = { 0.31, 0.43, 0.39 }, near = { 0.22, 0.33, 0.29 },
+		ground = { 0.31, 0.28, 0.20 }, rim = { 0.46, 0.60, 0.33 }, ledge = { 0.52, 0.42, 0.29 } },
+	forge = { skyTop = { 0.14, 0.06, 0.05 }, skyLow = { 0.44, 0.18, 0.08 }, far = { 0.27, 0.13, 0.10 }, near = { 0.18, 0.09, 0.07 },
+		ground = { 0.30, 0.27, 0.27 }, rim = { 0.88, 0.46, 0.18 }, ledge = { 0.46, 0.42, 0.40 } },
+	ridge = { skyTop = { 0.34, 0.54, 0.82 }, skyLow = { 0.80, 0.88, 0.95 }, far = { 0.66, 0.73, 0.84 }, near = { 0.49, 0.57, 0.68 },
+		ground = { 0.42, 0.40, 0.38 }, rim = { 0.93, 0.95, 0.98 }, ledge = { 0.58, 0.54, 0.50 } },
 }
 
 local Game = {}
@@ -77,21 +89,26 @@ local function MakeHero(parent, role)
 end
 
 local function New(host)
-	local game = setmetatable({ host = host, views = {}, counts = {}, keys = {}, hills = {}, grove = {}, heldMouse = 0 }, Game)
+	local game = setmetatable({ host = host, views = {}, counts = {}, keys = {}, far = {}, near = {}, heldMouse = 0 }, Game)
 	local area = host.area
 	local viewport = CreateFrame("Frame", nil, area)
 	viewport:SetAllPoints()
 	viewport:SetClipsChildren(true)
 	game.viewport = viewport
-	game.sky = B.Sprite(viewport, WIDTH, HEIGHT, "BACKGROUND")
+	game.sky = B.Sprite(viewport, WIDTH, HORIZON, "BACKGROUND")
+	game.sky:SetDrawLayer("BACKGROUND", 0)
 	B.Place(game.sky, 0, 0, viewport)
-	for index = 1, 12 do game.hills[index] = B.Sprite(viewport, 1, 1, "BACKGROUND") end
-	for index = 1, 8 do
-		local cap = B.Sprite(viewport, 1, 1, "BACKGROUND")
-		E:SetClientFile(cap, GROVE_ART[(index - 1) % #GROVE_ART + 1], CAPS)
-		E:TrimIcon(cap)
-		game.grove[index] = cap
+	-- Hills are soft round shapes standing on the horizon; the floor below
+	-- the horizon covers their lower halves and shows in the gaps.
+	for index = 1, 6 do
+		game.far[index] = B.Dot(viewport, 1, nil, "BACKGROUND")
+		game.far[index]:SetDrawLayer("BACKGROUND", 1)
+		game.near[index] = B.Dot(viewport, 1, nil, "BACKGROUND")
+		game.near[index]:SetDrawLayer("BACKGROUND", 2)
 	end
+	game.floor = B.Sprite(viewport, WIDTH, HEIGHT - HORIZON, "BACKGROUND")
+	game.floor:SetDrawLayer("BACKGROUND", 3)
+	B.Place(game.floor, 0, HORIZON, viewport)
 	game.hero = { small = MakeHero(viewport, "small"), big = MakeHero(viewport, "big") }
 	for _, actor in pairs(game.hero) do actor:SetShown(false) end
 	game.fx = B.Effects(viewport)
@@ -487,17 +504,26 @@ end
 
 local function NewSprite(game, kind)
 	local view = { body = B.Sprite(game.viewport, 1, 1, "BORDER") }
+	if kind == "ground" then view.rim = B.Sprite(game.viewport, 1, 1, "ARTWORK") end
 	local icon = ICONS[kind]
 	if icon then
 		view.icon = B.Sprite(game.viewport, 1, 1, "ARTWORK")
 		E:SetClientFile(view.icon, icon, CAPS)
 		E:TrimIcon(view.icon)
+		if kind ~= "block" and view.icon.SetMask then pcall(view.icon.SetMask, view.icon, MASK) end
 	end
 	return view
 end
 
+local function Shade(color, factor)
+	return { color[1] * factor, color[2] * factor, color[3] * factor }
+end
+
 -- Only objects intersecting the camera have actual regions. Pools cap
 -- allocations even when a long course is loaded at its farthest edge.
+-- Ground is a solid fill with a light top edge, ledges and blocks are
+-- tiles, pickups and opponents are round pictures on a colored ring, and
+-- flags are a pole with a round banner on top: no boxes behind them.
 function Game:View(kind, object, color, alpha, showIcon)
 	local x, y = object.x - self.camera, object.y
 	if x >= WIDTH or x + object.w <= 0 or y >= HEIGHT or y + object.h <= 42 then return end
@@ -514,45 +540,64 @@ function Game:View(kind, object, color, alpha, showIcon)
 		view = NewSprite(self, kind)
 		list[index] = view
 	end
-	view.body:SetSize(object.w, object.h)
-	B.Place(view.body, x, y, self.viewport)
-	if kind == "block" or kind == "ground" or kind == "ledge" then
-		B.Tile(view.body, color, alpha)
+	local body, icon = view.body, view.icon
+	local size = math.max(1, math.min(object.w - 2, object.h - 2))
+	local iconX, iconY = x + (object.w - size) / 2, y + (object.h - size) / 2
+	if kind == "ground" then
+		body:SetSize(object.w, object.h)
+		B.Place(body, x, y, self.viewport)
+		B.Fill(body, color, alpha)
+		view.rim:SetSize(object.w, 4)
+		B.Place(view.rim, x, y, self.viewport)
+		B.Fill(view.rim, self.rim, 1)
+		view.rim:Show()
+	elseif kind == "ledge" or kind == "block" or kind == "thorn" then
+		body:SetSize(object.w, object.h)
+		B.Place(body, x, y, self.viewport)
+		B.Tile(body, color, alpha)
+	elseif kind == "checkpoint" or kind == "exit" then
+		size = math.min(object.w, 26)
+		iconX, iconY = x + (object.w - size) / 2, y
+		body:SetSize(3, object.h - size + 2)
+		B.Place(body, x + (object.w - 3) / 2, y + size - 2, self.viewport)
+		B.Fill(body, color, alpha)
 	else
-		B.Fill(view.body, color, alpha)
+		local ring = size + 4
+		body:SetSize(ring, ring)
+		B.Place(body, iconX - 2, iconY - 2, self.viewport)
+		body:SetTexture(B.DOT)
+		body:SetTexCoord(0, 1, 0, 1)
+		body:SetVertexColor(color[1], color[2], color[3], alpha)
 	end
-	view.body:Show()
-	if view.icon then
-		local size = math.max(1, math.min(object.w - 2, object.h - 2))
-		view.icon:SetSize(size, size)
-		B.Place(view.icon, x + (object.w - size) / 2, y + (object.h - size) / 2, self.viewport)
-		view.icon:SetShown(showIcon)
+	body:Show()
+	if icon then
+		icon:SetSize(size, size)
+		B.Place(icon, iconX, iconY, self.viewport)
+		icon:SetShown(showIcon)
 	end
 end
 
-function Game:DrawWorld(palette)
-	local world = LANDSCAPES[self.course.landscape]
-	B.Fill(self.sky, palette[world[1]], 0.2)
-	for index, hill in ipairs(self.hills) do
-		local back = index <= 6
-		local column = (index - 1) % 6
-		local width = back and 125 or 93
-		local height = 65 + (column * 47 + (back and 20 or 70)) % 99
-		local x = (column * 151 + (back and 0 or 85) - self.camera * (back and 0.15 or 0.29)) % 906 - width
-		hill:SetSize(width, height)
-		B.Place(hill, x, 304 - height + (back and 10 or 28), self.viewport)
-		B.Fill(hill, palette[world[back and 1 or 2]], back and 0.23 or 0.36)
+function Game:DrawWorld()
+	local scene = LANDSCAPES[self.course.landscape] or LANDSCAPES.grove
+	self.sky:SetColorTexture(1, 1, 1, 1)
+	self.sky:SetGradient("VERTICAL", CreateColor(scene.skyLow[1], scene.skyLow[2], scene.skyLow[3], 1),
+		CreateColor(scene.skyTop[1], scene.skyTop[2], scene.skyTop[3], 1))
+	for index = 1, 6 do
+		local column = index - 1
+		local far, near = self.far[index], self.near[index]
+		local farW, farH = 250 + column * 37 % 70, 120 + column * 53 % 70
+		far:SetSize(farW, farH)
+		B.Place(far, (column * 190 - self.camera * 0.15) % 1140 - farW, HORIZON - farH / 2, self.viewport)
+		far:SetVertexColor(scene.far[1], scene.far[2], scene.far[3], 1)
+		local nearW, nearH = 180 + column * 41 % 60, 80 + column * 31 % 50
+		near:SetSize(nearW, nearH)
+		B.Place(near, (column * 160 + 70 - self.camera * 0.3) % 960 - nearW, HORIZON - nearH / 2 + 6, self.viewport)
+		near:SetVertexColor(scene.near[1], scene.near[2], scene.near[3], 1)
 	end
-	for index, texture in ipairs(self.grove) do
-		local size = 30 + index * 17 % 35
-		local x = (index * 102 - self.camera * 0.54) % 816 - size
-		texture:SetSize(size, size)
-		texture:SetVertexColor(1, 1, 1, self.course.landscape == "grove" and 0.34 or 0.20)
-		B.Place(texture, x, 305 - size - index * 23 % 61, self.viewport)
-	end
+	B.Fill(self.floor, Shade(scene.near, 0.55), 1)
+	self.rim = scene.rim
 	for _, solid in ipairs(self.course.terrain) do
-		local color = palette[world[solid.kind == "ground" and 2 or 3]]
-		self:View(solid.kind, solid, color, solid.kind == "ground" and 0.74 or 0.92)
+		self:View(solid.kind, solid, solid.kind == "ground" and scene.ground or scene.ledge, 1)
 	end
 	for index, block in ipairs(self.course.blocks) do
 		local used = self.used[index]
@@ -564,9 +609,9 @@ function Game:DrawWorld(palette)
 		end
 	end
 	for index, coin in ipairs(self.course.coins) do
-		if not self.taken[index] then self:View("coin", coin, self.host.Color("gold"), 0.8, true) end
+		if not self.taken[index] then self:View("coin", coin, self.host.Color("gold"), 0.95, true) end
 	end
-	for _, hazard in ipairs(self.course.hazards) do self:View("thorn", hazard, self.host.Color("bad"), 0.88, true) end
+	for _, hazard in ipairs(self.course.hazards) do self:View("thorn", hazard, self.host.Color("bad"), 0.92, true) end
 	for index, mark in ipairs(self.course.checkpoints) do
 		local active = self.checkpoint == index
 		self:View("checkpoint", { x = mark.x, y = mark.y - 48, w = 22, h = 48 },
@@ -575,7 +620,7 @@ function Game:DrawWorld(palette)
 	self:View("exit", self.course.exit, self.host.Color("good"), 0.8, true)
 	for index, enemy in ipairs(self.course.enemies) do
 		if not self.defeated[index] and enemy.left < self.camera + WIDTH and enemy.right + enemy.w > self.camera then
-			self:View(enemy.kind, EnemyBox(enemy, self.clock, self.level), palette[6], 0.68, true)
+			self:View(enemy.kind, EnemyBox(enemy, self.clock, self.level), self.host.Color("bad"), 0.95, true)
 		end
 	end
 end
@@ -584,12 +629,13 @@ function Game:Draw()
 	if not self.player then return end
 	local player, role = self.player, self.player.big and "big" or "small"
 	wipe(self.counts)
-	self:DrawWorld(self.host.Palette())
+	self:DrawWorld()
 	for kind, list in pairs(self.views) do
 		for index = (self.counts[kind] or 0) + 1, #list do
 			local view = list[index]
 			view.body:Hide()
 			if view.icon then view.icon:Hide() end
+			if view.rim then view.rim:Hide() end
 		end
 	end
 	for name, actor in pairs(self.hero) do
@@ -597,7 +643,9 @@ function Game:Draw()
 		if name == role then
 			local size = HEROES[role].size
 			actor:Place(player.x - self.camera + (player.w - size) / 2, player.y + player.h - size)
-			actor:Face(player.face * -math.pi / 2)
+			-- Yaw +pi/2 turns the model toward the right of the screen in this
+			-- camera, so the hero faces the way it runs in both forms.
+			actor:Face(player.face * math.pi / 2)
 			local animation = player.grounded and (math.abs(player.vx) > 20 and B.ANIM.run or B.ANIM.stand)
 			actor:Animate(animation or (appearance and appearance.jumpAnimation) or B.ANIM.stand)
 			actor:SetAlpha(player.hurt > 0 and math.floor(player.hurt * 12) % 2 == 0 and 0.53 or 1)

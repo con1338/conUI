@@ -3284,6 +3284,9 @@ local function UpdateWidgets(plate)
 		local ok, container = pcall(CreateFrame, "Frame", nil, plate.root, "UIWidgetContainerTemplate")
 		if not ok or not container or not container.RegisterForWidgetSet then return end
 		container:EnableMouse(false)
+		-- The game fills the container with its own widgets: border snapping
+		-- of the plate never walks into them.
+		if E.SkipSnap then E:SkipSnap(container) end
 		plate.widgets = container
 		LayoutPlate(plate)
 	end

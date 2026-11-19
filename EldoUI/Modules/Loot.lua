@@ -1125,7 +1125,8 @@ function M:ApplyLootWindow()
 	else
 		RestoreCVar("lootUnderMouse", LOOT_ID)
 		if LootFrame and blizzLootScale then
-			LootFrame:SetScale(blizzLootScale)
+			-- The plain widget method: Edit Mode's override never runs from EldoUI.
+			E.BlizzardKeep.SetScale(LootFrame, blizzLootScale)
 			blizzLootScale = nil
 		end
 	end
@@ -3464,7 +3465,8 @@ E:RegisterBlizzardHandler(LOOT_ID, {
 		if M.lootFrame then M.lootFrame:Hide() end
 		M:UnregisterEvent("LOOT_READY")
 		if LootFrame and blizzLootScale then
-			LootFrame:SetScale(blizzLootScale)
+			-- The plain widget method: Edit Mode's override never runs from EldoUI.
+			E.BlizzardKeep.SetScale(LootFrame, blizzLootScale)
 			blizzLootScale = nil
 		end
 	end,
