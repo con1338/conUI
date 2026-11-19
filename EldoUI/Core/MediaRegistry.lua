@@ -261,8 +261,8 @@ function E:SetMediaFont(fontString, id, size, outline, scaled)
 		and self:SetNameFont(fontString, path or self.media.font, size, outline or self.db.general.fontOutline) then
 		return
 	end
-	if not fontString:SetFont(path or self.media.font, size, outline or self.db.general.fontOutline) then
-		fontString:SetFont(self.media.font, size, outline or self.db.general.fontOutline)
+	if not self:SetPlainFont(fontString, path or self.media.font, size, outline or self.db.general.fontOutline) then
+		self:SetPlainFont(fontString, self.media.font, size, outline or self.db.general.fontOutline)
 	end
 	fontString:SetShadowOffset(0, 0)
 end

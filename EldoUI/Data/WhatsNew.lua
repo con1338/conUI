@@ -18,6 +18,16 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3003",
+		date = Key("November 2026"),
+		summary = Key("3 fixes."),
+		items = {
+			Key("General: Names in Cyrillic, Korean and Chinese show their letters on nameplates, unit frames and every other place EldoUI shows a name, where they were empty boxes before."),
+			Key("General: In Gnome Dash, the gnome and the dwarf wear their own clothes and colors instead of showing plain white."),
+			Key("General: Gnome Dash has calm scenery on every course, and coins and opponents show as round pictures without boxes, so it is easy to see what you can stand on."),
+		},
+	},
+	{
 		version = "0.7.3002",
 		date = Key("November 2026"),
 		summary = Key("1 new feature, 2 improvements and 3 fixes."),

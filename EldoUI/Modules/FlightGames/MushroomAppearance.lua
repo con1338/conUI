@@ -3,24 +3,18 @@ local _, E = ...
 local M = E.FlightGames
 local Board = M.Board
 
+-- Each form is one of the game's own dressed character displays (a gnome
+-- rogue and a dwarf warrior), which carry their skin, hair and clothes.
+-- male and female are the race's model files a loaded display must use.
 local Appearance = {
-	small = { race = 7, display = 51877, male = 900914, female = 940356, distance = 2.20, height = 0.76,
+	small = { display = 146970, male = 900914, female = 940356, distance = 2.20, height = 0.76,
 		icon = "Interface\\Icons\\Achievement_Character_Gnome_Male" },
-	big = { race = 3, display = 49242, male = 878772, female = 950080, distance = 2.58, height = 0.89,
+	big = { display = 147595, male = 878772, female = 950080, distance = 2.58, height = 0.89,
 		icon = "Interface\\Icons\\Achievement_Character_Dwarf_Male" },
 	jumpAnimation = 38,
 }
 M.MushroomAppearance = Appearance
 
--- Item ID and its default modified appearance in the Forever client.
-local outfit = {
-	{ item = 14168, appearance = 161299 },  -- Buccaneer's Gloves
-	{ item = 2302, appearance = 156759 },  -- Handstitched Leather Boots
-}
-
-local reasons = Enum and Enum.ItemTryOnReason
-local SUCCESS = reasons and reasons.Success or 0
-local PENDING = reasons and reasons.DataPending or 3
 local Hero = {}
 Hero.__index = Hero
 
@@ -28,21 +22,6 @@ local Read = E.PlainCall or function(method, ...)
 	if type(method) ~= "function" then return nil end
 	local ok, value = pcall(method, ...)
 	if ok and not (issecretvalue and issecretvalue(value)) then return value end
-end
-
-local function PlayerPreviewAllowed()
-	if E.IdentitySecret then return not E.IdentitySecret("player") end
-	local check = C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret
-	return not check or Read(check, "player") == false
-end
-
-local function TryPiece(actor, piece)
-	local info = Read(ItemUtil and ItemUtil.CreateItemTransmogInfo, piece.appearance)
-	local result = info and Read(actor.SetItemTransmogInfo, actor, info, nil, true)
-	if result == SUCCESS then return result end
-	local tried = Read(actor.TryOn, actor, "item:" .. piece.item)
-	if tried == SUCCESS then return tried end
-	if result == PENDING or tried == PENDING then return PENDING end
 end
 
 local function ConfigureCamera(scene, style)
@@ -57,12 +36,6 @@ local function ConfigureCamera(scene, style)
 	scene:SetLightDirection(1, -1, -1)
 end
 
-function Hero:UseDisplay(now)
-	self.usedDisplay = true
-	self.modelDeadline = now + 3
-	return Read(self.actor.SetModelByCreatureDisplayID, self.actor, self.style.display, false) == true
-end
-
 function Hero:BuildScene()
 	local scene = CreateFrame("ModelScene", nil, self.frame)
 	self.scene = scene
@@ -75,41 +48,21 @@ function Hero:BuildScene()
 	self.actor = actor
 	actor:Show()
 	actor:SetYaw(self.facing or 0)
-	local now = GetTime()
-	self.modelDeadline = now + 3
-	local loaded = PlayerPreviewAllowed() and Read(actor.SetModelByUnit, actor, "player", true, false, true, true, false, self.style.race)
-	return loaded == true or self:UseDisplay(now)
+	self.modelDeadline = GetTime() + 3
+	-- The display alone: never the player's own character in another race,
+	-- whose customizations that race lacks and which then draws untextured.
+	return Read(actor.SetModelByCreatureDisplayID, actor, self.style.display, false) == true
 end
 
 function Hero:FinishLoading(now)
 	local actor = self.actor
-	if not self.costume then
-		local loaded = Read(actor.IsLoaded, actor) == true
-		if not loaded and now < self.modelDeadline then return end
-		local model = loaded and Read(actor.GetModelFileID, actor)
-		if model ~= self.style.male and model ~= self.style.female then
-			if self.usedDisplay or not self:UseDisplay(now) then self.unavailable = true end
-			return
-		end
-		self.costume = {}
-		self.outfitDeadline = now + 2
+	local loaded = Read(actor.IsLoaded, actor) == true
+	if not loaded and now < self.modelDeadline then return end
+	local model = loaded and Read(actor.GetModelFileID, actor)
+	if model ~= self.style.male and model ~= self.style.female then
+		self.unavailable = true
+		return
 	end
-	local wait = false
-	for index, piece in ipairs(outfit) do
-		if not self.costume[index] then
-			local result = TryPiece(actor, piece)
-			local canWait = now < self.outfitDeadline
-			if result == SUCCESS then
-				self.costume[index] = true
-			elseif result == PENDING and canWait then
-				wait = true
-			else
-				self.unavailable = true
-				return
-			end
-		end
-	end
-	if wait then return end
 	self.ready = true
 	Read(actor.SetAnimation, actor, self.animation or Board.ANIM.stand)
 end

@@ -249,7 +249,7 @@ function U.RestoreFont(fontString)
 	local original = fontString and fonts[fontString]
 	if not original then return end
 	fonts[fontString] = nil
-	if original[1] then fontString:SetFont(original[1], original[2], original[3] or "") end
+	if original[1] then E:SetPlainFont(fontString, original[1], original[2], original[3] or "") end
 	fontString:SetShadowOffset(original[4] or 0, original[5] or 0)
 end
 
