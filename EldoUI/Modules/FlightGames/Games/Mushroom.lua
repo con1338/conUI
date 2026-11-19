@@ -597,7 +597,9 @@ function Game:Draw()
 		if name == role then
 			local size = HEROES[role].size
 			actor:Place(player.x - self.camera + (player.w - size) / 2, player.y + player.h - size)
-			actor:Face(player.face * -math.pi / 2)
+			-- Yaw +pi/2 turns the model toward the right of the screen in this
+			-- camera, so the hero faces the way it runs in both forms.
+			actor:Face(player.face * math.pi / 2)
 			local animation = player.grounded and (math.abs(player.vx) > 20 and B.ANIM.run or B.ANIM.stand)
 			actor:Animate(animation or (appearance and appearance.jumpAnimation) or B.ANIM.stand)
 			actor:SetAlpha(player.hurt > 0 and math.floor(player.hurt * 12) % 2 == 0 and 0.53 or 1)

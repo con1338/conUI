@@ -593,10 +593,23 @@ local function SnapEdge(frame)
 	if br then frame:SetBackdropBorderColor(br, bg, bb, ba) end
 end
 
+-- Frames whose children the game builds and owns (a widget container, for
+-- one): the walk leaves them and everything under them alone.
+local snapSkip = setmetatable({}, { __mode = "k" })
+function E:SkipSnap(frame)
+	if type(frame) == "table" then snapSkip[frame] = true end
+end
+
 local function Walk(frame, depth)
+	if snapSkip[frame] then return end
 	SnapEdge(frame)
 	if depth > 40 or not frame.GetChildren then return end
-	for _, child in ipairs({ frame:GetChildren() }) do
+	-- The game can refuse to list a frame's children while it runs a
+	-- protected action; then that branch is left as it is.
+	local children = { pcall(frame.GetChildren, frame) }
+	if not children[1] then return end
+	for index = 2, #children do
+		local child = children[index]
 		if type(child) == "table" and not E.FrameCheck(child, "IsForbidden") then Walk(child, depth + 1) end
 	end
 end

@@ -18,6 +18,19 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3002",
+		date = Key("November 2026"),
+		summary = Key("1 new feature, 2 improvements and 3 fixes."),
+		items = {
+			Key("Map and minimap: Layer hop has two new options, Leave the group by itself and Invite without a card, both off until you turn them on."),
+			Key("Map and minimap: Layer hop asks the players in your zone directly and also works with players who use the most common layer addon, so many more players can invite you to another layer."),
+			Key("Map and minimap: The layer chip reads your layer the way the live realms keep it, so it shows the same layer as other players near you."),
+			Key("General: In Gnome Dash, the gnome and the dwarf face the way they run instead of running backwards."),
+			Key("Map and minimap: The minimap starts without an error again after you log in."),
+			Key("Nameplates: Changing your target with an ability or key no longer shows an error from the target's nameplate."),
+		},
+	},
+	{
 		version = "0.7.3001",
 		date = Key("November 2026"),
 		summary = Key("2 fixes."),
