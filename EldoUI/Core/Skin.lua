@@ -107,7 +107,10 @@ E.SkinUsable = function(_, frame) return Usable(frame) end
 
 local function Pack(...) return { n = select("#", ...), ... } end
 
+-- A value the game keeps secret (a score cell's color in a battleground,
+-- for one) never counts as the same: comparing it is not allowed here.
 local function Same(a, b)
+	if E:IsSecret(a) or E:IsSecret(b) then return false end
 	if a == b then return true end
 	local ta, tb = type(a), type(b)
 	if ta == "number" and tb == "number" then return math.abs(a - b) < 0.001 end

@@ -98,12 +98,13 @@ local function BuildPanel(panel, preview)
 		onClick = function() M:CloseFlightView("bags") if ToggleAllBags then ToggleAllBags() end end })
 	panel.bags:SetPoint("BOTTOM", panel.exit, "TOP", 0, 8)
 	-- The map opens through the game's own map button (Kit.GameButton), so
-	-- the game opens it; without that button EldoUI opens it.
+	-- the game opens it; without that button, through the game's own map
+	-- request (never the toggle, which would leave the map's state tainted).
 	panel.map = Kit.Button(panel, { text = L["Map"], width = width,
 		secureClick = function() return Kit.GameButton("worldmap") end,
 		onClick = function(button)
 			M:CloseFlightView("map")
-			if not button.secureTarget and ToggleWorldMap then ToggleWorldMap() end
+			if not button.secureTarget then E:OpenWorldMapAt() end
 		end })
 	panel.map:SetPoint("RIGHT", panel.bags, "LEFT", -8, 0)
 	if preview then

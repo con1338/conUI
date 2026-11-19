@@ -339,7 +339,7 @@ M.BarText = BarText
 -- Tooltips: all detail lives here (DESIGN.md: keep bar text short).
 ---------------------------------------------------------------------------
 local CLICK_HINTS = {
-	xp = { Key("Click"), Key("open the quest log") },
+	xp = { Key("Click"), Key("open the map and quest log") },
 	rep = { Key("Click"), Key("open the reputation list") },
 	honor = { Key("Click"), Key("open the PvP tab") },
 	pet = { Key("Click"), Key("open your pet's page") },
@@ -377,8 +377,10 @@ local function OpenPanel(key)
 		ToggleCharacter("ReputationFrame")
 	elseif key == "pet" and ToggleCharacter then
 		OpenPetPage()
-	elseif key == "xp" and ToggleQuestLog then
-		ToggleQuestLog()
+	elseif key == "xp" then
+		-- The game's own map request (the quest log sits on the map), never
+		-- the toggle, which would leave the map's state tainted.
+		E:OpenWorldMapAt()
 	elseif key == "honor" then
 		E:OpenPvPPage()
 	end
@@ -1390,7 +1392,7 @@ M.options = {
 	{ type = "range", key = "fontSize", label = "Text size", desc = "Size of the bar text.", min = 8, max = 18, step = 1 },
 	{ type = "toggle", key = "tooltip", label = "Tooltip", desc = "Details (rested XP, remaining, standing) when you point at a bar." },
 	{ type = "toggle", key = "clickOpens", label = "Click opens the panel",
-		desc = "Left-click a bar to open the quest log (XP), the reputation list, the PvP tab (honor) or your pet's page. Not in combat." },
+		desc = "Left-click a bar to open the map and quest log (XP), the reputation list, the PvP tab (honor) or your pet's page. Not in combat." },
 	{ type = "execute", label = "Bar details window", keywords = "details experience reputation honor rested standing",
 		desc = "A small window with the numbers behind each bar: level or standing, progress, remaining, rested XP and finished quests, in foldable sections. Shift-click a bar opens it too.",
 		func = function() M:ToggleDetails(true) end },

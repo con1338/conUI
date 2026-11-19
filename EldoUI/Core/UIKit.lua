@@ -5593,6 +5593,7 @@ do
 	local WK = E.WindowKit
 	if WK then
 		WK.TooltipHint = Kit.TooltipHint
+		WK.TipText = Kit.TipText
 		WK.AnchorTooltip = Kit.AnchorTooltip
 		WK.Switch = Kit.Switch
 		WK.Slider = Kit.Slider
