@@ -32,7 +32,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
 | C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
 | C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt (seit 0.7.3000 von EldoUI) | `95002b5`, `c323ceb` |
-| D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb` |
+| D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb`, `775b23d`, `f9c0fc9` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
 | D4 | Offline-Test-Harness: API-Stubs, Dateien in TOC-Reihenfolge laden | mittel | umgesetzt | `fb8c242` … `141e84d` |
@@ -73,7 +73,7 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 ## A – Deutsche Übersetzung
 
 > **Umgesetzt:** `EldoUI_Locale_deDE` ist vollständig (20.827 von 20.827 Texten; seit EldoUI 0.7.3001 wieder
-> vollständig mit 21.525, siehe D1), Anrede „Ihr/Euch“, Begriffe des
+> vollständig mit 21.525, seit 0.7.3005 mit 21.557, siehe D1), Anrede „Ihr/Euch“, Begriffe des
 > deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/` (`deDE.py status|check|xref`). Im Code:
 > deutsches Datumsformat (`Core/Dates.lua`) und `E:InSentence` für Wörter, die in Sätze eingesetzt werden.
 > Nicht geprüft am deutschen Client sind Zauber-, Gegenstands- und Gebietsnamen, die die Übersetzer aus dem
@@ -1030,6 +1030,36 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       - C1: mit Masque Hover-Optik auf Verbrauchsgüter- und Totemleiste.
       - Rechtsklick auf einen Trank in der Tasche benutzt ihn (Hotfix 0.7.3001); dazu F22s Auktionshaus-Ablauf.
       - B7: Taschen bis auf 3 freie Plätze füllen: unsere Karte und EldoUIs Pfeil, ob sie verschiedene Gegenstände nennen.
+  - **Umgesetzt (19.11.2026, EldoUI 0.7.3005, Issues #40, #41, #42):** `upstream-release` hält jetzt auch
+    0.7.3002 (`df15974`), 0.7.3003 (`7b5e982`), 0.7.3004 (`6b68763`) und 0.7.3005 (`775b23d`), jedes ZIP byte-genau
+    gegen seinen Commit geprüft. `f9c0fc9` mergt 0.7.3005 nach dem Fork, davor `f87148d` EldoUIs Doku-Historie bis
+    0.7.3005. Für 0.7.3002 gab es kein Issue (am selben Tag wie 0.7.3003 erschienen).
+    - Umfang 0.7.3001 → 0.7.3005: 30 Dateien, rund +1.600/−630 Zeilen, keine neue Datei. Das meiste ist der neue
+      Layerwechsel (0.7.3002), Schriften für Namen in anderen Alphabeten (0.7.3003), Gnomensprint (0.7.3002–0.7.3004)
+      und Fehler auf Schlachtfeldern (0.7.3005).
+    - Konflikte: TOC (Version) und `Modules/MinimapLayer.lua` (F05, jetzt ganz EldoUIs; siehe `fehler.md`).
+    - Fork-Features gegen 0.7.3005 geprüft: keins ist doppelt, keins überschneidet sich. Ohne Konflikt durchgelaufen
+      und unabhängig: C1 (`E:DropTemplate`) neben EldoUIs Schrift-Objekten in `Core/Media.lua`; F23, C2 und E4 neben
+      EldoUIs Kartenklick in `Modules/InfoBar.lua`; der Haken für `Blizzard_NamePlates` neben `E:SkipSnap` in
+      `Modules/Nameplates.lua`.
+    - Deutsches Paket: 17 Texte des alten Layerwechsels sind raus, die 49 neuen übersetzt (`ea79c06`). Wieder
+      vollständig: 21.557 von 21.557.
+    - Prüfungen: keine neuen WoW-API-Namen, keine Änderung an Tests oder am Nachbau nötig. Offline-Start: 630 bzw.
+      636 Dateien, 103 Module (84 an), 0 Fehler, englischer und deutscher Client.
+    - Beim Import gelernt: Im ZIP trägt jede Datei den Zeitstempel 1980-01-01, und Git übersah drei geänderte
+      `.toc`-Dateien gleicher Größe. Die Import-Commits sind darum mit frisch eingelesenem Index gebaut; der Weg steht
+      in `tools/ci/README.md`.
+    - Version `0.7.3005-p1`. Im Spiel ist das Update noch nicht getestet.
+    - Im Spiel prüfen (vorher `WTF` sichern; alte `EldoUI*`-Ordner löschen, das neue ZIP entpacken und das Spiel ganz
+      neu starten, die Version steht in der TOC):
+      - Login: `/eui errors` ohne neue Fehler; der Hinweis „Was ist neu“ zu 0.7.3005 kommt einmal, deutsch.
+      - Layerwechsel: Klick auf die Layer-Anzeige, „Zu einem anderen Layer wechseln“; Statuszeilen deutsch, eine
+        Einladung kommt im Fenster des Spiels. Mit „Anderen beim Wechseln helfen“: die Karte Einladen/Nicht jetzt.
+      - Namen in kyrillischer, koreanischer oder chinesischer Schrift, falls einer auftaucht: Namensplaketten und Rahmen
+        zeigen Zeichen statt leerer Kästchen.
+      - Schlachtfeld betreten: keine Fehler von Kalender, Questverfolgung, Tooltip oder Weltkarte; Ergebnisfenster
+        am Ende ohne Ruckler.
+      - F23 (Gilden-Tooltip im Kampf) und F22 (Auktionshaus) wie vorher.
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.

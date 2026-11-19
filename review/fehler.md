@@ -12,7 +12,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F02 | Mover-Positionen aus Imports ungeprüft, Frames verschwinden | mittel–hoch | behoben | `723320c` |
 | F03 ✔ | Snapshot-Import übernimmt Makroinhalte ungeprüft | mittel | behoben | `9dac6fc` |
 | F04 | Settings-Angebote Fremder ohne Limit, schließen offene Dialoge | mittel | behoben | `8119cf7` |
-| F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben (Teil seit 0.7.3000 in EldoUI) | `3deb369`, `c323ceb` |
+| F05 ✔ | Layer-Modul antwortet jedem per Whisper | mittel | behoben (Teil seit 0.7.3000, ganz seit 0.7.3002 von EldoUI) | `3deb369`, `c323ceb`, `f9c0fc9` |
 | F06 | Fremdtext mit Link-/Escape-Codes ungefiltert im Chat | niedrig–mittel | behoben | `eee687e` |
 | F07 | Strings anderer Versionen als „beschädigt“ abgelehnt, Teil-Importe ohne Migration | niedrig–mittel | behoben (Meldung seit 0.7.3000 von EldoUI) | `419d511`, `c323ceb` |
 | F08 | Entpackgröße erst nach dem Entpacken geprüft | niedrig–mittel | behoben | `d6042ce` |
@@ -66,6 +66,19 @@ den Teil, den EldoUI nicht abdeckt. Geprüft wurde jeder Fix-Commit gegen den Co
 | F14 | Ja: `E:EndMoverDrag` beendet einen Zug bei Kampfbeginn und speichert die Stelle nach dem Kampf; der Verschiebemodus geht danach wieder auf. | Nichts; F02s Punktprüfung in `Core/Movers.lua` bleibt. |
 | F01–F04, F06, F08, F09, F11–F13, F15–F21 | Nein (Code an diesen Stellen gleich oder nur verschoben). | Alles. F18 sitzt jetzt in EldoUIs neuen Funktionen `Set` (Auswahl) und `Apply` (Farbe), die auch die Tastatur nutzt. |
 | F22 | Unverändert (teilweise behoben). Der Hotfix 0.7.3001 („Right-clicking a potion … uses it again“) betrifft einen Fehler aus 0.7.3000 (`WatchJunkSlot` ersetzte den Klick-Handler der Taschenplätze), nicht die Ursache von F22. | F22s Auktionshaus-Fix (PR #36). |
+
+## Nach dem Update auf EldoUI 0.7.3005 (19.11.2026)
+
+Der Fork steht seit `f9c0fc9` auf EldoUI 0.7.3005 (vorher 0.7.3001; dazwischen 0.7.3002, 0.7.3003 und 0.7.3004).
+Geprüft wurde jeder Fix gegen den Code von 0.7.3005 (nicht im Spiel). Nur sechs Dateien hatten beide geändert:
+`EldoUI.toc`, `CHANGELOG.md`, `Core/Media.lua`, `Modules/InfoBar.lua`, `Modules/MinimapLayer.lua` und
+`Modules/Nameplates.lua`. Konflikte gab es nur in der TOC (Versionszeile) und in `MinimapLayer.lua`.
+
+| Nr. | In 0.7.3005 | Was im Fork bleibt |
+|---|---|---|
+| F05 | Ja, ganz: 0.7.3002 baut den Layerwechsel neu, auf dem Netz des verbreitetsten Layer-Addons. „LR“, `OnChosen` und die Angebotsliste gibt es nicht mehr. Ohne „Help others hop“ (Standard: aus) antwortet `Layer.OnAsk` niemandem; wer hilft, antwortet mit Absicht jedem, der fragt, und nennt dabei Layer und Gebiet (das ist das Netz; höchstens alle 10 s je Spieler, eingeladen wird nur im selben Gebiet, höchstens sechs Einladungen in zehn Minuten). | Nichts: `Modules/MinimapLayer.lua` ist wieder ganz EldoUIs. |
+| F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderung in `InfoBar.lua` betrifft den Klick auf die Kartenblöcke (`E:OpenWorldMapAt` statt `ToggleWorldMap`). | Alles. |
+| F01–F04, F06–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
 
 ---
 
