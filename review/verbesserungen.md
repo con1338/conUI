@@ -67,7 +67,7 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 | 1 | Arbeitsweise für Upstream-Updates: Releases unverändert importieren, eigene Features als Plugin | klein |
 | 2 | CI: Syntaxcheck, luacheck mit `.luacheckrc`, TOC-Check, Release-ZIP (umgesetzt, siehe D2) | klein–mittel |
 | 3 | Deutsches Sprachpaket `EldoUI_Locale_deDE` | Struktur klein, Inhalt groß |
-| 4 | Versionscheck und Fehler-Links an den privaten Fork anpassen (umgesetzt, siehe D3) | klein |
+| 4 | Versionscheck und Fehler-Links an den Fork anpassen (umgesetzt, siehe D3) | klein |
 | 5 | Erstes eigenes Feature: Gruppensuche-Board aus dem LFG-Chat (umgesetzt: `EldoUI_GroupBoard`) | mittel |
 
 ## A – Deutsche Übersetzung
@@ -839,7 +839,7 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       Änderungen per PR mit den Prüfungen aus `tools/ci/README.md`. Journal-Daten gehen wie der Link im Spiel an
       EldoUIs Formular.
     - Nicht geändert: Das Wiki (`docs/wiki/`) und `.github/SUPPORT.md` verweisen weiter auf Upstream. Das passt,
-      weil Upstream sie pflegt. Die Issue-Vorlagen sind Upstreams. Im privaten Repo ist das Fehlerformular für
+      weil Upstream sie pflegt. Die Issue-Vorlagen sind Upstreams. In diesem Repo ist das Fehlerformular für
       den Report-Knopf nötig, die anderen schaden nicht.
 - **Versionsgrenzen bei Integrationen:** Ace3-Skins nur bis AceGUI-Minor 41 (`EldoUI/Modules/SkinsAddons.lua:29`).
   Bei Addon-Updates prüfen.
@@ -1067,7 +1067,7 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     Beschreibung in `tools/ci/` (`check_all.sh` läuft lokal genauso). luacheck prüft nur Globals, gegen die Liste
     der heute benutzten WoW-API-Namen (`tools/ci/globals.lua`); Stilwarnungen bleiben aus, der Upstream-Code ist
     nicht dafür geschrieben. Das ZIP enthält alle acht `EldoUI*`-Ordner, nur von git erfasste Dateien.
-- **D3 Privater Fork:**
+- **D3 Eigener Fork:**
   - **Umgesetzt:** Version `0.7.2001-p1` (EldoUI und deutsches Paket); der Hinweis „Was ist neu“ vergleicht die
     Version ohne Endung (`EldoUI/Core/Config.lua`, `CheckUpdateNote`). Fehlerbericht und Loot-Guide-Hilfe führen
     zu `con1338/WoW-UI-Addon`. Die Meldung von Journal-Daten (`LG.JOURNAL_DATA_ISSUE_URL`) geht bewusst weiter an
