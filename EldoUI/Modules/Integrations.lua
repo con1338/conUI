@@ -1239,7 +1239,7 @@ function M:RXPLocaleStatus() return "" end
 -- texture is named here. The table is filled from EldoUI's media at login.
 local rxpTheme
 if C_AddOns.DoesAddOnExist("RXPGuides") then
-	rxpTheme = { name = "EldoUI", author = "EldoUI", displayName = "EldoUI" }
+	rxpTheme = { name = "EldoUI", author = "EldoUI", displayName = (E.brand or "EldoUI") }
 	_G.RXPGuides_Themes = _G.RXPGuides_Themes or {}
 	table.insert(_G.RXPGuides_Themes, rxpTheme)
 end
@@ -1527,7 +1527,8 @@ end
 -- The BigWigs profile EldoUI makes: one per layout, "EldoUI - <Layout>".
 function M:BigWigsProfileName()
 	local layout = E.layouts and E.layouts[E.db.general.layout]
-	local title = layout and layout.title and L[layout.title] or tostring(E.db.general.layout or "")
+	-- Fork (conUI): EldoUI's wording, so a BigWigs profile made before keeps its name.
+	local title = layout and layout.title and E:UpstreamText(layout.title) or tostring(E.db.general.layout or "")
 	local name = "EldoUI - " .. title
 	name = E:Utf8Sub(name, 50)
 	return name

@@ -53,7 +53,8 @@ end
 
 -- The Details profile EldoUI imports into for a layout.
 function E:DetailsProfileName(key)
-	return E:Utf8Sub("EldoUI - " .. LayoutTitle(key or LayoutKey()), 50)
+	-- Fork (conUI): EldoUI's wording, so a Details profile made before keeps its name.
+	return E:Utf8Sub("EldoUI - " .. E:UpstreamText(LayoutTitle(key or LayoutKey())), 50)
 end
 
 E:RegisterAddonSetup("Details", {

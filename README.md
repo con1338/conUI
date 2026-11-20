@@ -13,7 +13,7 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Das gemeinsame Profil heißt bei einer neuen Installation „conUI 1440p“; wer schon ein „EldoUI 1440p“ hat,
 > behält es. Icon und Logo sind eigene Grafiken des Forks (`tools/brand/gen_logo.py`).
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
-> [EldoUI 0.7.3005](https://github.com/con1338/conUI/releases/tag/v0.7.3005) (Ordner `EldoUI*/`). Die Releases
+> [EldoUI 0.7.3005](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3005) (Ordner `EldoUI*/`). Die Releases
 > liegen unverändert im Branch `upstream-release` und kommen von dort per Merge nach `main`.
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
 > Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 21.557 Texte,

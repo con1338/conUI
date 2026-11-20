@@ -102,7 +102,7 @@ end
 -- set again at login, once the saved language is read.
 function E:NameKeyBindings()
 	self:NameModuleBindings()
-	_G.BINDING_HEADER_ELDOUI = E.brand
+	_G.BINDING_HEADER_ELDOUI = (E.brand or "EldoUI")
 	_G.BINDING_NAME_ELDOUI_METER_TOGGLE = L["Show or hide the damage meter"]
 	_G.BINDING_NAME_ELDOUI_METER_RESET = L["Clear the damage meter"]
 	_G.BINDING_NAME_ELDOUI_LOOTGUIDE = L["Open or close the Loot Guide"]
@@ -127,7 +127,7 @@ function E:NameKeyBindings()
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton7:LeftButton"] = L["Use the Hearthstone (Consumable Bar)"]
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton8:LeftButton"] = L["Mount up (Consumable Bar)"]
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton9:LeftButton"] = L["Use your mana gem (Consumable Bar)"]
-	_G.BINDING_HEADER_ELDOUIQUICKDRAW = E.brand .. " Quickdraw"
+	_G.BINDING_HEADER_ELDOUIQUICKDRAW = (E.brand or "EldoUI") .. " Quickdraw"
 	for index = 1, 16 do
 		_G[("BINDING_NAME_CLICK EldoUI_Quickdraw%d:LeftButton"):format(index)] = L["Quickdraw menu %d (hold)"]:format(index)
 	end

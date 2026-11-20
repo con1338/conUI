@@ -897,9 +897,9 @@ function M:CreateDBMPanel()
 	local gui = _G.DBM_GUI
 	if type(gui) ~= "table" or type(gui.CreateNewPanel) ~= "function" then return end
 	local ok, err = pcall(function()
-		local panel = gui:CreateNewPanel("EldoUI", "option")
+		local panel = gui:CreateNewPanel(E.brand or "EldoUI", "option")
 		M.dbmPanel = panel
-		local area = panel:CreateArea("EldoUI")
+		local area = panel:CreateArea(E.brand or "EldoUI")
 		local status = area:CreateText("", nil, true)
 		local checks = {}
 		local function Check(label, key)

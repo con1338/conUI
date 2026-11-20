@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: |cff33aaffcon|rUI Dansk
-## Notes: Danish texts for EldoUI. Loads only when Dansk is picked under General > EldoUI language.
+## Notes: Danish texts for conUI. Loads only when Dansk is picked under General > conUI language.
 ## Author: Eldodeldo
 ## Version: 0.7.3005
 ## Group: EldoUI

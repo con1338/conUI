@@ -27,7 +27,7 @@ local _, E = ...
 local L = E.L
 local M = E.modules.InfoBar
 
-local PREFIX = "EldoUI: "
+local PREFIX = (E.brand or "EldoUI") .. ": " -- fork: Core/Brand.lua
 local TICK_KEY = "InfoBar:broker"
 
 local Broker = {

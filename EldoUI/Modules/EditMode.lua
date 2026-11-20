@@ -879,7 +879,7 @@ local function Overlay(mover)
 		self.hover = true
 		OverlayColor(self, mover)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:AddLine(AccentHex() .. "EldoUI|r " .. (mover.title or mover.name))
+		GameTooltip:AddLine(AccentHex() .. (E.brand or "EldoUI") .. "|r " .. (mover.title or mover.name))
 		E.UIKit.TipText(GameTooltip, L["Drag to move. Right-click resets it to the layout position."])
 		E.UIKit.TipText(GameTooltip, L["Saved at once: Edit Mode's Revert does not undo EldoUI frames."])
 		if not mover.frame:IsShown() then

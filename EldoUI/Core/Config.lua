@@ -6358,7 +6358,7 @@ do
 		frame.panel = panel
 		frame.title = E:CreateText(panel, E.tokens.size.dialogTitle, "LEFT")
 		frame.title:SetPoint("TOPLEFT", 10, -8)
-		frame.title:SetText(E.brand) -- no-L: addon name
+		frame.title:SetText(E.brand or "EldoUI") -- no-L: addon name
 		frame.body = E:CreateText(panel, E.tokens.size.body, "LEFT")
 		frame.body:SetPoint("TOPLEFT", frame.title, "BOTTOMLEFT", 0, -4)
 		frame.body:SetText(L["Body text in your font and size."])

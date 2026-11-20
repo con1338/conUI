@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: |cff33aaffcon|rUI Guide Data
-## Notes: Leveling routes, class quests, professions, reputation and collection guides for EldoUI's guide window. Loads only when the guide window needs it. Guide texts by the Polestar authors (GPL-3.0).
+## Notes: Leveling routes, class quests, professions, reputation and collection guides for conUI's guide window. Loads only when the guide window needs it. Guide texts by the Polestar authors (GPL-3.0).
 ## Author: Eldodeldo
 ## X-Credits: guides by the Polestar authors
 ## Version: 1.0.0
