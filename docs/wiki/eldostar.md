@@ -1,16 +1,16 @@
-# Eldostar
+# conStar
 
-Eldostar is EldoUI's own guide window. It follows community leveling, class quest, profession, reputation and collection guides. The guide texts are in English; the window and settings follow EldoUI's language choice.
+conStar is conUI's own guide window. It follows community leveling, class quest, profession, reputation and collection guides. The guide texts are in English; the window and settings follow conUI's language choice.
 
 ## Start a guide
 
-Open `/eui`, select **Eldostar**, and use **Guide > Guide on the guide spot** to choose Eldostar if another guide is selected.
+Open `/eui`, select **conStar**, and use **Guide > Guide on the guide spot** to choose conStar if another guide is selected.
 
 1. Use `/eui eldostar show` for the guide window, or `/eui eldostar guides` for the guide list in the Journal under **My Adventure: Guides**.
-2. If the list is unavailable, turn on **Loot Guide** and **My Adventure** in the module list. Choose Eldostar as the guide provider on Eldostar's settings page.
+2. If the list is unavailable, turn on **Loot Guide** and **My Adventure** in the module list. Choose conStar as the guide provider on conStar's settings page.
 3. Use **For this character** to find matching guides, **All guides** to browse the full list, or search by name. Click a guide to start or continue it.
 
-The guide title in the window opens the list again. At the level cap, Eldostar waits until you start a guide. The `EldoUI_GuideData` companion folder must be installed; it loads when Eldostar needs the guides. Guide availability depends on that data and your character.
+The guide title in the window opens the list again. At the level cap, conStar waits until you start a guide. The `EldoUI_GuideData` companion folder must be installed; it loads when conStar needs the guides. Guide availability depends on that data and your character.
 
 ## Follow the steps
 
@@ -19,7 +19,7 @@ The guide title in the window opens the list again. At the level cap, Eldostar w
 - **Move on by itself** in the Guide tab advances a step when its goals are complete; turn it off to advance with Next.
 - **Waypoint to the goal** uses the Waypoints module. A guide's coordinates take priority, with quest locations from the Loot Guide where available. A missing location cannot supply an arrow.
 
-Eldostar never accepts or turns in a quest, buys an item or moves your character. You perform the actions in the guide.
+conStar never accepts or turns in a quest, buys an item or moves your character. You perform the actions in the guide.
 
 ## Route choices
 
@@ -29,9 +29,9 @@ For guides with group-quest choices, the **Group quests** setting can ask for ea
 
 ## Pick who uses the guide spot
 
-On Eldostar's settings page, **Guide > Guide on the guide spot** offers Automatic, Eldostar, RestedXP, Guidelime and Off. Automatic selects RestedXP when installed and enabled, otherwise Eldostar. Guidelime is an explicit choice. A selected external guide still needs its own addon and guides installed.
+On conStar's settings page, **Guide > Guide on the guide spot** offers Automatic, conStar, RestedXP, Guidelime and Off. Automatic selects RestedXP when installed and enabled, otherwise conStar. Guidelime is an explicit choice. A selected external guide still needs its own addon and guides installed.
 
-Only the chosen provider is placed in the layout's guide spot. This choice does not disable another addon; the page reports unavailable providers and any reload needed for positioning. See [Using EldoUI with other addons](other-addons.md).
+Only the chosen provider is placed in the layout's guide spot. This choice does not disable another addon; the page reports unavailable providers and any reload needed for positioning. See [Using conUI with other addons](other-addons.md).
 
 ## Window and progress
 
@@ -41,4 +41,4 @@ Progress is saved per character and guide. **Stop the guide** keeps your place. 
 
 Money and arrival goals stay complete after you spend the money or leave the place. Undo can restore their earlier progress.
 
-Eldostar's route progress is separate from [My Adventure](my-adventure.md), which records your character's story, runs, quests and notes. See [Saved data](saved-data.md) before moving or replacing saved files.
+conStar's route progress is separate from [My Adventure](my-adventure.md), which records your character's story, runs, quests and notes. See [Saved data](saved-data.md) before moving or replacing saved files.

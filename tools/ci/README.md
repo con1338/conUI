@@ -141,6 +141,10 @@ gibt es zwei Quellen und zwei Merges (zuerst so gemacht für 0.7.3001):
    - die wenigen Stellen ohne `L`, die `E.brand` lesen: Chat-Präfix (`Core/Init.lua`), Tooltip der
      Addon-Schaltfläche und `/conui` (`Core/Commands.lua`), Titel der Mini-Karte (`Core/Config.lua`),
      Überschriften der Tastenbelegung (`Core/Bindings.lua`);
+   - Icon und Logo (`EldoIcon.tga`, `EldoLogo.tga`): Bringt ein Release sie neu mit, `python3
+     tools/brand/gen_logo.py` laufen lassen; der Name des gemeinsamen Profils (`PROFILE` in `Core/Installer.lua`);
+   - README und `docs/`: Der Name ist dort im Fließtext ersetzt, Merges von `upstream/main` kollidieren in diesen
+     Zeilen. EldoUIs Fassung nehmen und den Namen wieder ersetzen;
    - neue Texte ohne `L`, die „EldoUI“ zeigen: `git grep -n '"[^"]*EldoUI[ .:"]' -- EldoUI | grep -v 'L\["'`.
 
 ## Versionswächter

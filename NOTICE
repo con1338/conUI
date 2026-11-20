@@ -7,3 +7,8 @@ It includes third-party libraries, adapted code and data, each under its
 own license. They are listed, with their copyright holders, in
 THIRD_PARTY_NOTICES.md. Fonts and textures are credited in
 Media/LICENSES.md.
+
+conUI (https://github.com/con1338/conUI) is a modified version of EldoUI.
+It shows the name "conUI" and its own logo, and adds a German language
+pack and a group board plugin. Its changes are in the Git history of that
+repository; EldoUI and its author are not responsible for them.

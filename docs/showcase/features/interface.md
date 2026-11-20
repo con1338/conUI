@@ -1,6 +1,6 @@
 # Interface
 
-The frames around the edges of your screen, Blizzard's windows in the EldoUI look, and the messages the game shows you. Every module here has its own page in `/eui` and can be switched off with `/eui <module> off`.
+The frames around the edges of your screen, Blizzard's windows in the conUI look, and the messages the game shows you. Every module here has its own page in `/eui` and can be switched off with `/eui <module> off`.
 
 [Back to the overview](../overview.md)
 
@@ -20,11 +20,11 @@ Use the tracking menu or a key binding to show a large, see-through minimap in t
 
 ## Maps
 
-The world map, quest log, flight map, battlefield map and UI widgets with an EldoUI skin, your own position and scale, coordinates and fading while you move. The world map can show the level range of the zone under the cursor. Show unexplored areas dims undiscovered parts on both the world map and the battlefield map when EldoUI is allowed to improve the world map and change the battlefield map. Inside a dungeon, Live puts the game's own minimap on the dungeon map, large, with your arrow, your group and the rooms; WoW: Forever's own dungeons open in Live with their boss list, checked off as you kill them. `/eui map reset` puts them back where Blizzard places them.
+The world map, quest log, flight map, battlefield map and UI widgets with a conUI skin, your own position and scale, coordinates and fading while you move. The world map can show the level range of the zone under the cursor. Show unexplored areas dims undiscovered parts on both the world map and the battlefield map when conUI is allowed to improve the world map and change the battlefield map. Inside a dungeon, Live puts the game's own minimap on the dungeon map, large, with your arrow, your group and the rooms; WoW: Forever's own dungeons open in Live with their boss list, checked off as you kill them. `/eui map reset` puts them back where Blizzard places them.
 
 ## Quest Tracker
 
-Blizzard's quest and objective tracker in the EldoUI look, on its own mover, with your height and font. It can fade or fold up in combat, shows a button and a key for the tracked quest's item, and works with Questie's tracker.
+Blizzard's quest and objective tracker in the conUI look, on its own mover, with your height and font. It can fade or fold up in combat, shows a button and a key for the tracked quest's item, and works with Questie's tracker.
 
 ## XP and Reputation Bars
 
@@ -36,39 +36,39 @@ Move, resize and restyle Blizzard's micro menu and bag bar, or fold them into th
 
 ## Alerts and Banners
 
-Toasts, banners and the talking head, raid warnings, the red error text, zone text, ready checks, queue pop-ups and cutscenes, each in the EldoUI look and placed by your layout. EldoUI's alert lane shows its own messages in one place, and pings get a short feed. Its level-up toast lists the spells and new ranks your class trainer has for you at the new level; a click opens them in the Training window. `/eui notify test` previews them.
+Toasts, banners and the talking head, raid warnings, the red error text, zone text, ready checks, queue pop-ups and cutscenes, each in the conUI look and placed by your layout. conUI's alert lane shows its own messages in one place, and pings get a short feed. Its level-up toast lists the spells and new ranks your class trainer has for you at the new level; a click opens them in the Training window. `/eui notify test` previews them.
 
 ## Loot
 
-The loot window, group roll bars, loot history and loot toasts in the EldoUI look. Rolls stay fully manual: EldoUI never rolls for you. A loot feed mode turns the toasts into a running list.
+The loot window, group roll bars, loot history and loot toasts in the conUI look. Rolls stay fully manual: conUI never rolls for you. A loot feed mode turns the toasts into a running list.
 
 ## Character Panel
 
-The character window, its slots and side panels in the EldoUI look, with item level, a classic or modern stats layout and stat sections you can fold. Gear set buttons equip a set on a click.
+The character window, its slots and side panels in the conUI look, with item level, a classic or modern stats layout and stat sections you can fold. Gear set buttons equip a set on a click.
 
 ## Friends and Social
 
-The friends, guild, calendar, group finder and PvP windows in the EldoUI look, with class colors, a friends search and movable windows.
+The friends, guild, calendar, group finder and PvP windows in the conUI look, with class colors, a friends search and movable windows.
 
 ## NPC Windows
 
-Quest, gossip and other NPC dialogs, the pet stable and the barber shop in the EldoUI look.
+Quest, gossip and other NPC dialogs, the pet stable and the barber shop in the conUI look.
 
 ## Window Skins
 
-The spellbook, talents, professions, trainer, collections, socketing, dressing room and inspect windows in the EldoUI look, plus the option windows of other addons built with Ace3. With Professions Improve on, the selected recipe shows estimated skill-up steps, crafting costs, sale values, and how many crafts your materials allow. Its shopping list has its own craft quantity. A crowded recipe can open the same summary in a resizable window.
+The spellbook, talents, professions, trainer, collections, socketing, dressing room and inspect windows in the conUI look, plus the option windows of other addons built with Ace3. With Professions Improve on, the selected recipe shows estimated skill-up steps, crafting costs, sale values, and how many crafts your materials allow. Its shopping list has its own craft quantity. A crowded recipe can open the same summary in a resizable window.
 
 ## System Windows
 
-The game menu, Settings, the AddOn list, key bindings, macros and pop-ups in the EldoUI look, with a few safe extras.
+The game menu, Settings, the AddOn list, key bindings, macros and pop-ups in the conUI look, with a few safe extras.
 
 ## Edit Mode
 
-EldoUI's frames inside Blizzard's Edit Mode, positions saved per Edit Mode layout, and a warning when EldoUI and Edit Mode both try to place the same frame. `/eui editmode conflicts` lists them.
+conUI's frames inside Blizzard's Edit Mode, positions saved per Edit Mode layout, and a warning when conUI and Edit Mode both try to place the same frame. `/eui editmode conflicts` lists them.
 
 ## Integrations
 
-Layouts also place Details!, RestedXP guides, BigWigs bars and Questie's tracker, with an EldoUI look where the addon allows it.
+Layouts also place Details!, RestedXP guides, BigWigs bars and Questie's tracker, with a conUI look where the addon allows it.
 
 ## Buff and Consumable Reminders
 
@@ -88,8 +88,8 @@ Sounds, big text, screen flashes and icons for moments in the game: level up, ep
 
 ## Deadly Boss Mods
 
-Deadly Boss Mods with an EldoUI touch: its own DBM profile per layout, timers and warnings placed by the layout, the EldoUI look and quiet chat. Your DBM profile, sounds and boss settings stay yours. Only active while Deadly Boss Mods is installed.
+Deadly Boss Mods with a conUI touch: its own DBM profile per layout, timers and warnings placed by the layout, the conUI look and quiet chat. Your DBM profile, sounds and boss settings stay yours. Only active while Deadly Boss Mods is installed.
 
 ## Macro Editor
 
-A wider editor next to Blizzard's macro window (`/eui macros`, or "Edit in EldoUI"). It checks the macro as you type, has a condition builder that inserts at the cursor, finds icons by spell or item name and duplicates macros. Saving happens out of combat, and the editor never runs a macro.
+A wider editor next to Blizzard's macro window (`/eui macros`, or "Edit in conUI"). It checks the macro as you type, has a condition builder that inserts at the cursor, finds icons by spell or item name and duplicates macros. Saving happens out of combat, and the editor never runs a macro.

@@ -1,8 +1,8 @@
 # Plugins
 
-A plugin is a separate addon that adds its own module to EldoUI. It gets a settings page in the EldoUI config window, a row on the Plugins page (title, version, author, on/off switch), optional setup pages in the installer, a line in `/eui diag` and the version check. Everything goes through the global `EldoUI`, the same calls EldoUI's own modules use, so a plugin looks and behaves like the rest of the UI.
+A plugin is a separate addon that adds its own module to conUI. It gets a settings page in the conUI config window, a row on the Plugins page (title, version, author, on/off switch), optional setup pages in the installer, a line in `/eui diag` and the version check. Everything goes through the global `EldoUI`, the same calls conUI's own modules use, so a plugin looks and behaves like the rest of the UI.
 
-The smallest plugin is a `.toc` that depends on EldoUI:
+The smallest plugin is a `.toc` that depends on conUI:
 
 ```
 ## Interface: 16001
@@ -25,7 +25,7 @@ function M:OnEnable()
 end
 ```
 
-Plugins follow the same rules as EldoUI: change how things look and where they sit, show only what the game gives addons, never automate gameplay, and use EldoUI's design kit instead of their own colors and fonts.
+Plugins follow the same rules as conUI: change how things look and where they sit, show only what the game gives addons, never automate gameplay, and use conUI's design kit instead of their own colors and fonts.
 
 ## Full guide
 

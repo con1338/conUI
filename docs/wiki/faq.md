@@ -1,20 +1,20 @@
 # FAQ
 
-## Is EldoUI really made with AI?
+## Is conUI really made with AI?
 
-Yes. EldoUI is designed and written with AI assistance for WoW: Forever. It follows the same rules as any other addon: it only changes the interface and never plays for you.
+Yes. conUI is designed and written with AI assistance for WoW: Forever. It follows the same rules as any other addon: it only changes the interface and never plays for you.
 
-## Does EldoUI work on Classic Era or Retail?
+## Does conUI work on Classic Era or Retail?
 
-No. EldoUI is made for WoW: Forever (Interface 16001) and uses its API. It does not load on other game versions.
+No. conUI is made for WoW: Forever (Interface 16001) and uses its API. It does not load on other game versions.
 
-## Is EldoUI allowed under Blizzard's addon rules?
+## Is conUI allowed under Blizzard's addon rules?
 
-Yes. WoW: Forever limits what addons may do in combat, and EldoUI stays inside those limits: it changes how the UI looks and where things sit, and shows only what the game tells addons. It never plays for you (no automatic rolls, no automatic gear swaps) and never works out combat information the game hides. Where the game hides a value in combat, EldoUI shows the game's own display of it or nothing.
+Yes. WoW: Forever limits what addons may do in combat, and conUI stays inside those limits: it changes how the UI looks and where things sit, and shows only what the game tells addons. It never plays for you (no automatic rolls, no automatic gear swaps) and never works out combat information the game hides. Where the game hides a value in combat, conUI shows the game's own display of it or nothing.
 
-## The game says EldoUI is out of date
+## The game says conUI is out of date
 
-Tick **Load out of date AddOns** on the AddOns list of the character screen. This happens when Blizzard raises the interface number before a new EldoUI version is out.
+Tick **Load out of date AddOns** on the AddOns list of the character screen. This happens when Blizzard raises the interface number before a new conUI version is out.
 
 ## The Loot Guide says its data is not installed, or chat emoji do not show
 
@@ -22,7 +22,7 @@ The Loot Guide data (`EldoUI_LootData`), the guides (`EldoUI_GuideData`), the ge
 
 ## Another addon already does this. Do they clash?
 
-For recognized addons, EldoUI offers choices for supported overlapping jobs: Bags stays off while Bagnon, AdiBags or Baganator is loaded, Nameplates while Plater is loaded, and Action Bars while Bartender4 or Dominos is loaded. With addons that do many small things, such as Leatrix Plus, only the parts both do step back. You pick who handles each job on the Other addons page (`/eui addons`) or in the setup. See [Using EldoUI with other addons](other-addons.md).
+For recognized addons, conUI offers choices for supported overlapping jobs: Bags stays off while Bagnon, AdiBags or Baganator is loaded, Nameplates while Plater is loaded, and Action Bars while Bartender4 or Dominos is loaded. With addons that do many small things, such as Leatrix Plus, only the parts both do step back. You pick who handles each job on the Other addons page (`/eui addons`) or in the setup. See [Using conUI with other addons](other-addons.md).
 
 ## Where are my settings, and how do I start over?
 
@@ -34,7 +34,7 @@ Yes. Profiles can be shared by every character on the account (`/eui profile use
 
 ## Why do some changes ask for a reload?
 
-A few settings only take effect after the UI reloads. Forever blocks addons from reloading on their own, so EldoUI shows a banner with a Reload button instead.
+A few settings only take effect after the UI reloads. Forever blocks addons from reloading on their own, so conUI shows a banner with a Reload button instead.
 
 ## A frame is in the wrong place
 
@@ -42,22 +42,22 @@ A few settings only take effect after the UI reloads. Forever blocks addons from
 
 ## How do I report a problem?
 
-1. Type `/eui errors` to open EldoUI's error log in its own window (the Errors tab in chat shows the same log).
+1. Type `/eui errors` to open conUI's error log in its own window (the Errors tab in chat shows the same log).
 2. Press **Report** on the error. It shows a ready-to-paste bug report with the version and setup details, and with your character's name, realm, guild and chat text left out.
-3. Open the [bug form](https://github.com/Eldodeldo/EldoUI/issues/new?template=bug_report.yml), paste it in, and add a few words on what you were doing.
+3. Open the [bug form](https://github.com/con1338/conUI/issues/new?template=bug_report.yml), paste it in, and add a few words on what you were doing.
 
-EldoUI never sends anything by itself: a report leaves the game only when you paste it.
+conUI never sends anything by itself: a report leaves the game only when you paste it.
 
 For a problem without an error, `/eui diag copy` gives you the version and setup details as text. Screenshots help too.
 
-## Who made EldoUI?
+## Who made conUI?
 
-EldoUI is its own addon, written from scratch for WoW: Forever with AI assistance. The open-source code, data, fonts and sounds it builds on, and the work that inspired it, are credited in [Credits and third-party notices](../../THIRD_PARTY_NOTICES.md). In game, the Thanks page (`/eui thanks`, or the Thanks link at the foot of the options sidebar) names the people who helped build it.
+conUI is a fork of [EldoUI](https://github.com/Eldodeldo/EldoUI) by Eldodeldo. EldoUI is its own addon, written from scratch for WoW: Forever with AI assistance. The open-source code, data, fonts and sounds it builds on, and the work that inspired it, are credited in [Credits and third-party notices](../../THIRD_PARTY_NOTICES.md). In game, the Thanks page (`/eui thanks`, or the Thanks link at the foot of the options sidebar) names the people who helped build it.
 
 ## Which layouts can I choose?
 
-EldoUI offers eleven built-in presets, listed in [Layouts and presets](layouts.md). Version 0.7.1000 begins with a fresh EldoUI profile; profile and preset updates are supported from that version onward.
+conUI offers eleven built-in presets, listed in [Layouts and presets](layouts.md). Version 0.7.1000 begins with a fresh conUI profile; profile and preset updates are supported from that version onward.
 
-## Can I play EldoUI in Danish?
+## Can I play conUI in Danish?
 
-Yes. Pick **Dansk** under General > **EldoUI language** in `/eui` and reload. EldoUI's own texts switch to Danish; the game's own texts keep the game's language.
+Yes. Pick **Dansk** under General > **conUI language** in `/eui` and reload. conUI's own texts switch to Danish; the game's own texts keep the game's language.

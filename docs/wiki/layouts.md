@@ -1,6 +1,6 @@
 # Layouts and presets
 
-EldoUI separates **where** things sit from **how** they look:
+conUI separates **where** things sit from **how** they look:
 
 - a **layout** provides frame positions and module sizing;
 - a **role** moves a few frames on top of it for the job you do in groups;
@@ -12,12 +12,12 @@ The table below lists the eleven built-in presets in **0.7.2000**.
 
 ## Layout presets
 
-All eleven are built on EldoUI's own placement grid (zones, spacing and frame tracks on a canvas 1440 units tall). Pick one in the setup, on the Layouts page of `/eui`, on the Overview, or with `/eui layout <name>` (for example `/eui layout EldoZen1000`; `/eui layout` alone lists them). EldoUI Center is the default for new profiles.
+All eleven are built on conUI's own placement grid (zones, spacing and frame tracks on a canvas 1440 units tall). Pick one in the setup, on the Layouts page of `/eui`, on the Overview, or with `/eui layout <name>` (for example `/eui layout EldoZen1000`; `/eui layout` alone lists them). conUI Center is the default for new profiles.
 
 | Layout | Key | Skin it brings | Idea |
 |---|---|---|---|
 | Vanilla Original | `EldoVanilla1000` | Vanilla Original | The familiar original layout: portraits in the top left corner, a round minimap top right, the action bars along the bottom with the chat beside them, and the world kept clear. |
-| EldoUI Center | `EldoCenter1000` | WoW Forever | EldoUI's own default: one calm center. Player and target sit level with the cooldown row, the resource and cast bars stay in the column between them, and the action bars form one block at the bottom with a narrow wing on each side. |
+| conUI Center | `EldoCenter1000` | WoW Forever | conUI's own default: one calm center. Player and target sit level with the cooldown row, the resource and cast bars stay in the column between them, and the action bars form one block at the bottom with a narrow wing on each side. |
 | Modern Center | `EldoModern2000` | WoW Forever | Info bar on top, compact center, meters bottom right. |
 | Blizzard Bottom Block | `EldoBlizz1000` | Blizzard | Blizzard-style bottom block: unit frames sit right on the bar stack, pet and target of target above them. |
 | Portrait Staggered | `EldoHeritage2000` | Faction Heritage | Classic staggered unit frames with the target one row higher, party low on the left, three bar rows along the bottom with a short bar beside them. |
@@ -33,7 +33,7 @@ Each layout also suggests a style for each part of the UI and its own accent col
 - **Your own look stays yours.** If you picked a skin yourself, choosing a layout asks once whether to use the layout's look; **Keep my look** is the default.
 - **Frames you dragged stay** where you put them when you change layouts, unless you tick **Put frames I dragged back in the layout's spots**.
 - **Nothing happens twice.** Applying the layout and look you already use changes nothing.
-- **Undo.** Every layout or pack change can be undone: press **Undo** on the alert after the change, or type `/eui layout undo`. EldoUI keeps the last three layout, pack and setup changes of each profile, also after a reload or a new login. Settings you changed yourself since then stay as you set them.
+- **Undo.** Every layout or pack change can be undone: press **Undo** on the alert after the change, or type `/eui layout undo`. conUI keeps the last three layout, pack and setup changes of each profile, also after a reload or a new login. Settings you changed yourself since then stay as you set them.
 
 **Vanilla Original** with its own skin wears the game's own classic art: frames sized like the originals get the classic frame art, with the elite and rare dragons on the target; a one-row bar 1 sits on the classic stone tray with a gryphon at each end; the stance bar gets its classic stone; the micro menu and bag slots wear their classic buttons; and the round minimap gets the classic border, scaled with the map. The layout shows them as soon as you pick it.
 
@@ -41,7 +41,7 @@ Each layout also suggests a style for each part of the UI and its own accent col
 
 The Layouts page, the Overview and the move panel share the same eleven built-in choices. **My layouts** contains your imported layouts and saved copies of your own placements. The Overview and move mode show your layout, role, skin and Blizzard windows at a glance.
 
-Version 0.7.1000 starts with a fresh EldoUI profile. Profiles and presets from earlier patches are not supported. Later updates keep your supported profile settings and dragged positions. Choosing a built-in preset applies its current placement; `/eui layout undo` restores the previous setup.
+Version 0.7.1000 starts with a fresh conUI profile. Profiles and presets from earlier patches are not supported. Later updates keep your supported profile settings and dragged positions. Choosing a built-in preset applies its current placement; `/eui layout undo` restores the previous setup.
 
 ## Roles
 
@@ -52,7 +52,7 @@ A role is not a layout. It is a small layer over any of the eleven layouts for t
 | **Melee** | Frames stay where the layout puts them; party frames are a little more compact. |
 | **Ranged** | Frames stay where the layout puts them; party frames are a little more compact, and the mana bar shows the five-second rule. |
 | **Healer** | Party and raid frames move next to the center and grow, with dispel and boss debuff highlights, heal prediction and HoT squares. The spot is set for each layout, and frames in the way step aside: aura groups, the ping feed, combat text and the optional bars and panels. Raids that use the Mid or Large raid settings keep the larger healer frames too. **Healer group frames** on the Role page can put them at the bottom center instead, above your bars: the party as one row and a raid of up to ten as two rows, while a larger raid moves beside the center. Click-casting is offered as a choice. |
-| **Tank** | Threat colors on nameplates and EldoUI's threat meter at its placed spot. Main tank frames show in raids. Nothing else moves. |
+| **Tank** | Threat colors on nameplates and conUI's threat meter at its placed spot. Main tank frames show in raids. Nothing else moves. |
 
 Each layout has role settings; available group-frame positions and styles depend on the layout. Check the choices on the Role page. The setup suggests Melee for Warriors and Rogues and Ranged for Hunters, Mages and Warlocks, and **Class details** adds a few settings for your class on top.
 
@@ -81,25 +81,25 @@ A key set puts keys on bars 1 to 3 in one go. Pick one in the setup's **Keys and
 - **Every keyboard.** The sets know US, UK, Nordic, German and French keyboards and use the keys in the same places on each. **Check my keyboard** (`/eui keys keyboard`) finds yours from three key presses.
 - **Game shortcuts.** A shortcut a set takes gets the same new key in every set, such as Alt-R for reply. `/eui keys` lists where bags, map and the rest are.
 - **Bar 3's keys 10 to 12** use your health potion, your healthstone, and your mana potion (a bandage for Warriors and Rogues) through the [Consumable Bar](../showcase/features/combat.md#consumable-bar). Until that module is on, these keys stay free; the preview turns it on with one click.
-- When a bar pages on Shift or Ctrl, or your text style hides the keys on bars 1 to 3, EldoUI tells you after you apply a key set and fixes it in one click.
+- When a bar pages on Shift or Ctrl, or your text style hides the keys on bars 1 to 3, conUI tells you after you apply a key set and fixes it in one click.
 - **I manage my own keys** in the setup or on the Keybinds page leaves every key as it is. `/eui kb` alone is keybind mode: hover a button and press a key.
 
 ### Spells on their keys
 
 Every spell of every class and role has one fixed button: the spells you press in a fight sit on the easy keys of bars 1 and 2, and bar 3 holds what you use between pulls. Nothing is ever cast for you, your own buttons and macros stay yours, and every change below happens out of combat and comes with an Undo.
 
-- **New spells.** A spell you learn has its own button on bars 1 to 3, the same on every character of your class. EldoUI asks to put it there (**Ask me**), does it for you (**Automatic**), or leaves it (**Off**). `/eui spells` opens the keys and spells preview, and `/eui spells undo` takes the last new spells off again.
-- **Spell ranks.** After you learn a rank, EldoUI offers to move your buttons to it, and nothing changes until you apply. **Upgrade spell ranks automatically**, an option you turn on yourself, moves bars 1 to 3 and the gamepad bars for you instead. Macros, spells on your keep list and buttons kept at a low rank never change. `/eui ranks` and `/eui rankcheck` list the lower ranks, and a macro that names a lower rank is marked in the macro editor with a one-click update.
+- **New spells.** A spell you learn has its own button on bars 1 to 3, the same on every character of your class. conUI asks to put it there (**Ask me**), does it for you (**Automatic**), or leaves it (**Off**). `/eui spells` opens the keys and spells preview, and `/eui spells undo` takes the last new spells off again.
+- **Spell ranks.** After you learn a rank, conUI offers to move your buttons to it, and nothing changes until you apply. **Upgrade spell ranks automatically**, an option you turn on yourself, moves bars 1 to 3 and the gamepad bars for you instead. Macros, spells on your keep list and buttons kept at a low rank never change. `/eui ranks` and `/eui rankcheck` list the lower ranks, and a macro that names a lower rank is marked in the macro editor with a one-click update.
 - **Fill bars 4 and 5**, an option you turn on yourself, puts your out-of-combat class spells, such as teleports, tracking, poisons and pet care, on the empty buttons of bars 4 and 5. `/eui fillbars undo` takes the last fill off.
 - **Talent spells.** After a talent reset, a talent spell you learn again goes back to the button you had it on, following your choice for new spells, on empty buttons only and with an Undo.
-- **A new role.** After a role change, EldoUI offers to put the class spells of the new role on your bars: on empty buttons and on buttons where it placed a spell of your old role.
+- **A new role.** After a role change, conUI offers to put the class spells of the new role on your bars: on empty buttons and on buttons where it placed a spell of your old role.
 - **Hidden keys in the Cooldown Manager.** Its **Key text** shows the key of a spell on a button you can't see, such as on a hidden or shortened bar. It can also show the key on every icon, or on none.
 
 These options are on the Action Bars page and in the setup's **Keys and spells** and **Convenience** steps.
 
 ## Moving frames
 
-`/eui move` opens EldoUI's available movers:
+`/eui move` opens conUI's available movers:
 
 - drag a frame; it snaps to the grid and to other frames (hold Alt to place it freely);
 - click a frame to nudge it by exact X and Y, or one pixel at a time;
@@ -107,30 +107,30 @@ These options are on the Action Bars page and in the setup's **Keys and spells**
 - Shift-right-click a frame to put it back where the layout wants it;
 - **Find a frame** in the frames menu shows, selects and flashes any frame's box, and brings a frame that ended up off the screen back to the nearest edge.
 
-`/eui move` again locks them. Your positions are saved per profile, on top of the layout. `/eui resetlayout` puts every frame back. EldoUI's frames also show in Blizzard's Edit Mode.
+`/eui move` again locks them. Your positions are saved per profile, on top of the layout. `/eui resetlayout` puts every frame back. conUI's frames also show in Blizzard's Edit Mode.
 
 Blizzard windows (bags, character, mail and more) have their own mover, set up on the Move windows page: drag a window by its title bar, with a key held if you set one under Key to drag (Ctrl, Shift, Alt or two of them), and turn the mouse wheel over the title bar to scale it. Lock windows stops dragging and scaling until you unlock them; `/eui windows lock` and `/eui windows unlock` switch it from chat, and `/eui windows reset` puts every window back.
 
 ### Gamepad Mode UI
 
-When you play with a controller, the **Gamepad Mode UI** section on the Layouts page in `/eui` can place EldoUI's frames for controller play while the game's gamepad interface is on: your player and target frames, cast bar, resource bar and cooldowns sit in one column above the game's gamepad bar, clear of its radial menu, with the swing timers above. Your layout and dragged frames come back when you turn the gamepad interface off.
+When you play with a controller, the **Gamepad Mode UI** section on the Layouts page in `/eui` can place conUI's frames for controller play while the game's gamepad interface is on: your player and target frames, cast bar, resource bar and cooldowns sit in one column above the game's gamepad bar, clear of its radial menu, with the swing timers above. Your layout and dragged frames come back when you turn the gamepad interface off.
 
-- EldoUI asks once when you start using a controller, and nothing changes until you choose. **Ask when you start using a controller** turns the question off, and the setup has a **Controller** step when you have one.
-- EldoUI never turns the game's gamepad interface on or off: **Open controller settings** opens the game's Controller settings, where that switch is.
+- conUI asks once when you start using a controller, and nothing changes until you choose. **Ask when you start using a controller** turns the question off, and the setup has a **Controller** step when you have one.
+- conUI never turns the game's gamepad interface on or off: **Open controller settings** opens the game's Controller settings, where that switch is.
 - After you turn the gamepad interface off, **Restore now** puts Edit Mode back on the layout you used before the game switched it to Modern, out of combat.
 - **Controller spells** opens the Key sets window on its Controller view: your class spells go on the game's controller bars in the same order as your keys, with **Apply** and **Take back spells**.
 
 ### Other screen sizes
 
-- **Below 1440p**, EldoUI keeps the same 1440 canvas by default, so a layout looks the same on a 1080p screen, only smaller.
-- **Ultrawide**: the Screen area page in `/eui` keeps EldoUI inside a centered area (16:9, 21:9 or your own width) while the game world fills the whole screen, so nothing ends up in the far corners.
+- **Below 1440p**, conUI keeps the same 1440 canvas by default, so a layout looks the same on a 1080p screen, only smaller.
+- **Ultrawide**: the Screen area page in `/eui` keeps conUI inside a centered area (16:9, 21:9 or your own width) while the game world fills the whole screen, so nothing ends up in the far corners.
 - `/eui scale auto` goes back to the automatic scale; `/eui scale 0.50` sets your own.
 - **Which scale to pick:** Auto is the recommended scale, the one every layout is made for. A smaller scale is supported on a 1440p or larger screen: the layouts keep their room and the text gets smaller. A larger scale gives the layouts less room than they were made for, so frames can overlap. For bigger text, keep Auto and turn on **Large text** on the Accessibility page. The UI scale choice in the options and in the setup marks every value this way.
 - **Other screen shapes:** Layouts start from a 16:9 reference and include narrower-screen adjustments. Available styles depend on the layout; a disabled choice explains its restriction. Custom sizes, large text, additional windows and other addons can still need manual positioning. Check the preview and use the movers to adjust your setup. Screen area controls keep an ultrawide setup within a centered region.
 
 ## Skins
 
-The fourteen skins frame EldoUI panels and windows, and Blizzard's windows when EldoUI may skin them. Pick one on the Appearance page, in the setup's Styles step, or let the layout bring its own.
+The fourteen skins frame conUI panels and windows, and Blizzard's windows when conUI may skin them. Pick one on the Appearance page, in the setup's Styles step, or let the layout bring its own.
 
 | Skin | Look |
 |---|---|
@@ -158,7 +158,7 @@ Most modules have style presets: one click sets a module's presentation, includi
 - **Unit Frames**: Clean bars, Portraits, Minimal, Healer wide, Blizzard-like, Classic frames, Boxed and Orbs. Classic frames gives the player, target, target of target and pet frames the shape of the original frames, with a round portrait.
 - **Party and Raid**: Vertical list, Healer grid, Wide bars, Blizzard-like, Minimal, Boxed and Raid leader.
 - **Action Bars**: Standard, Clean, Macro names, Compact and Large.
-- **Nameplates**: EldoUI, Twilight slim, Whisper, Beacon, Old road, Bastion and Headline.
+- **Nameplates**: conUI, Twilight slim, Whisper, Beacon, Old road, Bastion and Headline.
 - **Minimap**: Square, Large, Minimal, Clock only, Framed, Round and Button rail.
 
 Find them on each module's page, on the Style presets page in `/eui`, or in the setup's Styles step. A unit frame graphics choice that does not fit your layout is grayed out, with the reason in its tooltip.
@@ -169,25 +169,25 @@ A preset pack is a whole UI in one click: a layout, a skin, a style for each par
 
 | Pack | What you get |
 |---|---|
-| Modern | EldoUI's own look: the layout picked for your screen, clean unit frames and the layout's own skin. |
-| Classic | Blizzard's shape in EldoUI's frames: portraits, the bars in a block at the bottom and macro names on the buttons. |
+| Modern | conUI's own look: the layout picked for your screen, clean unit frames and the layout's own skin. |
+| Classic | Blizzard's shape in conUI's frames: portraits, the bars in a block at the bottom and macro names on the buttons. |
 | Vanilla | The familiar original layout: portraits in the corners, a round minimap, one bar row along the bottom and Blizzard's own windows. |
 | Healer | Big group tiles with heals on the way, unit frames close to the center and the Healer role with click-casting suggestions. |
 | Minimal | A quiet screen: thin unit and group frames, no keybind text, a small minimap and a quiet info bar. |
-| Structured | A tidy modern screen: everything under your character, quiet flat panels with a fine edge and EldoUI's helpers. |
+| Structured | A tidy modern screen: everything under your character, quiet flat panels with a fine edge and conUI's helpers. |
 | Focus | An open middle and a quiet screen: high frames, the quietest skin and only what you need to play. |
-| Portrait Forge | Classic portraits in round medallions, the bars in a block at the bottom and EldoUI's helpers. |
+| Portrait Forge | Classic portraits in round medallions, the bars in a block at the bottom and conUI's helpers. |
 
-Structured, Focus and Portrait Forge are complete looks: one layout, one skin and one UI amount each. The **UI amount** (Essential, Moderate or Full) sets how many of EldoUI's optional modules are on.
+Structured, Focus and Portrait Forge are complete looks: one layout, one skin and one UI amount each. The **UI amount** (Essential, Moderate or Full) sets how many of conUI's optional modules are on.
 
 ## Sharing a setup
 
-- `/eui export` makes a share string of your whole profile (or `/eui export <module>` for one module); `/eui import` (or **Import and export > Import a string** in the options window) opens one paste box for every string: EldoUI, EllesmereUI, ElvUI and Edit Mode. It tells which kind you pasted and shows what it imports before anything changes. An EllesmereUI or ElvUI profile is rebuilt as an EldoUI layout (frame spots, bar shapes, sizes and which frames show and when): **Apply as a new layout** puts it on a new profile, **Change my current layout** puts it on the one you use; both can be undone.
+- `/eui export` makes a share string of your whole profile (or `/eui export <module>` for one module); `/eui import` (or **Import and export > Import a string** in the options window) opens one paste box for every string: conUI, EllesmereUI, ElvUI and Edit Mode. It tells which kind you pasted and shows what it imports before anything changes. An EllesmereUI or ElvUI profile is rebuilt as a conUI layout (frame spots, bar shapes, sizes and which frames show and when): **Apply as a new layout** puts it on a new profile, **Change my current layout** puts it on the one you use; both can be undone.
 - `/eui send <party|raid|guild|player>` offers your settings to others in game.
 - Profiles: `/eui profile` lists them; see [Commands](commands.md#profiles-and-sharing).
 
 Version 4 profiles can keep supported links between frame corners as links
-between EldoUI's own frames. The frames use native edges and sizing; decorative
+between conUI's own frames. The frames use native edges and sizing; decorative
 insets from the original UI are not copied. An unknown, unavailable or circular
 link blocks the import before it changes a profile. Frames and settings that the
 string does not replace keep the native layout's skin, roles and screen-size

@@ -152,8 +152,8 @@ All files are 32-bit uncompressed TGA with an 8-bit alpha channel and power-of-t
 | `EldoShadow.tga` | 256x32 | Black soft-shadow backdrop `edgeFile` (see layout below). |
 | `EldoGlow.tga` | 256x32 | White soft-glow backdrop `edgeFile` for target or mouseover highlights. Tint it with `SetBackdropBorderColor`. |
 | `EldoGlowRadial.tga` | 64x64 | White radial glow for `SetTexture` highlights and sparks. |
-| `EldoLogo.tga` | 256x64 | Troll mascot icon plus the "ELDO UI" wordmark with a turquoise-to-blue accent, on a transparent background. Installer, /eui sidebar, Settings panel. |
-| `EldoIcon.tga` | 64x64 | Troll mascot icon (see `Media/Logo/`). TOC `IconTexture`: addon list and minimap addon compartment. |
+| `EldoLogo.tga` | 256x64 | conUI fork: the "c" tile plus the "CON UI" wordmark with a turquoise-to-blue accent, on a transparent background (replaces EldoUI's troll mascot banner). Installer, /eui sidebar, Settings panel. |
+| `EldoIcon.tga` | 64x64 | conUI fork: the "c" tile (replaces EldoUI's troll mascot icon). TOC `IconTexture`: addon list and minimap addon compartment. |
 | `EldoEye.tga`, `EldoChevron.tga`, `EldoDot.tga` | 32x32 | Small white-on-transparent glyphs (eye, chevron, dot) for the character and social skins. Tint them with `SetVertexColor`. |
 | `EldoCross.tga`, `EldoCheck.tga` | 32x32 | White-on-transparent cross and check mark. `E:SetClientAtlas` shows them when the client lacks `common-icon-delete` / `common-icon-checkmark`. Tint them with `SetVertexColor`. |
 | `EldoCopy.tga` | 32x32 | White-on-transparent copy mark (two overlapping squares), drawn for EldoUI. The `E.UIKit` "copy" glyph (copy a list or a search term). Tint it with `SetVertexColor`. |
@@ -211,6 +211,8 @@ Mirror: https://github.com/Gethe/wow-ui-textures, branch `classic`, revision `31
 `EldoCastFXEmber`, `Flake`, `Leaf`, `Mote`, `Chip`, `Puff`, `Drop`, `Streak` and `Rune` (`.tga`) are original works created for EldoUI. They are drawn from math by `tools/gen_castfx_particles.py` and use no third-party artwork. They are licensed under Apache 2.0 like the rest of EldoUI.
 
 ## Logo (`Media/Logo/`)
+
+**conUI fork:** `EldoLogo.tga`, `EldoIcon.tga` and `docs/showcase/logo.png` are this fork's own art, drawn from shapes by `tools/brand/gen_logo.py` (Pillow) with no third-party artwork and without EldoUI's troll mascot; the wordmark is lettering rendered with Rajdhani Bold. They are licensed under Apache 2.0 like the rest of the repository. The file names are EldoUI's, so nothing that shows them had to change. The rest of this section describes EldoUI's own logo, which this fork does not ship.
 
 Based on a photo of a troll doll taken by the author, Eldodeldo. The photo was edited for EldoUI into a WoW-style troll: blue skin, long ears, tusks, white war paint and gold earrings, keeping the original photo and background. No Blizzard logo, icon, texture or screenshot is used or traced.
 

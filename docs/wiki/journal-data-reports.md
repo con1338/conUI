@@ -3,7 +3,7 @@
 [My Adventure](my-adventure.md) suggests quests and dungeons that fit your level ("Next trips", the quest pages, "Where next" on Today). Those suggestions come from three layers:
 
 1. **The quest data**: Classic values from the EldoUI_LootData folder.
-2. **The Forever overlay**: what is new or different in WoW: Forever, shipped with EldoUI and updated with each release.
+2. **The Forever overlay**: what is new or different in WoW: Forever, shipped with conUI and updated with each release.
 3. **What you saw**: the quests, dungeons, and zone levels the game showed you that the data does not know yet. It stays on your PC.
 
 Players share what they saw with a **Journal data** issue, and it becomes part of the overlay. This page shows how, and what to do after a Forever patch.
@@ -36,7 +36,7 @@ Players share what they saw with a **Journal data** issue, and it becomes part o
 When a Forever patch changes quests or zones, check the data against the game. You need EldoUI_LootData installed.
 
 1. `/eui journey check` asks the game about every quest of the data, a few each second and never in combat. `/eui journey check 30-45` checks only quests of levels 30 to 45. While it runs, `/eui journey check` tells you how far it is, and `/eui journey check stop` ends it early.
-2. When it ends, a copy box lists the quests the game no longer knows and the zones whose level range in the game differs from EldoUI's.
+2. When it ends, a copy box lists the quests the game no longer knows and the zones whose level range in the game differs from conUI's.
 3. File a "Quest gone" or "Zone level range" Journal data issue with those lines.
 
 `/eui journey data` prints the versions and counts of the data, the overlay, and what you saw.

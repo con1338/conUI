@@ -1,6 +1,6 @@
 # Combat
 
-Your own frames, your bars and everything the game shows you in a fight. EldoUI dresses up and places what the game gives addons. It never computes hidden combat data and never plays for you.
+Your own frames, your bars and everything the game shows you in a fight. conUI dresses up and places what the game gives addons. It never computes hidden combat data and never plays for you.
 
 [Back to the overview](../overview.md)
 
@@ -12,7 +12,7 @@ Turn on Show my interrupt separately for target and focus to put your known inte
 
 ## Action Bars
 
-Eight flat action bars plus pet, stance, vehicle, zone ability, totem and gamepad bars, each with its own size, fade and visibility rules. Cooldown numbers, proc glow and Masque support are built in. Keybind mode (`/eui kb`) lets you hover a button and press a key, and five key sets put keys on bars 1 to 3 in one go, on US, UK, Nordic, German and French keyboards. Your key set belongs to your profile, keys you set yourself are never written over, and a bar a layout hides keeps its keys and shows when you point at it out of combat. New spells land on their own button on bars 1 to 3, the same on every character of your class. Buttons that still hold a lower spell rank light up while the spellbook is open; its Check ranks button (or `/eui rankcheck`) lists them, and `/eui ranks` moves them to the highest rank you know. After you learn a rank EldoUI offers the change, or, when you turn on Upgrade spell ranks automatically, moves bars 1 to 3 and the gamepad bars for you out of combat, with an Undo. Fill bars 4 and 5, when you turn it on, puts your out-of-combat class spells such as teleports, tracking and pet care on the empty buttons of bars 4 and 5. With the Vanilla Original skin, a one-row bar 1 sits on the classic stone tray with a gryphon at each end. Spell cues, off until you turn them on, flash a spell's buttons once when the game lights it up, with an optional sound, and your buffs glow on the spells they change.
+Eight flat action bars plus pet, stance, vehicle, zone ability, totem and gamepad bars, each with its own size, fade and visibility rules. Cooldown numbers, proc glow and Masque support are built in. Keybind mode (`/eui kb`) lets you hover a button and press a key, and five key sets put keys on bars 1 to 3 in one go, on US, UK, Nordic, German and French keyboards. Your key set belongs to your profile, keys you set yourself are never written over, and a bar a layout hides keeps its keys and shows when you point at it out of combat. New spells land on their own button on bars 1 to 3, the same on every character of your class. Buttons that still hold a lower spell rank light up while the spellbook is open; its Check ranks button (or `/eui rankcheck`) lists them, and `/eui ranks` moves them to the highest rank you know. After you learn a rank conUI offers the change, or, when you turn on Upgrade spell ranks automatically, moves bars 1 to 3 and the gamepad bars for you out of combat, with an Undo. Fill bars 4 and 5, when you turn it on, puts your out-of-combat class spells such as teleports, tracking and pet care on the empty buttons of bars 4 and 5. With the Vanilla Original skin, a one-row bar 1 sits on the classic stone tray with a gryphon at each end. Spell cues, off until you turn them on, flash a spell's buttons once when the game lights it up, with an optional sound, and your buffs glow on the spells they change.
 
 ## Nameplates
 
@@ -20,7 +20,7 @@ Slim nameplates per unit type (enemies, friends, pets and more), with a cast bar
 
 ## Buffs and Debuffs
 
-Your buffs (right-click to cancel), debuffs, weapon enchants and boss mechanic auras in EldoUI frames, plus switches for Blizzard's buff frames. Filters, "yours first", blinking when an aura runs out and time bars are options.
+Your buffs (right-click to cancel), debuffs, weapon enchants and boss mechanic auras in conUI frames, plus switches for Blizzard's buff frames. Filters, "yours first", blinking when an aura runs out and time bars are options.
 
 ## Class Resources
 
@@ -28,15 +28,15 @@ Health, power, combo points, druid mana and a GCD bar under your character, plus
 
 ## Aura Groups
 
-Your own rows of aura icons, each with its own mover: pick the spells, the unit and whether only yours count. The game shows each aura; EldoUI only places and dresses the icons. Each group has its own visibility rules (in combat, in a group, in instances, per talent group) and can show only in one of your stances or forms. A group can also play a sound when one of its auras starts or ends.
+Your own rows of aura icons, each with its own mover: pick the spells, the unit and whether only yours count. The game shows each aura; conUI only places and dresses the icons. Each group has its own visibility rules (in combat, in a group, in instances, per talent group) and can show only in one of your stances or forms. A group can also play a sound when one of its auras starts or ends.
 
 ## Combat HUD
 
-Skins and places Blizzard's own combat displays: the damage meter, swing timer, loss of control, mirror and quest timers and death recap. Adds EldoUI's threat meter (`/eui threat`), a combat timer, a cursor ring with GCD and cast sweeps (`/eui cursor`) and a crosshair tinted by the game's own range check (`/eui crosshair`). `/eui hud` opens its settings.
+Skins and places Blizzard's own combat displays: the damage meter, swing timer, loss of control, mirror and quest timers and death recap. Adds conUI's threat meter (`/eui threat`), a combat timer, a cursor ring with GCD and cast sweeps (`/eui cursor`) and a crosshair tinted by the game's own range check (`/eui crosshair`). `/eui hud` opens its settings.
 
 ## Cooldown Manager
 
-Skins and places Blizzard's own Cooldown Manager: essential and utility cooldowns, buff icons and buff bars. Blizzard keeps tracking every cooldown; EldoUI only changes the look and the position. EldoUI's own rows add trinkets and mobility spells, and stand in when Blizzard's manager has no spells. Own groups (off by default) let you arrange those icons yourself: drag an icon into another group or onto empty screen in move mode, give one icon its own size, shape, border and up to three text labels, let icons slide when one hides, set a visibility rule per group, and keep a separate layout per talent group. `/eui cdm` opens it.
+Skins and places Blizzard's own Cooldown Manager: essential and utility cooldowns, buff icons and buff bars. Blizzard keeps tracking every cooldown; conUI only changes the look and the position. conUI's own rows add trinkets and mobility spells, and stand in when Blizzard's manager has no spells. Own groups (off by default) let you arrange those icons yourself: drag an icon into another group or onto empty screen in move mode, give one icon its own size, shape, border and up to three text labels, let icons slide when one hides, set a visibility rule per group, and keep a separate layout per talent group. `/eui cdm` opens it.
 
 ## Quickdraw
 
@@ -68,11 +68,11 @@ A small list of hostile players seen on nameplates, with class color, level and 
 
 ## Cast Bar Effects
 
-Themed cast bars for EldoUI's cast bars and, when those are off, Blizzard's own: a color or gradient by spell school or class, a spark with a light trail, shine, border light, particles along the fill and flashes when a cast finishes, is interrupted or pushed back. Other units get one fixed theme each, so no spell is guessed. Particles keep to a budget and can be reduced or turned off in combat. `/eui castfx test` plays a test cast.
+Themed cast bars for conUI's cast bars and, when those are off, Blizzard's own: a color or gradient by spell school or class, a spark with a light trail, shine, border light, particles along the fill and flashes when a cast finishes, is interrupted or pushed back. Other units get one fixed theme each, so no spell is guessed. Particles keep to a budget and can be reduced or turned off in combat. `/eui castfx test` plays a test cast.
 
 ## Combat Text
 
-EldoUI's own scrolling combat text, fed by the game's combat events: damage and healing taken, your hits on the target, notifications (procs, low health and mana, loot when loot toasts are off) and static lines, in movable scroll areas with their own animations, fonts and colors. Numbers can show on enemy nameplates (every hit on that enemy, labeled as such). It can hide or replace Blizzard's combat text, and steps back when MikScrollingBattleText, xCT+ or a similar addon is loaded. Six style presets. `/eui sct test` shows test lines; `/eui sct move` unlocks the areas.
+conUI's own scrolling combat text, fed by the game's combat events: damage and healing taken, your hits on the target, notifications (procs, low health and mana, loot when loot toasts are off) and static lines, in movable scroll areas with their own animations, fonts and colors. Numbers can show on enemy nameplates (every hit on that enemy, labeled as such). It can hide or replace Blizzard's combat text, and steps back when MikScrollingBattleText, xCT+ or a similar addon is loaded. Six style presets. `/eui sct test` shows test lines; `/eui sct move` unlocks the areas.
 
 ## Cooldown Pulse
 

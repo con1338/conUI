@@ -60,6 +60,33 @@ end
 Check(L["EldoUI loads EldoUI_Emoji from Interface\\AddOns\\EldoUI_Emoji."], "conUI loads EldoUI_Emoji from Interface\\AddOns\\EldoUI_Emoji.",
 	"prose and names in one text")
 
+-- The short forms: layouts, looks and the guide module.
+Check(L["Eldo-Classic (1440p)"], "con-Classic (1440p)", "a layout name")
+Check(L["Eldo blue"], "con blue", "a look")
+Check(L["Eldo"], "con", "the short name alone")
+Check(L["Eldo (flat, accent border)"], "con (flat, accent border)", "the short name before a bracket")
+Check(L["Eldostar"], "conStar", "the guide module")
+Check(L["Open the Eldostar guide. Eldostars Route"], "Open the conStar guide. conStars Route", "the guide module in a sentence")
+Check(L["Eldo-Classic and EldoUI Center"], "con-Classic and conUI Center", "short and full name in one text")
+for _, text in ipairs({
+	"Copyright 2026 Eldodeldo",
+	"EldoModern2000",
+	"modules.Eldostar.provider",
+	"eldo:EldoChime",
+	"Interface\\AddOns\\EldoUI\\Media\\Textures\\EldoChevron.tga",
+	"Eldo-udseende",
+}) do
+	Check(L[text], text, "kept as it is")
+end
+
+-- English articles follow the new name; other languages keep their "an".
+Check(L["Paste an EldoUI string. An EldoUI profile is made."], "Paste a conUI string. A conUI profile is made.", "English article")
+Check(L["An Eldostar guide and an Eldo-Classic layout"], "A conStar guide and a con-Classic layout", "English article, short forms")
+Check(L["More than an EldoUI_LootData folder"], "More than an EldoUI_LootData folder", "the article of a kept name")
+function E:GetLanguage() return "deDE" end
+Check(L["Sendet es an EldoUI zurück."], "Sendet es an conUI zurück.", "German \"an\" stays")
+E.GetLanguage = nil
+
 -- A text that was handed out comes back unchanged, and other values pass.
 Check(L[L["Open the EldoUI options."]], "Open the conUI options.", "a second lookup")
 Check(L["No name here."], "No name here.", "a text without the name")

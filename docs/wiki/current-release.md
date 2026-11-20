@@ -2,9 +2,9 @@
 
 <!-- eldoui:release-docs 0.7.3005 -->
 
-EldoUI **0.7.3005**, 2026-11-18.
+conUI **0.7.3005**, 2026-11-18.
 
-[Download this version](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3005) · [All changes](https://github.com/Eldodeldo/EldoUI/blob/v0.7.3005/CHANGELOG.md) · [Updating](updating.md)
+[Download this version](https://github.com/con1338/conUI/releases) · [All changes](https://github.com/Eldodeldo/EldoUI/blob/v0.7.3005/CHANGELOG.md) · [Updating](updating.md)
 
 These notes describe this version. Migration guides keep the version numbers of the updates they explain.
 
@@ -24,7 +24,7 @@ These notes describe this version. Migration guides keep the version numbers of 
 
 #### Fixed
 
-- Pointing at a player in a battleground no longer shows an error when a part of EldoUI that adds tooltip lines turns on or off.
+- Pointing at a player in a battleground no longer shows an error when a part of conUI that adds tooltip lines turns on or off.
 
 ### Bags and loot
 

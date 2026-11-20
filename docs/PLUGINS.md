@@ -1,18 +1,18 @@
-# Writing an EldoUI plugin
+# Writing a conUI plugin
 
-A plugin is a separate addon that builds on EldoUI. It gets a settings page in
-the EldoUI options window, a row on the **Plugins** page (title, version,
+A plugin is a separate addon that builds on conUI. It gets a settings page in
+the conUI options window, a row on the **Plugins** page (title, version,
 author, on/off switch), optional setup pages in the installer, a line in
 `/eui diag`, and the version check. Everything goes through the global
 `EldoUI`.
 
-The same calls are what EldoUI's own modules use, so a plugin looks and behaves
+The same calls are what conUI's own modules use, so a plugin looks and behaves
 like the rest of the UI.
 
 ## Rules
 
 WoW: Forever applies the Midnight addon restrictions. A plugin follows the same
-rules as EldoUI itself (the design rules are in `DESIGN.md` in the repository):
+rules as conUI itself (the design rules are in `DESIGN.md` in the repository):
 
 - Change how things look and where they sit. Show only data the game gives
   addons. Never compute or guess hidden combat data, and never automate
@@ -75,7 +75,7 @@ Your page shows in the options sidebar under **Plugins** (set `category` in
 per profile, filled with `defaults`.
 
 **Events.** Register game events with `M:RegisterEvent("EVENT", fn)` in
-`OnEnable`. When the module is switched off, EldoUI drops every handler it
+`OnEnable`. When the module is switched off, conUI drops every handler it
 registered while it was on, so `OnDisable` doesn't have to list them; the
 next `OnEnable` registers them again. Handlers registered in `OnInitialize`
 stay while the module is off.
@@ -106,16 +106,16 @@ EldoUI:RegisterPlugin("MyTags", {
 | `E:GetPlugin(addon)` | the record: `title`, `version`, `author`, `desc`, `url`, `minEldoUI`, `tooOld`, `modules` |
 | `E:IteratePlugins()` | `addon, record` in registration order |
 | `E:CompareVersions(a, b)` | -1, 0 or 1 (`"1.2"`, `"v1.2.3"`, `"0.6.0-beta2"` all read); nil when one isn't a version |
-| `E:IsVersionAtLeast(v)` | true when this EldoUI is that version or newer (a `dev` checkout always is) |
-| `E.version`, `E.apiVersion` | EldoUI's version string, and the API version (raised when a documented call changes) |
+| `E:IsVersionAtLeast(v)` | true when this conUI is that version or newer (a `dev` checkout always is) |
+| `E.version`, `E.apiVersion` | conUI's version string, and the API version (raised when a documented call changes) |
 
-When `minEldoUI` is newer than the installed EldoUI, the player gets one chat
+When `minEldoUI` is newer than the installed conUI, the player gets one chat
 line at login, and the Plugins page and `/eui diag` show the warning. The
 plugin is not switched off: check `E:IsVersionAtLeast` before you use a newer
 call.
 
 Your addon folder name must not start with `EldoUI_`: that prefix is reserved
-for EldoUI's own module addons, which are not listed as plugins.
+for conUI's own module addons, which are not listed as plugins.
 
 ## Settings page
 
@@ -152,7 +152,7 @@ defaults)` and `E:GetPrivate(namespace)`.
 
 ## Setup pages (installer)
 
-A plugin or module can add pages to the setup. They are steps of the EldoUI
+A plugin or module can add pages to the setup. They are steps of the conUI
 installer, between Convenience and Finish, in the same window (the
 `E.WindowKit` shell). The page's Apply button is the only thing that runs its
 `Apply`: Finish never applies a page on its own. A page the player looked at
@@ -193,7 +193,7 @@ only Apply does.
 
 `kit` has `kit.Text(parent, size, text)`, `kit.Paragraph(parent, size, text)`,
 `kit.Secondary(fontString)`, `kit.Button(parent, label, width, onClick)`,
-`kit.Check(parent, label, desc, onClick)` and `kit.Accent()`, all in the EldoUI
+`kit.Check(parent, label, desc, onClick)` and `kit.Accent()`, all in the conUI
 look. `E:GetInstallKit()` returns the same table.
 
 For installer code: `E:GetPluginInstallerPages({ pending = true, plugin = addon })`
@@ -209,7 +209,7 @@ Finish on a fresh profile.
 
 ## Other addons that do the same job
 
-When another addon does the same job as your module, EldoUI steps back for
+When another addon does the same job as your module, conUI steps back for
 it, lists it on the Other addons page and in `/eui addons`, and lets the
 player pick who handles the job (`Core/AddonConflicts.lua` has the details).
 Declare it in one of four ways:
@@ -256,7 +256,7 @@ EldoUI:MarkCompanion("MyBars")
 
 Every entry also says how much of the other addon's job your module does:
 `covers = "full"` or `"part"`. Without it, a whole-module entry counts as
-`"full"` and any other entry as `"part"`. Standing back and how much EldoUI
+`"full"` and any other entry as `"part"`. Standing back and how much conUI
 covers are separate facts: an addon can make your module stand back while
 your module does only part of its job.
 
@@ -265,11 +265,11 @@ and makes overlap entries on that feature key.
 
 In your code, gate a part with `EldoUI:StandsBack(M, "pagearrows")` (true,
 folder, title while it stands back) and refresh it in
-`function M:OnStandBack(feature, standing)`, which EldoUI calls when the player
-picks or another addon loads later. A whole module needs nothing: EldoUI does
+`function M:OnStandBack(feature, standing)`, which conUI calls when the player
+picks or another addon loads later. A whole module needs nothing: conUI does
 not enable it while it stands back. `EldoUI:GetModuleConflict(M)` returns the
 folder and the title of the addon that holds it; show the title, never the
-folder. EldoUI never turns another addon on or off by itself, and neither may
+folder. conUI never turns another addon on or off by itself, and neither may
 a plugin: the player's click on the Other addons page or the setup's Finish
 does it.
 
@@ -313,13 +313,13 @@ end, { label = "My Bars", order = 60 })
 ```
 
 - Static providers (the default) are called once each time the box opens,
-  without a query; EldoUI matches and ranks the text. With `dynamic = true`
+  without a query; conUI matches and ranks the text. With `dynamic = true`
   the function gets the query on every search and an entry may carry its
   own `score`.
 - `open` runs on Enter or a click and must not call protected functions.
   Anything that casts, uses or runs goes in `secure` (the attributes of a
   `SecureActionButtonTemplate`: `type` plus `spell`, `item`, `toy` or
-  `macro`): EldoUI lays a secure button over the row out of combat, and the
+  `macro`): conUI lays a secure button over the row out of combat, and the
   player's click or Enter press is the action. Secure entries never show in
   combat; mark a plain entry `combat = false` when it must not run in combat
   either.
@@ -329,7 +329,7 @@ end, { label = "My Bars", order = 60 })
 
 ## Version check
 
-When the player has the version check on (Plugins page, on by default), EldoUI
+When the player has the version check on (Plugins page, on by default), conUI
 sends one short addon message (prefix `EldoUIVer`) to the guild at login and to
 the group when the player joins one:
 
@@ -341,7 +341,7 @@ Only versions are sent, never combat data. Nothing is sent in combat, while the
 client restricts addon messages (boss encounters, PvP matches, chat lockdown)
 or more than once a minute per channel; a message held back goes out when the
 restriction ends. Every registered plugin with a readable version is included.
-When someone in the guild or group has a newer EldoUI or a newer version of one
+When someone in the guild or group has a newer conUI or a newer version of one
 of your plugins, the player gets one chat line per addon and session, and the
 Plugins page shows the version seen. `E:GetNewerVersionSeen(addon)` returns it.
 
@@ -350,7 +350,7 @@ Plugins page shows the version seen. `E:GetNewerVersionSeen(addon)` returns it.
 - `## Dependencies: EldoUI` and a `## Version` in the .toc.
 - `plugin = "<your folder>"` in every `NewModule` call.
 - Every option has a `desc`; no option that does nothing.
-- If another addon does the same job as your module, it is declared (`conflicts` or `RegisterCompetitor`), so EldoUI steps back for it.
+- If another addon does the same job as your module, it is declared (`conflicts` or `RegisterCompetitor`), so conUI steps back for it.
 - `/eui diag` shows your plugin with its version; the Plugins page switch turns
   it off and on.
 - Your setup pages change nothing until Apply.

@@ -6,7 +6,7 @@ Chat that keeps up with you, and whispers in their own windows.
 
 ## Chat
 
-Chat on an EldoUI panel with clean tabs at the bottom, clickable links with tooltips and icons, and a right panel. It keeps your history between sessions (it asks before deleting it), searches the selected window (`/eui chatsearch <text>`), and alerts you on keywords with a sound per keyword. A spam filter, content filters with blocked phrases, per-channel mutes and colors, emoji with a picker and shortcodes, and the EldoUI error log (`/eui errors`) are built in.
+Chat on a conUI panel with clean tabs at the bottom, clickable links with tooltips and icons, and a right panel. It keeps your history between sessions (it asks before deleting it), searches the selected window (`/eui chatsearch <text>`), and alerts you on keywords with a sound per keyword. A spam filter, content filters with blocked phrases, per-channel mutes and colors, emoji with a picker and shortcodes, and the conUI error log (`/eui errors`) are built in.
 
 ## Instant Messages
 
@@ -14,7 +14,7 @@ EIM: whispers (and, if you like, guild and group chat) in their own messenger wi
 
 ## Chat Bubbles
 
-Flat EldoUI speech bubbles with the EldoUI font, and control over which bubbles show, also in instances.
+Flat conUI speech bubbles with the conUI font, and control over which bubbles show, also in instances.
 
 ## Player Notes
 
@@ -22,8 +22,8 @@ Write your own note on any player and mark them Good or Avoid, from their right-
 
 ## Streamer Mode
 
-While you stream or record, party members show as aliases (party number, class, role or names you choose) on EldoUI's frames, tags, tooltips and chat. It can also give everyone else a generic name and hide names above heads; those game settings come back when you turn it off. `/eui streamer` or the Streamer datatext switches it.
+While you stream or record, party members show as aliases (party number, class, role or names you choose) on conUI's frames, tags, tooltips and chat. It can also give everyone else a generic name and hide names above heads; those game settings come back when you turn it off. `/eui streamer` or the Streamer datatext switches it.
 
 ## Chat Input
 
-Messages longer than the chat limit are sent in parts, one per Enter, on the same channel. The chat box gets a letter counter, undo and redo (Ctrl+Z, Ctrl+Y) and draft recovery (Ctrl+Shift+Z). An opt-in "is typing" line shows your party members who also use EldoUI; it is off by default.
+Messages longer than the chat limit are sent in parts, one per Enter, on the same channel. The chat box gets a letter counter, undo and redo (Ctrl+Z, Ctrl+Y) and draft recovery (Ctrl+Shift+Z). An opt-in "is typing" line shows your party members who also use conUI; it is off by default.

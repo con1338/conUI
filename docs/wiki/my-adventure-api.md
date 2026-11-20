@@ -7,7 +7,7 @@ How a plugin adds to [My Adventure](my-adventure.md), the journal tab of the Jou
 - **Use the kits.** Pages are built from `E.AdventureKit` and `E.UIKit` (see the [plugin guide](../PLUGINS.md)), so they follow the style presets, the paper look, and the accent. Never hard-code a color or a font.
 - **Every option row has a `desc`.**
 
-Everything below hangs off the global `EldoUI` (EldoUI's private table, called `E` here):
+Everything below hangs off the global `EldoUI` (conUI's private table, called `E` here):
 
 ```lua
 local E = EldoUI

@@ -34,7 +34,7 @@ An addon can't write files of its own, so the journal keeps dated backups inside
 
 - **On a schedule**: 8 seconds after you log in, out of combat. Every login, once a day (the default), once a week, or only by hand.
 - **By hand**: **Back up now**.
-- **Before anything big**: before a restore, an import, and before an EldoUI update changes the journal.
+- **Before anything big**: before a restore, an import, and before a conUI update changes the journal.
 - **Backups to keep**: 1 to 10 (3 by default). The oldest goes when a new one would pass the number. The newest copy from before an update has a slot of its own, so scheduled backups never push it out.
 
 Your **runs** keep their own backups: the newest two, taken before a restore, an import, and before an update changes them. The newest copy from before an update is always kept as well. Restore them with **Restore your runs**.
@@ -58,7 +58,7 @@ From 0.7.1000 onward, a supported journal update keeps a backup before changing 
 
 ## Repair, never reset
 
-The first time a session reads a journal, EldoUI checks it:
+The first time a session reads a journal, conUI checks it:
 
 - A number saved as text becomes a number, and a gap in a list closes up.
 - A value of the wrong kind is set aside on the [Saved data](saved-data.md) page, where **Put back** returns it. The rest of the journal loads as usual.
@@ -69,7 +69,7 @@ The first time a session reads a journal, EldoUI checks it:
 Only you delete things, and you can change your mind:
 
 - Deleting a moment, a goal, a note, a run, or a name from your runs asks first, and goes to the journal's trash for 7 days. **Undo** puts it back exactly.
-- **Forgetting a character** in the Alts window backs up that character's journal first, then removes it from EldoUI. The [Saved data](saved-data.md#journals-of-forgotten-characters) page lists it under **Journals of forgotten characters**, and **Restore** puts it back.
+- **Forgetting a character** in the Alts window backs up that character's journal first, then removes it from conUI. The [Saved data](saved-data.md#journals-of-forgotten-characters) page lists it under **Journals of forgotten characters**, and **Restore** puts it back.
 
 ## Export and codes
 
@@ -100,7 +100,7 @@ All of these go to a copy box: press Ctrl+C and paste them wherever you like. No
 
 ## FAQ
 
-**Will updating EldoUI cost me my journal?**
+**Will updating conUI cost me my journal?**
 No. Your journal is never reset. If an update changes it, a backup is taken first, and what a check can't read is set aside, not deleted.
 
 **I made a mistake. How do I get yesterday's journal back?**

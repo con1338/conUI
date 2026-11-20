@@ -6,11 +6,11 @@ Your bags, your gold and the items you are after.
 
 ## Bags
 
-All bags and the bank in EldoUI windows with categories and a bag bar, item counts across your characters in the tooltip, search with filters, offline viewing and a Blizzard skin mode. Items you already know are tinted, and sorting happens only when you click. `/eui find <text>` searches the items of all your characters; `/eui bank` shows your saved bank anywhere.
+All bags and the bank in conUI windows with categories and a bag bar, item counts across your characters in the tooltip, search with filters, offline viewing and a Blizzard skin mode. Items you already know are tinted, and sorting happens only when you click. `/eui find <text>` searches the items of all your characters; `/eui bank` shows your saved bank anywhere.
 
 Junk coins and dimmed icons in live bags follow Merchant's sell and keep rules while that module is on, including its quest, recipe, equipment-set, and refund protection. The same marks appear in the game's bag windows when their extra information is enabled. With Merchant off, gray items receive the marks.
 
-Ctrl+Alt+right-click an item in EldoUI's bags or bank to change its junk rule. A gray item switches Never sell, and other items switch Always sell. The modifier pair can be changed or disabled in Merchant settings. The coin, Junk category and tooltip update together.
+Ctrl+Alt+right-click an item in conUI's bags or bank to change its junk rule. A gray item switches Never sell, and other items switch Always sell. The modifier pair can be changed or disabled in Merchant settings. The coin, Junk category and tooltip update together.
 
 The footer shows free general slots and warns as space runs low. Choose Used of total for the previous count format. Hover the count for each bag's capacity, or the count and gold for vendor values and saved usual auction prices grouped by item kind. Nearly full bags can mark their lowest-value eligible stack. The Loot window names the same stack after the game reports that an item does not fit. Both cues have their own switches.
 
@@ -52,7 +52,7 @@ Open all, select several letters and return them, an address book and a log of t
 
 ## Trade
 
-The trade window in the EldoUI look on its own mover, who you trade with, what each side's items are worth, and a log of gold trades (`/eui trades`).
+The trade window in the conUI look on its own mover, who you trade with, what each side's items are worth, and a log of gold trades (`/eui trades`).
 
 ## Mob and Loot Info
 
@@ -76,4 +76,4 @@ The Loot Guide Catalog gets a Zones section (`/eui zones`) that lists every zone
 
 ## Quest Starter Drops
 
-Creature tooltips get a "quest starter" line, and EldoUI nameplates a small icon, when the creature can drop an item that starts a quest. The hint hides when the quest is done, taken or not for you, or when the item is already in your bags, and a minimum drop chance keeps rare drops out.
+Creature tooltips get a "quest starter" line, and conUI nameplates a small icon, when the creature can drop an item that starts a quest. The hint hides when the quest is done, taken or not for you, or when the item is already in your bags, and a minimum drop chance keeps rare drops out.

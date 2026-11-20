@@ -24,7 +24,14 @@ E.upstreamBrand = UPSTREAM
 
 local find, sub, gsub = string.find, string.sub, string.gsub
 
--- Is the "EldoUI" at text[from, to - 1] the product's name in a sentence?
+-- The short forms follow the name: the layouts "Eldo-Classic (1440p)" and
+-- the look "Eldo blue" show as "con-Classic (1440p)" and "con blue", the
+-- guide module "Eldostar" as "conStar". Their keys (EldoClassic, the module
+-- name Eldostar, the theme "Eldo") stay.
+E.brandShort = "con"
+E.brandGuide = "conStar"
+
+-- Is the name at text[from, to - 1] the product's name in a sentence?
 local function IsProse(text, from, to)
 	local before = sub(text, from - 1, from - 1)
 	-- A path, a link, an identifier: ...\EldoUI, github.com/x/EldoUI,
@@ -47,18 +54,57 @@ local function IsProse(text, from, to)
 	return true
 end
 
+-- What stands for the "Eldo" at text[from, to - 1], with the text it takes
+-- along ("UI", "star"); nil when it stays.
+local function Replacement(text, from, to)
+	if sub(text, to, to + 1) == "UI" then
+		if IsProse(text, from, to + 2) then return E.brand, to + 2 end
+		return nil
+	end
+	-- modules.Eldostar and eldo:EldoChime are keys.
+	if sub(text, from - 1, from - 1) == "." then return nil end
+	if sub(text, to, to + 3) == "star" then
+		if IsProse(text, from, to + 4) then return E.brandGuide, to + 4 end
+		return nil
+	end
+	-- "Eldo-Classic", "Eldo blue", "Eldo": the word alone. EldoModern,
+	-- EldoIcon and the author's name Eldodeldo go on in letters and stay.
+	local after = sub(text, to, to)
+	if find(after, "^[%w_]") then return nil end
+	if after == "-" and not find(sub(text, to + 1, to + 1), "^%u") then return nil end
+	if IsProse(text, from, to) then return E.brandShort, to end
+	return nil
+end
+
 local cache = {}
 
 -- The text with the product's name as this fork shows it.
 local function Brand(text)
 	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return text end
-	if not find(text, UPSTREAM, 1, true) then return text end
+	if not find(text, "Eldo", 1, true) then return text end
 	local done = cache[text]
 	if done then return done end
-	local brand = E.brand
-	done = gsub(text, "()" .. UPSTREAM .. "()", function(from, to)
-		if IsProse(text, from, to) then return brand end
-	end)
+	local parts, count, pos = {}, 0, 1
+	while true do
+		local from, to = find(text, "Eldo", pos, true)
+		if not from then break end
+		local word, resume = Replacement(text, from, to + 1)
+		count = count + 1
+		if word then
+			parts[count] = sub(text, pos, from - 1) .. word
+			pos = resume
+		else
+			parts[count] = sub(text, pos, to)
+			pos = to + 1
+		end
+	end
+	parts[count + 1] = sub(text, pos)
+	done = table.concat(parts)
+	-- English: "an EldoUI profile" is "a conUI profile". Other languages have
+	-- their own "an" (German: "an conUI senden").
+	if done ~= text and (not E.GetLanguage or E:GetLanguage() == "enUS") then
+		done = gsub(gsub(done, "^([Aa])n con", "%1 con"), "([^%w])([Aa])n con", "%1%2 con")
+	end
 	cache[text] = done
 	return done
 end

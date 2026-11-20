@@ -10,18 +10,18 @@ Every command starts with `/eui` (or `/eldoui`). Names ignore case, and a unique
 | `/eui search <words>` | Open the config window with every setting that matches |
 | `/eui help [command]` | The command list, or how to use one command |
 | `/eui modules` | List the modules and whether they are on |
-| `/eui addons` | Which other addons do an EldoUI job, and who handles each job. `/eui addons use <addon>` lets EldoUI do that addon's jobs, `/eui addons keep <addon>` leaves them to the addon, `/eui addons page` opens the Other addons page, and `/eui addons fit [on\|off] [addon]` lists or switches the layout spots for other addons |
+| `/eui addons` | Which other addons do a conUI job, and who handles each job. `/eui addons use <addon>` lets conUI do that addon's jobs, `/eui addons keep <addon>` leaves them to the addon, `/eui addons page` opens the Other addons page, and `/eui addons fit [on\|off] [addon]` lists or switches the layout spots for other addons |
 | `/eui <module> on`, `off`, `toggle` | Switch a module; `/eui <module>` alone opens its settings. `/eui enable <module>` and `/eui disable <module>` do the same |
 | `/eui whatsnew` | What changed in this version |
-| `/eui thanks` | The Thanks page: the people who helped build EldoUI and the people who stand behind it |
-| `/eui version` | The EldoUI version |
+| `/eui thanks` | The Thanks page: the people who helped build conUI and the people who stand behind it |
+| `/eui version` | The conUI version |
 | `/eui tour [name\|reset]` | List the tour helps, show one again by its name, or show them all again |
 | `/eui install [step\|undo]` | Run the setup again, open one step (for example `layout`, `role` or `modules`), or undo the last setup |
 | `/eui attach [profile]` | Put this character on a profile you already set up, as it is, with its own chat tabs, game settings and class spells; the page shows a preview first and Undo puts everything back |
-| `/eui errors [clear]` | Show EldoUI's error log, or empty it |
+| `/eui errors [clear]` | Show conUI's error log, or empty it |
 | `/eui diag [copy]` | Version, modules, restrictions and secret values; `copy` gives text for a bug report |
 | `/eui debug on`, `off` | Debug messages in chat |
-| `/eui locale` | Language info. Pick EldoUI's language under General > EldoUI language |
+| `/eui locale` | Language info. Pick conUI's language under General > conUI language |
 | `/eui probe textures` | List which original interface textures your game client ships, in a copy box for a bug report |
 
 ## Layout and frames
@@ -34,11 +34,11 @@ Every command starts with `/eui` (or `/eldoui`). Names ignore case, and a unique
 | `/eui resetlayout` | Put every frame back to its layout position |
 | `/eui scale auto` or `/eui scale <number>` | Automatic or your own UI scale |
 | `/eui windows [lock\|unlock\|reset\|list]` | Move and scale Blizzard windows |
-| `/eui blizz [element] [on\|off\|toggle]` | Which parts of Blizzard's UI EldoUI may change |
-| `/eui editmode [conflicts\|layouts\|forget]` | EldoUI and Blizzard's Edit Mode |
+| `/eui blizz [element] [on\|off\|toggle]` | Which parts of Blizzard's UI conUI may change |
+| `/eui editmode [conflicts\|layouts\|forget]` | conUI and Blizzard's Edit Mode |
 | `/eui editlayout [copy]` | Copy Blizzard's active Edit Mode layout as text, or open the import window |
 | `/eui infobar [show\|tab\|hide] [2]` | Show the Info Bar, fold it to a small tab or hide it (`2`: the second bar); alone it opens the Info Bar settings |
-| `/eui kb` | Keybind mode: hover an EldoUI button and press a key |
+| `/eui kb` | Keybind mode: hover a conUI button and press a key |
 | `/eui kb movement`, `strafe`, `numbers`, `mouse`, `esdf`, `restore` | Open the key set preview for bars 1-3 (Classic movement, A/D strafe, Number row, Side-button mouse or Shifted hand) and apply it from there, or put your previous keys back |
 | `/eui keys [check\|keyboard\|hidden]` | List where bags, map and the other game shortcuts are; `check` compares your keys with your key set, `keyboard` opens Check my keyboard; `hidden` shows how buttons out of sight are kept, and `hidden invisible` or `hidden hide` switches it (their keys work either way) |
 | `/eui testframes [on\|off]` | Show every enabled unit frame with sample values |
@@ -56,11 +56,11 @@ Every command starts with `/eui` (or `/eldoui`). Names ignore case, and a unique
 | `/eui data` | The Saved data page: the copies kept before each update and the values set aside instead of deleted; also `list`, `restore <part> [<name>]`, `follow <part> [<name>]` |
 | `/eui export [all\|<module>]` | Export settings as a share string |
 | `/eui exportlua [all\|<module>]` | Export settings as a readable Lua table |
-| `/eui import` | Open the import window: EldoUI, EllesmereUI, ElvUI and Edit Mode strings, or a bundle of several strings at once |
+| `/eui import` | Open the import window: conUI, EllesmereUI, ElvUI and Edit Mode strings, or a bundle of several strings at once |
 | `/eui send <party\|raid\|guild\|player>` | Offer your settings to a group, guild or player |
-| `/eui capture <addon>` | Save another addon's setup into EldoUI (Details, CooldownManager) |
-| `/eui setup` | Same as `/eui install`: run the EldoUI setup again |
-| `/eui addonsetup` | Set up every supported addon from EldoUI's profiles, after asking which addons it writes to |
+| `/eui capture <addon>` | Save another addon's setup into conUI (Details, CooldownManager) |
+| `/eui setup` | Same as `/eui install`: run the conUI setup again |
+| `/eui addonsetup` | Set up every supported addon from conUI's profiles, after asking which addons it writes to |
 | `/eui plugins [list\|setup [name]]` | The Plugins page, a list in chat, or the plugins' setup pages again |
 
 ## Module commands
@@ -73,7 +73,7 @@ Commands that belong to one module.
 | `/eui bank` | Bags | Show your saved bank anywhere |
 | `/eui alts [search <text>\|agenda\|log\|size]` | Alts | The Alts window with all your characters: search their items, the agenda, the level log, or how much character data is saved |
 | `/eui snapshot [list\|take [name]\|restore N\|rename N name\|export N\|delete N]` | Bar Snapshots | Save and restore your action bars, macros, key bindings and Edit Mode layout |
-| `/eui macros` | Macro Editor | Open the EldoUI macro editor |
+| `/eui macros` | Macro Editor | Open the conUI macro editor |
 | `/eui go [text]` | Finder | Open the Finder search box: panels, settings, mounts, toys, items, macros and places |
 | `/lg [text]`, `/eui guide`, `/eui lootguide` | Loot Guide | Open or close the Loot Guide |
 | `/eui journey [section\|text]` | My Adventure | Open or close My Adventure, on a section or searched; also `data`, `report`, `check`, `export` and `import` ([all of them](my-adventure.md#commands)) |
@@ -110,7 +110,7 @@ Commands that belong to one module.
 | `/eui raidtools` | Raid Tools | Show the raid tools bar for a minute |
 | `/eui pull [seconds\|cancel]` | Raid Tools | Start the group pull countdown (party, or lead or assist in a raid), or cancel it |
 | `/eui timeline [test dungeon\|raid\|pull\|stop]` | Encounter Timeline | The timeline settings, or start and stop a test fight |
-| `/eui dbm [setup\|undo\|apply\|test]` | Deadly Boss Mods | Set up Deadly Boss Mods with EldoUI's profile, switch back, apply it again, or show test timers |
+| `/eui dbm [setup\|undo\|apply\|test]` | Deadly Boss Mods | Set up Deadly Boss Mods with conUI's profile, switch back, apply it again, or show test timers |
 | `/eui readycheck [post]` | Ready Check Report | Open the ready check report, or post its summary to the group |
 | `/eui routes [dungeon\|import]` | Dungeon Routes | The dungeon map with packs and routes; a name opens that dungeon |
 | `/eui instances [log\|add\|count\|stats\|pvp\|options]` | Instances | The run log and how many instances you entered this hour |
@@ -118,22 +118,22 @@ Commands that belong to one module.
 | `/eui games` or `/eui fg` | Flight Games | Open or close the game window, on a flight path or not |
 | `/eui quickdraw` | Quickdraw | The Quickdraw menu editor |
 | `/eui hud` | Combat HUD | Combat HUD settings |
-| `/eui threat [on\|off\|focus\|target]` | Combat HUD | EldoUI threat meter |
+| `/eui threat [on\|off\|focus\|target]` | Combat HUD | conUI threat meter |
 | `/eui meter [toggle\|reset]` | Combat HUD | Show or hide Blizzard's damage meter, or clear its fights |
 | `/eui cursor [on\|off]`, `/eui crosshair [on\|off]` | Combat HUD | Cursor ring, crosshair |
-| `/eui cdm [settings\|import\|capture]` | Cooldown Manager | EldoUI options, Blizzard's settings, import or capture this spec's set |
+| `/eui cdm [settings\|import\|capture]` | Cooldown Manager | conUI options, Blizzard's settings, import or capture this spec's set |
 | `/eui ranks [undo]` | Action Bars | Show the lower spell ranks on your bars and move them to the highest rank you know with Apply; `undo` puts back the last automatic upgrade |
-| `/eui spells [undo]` | Action Bars | Open the keys and spells preview; `undo` takes the new spells EldoUI last put on your bars off again |
+| `/eui spells [undo]` | Action Bars | Open the keys and spells preview; `undo` takes the new spells conUI last put on your bars off again |
 | `/eui fillbars [undo]` | Action Bars | Fill the empty buttons of bars 4 and 5 with your out-of-combat class spells now; `undo` takes the last fill off again |
 | `/eui rankcheck` | Action Bars | List and light up the action buttons that hold a lower spell rank |
 | `/eui castfx [test [theme] [seconds] [fail]\|dump]` | Cast Bar Effects | Open the page, play a test cast on every enabled cast bar, or list your spellbook with spell IDs |
 | `/eui sct [test\|move]` | Combat Text | Combat Text settings, sample lines in every area, or move the scroll areas |
-| `/eui notify test [lane\|errors\|warning\|bg\|pings]` | Alerts and Banners | Preview EldoUI's alerts and messages |
+| `/eui notify test [lane\|errors\|warning\|bg\|pings]` | Alerts and Banners | Preview conUI's alerts and messages |
 | `/eui cutscenes forget` | Alerts and Banners | Play every cutscene again once |
 | `/eui map reset` | Maps | Put the world map, flight map and taxi window back where Blizzard places them |
 | `/eui way [zone] x y [title]`, `/way` | Waypoints | Set a waypoint and follow the arrow; also `list` (the Waypoints window), `print` (the list in chat), `closest` and `reset [zone\|all]` |
-| `/eui eldostar [show\|hide\|guides]` | Eldostar | Show or hide the guide window, or open the guide list in the Journal |
-| `/eui mapnote [on\|off\|add x y title\|hidden\|undo]` | Map Notes | Show or hide every EldoUI map pin, or add a map note |
+| `/eui eldostar [show\|hide\|guides]` | conStar | Show or hide the guide window, or open the guide list in the Journal |
+| `/eui mapnote [on\|off\|add x y title\|hidden\|undo]` | Map Notes | Show or hide every conUI map pin, or add a map note |
 | `/eui rares [test]` | Rare Alerts | Rare Alerts settings, or show a test card |
 | `/eui camp [status\|panel\|announce\|ask\|share\|finds]` | Camp Helper | Campfire buffs, the camp panel, a one-line camp announcement and the camp finder |
 | `/eui tracker on`, `off`, `toggle` | Quality of Life | Show or hide the quest tracker |

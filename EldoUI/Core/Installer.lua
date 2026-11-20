@@ -85,7 +85,14 @@ local ReadAccountRoot = E.ReadAccountRoot
 local L = E.L
 
 local Key = E.Key
-local PROFILE = "EldoUI 1440p"
+local PROFILE = "conUI 1440p"
+-- Fork (conUI): the shared profile is named after the fork. An account that
+-- already has EldoUI's "EldoUI 1440p" (set up before, or with EldoUI) keeps
+-- using that one, so nothing a player saved is renamed or set up twice.
+E:OnDatabaseLoad(function()
+	local profiles = type(EldoUIDB) == "table" and EldoUIDB.profiles
+	if type(profiles) == "table" and profiles["EldoUI 1440p"] ~= nil and profiles[PROFILE] == nil then PROFILE = "EldoUI 1440p" end
+end, "before")
 local SIDEBAR = 200
 local CONTENT_W = 832          -- width of a step page
 -- The footer's primary button, by Installer.PrimaryAction (label, tooltip),
