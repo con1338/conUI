@@ -18,7 +18,7 @@ globals = {
 	"EldoUI",                                     -- Core/Init.lua: the addon table for plugins
 	"EldoUIDB", "EldoUIErrorsDB", "EldoUIMessagesDB", -- SavedVariables
 	"EldoUI_GuideData", "EldoUI_LootData",        -- companion data addons
-	"SLASH_ELDOUI1", "SLASH_ELDOUI2",
+	"SLASH_ELDOUI1", "SLASH_ELDOUI2", "SLASH_ELDOUI3",
 	"EldoUI_OnAddonCompartmentClick", "EldoUI_OnAddonCompartmentEnter", "EldoUI_OnAddonCompartmentLeave",
 	"SlashCmdList", "StaticPopupDialogs",         -- Blizzard tables EldoUI adds entries to
 }

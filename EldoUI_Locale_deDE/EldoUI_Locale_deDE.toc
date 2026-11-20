@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: |cff33aaffEldo|rUI Deutsch
+## Title: |cff33aaffcon|rUI Deutsch
 ## Notes: Deutsche Texte für EldoUI. Lädt nur, wenn unter General > EldoUI language Deutsch gewählt ist oder der Client deutsch ist.
 ## Author: Eldodeldo (Fork)
 ## Version: 0.7.3005-p1

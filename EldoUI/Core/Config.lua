@@ -6358,7 +6358,7 @@ do
 		frame.panel = panel
 		frame.title = E:CreateText(panel, E.tokens.size.dialogTitle, "LEFT")
 		frame.title:SetPoint("TOPLEFT", 10, -8)
-		frame.title:SetText("EldoUI") -- no-L: addon name
+		frame.title:SetText(E.brand) -- no-L: addon name
 		frame.body = E:CreateText(panel, E.tokens.size.body, "LEFT")
 		frame.body:SetPoint("TOPLEFT", frame.title, "BOTTOMLEFT", 0, -4)
 		frame.body:SetText(L["Body text in your font and size."])
@@ -6771,7 +6771,7 @@ do
 	-- Only a saved older version brings the note: when the
 	-- beta loses saved variables (all of them, or only this window's), the
 	-- player is not shown it again on every login.
-	-- Fork (WoW-UI-Addon): its versions carry a mark, "0.7.2001-p1"; the notes
+	-- Fork (conUI): its versions carry a mark, "0.7.2001-p1"; the notes
 	-- belong to the EldoUI release in front of it, and a new mark on the same
 	-- release brings no note.
 	local function Release(version)

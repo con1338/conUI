@@ -24,7 +24,7 @@ Braucht `lua5.1`, `luac5.1`, `luacheck` und `python3` (Ubuntu: `apt-get install 
 | `syntax` | `luac5.1 -p` über alle Lua-Dateien, Python-Syntax der Werkzeuge |
 | `toc` | `check_toc.py`: jede Datei aus den .toc-Dateien existiert (mit genauer Groß-/Kleinschreibung), keine doppelt, keine Lua-/XML-Datei ungeladen, überall dieselbe Interface-Nummer |
 | `luacheck` | Globals: kein vergessenes `local`, kein Tippfehler in API-Namen (`.luacheckrc`); die Pinnwand zusätzlich mit ihren strengeren Regeln |
-| `tests` | Offline-Tests der Pinnwand (`tools/groupboard/`), der Share-Strings anderer Versionen und der Größenprüfung vor dem Entpacken (`tools/share/`), von Click-Casting (`tools/clickcast/`), des Nameplate-Hooks (`tools/nameplates/`), der Info-Bar-Blöcke für andere Addons (`tools/infobar/`), von Masque außerhalb der Aktionsleisten (`tools/masque/`), der DKP-/EPGP-Stände (`tools/raidloot/`), der Zeitmessung `/eui perf` (`tools/perf/`), der Zauberleisten an Gruppenframes (`tools/groupframes/`), der Weltbuffs (`tools/worldbuffs/`), der Wowhead-Sprache, der Quest-EP im Questlog und des Signals nach dem Essen und des Hinweises bei fast vollen Taschen (`tools/qol/`), der Questgegenstandsleiste (`tools/questbar/`), des Setwechsels nach dem Kampf (`tools/character/`), der Zusatztasten auf der Verbrauchsgüterleiste (`tools/consumablebar/`), der Leistenschalter in den Leisten-Schnappschüssen (`tools/snapshots/`), des Richturteils als Fernkampfangriff in der Kampfsimulation (`tools/lootsim/`), der Regeln für `Fork.lua` im deutschen Paket (`tools/locale/test_fork.py`) und des Versionswächters |
+| `tests` | Offline-Tests der Pinnwand (`tools/groupboard/`), der Share-Strings anderer Versionen und der Größenprüfung vor dem Entpacken (`tools/share/`), von Click-Casting (`tools/clickcast/`), des Nameplate-Hooks (`tools/nameplates/`), der Info-Bar-Blöcke für andere Addons (`tools/infobar/`), von Masque außerhalb der Aktionsleisten (`tools/masque/`), der DKP-/EPGP-Stände (`tools/raidloot/`), der Zeitmessung `/eui perf` (`tools/perf/`), der Zauberleisten an Gruppenframes (`tools/groupframes/`), der Weltbuffs (`tools/worldbuffs/`), der Wowhead-Sprache, der Quest-EP im Questlog und des Signals nach dem Essen und des Hinweises bei fast vollen Taschen (`tools/qol/`), der Questgegenstandsleiste (`tools/questbar/`), des Setwechsels nach dem Kampf (`tools/character/`), der Zusatztasten auf der Verbrauchsgüterleiste (`tools/consumablebar/`), der Leistenschalter in den Leisten-Schnappschüssen (`tools/snapshots/`), des Richturteils als Fernkampfangriff in der Kampfsimulation (`tools/lootsim/`), des sichtbaren Namens conUI (`tools/brand/`), der Regeln für `Fork.lua` im deutschen Paket (`tools/locale/test_fork.py`) und des Versionswächters |
 | `load` | ganzes Addon offline starten (`tools/harness/`, siehe unten), mit englischem und deutschem Client; dazu der Gegentest, dass ein kaputtes Modul auffällt |
 | `locale` | deutsches Paket: Platzhalter und Textcodes, `Fork.lua` (siehe unten), jeder `L["…"]`-Text im Code hat eine Übersetzung, zitierte Beschriftungen, Pinnwand-Texte; der Übersetzungsstand wird nur angezeigt |
 
@@ -97,7 +97,7 @@ mit in die Liste zu rutschen.
 
 Der Workflow bricht ab, wenn der Tag nicht zur Version passt, es den Tag schon für einen anderen Stand gibt oder
 eine Prüfung fehlschlägt. Das ZIP heißt
-`EldoUI-<Version>.zip` und enthält alle `EldoUI*`-Ordner, die git kennt: entpacken nach `Interface\AddOns`, fertig.
+`conUI-<Version>.zip` und enthält alle `EldoUI*`-Ordner, die git kennt: entpacken nach `Interface\AddOns`, fertig.
 Lokal: `python3 tools/ci/build_zip.py` → `dist/`.
 
 **Versions-Endung `-pN`:** Der Fork hängt an die EldoUI-Version eine Endung an (`0.7.3005-p1`). EldoUIs
@@ -132,6 +132,16 @@ gibt es zwei Quellen und zwei Merges (zuerst so gemacht für 0.7.3001):
 4. **Deutsches Paket:** Die dänische Liste gibt die Schlüssel vor. Texte, die sie nicht mehr hat, fliegen aus den
    vier deutschen Dateien, neue brauchen eine Übersetzung (`deDE.py export` / `import`).
 5. Versionen auf `<EldoUI-Version>-p1` setzen (siehe Release), Prüfungen grün, im Spiel testen, Tag pushen.
+6. **Name conUI:** Der Fork ändert nur den sichtbaren Namen, damit dieser Merge klein bleibt. Ordner, Globals,
+   gespeicherte Einstellungen und alle Texte im Code heißen weiter EldoUI; `EldoUI/Core/Brand.lua` tauscht den
+   Namen in jedem Text aus, der aus `E.L` oder `E:Plural` kommt (Regeln und Test: `tools/brand/test_brand.lua`).
+   Nach einem Merge prüfen:
+   - `## Title:` in den `.toc`-Dateien (`|cff33aaffcon|rUI …`), auch bei einem neuen Ordner aus dem ZIP;
+   - `Core\Brand.lua` steht in `EldoUI/EldoUI.toc` direkt nach `Core\Locale.lua`;
+   - die wenigen Stellen ohne `L`, die `E.brand` lesen: Chat-Präfix (`Core/Init.lua`), Tooltip der
+     Addon-Schaltfläche und `/conui` (`Core/Commands.lua`), Titel der Mini-Karte (`Core/Config.lua`),
+     Überschriften der Tastenbelegung (`Core/Bindings.lua`);
+   - neue Texte ohne `L`, die „EldoUI“ zeigen: `git grep -n '"[^"]*EldoUI[ .:"]' -- EldoUI | grep -v 'L\["'`.
 
 ## Versionswächter
 

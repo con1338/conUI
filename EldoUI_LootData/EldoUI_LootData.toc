@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: |cff33aaffEldo|rUI Loot Data
+## Title: |cff33aaffcon|rUI Loot Data
 ## Notes: Loot tables, drop chances, creatures, spawns, quests and the pet abilities of tameable beasts for EldoUI's Loot Guide and Training. Classic values from CMaNGOS classic-db; WoW: Forever may differ.
 ## Author: Eldodeldo
 ## X-Credits: data from CMaNGOS classic-db

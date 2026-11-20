@@ -33,7 +33,7 @@ local function ChatLine(prefix, ...)
 end
 
 function E:Print(...)
-	ChatLine(self.color .. "EldoUI|r:", ...)
+	ChatLine(self.color .. (self.brand or "EldoUI") .. "|r:", ...) -- fork: Core/Brand.lua
 end
 
 -- UTF-8 safe "first count characters" (names with accents or Cyrillic).
@@ -72,7 +72,7 @@ end
 
 function E:Debug(...)
 	if self.debug then
-		ChatLine(self.color .. "EldoUI|r " .. (self.TextHex and self:TextHex("secondary") or "") .. "[debug]|r", ...)
+		ChatLine(self.color .. (self.brand or "EldoUI") .. "|r " .. (self.TextHex and self:TextHex("secondary") or "") .. "[debug]|r", ...)
 	end
 end
 

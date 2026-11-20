@@ -37,7 +37,7 @@ TEST_PRODUCT = "wow_classic_beta"
 REGIONS = ("eu", "us")
 UPSTREAM = "Eldodeldo/EldoUI"
 LABEL = "Versions-Check"
-USER_AGENT = "WoW-UI-Addon-version-watch"
+USER_AGENT = "conUI-version-watch"
 # GitHub Actions sets GITHUB_API_URL; the tests point it at a stand-in.
 API = (os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
 

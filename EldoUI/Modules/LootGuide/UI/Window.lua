@@ -46,7 +46,7 @@ local TOPBAR = 36
 local FOOTER = 24
 local PAD = 8
 local DEFAULT_TOP = -140
-local HELP_URL = "https://github.com/con1338/WoW-UI-Addon/issues" -- fork: like Errors.REPORT_URL
+local HELP_URL = "https://github.com/con1338/conUI/issues" -- fork: like Errors.REPORT_URL
 local SOUND_OPEN, SOUND_CLOSE, SOUND_PAGE = "kit:IG_SPELLBOOK_OPEN", "kit:IG_SPELLBOOK_CLOSE", "kit:IG_ABILITY_PAGE_TURN"
 
 local window          -- the frame, built on first open

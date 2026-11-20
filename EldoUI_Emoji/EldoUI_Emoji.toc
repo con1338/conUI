@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: |cff33aaffEldo|rUI Emoji
+## Title: |cff33aaffcon|rUI Emoji
 ## Notes: Emoji pictures and names for EldoUI chat. Loaded by EldoUI when chat emoji are on. Graphics: Twemoji (CC-BY 4.0).
 ## Author: Eldodeldo
 ## X-Credits: graphics by the Twemoji contributors; names and shortcodes from emojibase

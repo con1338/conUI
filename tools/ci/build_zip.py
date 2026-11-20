@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the release ZIP: every addon folder, ready to unzip into Interface/AddOns.
 
-  python3 tools/ci/build_zip.py                    # dist/EldoUI-<version>.zip
+  python3 tools/ci/build_zip.py                    # dist/conUI-<version>.zip
   python3 tools/ci/build_zip.py --tag v0.7.3005-p1 # also check the tag matches the version
 
 The version comes from EldoUI/EldoUI.toc. Only files git tracks go in, so
@@ -59,7 +59,7 @@ def main():
     stamp = max(stamp, (1980, 1, 1, 0, 0, 0))
 
     os.makedirs(DIST, exist_ok=True)
-    target = os.path.join(DIST, "EldoUI-%s.zip" % version)
+    target = os.path.join(DIST, "conUI-%s.zip" % version)
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in files:
             info = zipfile.ZipInfo(path, date_time=stamp)

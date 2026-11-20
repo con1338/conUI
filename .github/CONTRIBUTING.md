@@ -1,6 +1,6 @@
 # Contributing to EldoUI
 
-> **Fork-Hinweis:** Dieses Repository ist ein Fork von [EldoUI](https://github.com/Eldodeldo/EldoUI).
+> **Fork-Hinweis:** conUI ist ein Fork von [EldoUI](https://github.com/Eldodeldo/EldoUI).
 > Anders als bei Upstream liegt der Addon-Code hier, und Änderungen kommen per Pull Request (siehe unten).
 > Geändert sind gegenüber dem Original die Einleitung, „Improve the Journal data“ und „Pull requests“.
 

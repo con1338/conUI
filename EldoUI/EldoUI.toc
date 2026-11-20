@@ -1,5 +1,5 @@
 ## Interface: 16001
-## Title: |cff33aaffEldo|rUI
+## Title: |cff33aaffcon|rUI
 ## Notes: An AI-made, deeply modular UI for WoW: Forever. Eleven layouts, four roles, every module on or off, and one look across every window.
 ## Author: Eldodeldo
 ## X-License: Apache-2.0
@@ -24,6 +24,7 @@ Core\Init.lua
 Core\Ticker.lua
 Core\Safe.lua
 Core\Locale.lua
+Core\Brand.lua
 Core\Errors.lua
 Core\Database.lua
 Data\DefaultChanges.lua

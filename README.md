@@ -1,8 +1,13 @@
-# WoW-UI-Addon
+# conUI
 
 Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI).
 
-> **Fork-Hinweis:** Dieses Repository ist ein Fork von EldoUI (Copyright 2026 Eldodeldo, Apache License 2.0).
+> **Fork-Hinweis:** conUI ist ein Fork von EldoUI (Copyright 2026 Eldodeldo, Apache License 2.0).
+> **Zum Namen:** Im Spiel heißt das Addon überall conUI (Addon-Liste, Fenster, Texte, Chat; `/conui` öffnet die
+> Optionen wie `/eui`). Geändert ist nur der sichtbare Name (`EldoUI/Core/Brand.lua`): Die Ordner heißen weiter
+> `EldoUI*`, ebenso die gespeicherten Einstellungen (`EldoUIDB`), Share-Strings und die Plugin-Schnittstelle. So
+> bleiben Einstellungen aus EldoUI erhalten, und neue EldoUI-Versionen lassen sich weiter übernehmen. EldoUI und
+> conUI können deshalb nicht gleichzeitig installiert sein.
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
 > [EldoUI 0.7.3005](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3005) (Ordner `EldoUI*/`). Die Releases
 > liegen unverändert im Branch `upstream-release` und kommen von dort per Merge nach `main`.
@@ -19,8 +24,8 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Das Original-README folgt. Das Wiki in `docs/wiki/` spricht noch vom „0.7.1000 setup“: 0.7.1000 ist EldoUIs
 > Ausgangsstand für Profile und Presets. Was sich seitdem geändert hat, steht im [CHANGELOG](CHANGELOG.md) und in
 > [`docs/wiki/current-release.md`](docs/wiki/current-release.md). Geändert sind im Original nur die
-> Installationshinweise zum deutschen Paket und zum Plugin, die Sprachangaben (Deutsch) und der Link für
-> Fehlerberichte (zu diesem Repo, wie der Report-Knopf im Spiel).
+> Installationshinweise zum deutschen Paket und zum Plugin, der Name in der AddOns-Liste (conUI), die
+> Sprachangaben (Deutsch) und der Link für Fehlerberichte (zu diesem Repo, wie der Report-Knopf im Spiel).
 
 ---
 
@@ -67,10 +72,10 @@ The [module list](docs/wiki/modules.md) describes every module and shows which o
 
 ## Install
 
-1. Download `EldoUI-<version>.zip` from the [releases page](https://github.com/Eldodeldo/EldoUI/releases). The fork's ZIP, with the German pack and the group board, is on [this repository's releases page](https://github.com/con1338/WoW-UI-Addon/releases).
+1. Download `EldoUI-<version>.zip` from the [releases page](https://github.com/Eldodeldo/EldoUI/releases). The fork's ZIP (`conUI-<version>.zip`), with the German pack and the group board, is on [this repository's releases page](https://github.com/con1338/conUI/releases).
 2. Close the game and unzip the file into `World of Warcraft\_forever_\Interface\AddOns`. The WoW: Forever beta used the folder `_classic_beta_`; if you played the beta, install EldoUI again into `_forever_`.
 3. Check that these folders sit directly in `AddOns`: `EldoUI`, `EldoUI_LootData`, `EldoUI_GuideData`, `EldoUI_LootSim`, `EldoUI_Emoji`, `EldoUI_Locale_daDK`, and `EldoUI_Locale_deDE`. The fork's group board plugin, `EldoUI_GroupBoard`, goes there too if you want it.
-4. Start the game, make sure **EldoUI** is ticked in the AddOns list, and log in.
+4. Start the game, make sure **conUI** is ticked in the AddOns list (this fork's name for EldoUI), and log in.
 
 The six companion folders load only when you need them: the Loot Guide data, the guides, the gear simulator, the chat emoji, and the Danish and German texts.
 
@@ -134,7 +139,7 @@ EldoUI never connects to the internet and sends nothing to its author or to any 
 
 1. Type `/eui errors` to open EldoUI's error log.
 2. Press Report on the error. It shows a ready-to-paste bug report with the version and setup details, and with your character's name, realm, guild and chat text left out.
-3. Open the [bug form](https://github.com/con1338/WoW-UI-Addon/issues/new?template=bug_report.yml) of this fork and paste it in, with a few words on what you were doing. A bug in EldoUI itself goes on from there to [EldoUI's tracker](https://github.com/Eldodeldo/EldoUI/issues).
+3. Open the [bug form](https://github.com/con1338/conUI/issues/new?template=bug_report.yml) of this fork and paste it in, with a few words on what you were doing. A bug in EldoUI itself goes on from there to [EldoUI's tracker](https://github.com/Eldodeldo/EldoUI/issues).
 
 EldoUI never sends anything by itself: a report leaves the game only when you paste it.
 

@@ -72,7 +72,7 @@ jobs:
         run: |
           interface=$(sed -n 's/^## Interface: *\([0-9]*\).*/\1/p' EldoUI/EldoUI.toc)
           cat > notes.md <<EOF
-          EldoUI ${VERSION} mit den Ergänzungen dieses Forks: deutsches Sprachpaket (EldoUI_Locale_deDE) und Gruppen-Pinnwand (EldoUI_GroupBoard).
+          conUI ${VERSION}: EldoUI ${VERSION%-p*} mit den Ergänzungen dieses Forks: deutsches Sprachpaket (EldoUI_Locale_deDE) und Gruppen-Pinnwand (EldoUI_GroupBoard).
 
           **Installieren:** Spiel schließen, die alten EldoUI-Ordner in \`World of Warcraft\\_forever_\\Interface\\AddOns\` löschen und \`$(basename "$ZIP")\` dorthin entpacken. Die Einstellungen im Ordner \`WTF\` bleiben erhalten.
 
@@ -84,6 +84,6 @@ jobs:
             gh release upload "$TAG" "$ZIP" --clobber
           else
             # --target only counts when the tag doesn't exist yet (started from GitHub).
-            gh release create "$TAG" "$ZIP" --target "$GITHUB_SHA" --title "WoW-UI-Addon ${VERSION}" \
+            gh release create "$TAG" "$ZIP" --target "$GITHUB_SHA" --title "conUI ${VERSION}" \
               --notes-file notes.md --generate-notes "${prerelease[@]}"
           fi

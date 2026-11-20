@@ -117,6 +117,8 @@ check_tests() {
 	lua5.1 tools/lootsim/test_judgement.lua || bad+=("$name")
 	name="Auction House: Blizzard's screens come back under EldoUI's pages (F22)"; step "$name"
 	lua5.1 tools/auction/test_native_screens.lua || bad+=("$name")
+	name="conUI name: prose is renamed, names stay"; step "$name"
+	lua5.1 tools/brand/test_brand.lua || bad+=("$name")
 	name="German pack: Fork.lua rules"; step "$name"
 	python3 tools/locale/test_fork.py || bad+=("$name")
 	name="Version watcher (offline)"; step "$name"
