@@ -380,7 +380,7 @@ function UpdateMenuButton()
 		end)
 		button:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:AddLine("EldoUI") -- no-L: addon name
+			GameTooltip:AddLine(E.brand or "EldoUI") -- no-L: addon name
 			E:TooltipHint(GameTooltip, { L["Click"], L["open the EldoUI options"] })
 			E:TooltipHint(GameTooltip, { L["Right-click"], L["move EldoUI's frames"] })
 			E.UIKit.TipText(GameTooltip, L["Also /eui in chat."])
@@ -389,7 +389,7 @@ function UpdateMenuButton()
 		button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		own.menuButton = button
 	end
-	button:SetText("EldoUI") -- no-L: addon name
+	button:SetText(E.brand or "EldoUI") -- no-L: addon name
 	-- After the text, so the menu's button font reaches the label too.
 	if Skinned("gameMenu") then E:SkinRecord(RECORDS.gameMenu, button, E.SkinButton, E, button, { size = 14 }) end
 	button:Show()

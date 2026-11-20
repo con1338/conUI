@@ -10,16 +10,18 @@ conUI is an AI-made, deeply modular UI for **WoW: Forever** (the game folder `_f
 
 1. Download `conUI-<version>.zip` from the [GitHub releases](https://github.com/con1338/conUI/releases).
 2. Close the game.
-3. Unzip it into `World of Warcraft\_forever_\Interface\AddOns`. You get six folders, and all six must sit directly in `AddOns`:
+3. Unzip it into `World of Warcraft\_forever_\Interface\AddOns`. You get eight folders, and all eight must sit directly in `AddOns`:
    - `EldoUI`, the addon itself;
    - `EldoUI_LootData`, the data for the Loot Guide (loaded only when the Loot Guide needs it);
    - `EldoUI_GuideData`, the guides for the guide window (loaded only when the guide window needs them);
    - `EldoUI_LootSim`, the Loot Guide's gear simulator (loaded only when you press a sim button);
    - `EldoUI_Emoji`, the pictures for chat emoji (loaded only when chat emoji are on);
-   - `EldoUI_Locale_daDK`, conUI's texts in Danish (loaded only when you pick Dansk as conUI's language).
+   - `EldoUI_Locale_daDK`, conUI's texts in Danish (loaded only when you pick Dansk as conUI's language);
+   - `EldoUI_Locale_deDE`, conUI's texts in German (loaded only when you pick Deutsch, or on a German client);
+   - `EldoUI_GroupBoard`, the group board plugin (group posts from the chat channels in one window).
 4. Start the game. On the character screen, open **AddOns** and make sure **conUI** is ticked.
 
-If you unzip into a folder of its own by mistake (`AddOns\conUI-<version>\EldoUI\...`), the game does not see conUI. Move the six folders up into `AddOns`.
+If you unzip into a folder of its own by mistake (`AddOns\conUI-<version>\EldoUI\...`), the game does not see conUI. Move the eight folders up into `AddOns`.
 
 Version 0.7.1000 begins with a fresh conUI profile. Choose one of the eleven built-in presets in the setup below. Profile and preset updates are supported from this version onward.
 

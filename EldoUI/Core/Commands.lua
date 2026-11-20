@@ -855,7 +855,7 @@ end
 function EldoUI_OnAddonCompartmentEnter(_, button)
 	local body, secondary = E.tokens.text.body, E.tokens.text.secondary
 	GameTooltip:SetOwner(button, "ANCHOR_LEFT")
-	GameTooltip:AddLine(E.brand .. " " .. E.version, E:TokenColor("accent")) -- no-L: addon name and version
+	GameTooltip:AddLine((E.brand or "EldoUI") .. " " .. E.version, E:TokenColor("accent")) -- no-L: addon name and version
 	E:TooltipHint(GameTooltip, { L["Click"], L["move frames"] })
 	E:TooltipHint(GameTooltip, { L["Right-click"], L["keybind mode"] })
 	GameTooltip:AddLine(L["Type %s in chat or use the EldoUI button in the Game Menu to open the EldoUI options."]:format(E:Highlight("/eui")), secondary[1], secondary[2], secondary[3], true)

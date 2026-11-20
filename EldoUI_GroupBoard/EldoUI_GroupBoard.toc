@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: |cff33aaffcon|rUI Group Board
-## Notes: Group posts from the chat channels in one window: dungeon, roles needed, how long ago. Needs EldoUI.
-## Notes-deDE: Gruppensuche aus den Chat-Kanälen in einem Fenster: Dungeon, gesuchte Rollen, wie lange her. Braucht EldoUI.
+## Notes: Group posts from the chat channels in one window: dungeon, roles needed, how long ago. Needs conUI.
+## Notes-deDE: Gruppensuche aus den Chat-Kanälen in einem Fenster: Dungeon, gesuchte Rollen, wie lange her. Braucht conUI.
 ## Author: conUI (EldoUI fork)
 ## Version: 0.1.0
 ## Group: EldoUI

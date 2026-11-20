@@ -138,9 +138,14 @@ gibt es zwei Quellen und zwei Merges (zuerst so gemacht für 0.7.3001):
    Nach einem Merge prüfen:
    - `## Title:` in den `.toc`-Dateien (`|cff33aaffcon|rUI …`), auch bei einem neuen Ordner aus dem ZIP;
    - `Core\Brand.lua` steht in `EldoUI/EldoUI.toc` direkt nach `Core\Locale.lua`;
-   - die wenigen Stellen ohne `L`, die `E.brand` lesen: Chat-Präfix (`Core/Init.lua`), Tooltip der
-     Addon-Schaltfläche und `/conui` (`Core/Commands.lua`), Titel der Mini-Karte (`Core/Config.lua`),
-     Überschriften der Tastenbelegung (`Core/Bindings.lua`);
+   - die Stellen ohne `L`, die `E.brand` lesen (`git grep -n 'E\.brand' -- EldoUI`): Chat-Präfix, Tooltip der
+     Addon-Schaltfläche und `/conui`, Schaltfläche im Spielmenü, Name unter Optionen > AddOns, Überschriften der
+     Tastenbelegung, Titel im Auktionshaus, Mover-Tooltip, Info-Leiste und ihre Blöcke für andere Addons, DBM-
+     und RestedXP-Anzeige. Ein Merge-Konflikt dort heißt: EldoUIs Zeile nehmen, den Namen wieder ersetzen;
+   - Namen, die außerhalb von EldoUI gespeichert sind, bleiben bei EldoUIs Wortlaut (`E:UpstreamText`): die
+     Details- und BigWigs-Profile „EldoUI - <Layout>“;
+   - Texte über EldoUI selbst (Meldungen an EldoUIs Autoren, der Dank an Mitwirkende) behalten den Namen:
+     `UPSTREAM_KEYS` in `Core/Brand.lua`;
    - Icon und Logo (`EldoIcon.tga`, `EldoLogo.tga`): Bringt ein Release sie neu mit, `python3
      tools/brand/gen_logo.py` laufen lassen; der Name des gemeinsamen Profils (`PROFILE` in `Core/Installer.lua`);
    - README und `docs/`: Der Name ist dort im Fließtext ersetzt, Merges von `upstream/main` kollidieren in diesen

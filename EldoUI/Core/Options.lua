@@ -37,7 +37,7 @@ end
 
 function E:InitializeOptions()
 	panel = CreateFrame("Frame")
-	panel.name = "EldoUI" -- no-L: addon name in the Settings list
+	panel.name = (E.brand or "EldoUI") -- no-L: addon name in the Settings list
 
 	local logo = panel:CreateTexture(nil, "ARTWORK")
 	logo:SetTexture(E.media.logo)

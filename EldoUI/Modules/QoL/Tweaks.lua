@@ -827,7 +827,7 @@ function M:GameSettingLines()
 		local value
 		if CVarExists(name) then
 			local owned = E.CVarOwner and E:CVarOwner(name) == CVAR_OWNER
-			value = tostring(CVarValue(name)) .. (owned and " " .. E:TextHex("good") .. "(set by EldoUI)|r" or "")
+			value = tostring(CVarValue(name)) .. (owned and " " .. E:TextHex("good") .. "(set by " .. (E.brand or "EldoUI") .. ")|r" or "")
 		else
 			value = E:TextHex("secondary") .. "not on this client|r"
 		end

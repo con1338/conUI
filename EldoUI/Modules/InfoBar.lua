@@ -1978,7 +1978,7 @@ E:RegisterDataText("Spacer", {
 
 E:RegisterDataText("EldoUI", {
 	title = "EldoUI",
-	text = function() return Label("EldoUI") end,
+	text = function() return Label(E.brand or "EldoUI") end,
 	tooltip = function(tooltip)
 		local log = E.errors
 		if log and (log.unseen or 0) > 0 then E.UIKit.TipPair(tooltip, L["New Lua errors"], tostring(log.unseen)) end

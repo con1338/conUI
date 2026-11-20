@@ -1763,7 +1763,7 @@ function M:ShowPage(name)
 	if not self.panel or not pages[name] then return end
 	self.current = name
 	for pageName, page in pairs(pages) do page.frame:SetShown(pageName == name) end
-	self.panel.title:SetText(("%s|r  %s"):format(E.color .. "EldoUI", TAB_TITLES[name]))
+	self.panel.title:SetText(("%s|r  %s"):format(E.color .. (E.brand or "EldoUI"), TAB_TITLES[name]))
 	self.panel:Show()
 	self:HideNative()
 	-- The sell slot's price line belongs to the Selling page.
