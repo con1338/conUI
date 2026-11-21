@@ -92,7 +92,7 @@ check_tests() {
 	lua5.1 tools/groupframes/test_cast.lua || bad+=("$name")
 	name="World buffs"; step "$name"
 	lua5.1 tools/worldbuffs/test_world_buffs.lua || bad+=("$name")
-	name="Fishing: soft interact reaches the bobber, catches from LOOT_READY"; step "$name"
+	name="Fishing: soft interact reaches the bobber, only the splash, catches from LOOT_READY"; step "$name"
 	lua5.1 tools/fishing/test_fishing.lua || bad+=("$name")
 	name="RestedXP on a client in another language: target names, guide chain, group names"; step "$name"
 	lua5.1 tools/integrations/test_rxp_locale.lua || bad+=("$name")

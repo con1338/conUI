@@ -13,7 +13,8 @@
 -- use your best lure, then the pole), Swap (equip your pole, or put your
 -- weapons back: one equip press) and the catch count. Optional: a double
 -- right-click casts (fishing mode only, out of combat), a louder splash
--- (sound channels raised through E:SetCVar and put back after), and the
+-- (sound channels raised through E:SetCVar and put back after), only the
+-- splash (every sound channel but the effects off while fishing), and the
 -- catch log: fish and items per zone and spot, catches per hour, skill-ups.
 -- With "Start a Farming session" a Farming session runs while you fish
 -- (Farming counts the loot itself).
@@ -52,6 +53,7 @@ local M = E:NewModule("Fishing", {
 		soundBoost = true,
 		boostLevel = 1,
 		dimOthers = true,      -- music and ambience down while fishing
+		onlySplash = false,    -- every sound channel but the effects off while fishing
 		bar = true,
 		autoHide = true,       -- the bar only shows in fishing mode
 		catchLog = true,
@@ -207,11 +209,19 @@ end
 
 -- keep: "up" never lowers the player's own value, "down" never raises it.
 -- The player's own value is the one saved before fishing changed it.
+-- A setting that already has the value gets no record (nothing to put
+-- back), and a secure one is left alone (the game refuses the write).
+local function SameValue(a, b)
+	local x, y = tonumber(a), tonumber(b)
+	if x and y then return x == y end
+	return a == b
+end
+
 local function SetFishingCVar(name, value, keep)
+	if E:CVarSecure(name) then return end
 	local saved = Saved()
 	local current = C_CVar and C_CVar.GetCVar and Clean(Try(C_CVar.GetCVar, name))
 	if current == nil then return end
-	if saved and saved[name] == nil then saved[name] = current end
 	local own = tonumber(saved and saved[name] or current)
 	local want = tonumber(value)
 	if own and want then
@@ -219,6 +229,8 @@ local function SetFishingCVar(name, value, keep)
 		if keep == "down" and own < want then want = own end
 		value = tostring(want)
 	end
+	if not (saved and saved[name] ~= nil) and SameValue(current, value) then return end
+	if saved and saved[name] == nil then saved[name] = current end
 	E:SetCVar(name, value, CVAR_OWNER)
 end
 
@@ -252,6 +264,28 @@ function M:RaiseSoftInteract()
 	end
 end
 
+-- "Only the splash": while fishing every sound channel but the effects goes
+-- off. The splash is a sound effect, as are spells, creatures and
+-- footsteps, and the game turns effects up or down only all together, so
+-- the effects stay on: sound and effects even come on when the player had
+-- them off, and sound in the background too, so the splash is heard with
+-- the game window behind another. FishMate (WoW: Forever) quiets music,
+-- ambience, dialog and pet sounds the same way and the splash still
+-- plays. A setting this client lacks is skipped (ping sounds came with
+-- the Mainline audio settings; a client without them has no such CVar).
+M.ONLY_SPLASH = {
+	{ name = "Sound_EnableAllSound", value = "1", keep = "up" },
+	{ name = "Sound_EnableSFX", value = "1", keep = "up" },
+	{ name = "Sound_EnableSoundWhenGameIsInBG", value = "1", keep = "up" },
+	{ name = "Sound_EnableMusic", value = "0", keep = "down" },
+	{ name = "Sound_EnableAmbience", value = "0", keep = "down" },
+	{ name = "Sound_EnableDialog", value = "0", keep = "down" },
+	{ name = "Sound_EnableErrorSpeech", value = "0", keep = "down" },
+	{ name = "Sound_EnableEmoteSounds", value = "0", keep = "down" },
+	{ name = "Sound_EnablePetSounds", value = "0", keep = "down" },
+	{ name = "Sound_EnablePingSounds", value = "0", keep = "down" },
+}
+
 -- Before soft interact was raised here, a SoftTargetInteract record of
 -- fishing's came only from an older version's write the game refused: it
 -- holds nothing to put back, so it is dropped once.
@@ -275,6 +309,9 @@ function M:ApplyCVars(on)
 		if self.db.soundBoost and self.db.dimOthers then
 			SetFishingCVar("Sound_MusicVolume", "0.1", "down")
 			SetFishingCVar("Sound_AmbienceVolume", "0.1", "down")
+		end
+		if self.db.onlySplash then
+			for _, cvar in ipairs(self.ONLY_SPLASH) do SetFishingCVar(cvar.name, cvar.value, cvar.keep) end
 		end
 		self.cvarsOn = true
 		return
@@ -1003,6 +1040,7 @@ M.options = {
 	{ type = "toggle", key = "soundBoost", label = "Louder splash", desc = "Raises the sound effects and master volume while fishing, and puts your own values back when fishing mode ends." },
 	{ type = "range", percent = true, key = "boostLevel", label = "Volume while fishing", min = 0.3, max = 1, step = 0.05, dependsOn = "soundBoost", desc = "Sound effects and master volume while fishing mode is on." },
 	{ type = "toggle", key = "dimOthers", label = "Quieter music", dependsOn = "soundBoost", desc = "Turns music and ambience down while fishing, so the splash stands out." },
+	{ type = "toggle", key = "onlySplash", label = "Only the splash", desc = "Turns every other sound off while fishing: music, ambience, dialog, spoken errors, emote, pet and ping sounds. The sound effects stay on, since the splash is one of them; the game switches effects only all together, so spells, creatures and footsteps stay too. Sound in the background goes on, so you hear the splash with the game window behind another. Your own settings come back when fishing mode ends." },
 	{ type = "header", label = "Bar and log" },
 	{ type = "toggle", key = "bar", label = "Fishing bar", desc = "Cast, Lure and Swap buttons with the catch count. Move it in move mode (Fishing Bar)." },
 	{ type = "toggle", key = "autoHide", label = "Only in fishing mode", dependsOn = "bar", desc = "The bar shows only while fishing mode is on." },
