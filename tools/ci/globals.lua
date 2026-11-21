@@ -1090,6 +1090,7 @@ return {
 	"UpdateAddOnMemoryUsage",
 	"UpdateContainerFrameAnchors",
 	"UpdateMicroButtons",
+	"UpdateNewItemList",
 	"UpdateUIPanelPositions",
 	"UtilityCooldownViewer",
 	"VehicleSeatIndicator",

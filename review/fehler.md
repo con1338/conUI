@@ -31,6 +31,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
 | F22 | Auktionshaus: Verkaufen-Seite bleibt nach „Schnellverkauf“ leer; Rechtsklick in die Taschen verboten (im Spiel gefunden) | mittel | teilweise | `391f0b7` |
 | F23 | Gilden-Tooltip der Infoleiste fragt im Kampf die Gildennachricht ab → ADDON_ACTION_BLOCKED (im Fehlerlog gefunden) | niedrig | behoben | `bb28608` |
+| F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -544,6 +545,56 @@ Geprüft wurde jeder Fix gegen den Code von 0.7.3005 (nicht im Spiel). Nur sechs
   - Gegenprobe: Ohne die Kampfprüfung ruft der Tooltip im Kampf die gesperrte Funktion auf, wie im Fehlerlog.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
+### F24 – Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten (hoch, im Spiel gefunden)
+- **Gefunden:** 20./21.11.2026 beim Spielen. Ein Silberdietrich ließ sich per Rechtsklick nicht ins Handelsfenster legen,
+  danach ging bis zum `/reload` kein Rechtsklick mehr (Ruhestein, später ein Kochrezept in Donnerfels). Im Fehlerlog
+  derselbe Eintrag wie bei F22: „Forbidden: EldoUI tried to call the protected function UNKNOWN() at
+  Blizzard_UIPanels_Game/Mainline/ContainerFrame.lua:1611“ (`UseContainerItem` aus `ContainerFrameItemButton_OnClick`),
+  inzwischen 157-mal, 15.11. bis 21.11., immer außerhalb des Kampfes. Profil: Taschen und Bank „Ersetzen“.
+- **Vorgehen:** Blizzards Code aus Gethe/wow-ui-source, Zweig `forever` (Client 1.60.1, Build 70959: `Mainline`-Taschen,
+  `Camelot`-Bank). Im gesperrten Zustand haben Prüfzeilen im Spiel `issecurevariable` für jeden Wert im Rechtsklick-Pfad
+  abgefragt und das Ergebnis in `EldoUIErrorsDB` gespeichert. Verunreinigt von EldoUI waren nur `BankFrame.currentBankPage`,
+  `BankFrame.BankPanel.purchasedBankTabData`, `BankFrame.BankPanel.bankType` sowie `MerchantFrame.selectedTab` und
+  `MerchantFrame.itemIndex`. Die Taschenknöpfe selbst waren sauber.
+- **Ursache:** `ContainerFrameItemButton_OnClick` übergibt `BankFrame:GetActiveBankType()` an `UseContainerItem`, bei
+  jedem Rechtsklick und auch bei geschlossener Bank (das `BankPanel` bleibt nach dem ersten Bankbesuch „gezeigt“). Den
+  Bank-Typ setzt Blizzard in `BankFrameBaseMixin:OnShow`, aber erst *nach* `OpenAllBags(self)`. Hatte EldoUI vorher etwas
+  geschrieben, das Blizzards Taschencode dort liest, läuft der Rest von `OnShow` verunreinigt, und alle drei Bank-Werte
+  oben sind von EldoUI. Ab dann ist jedes Benutzen aus den Taschen verboten. Das Herausholen aus der Bank ist nicht
+  geschützt, deshalb fiel es dort nicht auf. EldoUI schrieb diese Werte auf zwei Wegen:
+  - Sein Taschenfenster rief beim Schließen (X, Escape, `CloseWindow`, Kampfbeginn) Blizzards `CloseAllBags()` auf. Das
+    setzt `FRAME_THAT_OPENED_BAGS`, und `OpenAllBags(self)` der Bank liest genau diesen Wert.
+  - Öffnen aus EldoUIs Code (`/eui find`, Tour, Taschen mit Handel, Gildenbank und Beruf öffnen, Infoleiste, Flugansicht)
+    rief `OpenAllBags`/`ToggleAllBags` auf. Das baut Blizzards Taschenrahmen samt `ContainerFrameSettingsManager`.
+  `MerchantFrame_OnShow` ruft ebenso zuerst `OpenAllBags(self, true)` und setzt danach seinen Tab. Daher der verunreinigte
+  Händler-Tab. Das Auktionshaus öffnet die Taschen genauso. Das könnte auch den noch offenen Teil von F22 erklären.
+- **Umsetzung:** `Modules/Bags/Core.lua`. Solange Blizzards Taschenrahmen auf EldoUIs verstecktem Elternrahmen liegen
+  (`M:GameBagsParked`, Taschen „Ersetzen“ oder „Ausblenden“), ruft EldoUI Blizzards Taschencode nicht mehr selbst auf.
+  - `M:CloseGameBags` versteckt die Rahmen nur. Auf dem versteckten Elternrahmen laufen ohnehin keine Skripte. Wie bei
+    Blizzard verlieren die Gegenstände ihre „Neu“-Markierung (`UpdateNewItemList`, nur `C_NewItems`).
+  - `M:OpenBags` öffnet nur EldoUIs Fenster (`window.eldoOnly`). Es bleibt offen, bis der Spieler es schließt: mit X,
+    Escape, B (Haken an `ToggleAllBags`) oder einem Taschen-Block. Auch Blizzards `CloseAllBags()` ohne Fenster schließt
+    es, etwa die Rucksack-Taste auf dem offenen Rucksack. Weil Blizzard die Taschen für geschlossen hält, öffnet der
+    erste Druck der Rucksack-Taste aber nur Blizzards versteckten Rucksack. Öffnet und schließt eine Bank oder ein
+    Händler die Taschen, bleibt das Fenster offen, wie vorher bei schon offenen Taschen.
+  - `M:CloseBags` und `M:ToggleBags` sind die Gegenstücke. Infoleiste (Gold, Taschen, Munition) und der Taschen-Knopf der
+    Flugansicht laufen über `M:ToggleBags`.
+  - Mit sichtbaren Blizzard-Taschen (Taschen nicht ersetzt) ruft EldoUI wie bisher Blizzards Funktionen auf. Dort bleibt
+    das Risiko bestehen (offen).
+- **Nicht erklärt:** Laut dem Spieler war der Rechtsklick ins Handelsfenster gleich nach einem `/reload` erneut gesperrt.
+  Nach einem Reload ist der Bank-Typ sauber. Ob dazwischen die Bank offen war, ist nicht bekannt.
+- **Test:** `tools/bags/test_game_bag_code.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die Helfer,
+  `CloseWindow`, `SyncOpen` und die Haken an `ToggleAllBags` und `CloseAllBags` aus `Core.lua` und lässt sie gegen ein
+  Modell der versteckten Taschenrahmen laufen. Geprüft wird:
+  - Mit versteckten Rahmen ruft EldoUI keine von Blizzards Taschenfunktionen auf.
+  - Das allein geöffnete Fenster übersteht einen Bankbesuch. Es schließt mit X, Infoleiste und B, auch an der Bank,
+    und mit dem zweiten Druck der Rucksack-Taste.
+  - Der normale Weg mit B ist unverändert.
+  - Mit sichtbaren Rahmen nutzt EldoUI Blizzards Funktionen wie bisher.
+  - Eine Textprüfung stellt sicher, dass `Core.lua`, `InfoBar.lua` und `FlightView.lua` sie sonst nirgends direkt aufrufen.
+  Er läuft nur in der CI, denn auf dem Entwicklungsrechner gibt es kein Lua.
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -571,6 +622,9 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F20 | Angel ablegen (der Angelmodus endet), derselbe Befehl | wieder `1 10 0` | offen |
 | F21 | ein paar Fische fangen, Maus auf die Zählung der Angelleiste | die Zahl steigt pro Fang um 1, der Tooltip zeigt Ort und Fische | offen |
 | F23 | in einer Gilde, mit dem Block „Gilde“ auf der Infoleiste: im Kampf die Maus auf den Block; nach dem Kampf noch einmal | im Kampf Gilde und Mitglieder ohne Gildennachricht, kein neuer Eintrag „Blocked: … InfoBar.lua“ in `/eui errors`; nach dem Kampf mit Gildennachricht | offen |
+| F24 | `/reload`; Taschen mit B öffnen und mit EldoUIs X schließen; zur Bank, etwas herausholen, Bank schließen; Ruhestein oder Rezept per Rechtsklick aus der Tasche benutzen, danach `/run print(issecurevariable("FRAME_THAT_OPENED_BAGS"))print(issecurevariable(BankFrame.BankPanel,"bankType"))print(issecurevariable(MerchantFrame,"selectedTab"))` | Rechtsklick wirkt, kein neuer Eintrag „ContainerFrame.lua:1611“ in `/eui errors`; dreimal `true` | offen |
+| F24 | Taschen über die Infoleiste öffnen, mit B schließen; noch einmal über die Infoleiste öffnen, einen Händler besuchen und verlassen | B schließt das Fenster; nach dem Händler bleibt es offen | offen |
+| F24 | mit einem Freund handeln: einen Gegenstand per Rechtsklick aus der Tasche ins Handelsfenster legen | er landet im Handelsfenster | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |

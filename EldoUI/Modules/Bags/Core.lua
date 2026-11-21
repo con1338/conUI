@@ -2052,7 +2052,9 @@ function M:CreateWindow(kind)
 		if M.db.clearSearch and search:GetText() ~= "" then search:SetText("") end
 		if not isBank then
 			if M.db.newGlow and C_NewItems and C_NewItems.ClearAll then C_NewItems.ClearAll() end
-			if M:AnyBagOpen() then CloseAllBags() end
+			window.eldoOnly = nil
+			-- Never the game's CloseAllBags() from here (F24, M:CloseGameBags).
+			if M:AnyBagOpen() then M:CloseGameBags() end
 		elseif bankOpen and not M.showingBlizzardBank then
 			local closeBank = (C_Bank and C_Bank.CloseBankFrame) or CloseBankFrame
 			if closeBank then closeBank() end
@@ -3337,6 +3339,94 @@ function M:OwnBank()
 end
 
 ---------------------------------------------------------------------------
+-- The game's bag code stays the game's (review/fehler.md F24)
+--
+-- Blizzard's bank and vendor windows call OpenAllBags(self) when they open,
+-- before they choose their tab. If anything that bag code reads was written
+-- by EldoUI, the rest of their OnShow runs tainted, and so does the bank tab
+-- it stores (BankFrame.BankPanel.bankType). Every right-click on an item in
+-- the bags hands that tab to C_Container.UseContainerItem
+-- (ContainerFrameItemButton_OnClick), so the hearthstone, keys and recipes
+-- were blocked ("Forbidden") until a reload. EldoUI wrote it two ways:
+-- CloseAllBags() writes FRAME_THAT_OPENED_BAGS, and an open from EldoUI's
+-- code builds the game's bag frames (ContainerFrame_GenerateFrame and its
+-- settings manager).
+-- So while the game's bag frames sit on EldoUI's hidden parent, EldoUI's
+-- own code never runs that code: it closes the frames by hiding them (on
+-- the hidden parent they run no scripts, the same as the game's close
+-- there), and it opens only its own window. That window (window.eldoOnly)
+-- stays open until the player closes it: its close button, Escape, the
+-- game's bag toggle (B) or a bag block. With the game's frames shown, the
+-- game's functions are used as before.
+---------------------------------------------------------------------------
+function M:GameBagsParked()
+	local frames = BlizzardBagFrames()
+	if #frames == 0 then return false end
+	for _, frame in ipairs(frames) do
+		if frame:GetParent() ~= hider then return false end
+	end
+	return true
+end
+
+-- Closes the game's bag frames for EldoUI. `frame` is the window that
+-- closes them (CloseAllBags(frame)) when the game's frames are shown.
+function M:CloseGameBags(frame)
+	if not self:GameBagsParked() then
+		CloseAllBags(frame)
+		return
+	end
+	-- What the CloseAllBags hook does for a close without a window.
+	if not frame and self.ForgetAutoOpen then self:ForgetAutoOpen() end
+	for _, bagFrame in ipairs(BlizzardBagFrames()) do
+		if bagFrame:IsShown() then
+			-- What the game's close does besides hiding: the items lose their
+			-- "new" mark (C_NewItems only, nothing of the game's is written).
+			if type(UpdateNewItemList) == "function" and bagFrame.EnumerateValidItems then
+				pcall(UpdateNewItemList, bagFrame)
+			end
+			bagFrame:Hide()
+		end
+	end
+end
+
+-- Opens the bags from EldoUI's code (a slash command, the tour, a window's
+-- event, a bag block): the game's own open while its frames are shown,
+-- else only EldoUI's window.
+function M:OpenBags()
+	local window = windows.bags
+	if not (window and self:OwnBags() and self:GameBagsParked()) then
+		OpenAllBags()
+		return
+	end
+	if not self:AnyBagOpen() then window.eldoOnly = true end
+	if not window:IsShown() then window.viewChar = E.charKey end
+	self:OpenWindow(window, self:WindowSide(window))
+end
+
+-- Closes them again: EldoUI's window when it opened alone, and the game's
+-- frames.
+function M:CloseBags()
+	local window = windows.bags
+	if window and window.eldoOnly and window:IsShown() then
+		self:CloseWindow(window)
+	else
+		self:CloseGameBags()
+	end
+end
+
+-- The bag blocks of the info bar and the flight view's Bags button.
+function M:ToggleBags()
+	local window = windows.bags
+	if not (window and self:OwnBags() and self:GameBagsParked()) then
+		ToggleAllBags()
+	elseif window:IsShown() then
+		self:CloseWindow(window)
+	else
+		self:OpenBags()
+	end
+end
+
+---------------------------------------------------------------------------
 -- Tour help: the bag window explains itself once, after it has stayed
 -- open a moment (bags are often opened in a hurry).
 ---------------------------------------------------------------------------
@@ -3372,7 +3462,7 @@ E.Tour:Register("bags:first", {
 			E:Print(L["The bags tour runs in EldoUI's bag window: Blizzard UI > Bags (container windows) > Replace with EldoUI's frame."])
 			return
 		end
-		if not (windows.bags and windows.bags:IsShown()) then OpenAllBags() end
+		if not (windows.bags and windows.bags:IsShown()) then M:OpenBags() end
 		C_Timer.After(1, function() def.offer(def, true) end)
 	end,
 })
@@ -3399,7 +3489,8 @@ end
 
 function M:CloseWindow(window)
 	if window.kind == "bags" then
-		CloseAllBags()
+		window.eldoOnly = nil
+		self:CloseGameBags()
 	end
 	if window:IsShown() then E:SlideOut(window, self:WindowSide(window)) end
 end
@@ -3416,7 +3507,10 @@ function M:SyncOpen()
 			window.viewChar = E.charKey
 			self:OpenWindow(window, self:WindowSide(window))
 		end
-	elseif window:IsShown() then
+	elseif window:IsShown() and not window.eldoOnly then
+		-- A window EldoUI opened alone (M:OpenBags) stays until the player
+		-- closes it, like bags that were open before a bank or vendor
+		-- opened and closed them.
 		window.search:ClearFocus()
 		E:SlideOut(window, self:WindowSide(window))
 	end
@@ -3523,7 +3617,9 @@ end
 -- is off closes the bags it just opened, one whose "close" setting is off
 -- opens them again. Trade, the guild bank and the profession window don't
 -- open bags in the game; for them EldoUI opens the bags on the window's
--- event and closes them again only if it opened them.
+-- event and closes them again only if it opened them. EldoUI opens and
+-- closes through M:OpenBags / M:CloseGameBags, never the game's bag code
+-- while its own window replaces the game's (F24).
 -- Only the bags are opened or closed, never the other window, and nothing
 -- happens without the player opening that window.
 ---------------------------------------------------------------------------
@@ -3572,7 +3668,7 @@ function M:HookAutoBags()
 			openedBy = kind
 		else
 			openedBy = nil
-			CloseAllBags(frame)
+			M:CloseGameBags(frame)
 		end
 	end)
 	hooksecurefunc("CloseAllBags", function(frame)
@@ -3585,7 +3681,7 @@ function M:HookAutoBags()
 		local kind = FRAME_KIND[frame:GetName() or ""]
 		if not kind or openedBy ~= kind then return end
 		openedBy = nil
-		if not M.db.autoClose[kind] then OpenAllBags() end
+		if not M.db.autoClose[kind] then M:OpenBags() end
 	end)
 	-- The player closing the bags by hand ends "opened by" as well.
 	local function Toggled()
@@ -3595,18 +3691,25 @@ function M:HookAutoBags()
 	if ToggleBackpack then hooksecurefunc("ToggleBackpack", Toggled) end
 end
 
+-- EldoUI closed the bags (its window, combat): like the game's
+-- CloseAllBags() above, nothing is kept (M:CloseGameBags).
+function M:ForgetAutoOpen()
+	openedBy, eventOpened = nil, nil
+end
+
 function M:OnAutoBagEvent(event)
 	local entry = EVENT_KIND[event]
 	if not (entry and self:AutoBagsAllowed()) then return end
 	local kind, shown = entry[1], entry[2]
 	if shown then
-		if self.db.autoOpen[kind] and not AnyOpen() then
-			OpenAllBags()
+		local window = windows.bags
+		if self.db.autoOpen[kind] and not AnyOpen() and not (window and window:IsShown()) then
+			self:OpenBags()
 			eventOpened = kind
 		end
 	elseif eventOpened == kind then
 		eventOpened = nil
-		if self.db.autoClose[kind] then CloseAllBags() end
+		if self.db.autoClose[kind] then self:CloseBags() end
 	end
 end
 
@@ -3620,7 +3723,7 @@ function M:CloseForCombat()
 		for _, animation in pairs(window.eldoAnim or {}) do animation:Stop() end
 		window:Hide()
 	end
-	if AnyOpen() then CloseAllBags() end
+	if AnyOpen() then self:CloseGameBags() end
 end
 
 function M:EnableAutoBags()
@@ -3662,6 +3765,28 @@ local function HookBagFrames()
 		hooksecurefunc(frame, "Show", Sync)
 		hooksecurefunc(frame, "Hide", Sync)
 		hooksecurefunc(frame, "SetShown", Sync)
+	end
+	-- A window EldoUI opened alone (M:OpenBags): the game's bag toggle (B)
+	-- either opened the game's frames or closed the ones a bank or vendor
+	-- opened, but the player meant to close the window. Whatever is open
+	-- closes, and the window follows (SyncOpen). Only ToggleAllBags: the
+	-- game's own opens call ToggleBackpack too (OpenBackpack).
+	if ToggleAllBags then
+		hooksecurefunc("ToggleAllBags", function()
+			local window = windows.bags
+			if not (window and window.eldoOnly) then return end
+			window.eldoOnly = nil
+			if window:IsShown() and M:OwnBags() then M:CloseGameBags() end
+		end)
+	end
+	-- The game's CloseAllBags() without a window is the player's close
+	-- (the backpack key or button on the open backpack, Escape): a window
+	-- opened alone closes with the game's frames.
+	if CloseAllBags then
+		hooksecurefunc("CloseAllBags", function(frame)
+			local window = windows.bags
+			if window and not frame then window.eldoOnly = nil end
+		end)
 	end
 end
 M.HookBagFrames = HookBagFrames
@@ -4310,7 +4435,7 @@ function M:Find(text)
 		window.viewChar = E.charKey
 		window.allChars = true
 		M.SetRailActive(window.allButton, true)
-		if not window:IsShown() then OpenAllBags() end
+		if not window:IsShown() then self:OpenBags() end
 		window.search:SetText(text)
 		self:OpenWindow(window, self:WindowSide(window))
 		return

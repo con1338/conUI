@@ -95,7 +95,12 @@ local function BuildPanel(panel, preview)
 		onClick = function() M:LandEarly() end })
 	panel.land:SetPoint("RIGHT", panel.exit, "LEFT", -8, 0)
 	panel.bags = Kit.Button(panel, { text = L["Bags"], width = width,
-		onClick = function() M:CloseFlightView("bags") if ToggleAllBags then ToggleAllBags() end end })
+		onClick = function()
+			M:CloseFlightView("bags")
+			-- Through the Bags module: the game's bag code stays the game's (F24).
+			local bags = E.modules.Bags
+			if bags and bags.ToggleBags then bags:ToggleBags() elseif ToggleAllBags then ToggleAllBags() end
+		end })
 	panel.bags:SetPoint("BOTTOM", panel.exit, "TOP", 0, 8)
 	-- The map opens through the game's own map button (Kit.GameButton), so
 	-- the game opens it; without that button, through the game's own map

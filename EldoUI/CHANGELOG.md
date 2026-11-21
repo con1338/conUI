@@ -12,6 +12,12 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 - Fishing's Only the splash turns every other sound off while fishing: music, ambience, dialog, emote, pet and ping sounds. The sound effects with the splash stay on, and your own settings come back when fishing mode ends.
 
+### Bags and loot
+
+#### Fixed
+
+- Right-clicking an item in EldoUI's bag window to use it (hearthstone, keys, recipes, or to put it into the trade window) is no longer blocked until a reload after a visit to the bank. EldoUI's bag window no longer runs the game's own bag code: bags opened from the Info Bar, with /eui find or with another window stay open until you close them.
+
 ## [0.7.3005] - 2026-11-18
 
 ### Setup and profiles
