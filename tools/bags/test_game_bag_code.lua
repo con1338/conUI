@@ -12,14 +12,14 @@
 -- from EldoUI builds the game's bag frames) tainted the tab, and every
 -- right-click hands that tab to UseContainerItem.
 -- This cuts the real helpers, CloseWindow, SyncOpen and the ToggleAllBags
--- hook out of EldoUI/Modules/Bags/Core.lua (between fixed markers, so a
--- renamed part makes the test fail instead of testing a stale copy) and
--- runs them against a model of the game's bag frames on EldoUI's hidden
--- parent. Checked: while the frames are parked EldoUI calls none of the
--- game's bag functions (open, close, toggle); its window opens alone, stays
--- through a bank visit and closes on its close button, the info bar block
--- and the game's B; with the game's frames shown the game's functions are
--- used as before. A text check makes sure no other place in Core.lua,
+-- and CloseAllBags hooks out of EldoUI/Modules/Bags/Core.lua (between fixed
+-- markers, so a renamed part makes the test fail instead of testing a stale
+-- copy) and runs them against a model of the game's bag frames on EldoUI's
+-- hidden parent. Checked: while the frames are parked EldoUI calls none of
+-- the game's bag functions (open, close, toggle); its window opens alone,
+-- stays through a bank visit and closes on its close button, the info bar
+-- block, the game's B and the backpack key; with the game's frames shown
+-- the game's functions are used as before. A text check makes sure no other place in Core.lua,
 -- InfoBar.lua or FlightView.lua calls them directly.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/bags/") or "./"
 
@@ -42,9 +42,10 @@ end
 local core = ReadFile("EldoUI/Modules/Bags/Core.lua")
 local helpers = Between(core, "function M:GameBagsParked()", "-- Tour help: the bag window explains itself once", "Core.lua helpers")
 local syncing = Between(core, "function M:CloseWindow(window)", "-- Bank window anywhere: the selected character's saved bank.", "Core.lua SyncOpen")
-local HOOK = 'hooksecurefunc("ToggleAllBags", function()'
-local hook = Between(core, HOOK, "\t\tend)\n\tend\nend\nM.HookBagFrames = HookBagFrames", "Core.lua ToggleAllBags hook")
-hook = "GameToggled = " .. hook:sub(#'hooksecurefunc("ToggleAllBags", ' + 1) .. "end\n"
+-- The two post-hooks at the end of HookBagFrames (ToggleAllBags and
+-- CloseAllBags), run as they are against a hooksecurefunc that keeps them.
+local hooks = Between(core, 'if ToggleAllBags then\n\t\thooksecurefunc("ToggleAllBags", function()',
+	"\nend\nM.HookBagFrames = HookBagFrames", "Core.lua HookBagFrames hooks")
 
 ---------------------------------------------------------------------------
 -- Model of the game's bag frames and EldoUI's window
@@ -105,18 +106,44 @@ function M:WindowSide() return "RIGHT" end
 function M:OpenWindow(frame) frame.shown = true; world.opens = world.opens + 1 end
 function M:ForgetAutoOpen() world.forgot = world.forgot + 1 end
 
+local posthooks = {}
+function hooksecurefunc(name, fn)
+	assert(type(name) == "string" and type(fn) == "function", "hooksecurefunc(name, fn)")
+	posthooks[name] = fn
+end
+
 local env = "local M, E, windows, hider, BlizzardBagFrames = ...\n"
-for _, part in ipairs({ { helpers, "helpers" }, { syncing, "SyncOpen" }, { hook, "ToggleAllBags hook" } }) do
+for _, part in ipairs({ { helpers, "helpers" }, { syncing, "SyncOpen" }, { hooks, "HookBagFrames hooks" } }) do
 	local chunk = assert(loadstring(env .. part[1], "=Core.lua " .. part[2]))
 	chunk(M, E, windows, hider, BlizzardBagFrames)
 end
+assert(posthooks.ToggleAllBags and posthooks.CloseAllBags, "HookBagFrames: the ToggleAllBags or CloseAllBags hook is missing")
 
--- The player presses B: the game's own toggle, then EldoUI's post-hook.
-local function PressB()
+-- The player's own toggles (not EldoUI's calls): the game's function,
+-- then EldoUI's post-hook.
+local function PlayerCall(name, fn)
 	local calls = #world.game
-	ToggleAllBags()
-	GameToggled()
-	table.remove(world.game, calls + 1) -- the player's own toggle, not EldoUI's
+	fn()
+	table.remove(world.game, calls + 1)
+	posthooks[name]()
+end
+-- B: ToggleAllBags.
+local function PressB() PlayerCall("ToggleAllBags", ToggleAllBags) end
+-- The backpack key on a closed backpack opens it; on an open one the game
+-- closes all bags (ToggleBackpack -> CloseAllBags()).
+local function PressBackpack()
+	if AnyShown() then
+		PlayerCall("CloseAllBags", CloseAllBags)
+	else
+		GameOpen()
+	end
+end
+-- A bank or vendor closes: the game's CloseAllBags(frame).
+local function WindowCloses(frame)
+	local calls = #world.game
+	CloseAllBags(frame)
+	table.remove(world.game, calls + 1)
+	posthooks.CloseAllBags(frame)
 end
 
 local failures, passed = 0, 0
@@ -180,7 +207,7 @@ do
 	M:OpenBags()
 	GameOpen()
 	M:SyncOpen()
-	GameClose()
+	WindowCloses({ name = "BankFrame" })
 	M:SyncOpen()
 	Check(window:IsShown() and window.eldoOnly, "a window opened alone stays when the bank closes the game's bags")
 	PressB()
@@ -198,6 +225,20 @@ do
 	PressB()
 	M:SyncOpen()
 	Check(not window:IsShown() and not AnyShown(), "B at the bank closes a window opened alone")
+end
+
+do
+	-- Opened alone: the backpack key opens the game's backpack first (no
+	-- change on screen), then closes all bags, and the window goes too.
+	NewWorld(true)
+	M:OpenBags()
+	PressBackpack()
+	M:SyncOpen()
+	Check(window:IsShown(), "the backpack key on the closed backpack leaves a window opened alone open")
+	PressBackpack()
+	M:SyncOpen()
+	Check(not window:IsShown() and not AnyShown(), "the backpack key on the open backpack closes a window opened alone")
+	Check(NoGameCalls(), "the backpack key needs no call of EldoUI's")
 end
 
 do

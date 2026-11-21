@@ -572,9 +572,11 @@ Geprüft wurde jeder Fix gegen den Code von 0.7.3005 (nicht im Spiel). Nur sechs
   (`M:GameBagsParked`, Taschen „Ersetzen“ oder „Ausblenden“), ruft EldoUI Blizzards Taschencode nicht mehr selbst auf.
   - `M:CloseGameBags` versteckt die Rahmen nur. Auf dem versteckten Elternrahmen laufen ohnehin keine Skripte. Wie bei
     Blizzard verlieren die Gegenstände ihre „Neu“-Markierung (`UpdateNewItemList`, nur `C_NewItems`).
-  - `M:OpenBags` öffnet nur EldoUIs Fenster (`window.eldoOnly`). Es bleibt offen, bis der Spieler es schließt: X, Escape,
-    B (Haken an `ToggleAllBags`) oder ein Taschen-Block. Auch wenn eine Bank oder ein Händler die Taschen öffnet und
-    wieder schließt, bleibt es offen, wie vorher bei schon offenen Taschen.
+  - `M:OpenBags` öffnet nur EldoUIs Fenster (`window.eldoOnly`). Es bleibt offen, bis der Spieler es schließt: mit X,
+    Escape, B (Haken an `ToggleAllBags`) oder einem Taschen-Block. Auch Blizzards `CloseAllBags()` ohne Fenster schließt
+    es, etwa die Rucksack-Taste auf dem offenen Rucksack. Weil Blizzard die Taschen für geschlossen hält, öffnet der
+    erste Druck der Rucksack-Taste aber nur Blizzards versteckten Rucksack. Öffnet und schließt eine Bank oder ein
+    Händler die Taschen, bleibt das Fenster offen, wie vorher bei schon offenen Taschen.
   - `M:CloseBags` und `M:ToggleBags` sind die Gegenstücke. Infoleiste (Gold, Taschen, Munition) und der Taschen-Knopf der
     Flugansicht laufen über `M:ToggleBags`.
   - Mit sichtbaren Blizzard-Taschen (Taschen nicht ersetzt) ruft EldoUI wie bisher Blizzards Funktionen auf. Dort bleibt
@@ -582,10 +584,11 @@ Geprüft wurde jeder Fix gegen den Code von 0.7.3005 (nicht im Spiel). Nur sechs
 - **Nicht erklärt:** Laut dem Spieler war der Rechtsklick ins Handelsfenster gleich nach einem `/reload` erneut gesperrt.
   Nach einem Reload ist der Bank-Typ sauber. Ob dazwischen die Bank offen war, ist nicht bekannt.
 - **Test:** `tools/bags/test_game_bag_code.lua` (läuft in `tools/ci/check_all.sh tests`). Er schneidet die Helfer,
-  `CloseWindow`, `SyncOpen` und den `ToggleAllBags`-Haken aus `Core.lua` und lässt sie gegen ein Modell der versteckten
-  Taschenrahmen laufen. Geprüft wird:
+  `CloseWindow`, `SyncOpen` und die Haken an `ToggleAllBags` und `CloseAllBags` aus `Core.lua` und lässt sie gegen ein
+  Modell der versteckten Taschenrahmen laufen. Geprüft wird:
   - Mit versteckten Rahmen ruft EldoUI keine von Blizzards Taschenfunktionen auf.
-  - Das allein geöffnete Fenster übersteht einen Bankbesuch und schließt mit X, Infoleiste und B, auch an der Bank.
+  - Das allein geöffnete Fenster übersteht einen Bankbesuch. Es schließt mit X, Infoleiste und B, auch an der Bank,
+    und mit dem zweiten Druck der Rucksack-Taste.
   - Der normale Weg mit B ist unverändert.
   - Mit sichtbaren Rahmen nutzt EldoUI Blizzards Funktionen wie bisher.
   - Eine Textprüfung stellt sicher, dass `Core.lua`, `InfoBar.lua` und `FlightView.lua` sie sonst nirgends direkt aufrufen.

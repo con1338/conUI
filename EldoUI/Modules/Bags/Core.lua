@@ -3779,6 +3779,15 @@ local function HookBagFrames()
 			if window:IsShown() and M:OwnBags() then M:CloseGameBags() end
 		end)
 	end
+	-- The game's CloseAllBags() without a window is the player's close
+	-- (the backpack key or button on the open backpack, Escape): a window
+	-- opened alone closes with the game's frames.
+	if CloseAllBags then
+		hooksecurefunc("CloseAllBags", function(frame)
+			local window = windows.bags
+			if window and not frame then window.eldoOnly = nil end
+		end)
+	end
 end
 M.HookBagFrames = HookBagFrames
 
