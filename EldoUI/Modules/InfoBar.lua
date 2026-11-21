@@ -199,6 +199,18 @@ local function DB()
 	return M.db or M.defaults
 end
 
+-- The bag blocks open and close the bags through the Bags module, which
+-- keeps the game's bag code out of EldoUI's code while its bag window
+-- replaces the game's (review/fehler.md F24). Without it, the game's toggle.
+function M.ToggleBags()
+	local bags = E.modules.Bags
+	if bags and bags.ToggleBags then
+		bags:ToggleBags()
+	elseif ToggleAllBags then
+		ToggleAllBags()
+	end
+end
+
 local function Hex(r, g, b)
 	return ("|cff%02x%02x%02x"):format(r * 255, g * 255, b * 255)
 end
@@ -516,7 +528,7 @@ E:RegisterDataText("Gold", {
 			alts:Toggle("overview")
 			return
 		end
-		ToggleAllBags()
+		M.ToggleBags()
 	end,
 })
 
@@ -566,7 +578,7 @@ E:RegisterDataText("Bags", {
 	combatClick = true,
 	hint = { Key("Click"), Key("open your bags") },
 	onClick = function()
-		ToggleAllBags()
+		M.ToggleBags()
 	end,
 })
 
@@ -1919,7 +1931,7 @@ E:RegisterDataText("Ammo", {
 	-- Opens a normal game window: works in combat too.
 	combatClick = true,
 	onClick = function()
-		if ToggleAllBags then ToggleAllBags() end
+		M.ToggleBags()
 	end,
 })
 
