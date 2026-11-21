@@ -1,5 +1,5 @@
--- Offline test for the Fishing module: soft interact while fishing and the
--- catch log.
+-- Offline test for the Fishing module: soft interact while fishing, Only
+-- the splash and the catch log.
 -- Run from the repository root:
 --   lua5.1 tools/fishing/test_fishing.lua
 -- Seen in the game (15.11.2026, WoW: Forever 1.60.1):
@@ -21,7 +21,12 @@
 -- loots the bobber" off nothing changes; a secure SoftTargetInteract is left
 -- alone (the options then show the chat command), the other two still rise;
 -- an older version's stale record is dropped once, while a reload during
--- fishing still puts the player's values back. Catches count from
+-- fishing still puts the player's values back. Only the splash turns
+-- music, ambience, dialog, emote and pet sounds off and sound in the
+-- background on, keeps sound and effects on (and turns them on for a
+-- player who keeps them off), skips a setting the client lacks or
+-- protects, follows the option at once while fishing and puts every
+-- switch back after (also after a reload). Catches count from
 -- LOOT_READY, once per loot (a second LOOT_READY and a LOOT_OPENED after it
 -- add nothing), from LOOT_OPENED alone too, not before the loot has a slot,
 -- never for loot that isn't fishing loot, and again after the next cast
@@ -65,6 +70,10 @@ local function NewWorld(cvars, secure)
 		cvars = {
 			SoftTargetInteract = "1", SoftTargetInteractRange = "10", SoftTargetInteractArc = "0",
 			Sound_SFXVolume = "0.6", Sound_MasterVolume = "0.8", Sound_MusicVolume = "0.4", Sound_AmbienceVolume = "0.5",
+			-- The sound switches (this client has no Sound_EnablePingSounds).
+			Sound_EnableAllSound = "1", Sound_EnableSFX = "1", Sound_EnableSoundWhenGameIsInBG = "0",
+			Sound_EnableMusic = "1", Sound_EnableAmbience = "1", Sound_EnableDialog = "1",
+			Sound_EnableErrorSpeech = "0", Sound_EnableEmoteSounds = "1", Sound_EnablePetSounds = "1",
 		},
 		secure = secure or {},
 		loot = nil, -- { fishing = bool, links = { ... } } while a loot is open
@@ -312,6 +321,95 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- Only the splash: every sound channel but the effects off while fishing
+---------------------------------------------------------------------------
+local SWITCHES = { "Sound_EnableAllSound", "Sound_EnableSFX", "Sound_EnableSoundWhenGameIsInBG", "Sound_EnableMusic",
+	"Sound_EnableAmbience", "Sound_EnableDialog", "Sound_EnableErrorSpeech", "Sound_EnableEmoteSounds", "Sound_EnablePetSounds" }
+
+local function Switches()
+	local parts = {}
+	for _, name in ipairs(SWITCHES) do parts[#parts + 1] = world.cvars[name] end
+	return table.concat(parts)
+end
+
+do
+	-- Off (the default): fishing leaves the switches alone.
+	NewWorld()
+	local _, M = Start()
+	FishingOn(M)
+	Check(Switches() == "110111011", "with the option off the switches stay: " .. Switches())
+	FishingOff(M)
+end
+
+do
+	-- On: music, ambience, dialog, emote and pet sounds off, sound in the
+	-- background on; sound and effects stay on and get no record.
+	NewWorld()
+	local _, M, private = Start({ onlySplash = true })
+	FishingOn(M)
+	Check(Switches() == "111000000", "only the effects stay on while fishing: " .. Switches())
+	local cvars = private.Fishing.cvars
+	Check(cvars.Sound_EnableAllSound == nil and cvars.Sound_EnableSFX == nil and cvars.Sound_EnableErrorSpeech == nil,
+		"no record for a switch that already had its value")
+	Check(world.cvars.Sound_EnablePingSounds == nil, "a setting this client lacks is not made up")
+	Check(world.cvars.Sound_SFXVolume == "1", "the louder splash still works with it")
+	Check(#world.warnings == 0, "no warning: " .. tostring(world.warnings[1]))
+	FishingOff(M)
+	Check(Switches() == "110111011", "fishing mode off: the player's own switches are back: " .. Switches())
+	Check(next(private.Fishing.cvars) == nil, "no fishing record is left")
+	Check(next(EldoUIDB.cvarSnapshot or {}) == nil, "no snapshot entry is left")
+end
+
+do
+	-- The player keeps all sound off: fishing turns sound and effects on
+	-- for the splash, and off again after.
+	NewWorld({ Sound_EnableAllSound = "0", Sound_EnableSFX = "0" })
+	local _, M = Start({ onlySplash = true, soundBoost = false })
+	FishingOn(M)
+	Check(Switches() == "111000000", "sound and effects come on for the splash: " .. Switches())
+	Check(world.cvars.Sound_SFXVolume == "0.6", "without Louder splash the volume stays the player's")
+	FishingOff(M)
+	Check(Switches() == "000111011", "and go off again after: " .. Switches())
+end
+
+do
+	-- Turned on and off while fishing: at once, and back after.
+	NewWorld()
+	local _, M = Start()
+	FishingOn(M)
+	M.db.onlySplash = true
+	M:OnProfileChanged()
+	Check(Switches() == "111000000", "option on while fishing: the other sound goes off: " .. Switches())
+	M.db.onlySplash = false
+	M:OnProfileChanged()
+	Check(Switches() == "110111011", "option off while fishing: the switches are back: " .. Switches())
+	FishingOff(M)
+end
+
+do
+	-- A reload while fishing: the player's switches come back.
+	NewWorld()
+	local _, M, private = Start({ onlySplash = true })
+	FishingOn(M)
+	M.fishingMode, M.toggled = false, false
+	M:OnEnable()
+	Check(Switches() == "110111011", "after a reload during fishing the switches are back: " .. Switches())
+	Check(next(private.Fishing.cvars) == nil, "no record left after the reload")
+end
+
+do
+	-- A secure switch is left alone and gets no record.
+	NewWorld(nil, { Sound_EnableMusic = true })
+	local _, M, private = Start({ onlySplash = true })
+	FishingOn(M)
+	Check(world.cvars.Sound_EnableMusic == "1" and private.Fishing.cvars.Sound_EnableMusic == nil, "a secure switch stays")
+	Check(world.cvars.Sound_EnableAmbience == "0", "the others still go off")
+	Check(#world.warnings == 0, "fishing doesn't even try the secure switch: " .. tostring(world.warnings[1]))
+	FishingOff(M)
+	Check(Switches() == "110111011", "values back: " .. Switches())
+end
+
+---------------------------------------------------------------------------
 -- Catch log
 ---------------------------------------------------------------------------
 local function Catches(M) return M.session and M.session.catches or 0 end
@@ -398,6 +496,7 @@ do
 end
 
 Check(DEFAULT_DB and DEFAULT_DB.interact == true, "the option is on by default")
+Check(DEFAULT_DB and DEFAULT_DB.onlySplash == false, "Only the splash is off by default")
 
 print(("%d passed, %d failed"):format(passed, failures))
 if failures > 0 then os.exit(1) end

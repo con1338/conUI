@@ -6,6 +6,12 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 ## [Unreleased]
 
+### General
+
+#### New
+
+- Fishing's Only the splash turns every other sound off while fishing: music, ambience, dialog, emote, pet and ping sounds. The sound effects with the splash stay on, and your own settings come back when fishing mode ends.
+
 ## [0.7.3005] - 2026-11-18
 
 ### Setup and profiles
