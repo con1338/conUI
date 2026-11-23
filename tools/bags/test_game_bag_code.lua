@@ -19,8 +19,10 @@
 -- the game's bag functions (open, close, toggle); its window opens alone,
 -- stays through a bank visit and closes on its close button, the info bar
 -- block, the game's B and the backpack key; with the game's frames shown
--- the game's functions are used as before. A text check makes sure no other place in Core.lua,
--- InfoBar.lua or FlightView.lua calls them directly.
+-- the game's functions are used as before. The Finder's Bags entry
+-- (/eui find) runs against the same model. A text check makes sure no
+-- other Lua file the TOCs load calls them, directly or by name in quotes
+-- (the Finder did: `fn = "ToggleAllBags"`).
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/bags/") or "./"
 
 local function ReadFile(path)
@@ -287,6 +289,36 @@ do
 end
 
 ---------------------------------------------------------------------------
+-- The Finder's Bags entry (/eui find): through the Bags module too
+---------------------------------------------------------------------------
+local finder = ReadFile("EldoUI/Modules/Finder/Finder.lua")
+local panelsText = Between(finder, "local PANELS = {", "\nM.PANELS = PANELS", "Finder.lua PANELS")
+local panels = assert(loadstring("return " .. panelsText:sub(#"local PANELS = " + 1), "=Finder.lua PANELS"))()
+local bagsPanel
+for _, panel in ipairs(panels) do
+	if panel.text == "Bags" then bagsPanel = panel end
+end
+assert(bagsPanel, "Finder.lua: no Bags entry in PANELS")
+local PanelCall = assert(loadstring("local E, Global = ...\n"
+	.. Between(finder, "local function PanelCall(panel)", "-- The config window opens only from /eui", "Finder.lua PanelCall")
+	.. "\nreturn PanelCall", "=Finder.lua PanelCall"))(E, function(name) return rawget(_G, name) end)
+E.modules = { Bags = M }
+
+do
+	NewWorld(true)
+	local open = PanelCall(bagsPanel)
+	Check(type(open) == "function", "the Finder offers its Bags entry")
+	open()
+	Check(window:IsShown() and window.eldoOnly, "the Finder's Bags entry opens EldoUI's window alone")
+	Check(NoGameCalls(), "the Finder's Bags entry calls none of the game's bag functions: " .. table.concat(world.game, ", "))
+	open()
+	Check(not window:IsShown() and NoGameCalls(), "the Finder's Bags entry closes the window again without the game's code")
+	NewWorld(false)
+	open()
+	Check(world.game[1] == "ToggleAllBags", "with the game's bags shown the Finder's Bags entry uses the game's toggle")
+end
+
+---------------------------------------------------------------------------
 -- No other direct call of the game's bag functions
 ---------------------------------------------------------------------------
 local CALLS = { "OpenAllBags%(", "CloseAllBags%(", "ToggleAllBags%(", "OpenBackpack%(", "ToggleBackpack%(",
@@ -308,6 +340,35 @@ local function DirectCalls(text, allowed)
 	return found
 end
 
+-- Lines that name one in quotes (a global looked up by name, as the
+-- Finder's panel list did), outside comments. A post-hook and AddonFit's
+-- watch lists only follow the game's call, so they are no call.
+local NAMES = { "OpenAllBags", "CloseAllBags", "ToggleAllBags", "OpenBackpack", "ToggleBackpack", "CloseBackpack",
+	"OpenBag", "ToggleBag", "CloseBag" }
+local function NamedCalls(text)
+	local found = {}
+	for line in text:gmatch("[^\n]+") do
+		local code = line:gsub("%-%-.*$", "")
+		if not code:find("hooksecurefunc%(") and not code:find("watch%s*=%s*{") then
+			for _, name in ipairs(NAMES) do
+				if code:find('"' .. name .. '"', 1, true) or code:find("'" .. name .. "'", 1, true) then found[#found + 1] = line end
+			end
+		end
+	end
+	return found
+end
+
+-- The Lua files a TOC loads, in its order.
+local function TocFiles(toc)
+	local dir = toc:match("^(.*/)")
+	local list = {}
+	for line in ReadFile(toc):gmatch("[^\n]+") do
+		line = line:gsub("%s+$", "")
+		if not line:find("^#") and line:find("%.lua$") then list[#list + 1] = dir .. line:gsub("\\", "/") end
+	end
+	return list
+end
+
 do
 	local list = DirectCalls(core, helpers)
 	Check(#list == 0, "Core.lua calls the game's bag functions only in its helpers: " .. table.concat(list, " | "))
@@ -321,6 +382,29 @@ do
 	Check(#list == 0, "FlightView.lua toggles the bags only through the Bags module: " .. table.concat(list, " | "))
 	-- Counter-check: the check finds a direct call.
 	Check(#DirectCalls("\tif x then CloseAllBags() end\n") == 1, "counter-check: a direct CloseAllBags() is found")
+end
+
+do
+	-- Every other Lua file of the addons with code (the language and data
+	-- folders hold only tables): no direct call, and no call by name. The
+	-- three files above keep their own allowed parts; the name check runs on
+	-- them too.
+	local own = { ["EldoUI/Modules/Bags/Core.lua"] = true, ["EldoUI/Modules/InfoBar.lua"] = true,
+		["EldoUI/Modules/QoL/FlightView.lua"] = true }
+	local files, bad = 0, {}
+	for _, toc in ipairs({ "EldoUI/EldoUI.toc", "EldoUI_GroupBoard/EldoUI_GroupBoard.toc", "EldoUI_LootSim/EldoUI_LootSim.toc" }) do
+		for _, path in ipairs(TocFiles(toc)) do
+			files = files + 1
+			local text = ReadFile(path)
+			local list = own[path] and {} or DirectCalls(text)
+			for _, line in ipairs(NamedCalls(text)) do list[#list + 1] = line end
+			for _, line in ipairs(list) do bad[#bad + 1] = path .. ": " .. line:gsub("^%s+", "") end
+		end
+	end
+	Check(files > 500, ("the TOCs list the addon's Lua files (%d found)"):format(files))
+	Check(#bad == 0, "no other Lua file calls the game's bag functions, directly or by name: " .. table.concat(bad, " | "))
+	Check(#NamedCalls('\t{ text = "Bags", fn = "ToggleAllBags" },\n') == 1, "counter-check: a bag function named in quotes is found")
+	Check(#NamedCalls('\thooksecurefunc("ToggleAllBags", function() end)\n') == 0, "counter-check: a post-hook is no call")
 end
 
 print(("%d checks passed, %d failed"):format(passed, failures))

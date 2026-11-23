@@ -31,7 +31,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
 | F22 | Auktionshaus: Verkaufen-Seite bleibt nach „Schnellverkauf“ leer; Rechtsklick in die Taschen verboten (im Spiel gefunden) | mittel | teilweise | `391f0b7` |
 | F23 | Gilden-Tooltip der Infoleiste fragt im Kampf die Gildennachricht ab → ADDON_ACTION_BLOCKED (im Fehlerlog gefunden) | niedrig | behoben | `bb28608` |
-| F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen; der Weg über den Finder ist noch offen) | |
+| F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -92,7 +92,7 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
 
 | Nr. | In 0.7.3100 | Was im Fork bleibt |
 |---|---|---|
-| F24 | Nein: In `Modules/Bags/Core.lua` gibt EldoUI nur `CanBuyTab` als `M.CanBuyBankTab` heraus, für die neue Schaltfläche „Nächsten Bankreiter kaufen“ auf der Seitenleiste des Bankfensters (`Modules/Bags/BankActions.lua`). Sie ist wie das Plus auf der Taschenleiste seit 0.7.3005 die Kaufschaltfläche des Spiels; ohne sie öffnet sie Blizzards Bankfenster (`M:ShowBlizzardBank`, wie bisher). Neue Aufrufe von `OpenAllBags`, `CloseAllBags` oder `ToggleAllBags` gibt es nicht (im ganzen Addon gesucht; die Textprüfung in `tools/bags/test_game_bag_code.lua` liest nur `Bags/Core.lua`, `InfoBar.lua` und `FlightView.lua`). Die Gegenprüfung fand dabei einen alten Weg, den F24 nicht abdeckt: den Finder (siehe F24). | Alles. |
+| F24 | Nein: In `Modules/Bags/Core.lua` gibt EldoUI nur `CanBuyTab` als `M.CanBuyBankTab` heraus, für die neue Schaltfläche „Nächsten Bankreiter kaufen“ auf der Seitenleiste des Bankfensters (`Modules/Bags/BankActions.lua`). Sie ist wie das Plus auf der Taschenleiste seit 0.7.3005 die Kaufschaltfläche des Spiels; ohne sie öffnet sie Blizzards Bankfenster (`M:ShowBlizzardBank`, wie bisher). Neue Aufrufe von `OpenAllBags`, `CloseAllBags` oder `ToggleAllBags` gibt es nicht (im ganzen Addon gesucht; die Textprüfung in `tools/bags/test_game_bag_code.lua` liest nur `Bags/Core.lua`, `InfoBar.lua` und `FlightView.lua`). Die Gegenprüfung fand dabei einen alten Weg, den F24 nicht abdeckte: den Finder (siehe F24, inzwischen behoben). | Alles. |
 | F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderungen in `InfoBar.lua` sind der neue Block „PvP rank“ und die Trefferwertung in den Blöcken Hit und Spell hit. | Alles. |
 | F01–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
 
@@ -606,16 +606,23 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
     und mit dem zweiten Druck der Rucksack-Taste.
   - Der normale Weg mit B ist unverändert.
   - Mit sichtbaren Rahmen nutzt EldoUI Blizzards Funktionen wie bisher.
+  - Der Eintrag „Taschen“ des Finders (echtes `PANELS` und `PanelCall` aus `Finder.lua`) öffnet und schließt nur
+    EldoUIs Fenster und nimmt mit sichtbaren Rahmen das Umschalten des Spiels.
   - Eine Textprüfung stellt sicher, dass `Core.lua`, `InfoBar.lua` und `FlightView.lua` sie sonst nirgends direkt aufrufen.
+    Seit der Gegenprüfung liest sie jede Lua-Datei aus den TOCs von EldoUI, Gruppen-Pinnwand und Loot Sim, auch auf
+    Namen in Anführungszeichen (wie `fn = "ToggleAllBags"`); Nachhaken (`hooksecurefunc`) und die `watch`-Listen in
+    `Data/AddonFit.lua` folgen nur dem Aufruf des Spiels und zählen nicht.
   Er läuft nur in der CI, denn auf dem Entwicklungsrechner gibt es kein Lua.
-- **Lücke (Gegenprüfung beim Update auf 0.7.3100, 23.11.2026), offen:** Der Finder (`/eui find`, Eintrag „Taschen“)
-  ruft Blizzards `ToggleAllBags` weiter direkt aus EldoUIs Code auf: `Modules/Finder/Finder.lua` (`PANELS`, Eintrag
-  `fn = "ToggleAllBags"`; `PanelCall` gibt `function() fn(arg) end` zurück, `M:Run` ruft es auf Klick oder Eingabe auf).
-  Das ist der zweite Weg der Ursache oben, nur von dort. Szenario: Taschen „Ersetzen“, im Finder „Taschen“ wählen, zur
-  Bank, dann Rechtsklick auf den Ruhestein: vermutlich wieder „Forbidden … ContainerFrame.lua:1611“ (Codepfad
-  bestätigt, die Folge plausibel, wie bei F24). Die Textprüfung des Tests liest den Finder nicht. Der Weg stammt nicht
-  aus dem Update. Fix-Idee: den Eintrag über `E.modules.Bags:ToggleBags()` führen (Rückfall `ToggleAllBags`) wie
-  `M.ToggleBags` in `InfoBar.lua`; die Textprüfung auf alle Lua-Dateien ausdehnen, auch auf Namen in Anführungszeichen.
+- **Lücke (Gegenprüfung beim Update auf 0.7.3100, 23.11.2026), behoben:** Der Finder (das Suchfeld des Moduls Finder,
+  Eintrag „Taschen“) rief Blizzards `ToggleAllBags` weiter direkt aus EldoUIs Code auf: `Modules/Finder/Finder.lua`
+  (`PANELS`, Eintrag `fn = "ToggleAllBags"`; `PanelCall` gab `function() fn(arg) end` zurück, `M:Run` ruft es auf Klick
+  oder Eingabe auf). Das ist der zweite Weg der Ursache oben, nur von dort. Szenario: Taschen „Ersetzen“, im Finder
+  „Taschen“ wählen, zur Bank, dann Rechtsklick auf den Ruhestein: vermutlich wieder „Forbidden …
+  ContainerFrame.lua:1611“ (Codepfad bestätigt, die Folge plausibel, wie bei F24). Die Textprüfung des Tests las den
+  Finder nicht. Der Weg stammt nicht aus dem Update.
+  - **Umsetzung:** Der Eintrag heißt jetzt `bags = true`, und `PanelCall` führt ihn über `M:ToggleBags` des
+    Taschen-Moduls. Das nimmt selbst das Umschalten des Spiels, solange EldoUIs Fenster die Taschen nicht ersetzt; ein
+    eigener Rückfall im Finder ist darum nicht nötig.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
 ## Sonstiges
@@ -648,6 +655,7 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F24 | `/reload`; Taschen mit B öffnen und mit EldoUIs X schließen; zur Bank, etwas herausholen, Bank schließen; Ruhestein oder Rezept per Rechtsklick aus der Tasche benutzen, danach `/run print(issecurevariable("FRAME_THAT_OPENED_BAGS"))print(issecurevariable(BankFrame.BankPanel,"bankType"))print(issecurevariable(MerchantFrame,"selectedTab"))` | Rechtsklick wirkt, kein neuer Eintrag „ContainerFrame.lua:1611“ in `/eui errors`; dreimal `true` | offen |
 | F24 | Taschen über die Infoleiste öffnen, mit B schließen; noch einmal über die Infoleiste öffnen, einen Händler besuchen und verlassen | B schließt das Fenster; nach dem Händler bleibt es offen | offen |
 | F24 | mit einem Freund handeln: einen Gegenstand per Rechtsklick aus der Tasche ins Handelsfenster legen | er landet im Handelsfenster | offen |
+| F24 | `/reload`; im Finder „Taschen“ wählen (öffnet), noch einmal (schließt), wieder öffnen; zur Bank, etwas herausholen, Bank schließen; Ruhestein per Rechtsklick aus der Tasche benutzen | das Fenster öffnet und schließt; Rechtsklick wirkt, kein neuer Eintrag „ContainerFrame.lua:1611“ | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |

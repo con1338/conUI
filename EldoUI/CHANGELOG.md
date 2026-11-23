@@ -17,6 +17,7 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 #### Fixed
 
 - Right-clicking an item in EldoUI's bag window to use it (hearthstone, keys, recipes, or to put it into the trade window) is no longer blocked until a reload after a visit to the bank. EldoUI's bag window no longer runs the game's own bag code: bags opened from the Info Bar, with /eui find or with another window stay open until you close them.
+- Picking Bags in the Finder no longer blocks right-click use from the bags after a visit to the bank: it opens and closes EldoUI's bag window the same way the Info Bar does.
 
 ## [0.7.3100] - 2026-11-21
 

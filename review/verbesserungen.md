@@ -1094,7 +1094,7 @@ Inspect-Anfragen, automatische Loot-Verteilung.
 
       | Befund des Prüfers | Reaktion |
       |---|---|
-      | F24: Der Finder ruft `ToggleAllBags` direkt auf (alter Weg, nicht aus dem Update); die Textprüfung des Tests liest ihn nicht, die Notiz zum Update nannte sie aber als Beleg | In `fehler.md` unter F24 als offene Lücke eingetragen, die Notiz zum Update berichtigt; Fix getrennt |
+      | F24: Der Finder ruft `ToggleAllBags` direkt auf (alter Weg, nicht aus dem Update); die Textprüfung des Tests liest ihn nicht, die Notiz zum Update nannte sie aber als Beleg | In `fehler.md` unter F24 eingetragen, die Notiz zum Update berichtigt; behoben im PR danach (Finder über das Taschen-Modul, Textprüfung über alle Lua-Dateien) |
       | Deutsch: fünf Sätze holprig (PvP-Rangleiste, Jäger in den Neuigkeiten, Obergrenze „öffnet sich“, „Sie“ wie Höflichkeitsform, „Obergrenze“ ohne „erreicht“) | Alle fünf geändert |
       | Namen aus dem Gedächtnis (Loyalitätsstufen, Futter, „Berg Hyjal“, „Gegenstandsinformationen werden abgerufen“) | Als Punkt für den Spieltest unten |
       | Glossar nicht nachgezogen | Neue Begriffe in `tools/locale/glossar-deDE.md` |
