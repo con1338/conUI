@@ -1072,8 +1072,12 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       Würfelleisten, Beutefenster und Bankreiter.
     - Konflikte: TOC (Version), CHANGELOG, `Bindings.xml` und `Core/Bindings.lua`. Die Namen der neuen Tasten 10 bis 12
       setzen ihr Heilmittel mit `E:InSentence` ein wie die übrigen Tasten der Leiste (Deutsch behält das Substantiv groß).
-    - Fork-Features gegen 0.7.3100 geprüft: keins ist doppelt, keins überschneidet sich. Ohne Konflikt durchgelaufen
-      und unabhängig: C1 (Masque) und die Tasten mit Umschalt/Strg/Alt auf der Verbrauchsgüterleiste gelten auch für die
+    - Fork-Features gegen 0.7.3100 geprüft: keins ist doppelt, im Code überschneidet sich keins. Auf dem Bildschirm
+      vielleicht: EldoUI Center legt die Verbrauchsgüterleiste weiter nach rechts (BOTTOM +420 statt +330), mit bis zu
+      zwölf statt neun Schaltflächen; die Questgegenstandsleiste (fester Platz BOTTOMRIGHT −463, 246) könnte sie bei
+      vielen Questgegenständen berühren (Rechnung der Gegenprüfung: bei 2560 Breite und voller Leiste ab sechs
+      Gegenständen, vorher ab zehn). Im Spiel prüfen, dann ggf. den Platz der Questleiste je Layout setzen.
+      Ohne Konflikt durchgelaufen und unabhängig: C1 (Masque) und die Tasten mit Umschalt/Strg/Alt auf der Verbrauchsgüterleiste gelten auch für die
       drei neuen Schaltflächen (dieselbe `CreateButton`); `E:InSentence` in `Chat/Core.lua` und `Gathering/Core.lua`
       neben EldoUIs Ausführungsmarke und dem Lernen neuer Vorkommen; F23, F24 und der Name conUI in `InfoBar.lua` neben
       dem PvP-Rang-Block; die Wowhead-Sprache in `QoL.lua` neben EldoUIs Flugleiste; der Name im DBM-Panel neben
@@ -1085,6 +1089,18 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       Nachbau nötig. Offline-Start: 635 bzw. 641 Dateien, 103 Module (84 an), 0 Fehler, englischer und deutscher Client.
     - CHANGELOG: Der Merge von 0.7.3001 hatte eine Zeile (Klassenbuff-Erinnerung) unter 0.7.2000 doppelt stehen
       lassen; sie ist raus, beide CHANGELOGs sind wieder EldoUIs plus der Abschnitt [Unreleased] des Forks.
+    - Gegenprüfung (unabhängiger Prüfer, 23.11.2026): Importe byte-genau, den Merge in einem eigenen Klon wiederholt
+      (dieselben vier Konflikte, alles andere gleich), `check_all.sh` grün, Zahlen in Notizen und Commits richtig.
+
+      | Befund des Prüfers | Reaktion |
+      |---|---|
+      | F24: Der Finder ruft `ToggleAllBags` direkt auf (alter Weg, nicht aus dem Update); die Textprüfung des Tests liest ihn nicht, die Notiz zum Update nannte sie aber als Beleg | In `fehler.md` unter F24 als offene Lücke eingetragen, die Notiz zum Update berichtigt; Fix getrennt |
+      | Deutsch: fünf Sätze holprig (PvP-Rangleiste, Jäger in den Neuigkeiten, Obergrenze „öffnet sich“, „Sie“ wie Höflichkeitsform, „Obergrenze“ ohne „erreicht“) | Alle fünf geändert |
+      | Namen aus dem Gedächtnis (Loyalitätsstufen, Futter, „Berg Hyjal“, „Gegenstandsinformationen werden abgerufen“) | Als Punkt für den Spieltest unten |
+      | Glossar nicht nachgezogen | Neue Begriffe in `tools/locale/glossar-deDE.md` |
+      | Questleiste neben der verschobenen Verbrauchsgüterleiste (plausibel) | Aussage oben berichtigt, Punkt für den Spieltest |
+      | Sammeln lernt neue Vorkommen nur bei `LOOT_OPENED`; mit Auto-Loot schickt Forever beim Angeln nur `LOOT_READY` (F21), vielleicht auch beim Bergbau (plausibel, EldoUIs Code) | Punkt für den Spieltest; trifft es zu, an EldoUI melden |
+
     - Version `0.7.3100-p1`. Im Spiel ist das Update noch nicht getestet.
     - Im Spiel prüfen (vorher `WTF` sichern; alte `EldoUI*`-Ordner löschen, das neue ZIP entpacken und das Spiel ganz
       neu starten, die TOC hat neue Dateien):
@@ -1097,6 +1113,11 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       - Beute: Würfe in der Gruppe bekommen sofort ihre Leiste; das Beutefenster schließt mit Esc.
       - Jäger: Trainingsfenster, Reiter „Tierfähigkeiten“ mit Zufriedenheit, Loyalität und Futter (deutsch).
       - Instanzen: Stundenlimit 10; ein eigenes Limit bleibt.
+      - Deutscher Client: die Loyalitätsstufen (Rebellisch … Bester Freund), die Futterarten und „Berg Hyjal“ so, wie
+        das Spiel sie nennt; sonst die Übersetzung anpassen. „Gegenstandsinformationen werden abgerufen“ beim Würfeln.
+      - `/eui move` mit voller Verbrauchsgüterleiste (die Heilmittel an) und mehreren Questgegenständen: Die beiden
+        Leisten liegen nicht übereinander.
+      - Sammeln mit Auto-Loot: eine Ader Heavy Thorium am Berg Hyjal abbauen; die Markierung zeigt Bergbau 300.
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.

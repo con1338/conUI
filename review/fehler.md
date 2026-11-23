@@ -31,7 +31,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F21 | Angeln: Das Fangprotokoll bleibt bei 0 (im Spiel gefunden) | niedrig–mittel | behoben | `cfebaee` |
 | F22 | Auktionshaus: Verkaufen-Seite bleibt nach „Schnellverkauf“ leer; Rechtsklick in die Taschen verboten (im Spiel gefunden) | mittel | teilweise | `391f0b7` |
 | F23 | Gilden-Tooltip der Infoleiste fragt im Kampf die Gildennachricht ab → ADDON_ACTION_BLOCKED (im Fehlerlog gefunden) | niedrig | behoben | `bb28608` |
-| F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
+| F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen; der Weg über den Finder ist noch offen) | |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -92,7 +92,7 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
 
 | Nr. | In 0.7.3100 | Was im Fork bleibt |
 |---|---|---|
-| F24 | Nein: In `Modules/Bags/Core.lua` gibt EldoUI nur `CanBuyTab` als `M.CanBuyBankTab` heraus, für die neue Schaltfläche „Nächsten Bankreiter kaufen“ auf der Seitenleiste des Bankfensters (`Modules/Bags/BankActions.lua`). Sie ist wie das Plus auf der Taschenleiste seit 0.7.3005 die Kaufschaltfläche des Spiels; ohne sie öffnet sie Blizzards Bankfenster (`M:ShowBlizzardBank`, wie bisher). Neue Aufrufe von `OpenAllBags`, `CloseAllBags` oder `ToggleAllBags` gibt es nicht; die Textprüfung in `tools/bags/test_game_bag_code.lua` ist grün. | Alles. |
+| F24 | Nein: In `Modules/Bags/Core.lua` gibt EldoUI nur `CanBuyTab` als `M.CanBuyBankTab` heraus, für die neue Schaltfläche „Nächsten Bankreiter kaufen“ auf der Seitenleiste des Bankfensters (`Modules/Bags/BankActions.lua`). Sie ist wie das Plus auf der Taschenleiste seit 0.7.3005 die Kaufschaltfläche des Spiels; ohne sie öffnet sie Blizzards Bankfenster (`M:ShowBlizzardBank`, wie bisher). Neue Aufrufe von `OpenAllBags`, `CloseAllBags` oder `ToggleAllBags` gibt es nicht (im ganzen Addon gesucht; die Textprüfung in `tools/bags/test_game_bag_code.lua` liest nur `Bags/Core.lua`, `InfoBar.lua` und `FlightView.lua`). Die Gegenprüfung fand dabei einen alten Weg, den F24 nicht abdeckt: den Finder (siehe F24). | Alles. |
 | F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderungen in `InfoBar.lua` sind der neue Block „PvP rank“ und die Trefferwertung in den Blöcken Hit und Spell hit. | Alles. |
 | F01–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
 
@@ -608,6 +608,14 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
   - Mit sichtbaren Rahmen nutzt EldoUI Blizzards Funktionen wie bisher.
   - Eine Textprüfung stellt sicher, dass `Core.lua`, `InfoBar.lua` und `FlightView.lua` sie sonst nirgends direkt aufrufen.
   Er läuft nur in der CI, denn auf dem Entwicklungsrechner gibt es kein Lua.
+- **Lücke (Gegenprüfung beim Update auf 0.7.3100, 23.11.2026), offen:** Der Finder (`/eui find`, Eintrag „Taschen“)
+  ruft Blizzards `ToggleAllBags` weiter direkt aus EldoUIs Code auf: `Modules/Finder/Finder.lua` (`PANELS`, Eintrag
+  `fn = "ToggleAllBags"`; `PanelCall` gibt `function() fn(arg) end` zurück, `M:Run` ruft es auf Klick oder Eingabe auf).
+  Das ist der zweite Weg der Ursache oben, nur von dort. Szenario: Taschen „Ersetzen“, im Finder „Taschen“ wählen, zur
+  Bank, dann Rechtsklick auf den Ruhestein: vermutlich wieder „Forbidden … ContainerFrame.lua:1611“ (Codepfad
+  bestätigt, die Folge plausibel, wie bei F24). Die Textprüfung des Tests liest den Finder nicht. Der Weg stammt nicht
+  aus dem Update. Fix-Idee: den Eintrag über `E.modules.Bags:ToggleBags()` führen (Rückfall `ToggleAllBags`) wie
+  `M.ToggleBags` in `InfoBar.lua`; die Textprüfung auf alle Lua-Dateien ausdehnen, auch auf Namen in Anführungszeichen.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
 ## Sonstiges

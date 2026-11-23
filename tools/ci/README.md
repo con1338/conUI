@@ -131,8 +131,8 @@ gibt es zwei Quellen und zwei Merges (zuerst so gemacht für 0.7.3001):
    Fork-Änderungen, die ohne Konflikt durchgelaufen sind; welche es waren, steht in `review/`.
 4. **Deutsches Paket:** Die dänische Liste gibt die Schlüssel vor. Texte, die sie nicht mehr hat, fliegen aus den
    vier deutschen Dateien, neue brauchen eine Übersetzung (`deDE.py export` / `import`). Neue Texte des Loot
-   Guides zuerst mit `deDE.py seed-lootguide` aus EldoUIs eigener deutscher Loot-Guide-Tabelle holen (bei 0.7.3100
-   22 von 116), dann sagen beide dasselbe.
+   Guides zuerst mit `deDE.py seed-lootguide` aus EldoUIs eigener deutscher Loot-Guide-Tabelle holen, dann sagen
+   beide dasselbe (bei 0.7.3100 kamen so alle 22 neuen Loot-Guide-Texte, von 116 neuen insgesamt).
 5. Versionen auf `<EldoUI-Version>-p1` setzen (siehe Release), Prüfungen grün, im Spiel testen, Tag pushen.
 6. **Name conUI:** Der Fork ändert nur den sichtbaren Namen, damit dieser Merge klein bleibt. Ordner, Globals,
    gespeicherte Einstellungen und alle Texte im Code heißen weiter EldoUI; `EldoUI/Core/Brand.lua` tauscht den
