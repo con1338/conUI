@@ -577,6 +577,12 @@ function Page:DrawBody()
 		self:ShowEmpty()
 		return
 	end
+	-- An announced Forever raid: when it opens and what you can get ready.
+	if entry.ready then
+		self.steps:Show()
+		self:DrawReadiness(entry)
+		return
+	end
 	-- A Forever dungeon with no written chain: the quests you recorded for it.
 	if A:Unwritten(entry) then
 		self.steps:Show()
@@ -619,6 +625,60 @@ function Page:DrawForever(entry)
 	P.FlowLine(flow, Secondary(A.db.record and L["Forever quests you accept are remembered on this PC."] or L["Remember Forever quests is off."]), nil,
 		{ L["Copy the list"], function() A:CopySeen() end, L["Copy the list"],
 			L["Opens a copy box with the Forever quests you took, to send to EldoUI's authors so the dungeon can get a full chain."] })
+	flow:Finish()
+end
+
+-- A Forever raid: when it opens, its size, and the level, items and
+-- reputation you can already work on. An item the game has not confirmed
+-- for the raid says so.
+local function Mark(ok)
+	if ok then return CheckMark() end
+	return Hex(Kit.BAD) .. "x|r"
+end
+
+function Page:DrawReadiness(entry)
+	local flow = self.steps
+	local ready = entry.ready
+	flow:Begin()
+	P.FlowText(flow, A:Name(entry), 14, nil, 0, 4)
+	local info = entry.instance and LG:InstanceInfo(entry.instance)
+	if info then
+		local opens = info.phase and LG:PhaseOpensText(info.phase, true)
+		P.FlowText(flow, opens and L["Opens %s."]:format(opens) or L["Open now."], 12, opens and "warn" or "good", 0, 2)
+		if info.size then P.FlowText(flow, E:Plural(info.size, "%d player", "%d players"):format(info.size), 12, "secondary", 0, 6) end
+	end
+	P.FlowCaption(flow, L["Getting ready"])
+	if ready.level then
+		local level = LG:Player().level or 0
+		P.FlowLine(flow, ("%s  %s"):format(Mark(level >= ready.level), L["Level %d"]:format(ready.level)))
+	end
+	for _, item in ipairs(ready.items or {}) do
+		local record = LG:ItemRecord(item.id)
+		local name = record and record.name or E:Translate(item.name)
+		local count = C_Item and C_Item.GetItemCount and C_Item.GetItemCount(item.id, true) or 0
+		if E.Secret(count) then count = 0 end
+		local held = (tonumber(count) or 0) > 0
+		P.FlowLine(flow, ("%s  %s  %s"):format(Mark(held), name, Secondary(held and L["in your bags or bank"] or L["not held"])),
+			nil, nil, name, item.note and E:Translate(item.note))
+		if item.note then P.FlowText(flow, E:Translate(item.note), 11, "secondary", 18, 2) end
+	end
+	for _, factionID in ipairs(ready.factions or {}) do
+		local live = LG:FactionStanding(factionID)
+		local standing = live and live.standing
+		local text = ("%s  %s"):format(LG:FactionName(factionID), Secondary(standing and LG:StandingName(standing) or L["no standing yet"]))
+		P.FlowLine(flow, text)
+		-- The next standing with a reward, and the reward.
+		local rewards = LG:FactionRewards(factionID)
+		for level = (standing or 3) + 1, 7 do
+			local list = rewards[level]
+			if list and list[1] then
+				local record = LG:ItemRecord(list[1])
+				local name = record and record.name or ("item:" .. list[1])
+				P.FlowText(flow, L["Next reward at %s: %s"]:format(LG:StandingName(level), name), 11, "secondary", 18, 2)
+				break
+			end
+		end
+	end
 	flow:Finish()
 end
 

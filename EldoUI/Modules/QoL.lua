@@ -361,6 +361,7 @@ function M:OnStandBack()
 	self:ApplySounds()
 	self:ApplyGraphics()
 	self:ApplyVolume()
+	if self.flightBar and E:StandsBack(self, "flightbar") then self.flightBar:Hide() end
 end
 
 ---------------------------------------------------------------------------
@@ -918,8 +919,9 @@ end
 
 -- The bar is one of Blizzard UI > Flight map's "Improve" extras; learning
 -- goes on either way so the times are there when it is switched on.
+-- A kept flight timer addon draws its own bar (Data/Competitors.lua).
 local function FlightBarAllowed()
-	return M.db.flightTimer and E:BlizzardAllowed("flight-map", "improve")
+	return M.db.flightTimer and E:BlizzardAllowed("flight-map", "improve") and not E:StandsBack(M, "flightbar")
 end
 
 local function ShowBar(bar)

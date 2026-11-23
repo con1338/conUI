@@ -80,6 +80,9 @@
 	<Binding name="CLICK EldoUI_ConsumableButton7:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK EldoUI_ConsumableButton8:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK EldoUI_ConsumableButton9:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton10:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton11:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK EldoUI_ConsumableButton12:LeftButton" category="ADDONS"/>
 	<Binding name="ELDOUI_WHISPER_TARGET" category="ADDONS">
 		EldoUI:RunBinding("WHISPER_TARGET")
 	</Binding>

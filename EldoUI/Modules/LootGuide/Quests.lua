@@ -698,7 +698,8 @@ LG:Listen("QUEST_REMOVED", "quests", LogChanged)
 --          quests = { [questID] = { t, title, level, minLevel, giver, giverName, map, x, y,
 --                                   header, plevel, faction, ender, enderName, xp, money } },
 --          instances = { [instanceMapID] = { t, name, size, min, max } },
---          zones = { [uiMapID] = { t, name, min, max } } }
+--          zones = { [uiMapID] = { t, name, min, max } },
+--          rares = { [npcID] = { t, name, level, class, map, x, y } } }
 --      giver and ender are npc ids; x and y are map fractions on the map
 --      uiMapID. Observe.lua calls LG:JourneyChanged() after a write.
 -- Every record says where its facts came from (provenance "classic",
@@ -711,6 +712,7 @@ local SEEN_QUEST_FIELDS = { "title", "level", "minLevel", "giver", "giverName", 
 	"ender", "enderName", "xp", "money" }
 local SEEN_INSTANCE_FIELDS = { "name", "size", "min", "max" }
 local SEEN_ZONE_FIELDS = { "name", "min", "max" }
+local SEEN_RARE_FIELDS = { "name", "level", "class", "map", "x", "y" }
 
 local journeyCache, journeyIndex = {}, nil
 
@@ -1095,7 +1097,7 @@ function LG:JourneyDataStatus()
 			new = tonumber(counts.new) or 0, changed = tonumber(counts.changed) or 0, removed = tonumber(counts.removed) or 0 }
 	end
 	local seen = Seen()
-	for _, field in ipairs({ "quests", "instances", "zones" }) do
+	for _, field in ipairs({ "quests", "instances", "zones", "rares" }) do
 		for _ in pairs(seen and type(seen[field]) == "table" and seen[field] or {}) do out.seen = out.seen + 1 end
 	end
 	return out
@@ -1161,7 +1163,8 @@ function LG:JourneyReportData()
 	local quests, nq = ReportTable(seen.quests, SEEN_QUEST_FIELDS)
 	local instances, ni = ReportTable(seen.instances, SEEN_INSTANCE_FIELDS)
 	local zones, nz = ReportTable(seen.zones, SEEN_ZONE_FIELDS)
-	if nq + ni + nz == 0 then return nil end
+	local rares, nr = ReportTable(seen.rares, SEEN_RARE_FIELDS)
+	if nq + ni + nz + nr == 0 then return nil end
 	local version, build, interface
 	if GetBuildInfo then
 		local _
@@ -1177,7 +1180,7 @@ function LG:JourneyReportData()
 		faction = Text(self:Player().faction),
 		-- intake.py takes titles and names only from English clients.
 		locale = GetLocale and Text(GetLocale()) or nil,
-		quests = quests, instances = instances, zones = zones,
+		quests = quests, instances = instances, zones = zones, rares = rares,
 	}
 end
 
@@ -1216,10 +1219,12 @@ if E.RegisterShareKind then
 		build = function() return LG:JourneyReportData() end,
 		describe = function(data)
 			local quests, instances, zones = CountOf(data.quests), CountOf(data.instances), CountOf(data.zones)
+			local rares = CountOf(data.rares)
 			return {
 				E:Plural(quests, "%d quest", "%d quests"):format(quests),
 				E:Plural(instances, "%d dungeon or raid", "%d dungeons and raids"):format(instances),
 				E:Plural(zones, "%d zone", "%d zones"):format(zones),
+				E:Plural(rares, "%d rare or elite", "%d rares and elites"):format(rares),
 				L["Paste it into a journal-data issue. It changes nothing in your game."],
 			}
 		end,

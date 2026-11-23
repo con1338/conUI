@@ -267,6 +267,17 @@ for _, row in ipairs({ { "MANA", "Mana" }, { "RAGE", "Rage" }, { "ENERGY", "Ener
 		label = Key(row[2]), active = ResourceDisplayEnabled(row[1]),
 		note = "Draws the selected resource; other resource types stay independent." }) -- no-L (maintainer note, never shown)
 end
+-- A resource bar addon that draws the class's own resource: each resource
+-- bar it can draw stands back while it is kept.
+for _, row in ipairs({ { "MANA", "Mana" }, { "RAGE", "Rage" }, { "ENERGY", "Energy" } }) do
+	Add({ addon = "TwintopInsanityBar", module = "ClassPower", feature = row[1], scope = "overlap", covers = "part",
+		label = Key(row[2]), note = "Draws its own resource bars for the class." }) -- no-L (maintainer note, never shown)
+end
+
+-- A flight timer addon: the flight bar stands back while it is kept; the
+-- flight times are still learned.
+Add({ addon = "InFlight", module = "QoL", feature = "flightbar", scope = "overlap", covers = "full", label = Key("Flight Timer"),
+	note = "Draws its own flight time bar." }) -- no-L (maintainer note, never shown)
 
 ---------------------------------------------------------------------------
 -- More parts that stand back (the same job done twice would show twice).
@@ -331,6 +342,7 @@ local MORE = {
 	{ "XPerl", "UnitFrames", "full", "Player, target and party frames." },
 	{ "Neuron", "ActionBars", "full", "Replaces the action bars." },
 	{ "HealBot", "GroupFrames", "full", "Party and raid frames for healers." },
+	{ "DandersFrames", "GroupFrames", "full", "Party and raid frames." },
 	{ "NeatPlates", "Nameplates", "full", "Replaces the nameplates." },
 	{ "Platynator", "Nameplates", "full", "Replaces the nameplates." },
 	{ "BetterBlizzPlates", "Nameplates", "part", "Restyles the nameplates; EldoUI draws its own, not every one of its tweaks." },
@@ -430,6 +442,9 @@ local ALONGSIDE = {
 	{ "AzeriteUI5_JuNNeZ_Edition", "Maps", "full", "A whole UI; its map changes sit next to EldoUI's." },
 	{ "AllTheThings", "ZoneQuests", "part", "Quests per zone, among every collectible." },
 	{ "AllTheThings", "LootGuide", "part", "Loot per boss, among every collectible." },
+	{ "AtlasLootClassic", "LootGuide", "part", "Loot per boss and set in its own window." },
+	{ "Hardcore", "Hardcore", "part", "Its own Hardcore run rules, checks and windows." },
+	{ "EnhanceQoL", "QoL", "part", "Many small conveniences, some of them the same as EldoUI's." },
 	{ "BetterBlizzAddons", "SystemUI", "part", "Sorts the AddOn list." },
 	{ "BetterBlizzFrames", "UnitFrames", "part", "Tweaks Blizzard's unit frames, which EldoUI replaces." },
 	{ "BetterBags_Bound", "Bags", "part", "Bound and bind-on-equip categories for its bag addon." },
@@ -512,7 +527,6 @@ local NONE = {
 	ConsumableBar = "A one-click bar of the player's own consumables.",
 	DungeonRoutes = "Classic dungeon routes; no Forever addon draws them.",
 	Fanfare = "EldoUI's own sounds and effects for moments in the game.",
-	Hardcore = "Forever's own Hardcore rules; no addon covers them yet.",
 	Legacy = "Forever's Legacy points; no other addon plans them.",
 	MageTravel = "A mage's own teleports and portals in one list.",
 	MobAbilities = "What a mob cast in front of the player, from the game's own spell data.",

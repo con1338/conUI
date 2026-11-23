@@ -42,7 +42,7 @@ end
 function M:BuildOptions()
 	local options = {
 		{ type = "tab", label = L["General"] },
-		{ type = "description", label = L["Counts your dungeon entries against the hourly limit (5 per hour, shared by your characters) and logs every run. The count is an estimate."] },
+		{ type = "description", label = L["Counts dungeon and raid entries against the hourly limit of 10, shared by your characters, and logs every run. The count is an estimate."] },
 		{ type = "execute", label = L["Open the run log"], desc = L["The log of every run (also a click on the Instances datatext, or /eui instances)."], func = function() M:OpenLog() end },
 		{ type = "header", label = L["Hourly limit"] },
 		{ type = "range", key = "hourlyLimit", label = L["Instances per hour"], min = 1, max = 10, step = 1,
@@ -51,7 +51,7 @@ function M:BuildOptions()
 				{ type = "range", key = "dailyLimit", label = L["Instances per day"], min = 0, max = 60, step = 1,
 					zeroText = "Off", desc = L["A daily limit to count against as well. Forever has none."] },
 			} },
-		{ type = "toggle", key = "countRaids", label = L["Count raids"], desc = L["Raids count toward the hourly limit too. Off: raids are logged in orange and don't count."] },
+		{ type = "toggle", key = "countRaids", label = L["Count raids"], desc = L["40-player raids count toward the hourly limit too. Off: they show dimmed in the log and don't count. Dungeons and raids for up to 20 players always count."] },
 		{ type = "toggle", key = "detectSameRun", label = L["Detect the same run"], desc = L["Walking out and back into the same instance doesn't count twice: entries with the same instance ID, read from the mobs you target, are merged."] },
 		{ type = "select", key = "combatLogging", label = L["Log combat automatically"],
 			values = { off = L["Off"], raids = L["Raids"], all = L["Raids and dungeons"] }, order = { "off", "raids", "all" },

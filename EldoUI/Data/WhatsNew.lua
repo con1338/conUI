@@ -18,6 +18,21 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3100",
+		date = Key("November 2026"),
+		summary = Key("4 new features, 10 improvements and 8 fixes."),
+		items = {
+			Key("Journal: The Reputation page lists WoW: Forever's own factions, such as the Nightclaw Druids, Kirin Tor and The Watchers, with what each sells at every standing and the reputation still to go."),
+			Key("Bags and loot: The Consumable Bar can show a button each for your cure against disease, bleeding and poison, picking the one that fits your level, and each can get a key."),
+			Key("Info Bar: A new PvP rank block, and an optional PvP rank bar with the Status Bars, show your season rank and the Rank Points to the next one, or that you reached this week's cap."),
+			Key("Hunter: The Training window's Pet abilities tab shows your pet's happiness with the damage it gives, whether loyalty is rising, its next loyalty rank, its experience and what its family eats."),
+			Key("Journal: Dungeon levels, \"fits your level\" and My Adventure's dungeon cards follow the levels the dungeon finder recommends whenever the game gives them, and the dungeon's tooltip says so."),
+			Key("Journal: Rares and elites outside dungeons that the Loot Guide does not know yet, such as WoW: Forever's new ones, are now noted, and Report new content includes them so they can join the guide in a later version."),
+			Key("Map and minimap: Zone Info knows WoW: Forever's new zones (Riverglades, Shen'dralas, Mount Hyjal and Zephras Isle) and shows their level range and territory when the game gives none."),
+			Key("Map and minimap: Gathering knows WoW: Forever's Heavy Thorium vein in Mount Hyjal once you mine it: its pins and tooltip show the Mining 300 requirement, and the skill filter treats it like every other vein."),
+		},
+	},
+	{
 		version = "0.7.3006",
 		date = Key("November 2026"),
 		summary = Key("8 fixes."),

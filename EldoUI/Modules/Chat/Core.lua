@@ -1657,7 +1657,7 @@ end
 function M:OnProfileChanged()
 	if self.SyncTradeBoard then self:SyncTradeBoard() end
 	self:RefreshWhisperInvites()
-	if self.active then E:RunOutOfCombat(function() self:Apply() end) end
+	if self.active then E:RunOutOfCombat(function() self:Apply() end, "chat:apply") end
 	-- Held guild and friend notices are written out when folding goes off.
 	if self.FlushRosterBursts and not (self.active and self.db.foldRoster) then self:FlushRosterBursts() end
 	-- Chat bubbles use the chat font too.

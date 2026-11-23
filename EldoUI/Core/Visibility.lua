@@ -450,6 +450,7 @@ local function Wanted(entry)
 	local block = entry.block
 	local show = block.show
 	if show == "never" then return 0 end
+	if entry.forceHide and entry.forceHide() then return 0 end
 	-- "Mouse over, out of combat": gone in combat (a protected frame is
 	-- hidden by its state driver), so the mouse never brushes it in a fight.
 	if show == "mouseoverNoCombat" and InCombat() then return 0 end
@@ -741,6 +742,8 @@ end
 -- opts.secure:  true for protected frames: hard rules use a state driver
 -- opts.hostileTarget: "target" rules count hostile targets only
 -- opts.forceShow: function; true keeps the frame shown (e.g. move mode)
+-- opts.forceHide: function; true hides the frame (another addon hides it
+--   for a while, and the rule must not show it again)
 -- opts.forceShowFirst: forceShow also beats the hard rules (mounted,
 --   vehicle, instance, group); "Never" still hides
 -- opts.keepInVehicle: true or function; ignore "Hide in a vehicle" while
@@ -776,6 +779,7 @@ function E:AttachVisibility(frame, block, opts)
 	entry.secure = opts.secure and true or false
 	entry.hostileTarget = opts.hostileTarget
 	entry.forceShow = opts.forceShow
+	entry.forceHide = type(opts.forceHide) == "function" and opts.forceHide or nil
 	entry.forceShowFirst = opts.forceShowFirst and true or false
 	entry.keepInVehicle = opts.keepInVehicle
 	entry.onAlpha = opts.onAlpha

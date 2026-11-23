@@ -1057,6 +1057,38 @@ E:RegisterDataText("Honor", {
 	end,
 })
 
+-- PvP rank: WoW: Forever's season rank (E.PvPRank), the Rank Points still
+-- to go to the next rank, or that this week's cap is reached.
+E:RegisterDataText("PvP rank", {
+	events = { "UPDATE_FACTION", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "PLAYER_PVP_RANK_CHANGED" },
+	text = function()
+		local state = E.PvPRank:Read()
+		if not state then return Label(L["PvP rank"]) end
+		local rank = state.rank > 0 and L["Rank %d"]:format(state.rank) or L["No rank yet"]
+		if state.atTop then return Value(rank) end
+		if state.capped then return Value(rank) .. Label(" · ") .. Value(L["capped"]) end
+		return Value(rank) .. Label(" · ") .. Value(L["%s to Rank %d"]:format(BreakUpLargeNumbers(state.needed - state.earned), state.rank + 1))
+	end,
+	tooltip = function(tooltip)
+		E.PvPRank:AddTooltip(tooltip, E.PvPRank:Read())
+	end,
+	hint = function()
+		local guide = E.LootGuide
+		if guide and guide.active and guide.OpenSection then
+			return { { Key("Click"), Key("PvP tab") }, { Key("Shift-click"), Key("Loot Guide PvP page") } }
+		end
+		return { Key("Click"), Key("PvP tab") }
+	end,
+	onClick = function()
+		local guide = E.LootGuide
+		if IsShiftKeyDown() and guide and guide.active and guide.OpenSection then
+			guide:OpenSection("pvp")
+			return
+		end
+		E:OpenPvPPage()
+	end,
+})
+
 ---------------------------------------------------------------------------
 -- Place: zone, coordinates, speed
 ---------------------------------------------------------------------------

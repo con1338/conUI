@@ -215,6 +215,16 @@ function A:StartJournal()
 			if not (A:Running() and A.db.instanceLine) then return end
 			local key = A:ForInstance(instance)[1]
 			if not key then return end
+			-- A Forever raid: no attunement announced; its page shows what to get ready.
+			local own = A:Get(key)
+			if own and own.ready then
+				return {
+					text = L["No attunement announced"],
+					tipTitle = A:Name(key),
+					tip = L["Opens the Attunements tab on what you can get ready for it."],
+					onClick = function() A:Open(key) end,
+				}
+			end
 			local done, total, _, state = A:Progress(key)
 			if total == 0 then return end
 			local text
