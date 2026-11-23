@@ -230,9 +230,10 @@ local LINE_MAX, LINE_COUNT = 255, 3 -- the game's chat line limit; lines per cli
 function M:LootLinkLines()
 	local items = {}
 	for slot = 1, GetNumLootItems() do
-		local link = GetLootSlotLink(slot)
-		local _, _, quantity, _, quality = GetLootSlotInfo(slot)
-		if type(link) == "string" and not E:IsSecret(link) and type(quality) == "number"
+		local link = E.PlainCall(GetLootSlotLink, slot)
+		local _, _, _, quantity, _, quality = pcall(GetLootSlotInfo, slot)
+		quantity, quality = E.Plain(quantity), E.Plain(quality)
+		if type(link) == "string" and type(quality) == "number"
 			and quality >= (self.db.lootLinkQuality or 2) then
 			local count = (type(quantity) == "number" and quantity > 1) and ("x" .. quantity) or ""
 			items[#items + 1] = { text = link .. count, quality = quality, slot = slot }
@@ -348,7 +349,18 @@ function M:CreateLootFrame()
 	frame.roomNotice:SetPoint("TOPLEFT", 8, -ROW.title)
 	frame.roomNotice:SetWordWrap(true)
 	frame.roomNotice:Hide()
-	frame:HookScript("OnHide", function() M:EndLootRoomNotice() end)
+	frame:HookScript("OnHide", function()
+		M:EndLootRoomNotice()
+		-- Closing the window (Escape, the close button, a hidden interface)
+		-- ends the loot, as the game's own window does; otherwise the loot
+		-- stays open with nothing on screen to take it.
+		if M.lootOpen then
+			M.lootOpen = nil
+			CloseLoot()
+		end
+	end)
+	-- Escape closes it like the game's own windows.
+	table.insert(UISpecialFrames, "EldoUI_Loot")
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButtonNoScripts")
 	close:SetSize(20, 20)
 	close:SetPoint("TOPRIGHT", 0, -2)
@@ -440,7 +452,10 @@ local function CreateRow(frame, index)
 	row:SetScript("OnClick", function(self)
 		if not self.slot then return end
 		if IsModifiedClick() and HandleModifiedItemClick(GetLootSlotLink(self.slot)) then return end
-		-- The game asks the master looter whom to give this slot to.
+		-- A confirm left from another slot closes first, as in the game's
+		-- own window; the game asks the master looter whom to give this
+		-- slot to.
+		M.HideLootPopup("CONFIRM_LOOT_DISTRIBUTION")
 		M.masterSlot, M.masterRow = self.slot, self
 		LootSlot(self.slot)
 	end)
@@ -502,10 +517,14 @@ end
 
 local function SetupRow(row, slot, db)
 	row.roomItem = nil
-	local texture, name, quantity, currencyID, quality, locked, isQuestItem = GetLootSlotInfo(slot)
-	if not texture then return false end
+	-- A slot the game cannot describe (a failed read, no icon) gets no row;
+	-- a protected value is shown as given and never tested or compared.
+	local ok, texture, name, quantity, currencyID, quality, locked, isQuestItem = pcall(GetLootSlotInfo, slot)
+	if not ok or (not E:IsSecret(texture) and not texture) then return false end
+	currencyID, quality, locked, isQuestItem = E.Plain(currencyID), E.Plain(quality), E.Plain(locked), E.Plain(isQuestItem)
 	if currencyID and CurrencyContainerUtil and CurrencyContainerUtil.GetCurrencyContainerInfo then
-		name, texture, quantity, quality = CurrencyContainerUtil.GetCurrencyContainerInfo(currencyID, quantity, name, texture, quality)
+		local read, cName, cTexture, cQuantity, cQuality = pcall(CurrencyContainerUtil.GetCurrencyContainerInfo, currencyID, quantity, name, texture, quality)
+		if read then name, texture, quantity, quality = cName, cTexture, cQuantity, E.Plain(cQuality) end
 	end
 	row.slot = slot
 	row.waitingInfo = nil
@@ -513,13 +532,22 @@ local function SetupRow(row, slot, db)
 	row.iconBox:SetSize(db.iconSize, db.iconSize)
 	row.iconBox.icon:SetTexture(texture)
 	row.iconBox.icon:SetDesaturated(locked and true or false)
-	row.iconBox.count:SetText(quantity and quantity > 1 and quantity or "")
+	if E:IsSecret(quantity) then
+		row.iconBox.count:SetText(quantity)
+	else
+		row.iconBox.count:SetText(type(quantity) == "number" and quantity > 1 and quantity or "")
+	end
+	if not E:IsSecret(quantity) and type(quantity) ~= "number" then quantity = nil end
 	local qr, qg, qb = QualityColor(quality)
 	if isQuestItem then qr, qg, qb = 1, 0.82, 0 end
 	row.iconBox:SetBackdropBorderColor(qr, qg, qb, 1)
 	row.glow:SetVertexColor(qr, qg, qb)
 	E:SetFont(row.name, db.fontSize)
-	row.name:SetText(name and name:gsub("\n", " ") or "")
+	if E:IsSecret(name) then
+		row.name:SetText(name)
+	else
+		row.name:SetText(type(name) == "string" and (name:gsub("\n", " ")) or "")
+	end
 	row.name:SetTextColor(qr, qg, qb)
 
 	-- Item marks: only what the game reports for this slot.
@@ -544,7 +572,7 @@ local function SetupRow(row, slot, db)
 	E:SetFont(row.detail, math.max(9, db.fontSize - 3))
 	row.detail:SetText(detail)
 	E:SetFont(row.right, math.max(9, db.fontSize - 3))
-	row.right:SetText(link and RowTags(db, slot, link, quantity, sellPrice) or "")
+	row.right:SetText(link and RowTags(db, slot, link, E.Plain(quantity), sellPrice) or "")
 	-- The name keeps the whole first line; the slot and type, the tags and
 	-- the value share a second line under it when there are any.
 	row.name:ClearAllPoints()
@@ -568,6 +596,9 @@ local function SetupRow(row, slot, db)
 	end
 	row.detail:SetShown(detail ~= "")
 	if E.SetUpgradeArrow then E:SetUpgradeArrow(row.iconBox, db.lootUpgrade and link or nil, { noTint = true }) end
+	-- A row still sliding out from the last loot is taken back first, so
+	-- its slide never hides it under the new item.
+	if row.eldoAnim and row.eldoAnim.out then row.eldoAnim.out:Stop() end
 	row:SetAlpha(1)
 	row:Show()
 	return true
@@ -661,8 +692,18 @@ do
 	end
 end
 
-function M:ShowLoot()
+-- A loot confirmation the game left on screen for a loot that is over
+-- (the bind warning, the master looter's confirm) closes with it.
+function M.HideLootPopup(which)
+	local find = rawget(_G, "StaticPopup_FindVisible")
+	if type(find) ~= "function" or type(StaticPopup_Hide) ~= "function" then return end
+	local ok, dialog = pcall(find, which)
+	if ok and not E:IsSecret(dialog) and type(dialog) == "table" then StaticPopup_Hide(which) end
+end
+
+function M:ShowLoot(autoLoot)
 	local frame, db = self.lootFrame, self.db
+	self.lootOpen = true
 	self:EndLootRoomNotice()
 	local r, g, b = unpack(E.media.accentColor)
 	frame.accent:SetColorTexture(r, g, b, 1)
@@ -681,7 +722,16 @@ function M:ShowLoot()
 		self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
 	end
 	self:UpdateTitleButtons()
-	if self:LayoutLoot() == 0 then return end
+	if self:LayoutLoot() == 0 then
+		-- Nothing to take: the loot ends at once, as with the game's own
+		-- window, instead of staying open with no window to close it.
+		if E.PlainCall(GetNumLootItems) == 0 then
+			self.lootOpen = nil
+			if frame:IsShown() then frame:Hide() end
+			CloseLoot(not E.Plain(autoLoot))
+		end
+		return
+	end
 	frame:ClearAllPoints()
 	if db.atCursor then
 		local x, y = GetCursorPosition()
@@ -764,8 +814,9 @@ end
 
 -- Gives the slot to a candidate, asking first from the threshold up.
 function M:GiveMasterLoot(slot, candidate)
-	local _, itemName, _, _, quality = GetLootSlotInfo(slot)
-	local link = GetLootSlotLink(slot)
+	local _, _, itemName, _, _, quality = pcall(GetLootSlotInfo, slot)
+	itemName, quality = E.Plain(itemName), E.Plain(quality)
+	local link = E.PlainCall(GetLootSlotLink, slot)
 	local function Give()
 		GiveMasterLoot(slot, candidate.index)
 		if self.db.masterAnnounce and link then
@@ -892,8 +943,9 @@ local function DrainStep()
 	while fast.slot and fast.slot >= 1 do
 		local slot = fast.slot
 		fast.slot = slot - 1
-		local _, _, _, _, _, locked = GetLootSlotInfo(slot)
-		if not locked then
+		-- A slot whose state can't be read counts as locked and is skipped.
+		local read, _, _, _, _, _, locked = pcall(GetLootSlotInfo, slot)
+		if read and not E:IsSecret(locked) and not locked then
 			LootSlot(slot)
 			if fast.slot < 1 then StopDrain() end
 			return
@@ -1074,7 +1126,7 @@ function M:ApplyLootWindow()
 			self:EndLootRoomNotice()
 			self:BeginLootRoomNotice()
 		end
-		self:RegisterEvent("LOOT_OPENED", function() self:ShowLoot() end)
+		self:RegisterEvent("LOOT_OPENED", function(_, _, autoLoot) self:ShowLoot(autoLoot) end)
 		self:RegisterEvent("LOOT_SLOT_CLEARED", function(_, _, slot)
 			for _, row in ipairs(self.lootFrame.rows) do
 				if row.slot == slot then
@@ -1091,6 +1143,10 @@ function M:ApplyLootWindow()
 			self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
 			if self.masterMenu and E.UIKit.MenuShown() then E.UIKit.CloseMenu() end
 			self.masterSlot, self.masterRow, self.masterMenu = nil, nil, nil
+			-- The loot is over: hiding the window must not close it again.
+			self.lootOpen = nil
+			M.HideLootPopup("LOOT_BIND")
+			M.HideLootPopup("CONFIRM_LOOT_DISTRIBUTION")
 			E:SlideOut(self.lootFrame, "LEFT")
 			GameTooltip:Hide()
 		end)
@@ -1100,7 +1156,10 @@ function M:ApplyLootWindow()
 		for _, event in ipairs({ "LOOT_OPENED", "LOOT_SLOT_CLEARED", "LOOT_SLOT_CHANGED", "LOOT_CLOSED", "GET_ITEM_INFO_RECEIVED", "OPEN_MASTER_LOOT_LIST" }) do
 			self:UnregisterEvent(event)
 		end
-		if self.lootFrame and self.lootFrame:IsShown() then self.lootFrame:Hide() end
+		if self.lootFrame then
+			self.lootOpen = nil
+			if self.lootFrame:IsShown() then self.lootFrame:Hide() end
+		end
 	end
 	if not self.lootAnchor then
 		-- The mover exists even without EldoUI's window: Blizzard's window uses it.
@@ -1184,7 +1243,11 @@ local function RollTick()
 			open = true
 			local left = GetLootRollTimeLeft(bar.rollID)
 			-- A secret answer (an addon restriction is on): the bar keeps its time.
-			if type(left) == "number" and not E:IsSecret(left) then
+			if type(left) == "number" and not E:IsSecret(left) and left <= 0 then
+				-- The roll's time is up: the bar ends (or waits for the winner)
+				-- even when the game's end event is late.
+				M:EndRoll(bar.rollID)
+			elseif type(left) == "number" and not E:IsSecret(left) then
 				bar.timer:SetValue(left)
 				bar.endsAt = now + left / 1000
 				local _, total = bar.timer:GetMinMaxValues()
@@ -1319,6 +1382,16 @@ local function RollViewportOwned()
 		and not E:IsSecret(own.scroll:GetHorizontalScroll()) and own.scroll:GetHorizontalScroll() == 0
 end
 
+-- The bars on screen, in the order their rolls started.
+local function LiveRollRows()
+	local rows = {}
+	for _, bar in ipairs(rollBars) do
+		if bar.rollID or bar.waiting or bar.rollPreview then rows[#rows + 1] = bar end
+	end
+	table.sort(rows, function(a, b) return (a.rollOrder or 0) < (b.rollOrder or 0) end)
+	return rows
+end
+
 -- The visible viewport is separate from the one-row size handle.
 function M:RollViewportBounds()
 	if self ~= M then return nil, nil, "owner-changed" end
@@ -1334,8 +1407,8 @@ function M:RollViewportBounds()
 	end
 	if self.rollViewport.updating then return nil, nil, "scroll-update-incomplete" end
 	local index = 0
-	for _, bar in ipairs(rollBars) do
-		if bar.rollID or bar.waiting or bar.rollPreview then
+	for _, bar in ipairs(LiveRollRows()) do
+		do
 			index = index + 1
 			if not bar.rollViewportPoint or context.rows[index] ~= bar or not RollRowOwned(bar, self.rollViewport.child) then
 				return nil, nil, "row-owner-changed"
@@ -1387,12 +1460,9 @@ LayoutRolls = function()
 	end
 	if not RollNumber(width, true) or not RollNumber(height, true) or E:IsSecret(growth)
 		or (growth ~= "UP" and growth ~= "DOWN") then return end
-	local rows = {}
-	for _, bar in ipairs(rollBars) do
-		if bar.rollID or bar.waiting or bar.rollPreview then
-			if not RollRowOwned(bar, own.child) then M.rollViewportState.reason = "row-owner-changed"; return end
-			rows[#rows + 1] = bar
-		end
+	local rows = LiveRollRows()
+	for _, bar in ipairs(rows) do
+		if not RollRowOwned(bar, own.child) then M.rollViewportState.reason = "row-owner-changed"; return end
 	end
 	local area = own.area
 	local function ViewWrite(method, ...)
@@ -1863,7 +1933,9 @@ MarkRollBar = function(bar)
 	bar.iconBox.level:SetText(level)
 end
 
--- A bar for a new roll: a free one, or a new one.
+-- A bar for a new roll: a free one, or a new one. Bars stand in the order
+-- their rolls started, so a new roll joins at the end instead of taking a
+-- freed place above rolls already on screen.
 function M:FreeRollBar()
 	local bar
 	for _, b in ipairs(rollBars) do
@@ -1874,8 +1946,10 @@ function M:FreeRollBar()
 		table.insert(rollBars, bar)
 	end
 	bar.serial = (bar.serial or 0) + 1
+	M.rollOrder = (M.rollOrder or 0) + 1
+	bar.rollOrder = M.rollOrder
 	bar.choice, bar.result, bar.waiting, bar.grace, bar.rollPreview = nil, nil, nil, nil, nil
-	bar.dropEncounter, bar.dropList = nil, nil
+	bar.dropEncounter, bar.dropList, bar.needsInfo, bar.askedItem, bar.infoFailure = nil, nil, nil, nil, nil
 	bar.status:SetText("")
 	bar.status:Hide()
 	bar.timer:Show()
@@ -1887,7 +1961,7 @@ end
 
 function M:ReleaseRollBar(bar)
 	bar.rollID, bar.waiting, bar.result, bar.choice, bar.rollPreview = nil, nil, nil, nil, nil
-	bar.dropEncounter, bar.dropList = nil, nil
+	bar.dropEncounter, bar.dropList, bar.needsInfo = nil, nil, nil
 	if E.UpdateRollVerdict then E:UpdateRollVerdict(bar, nil) end
 	E:SlideOut(bar, "RIGHT", LayoutRolls)
 end
@@ -2187,97 +2261,220 @@ function M:RetryRoll(rollID, rollTime, expected)
 	RunRollRead(RetryRollRead, self, rollID, wait)
 end
 
-local function StartRollRead(self, rollID, wait)
-	local left = RollTimeLeft(rollID)
-	if not ContinueRollRead(rollID, wait) then return end
-	if not left then
+local StartRollRead
+do
+	-- What the game says about a roll's item. Values EldoUI tests or compares
+	-- come back plain or nil; the name and icon go to the bar as the game
+	-- gives them. `known` is false while the client has not loaded the item
+	-- (or the read failed): the bar shows at once and fills in later.
+	local function ReadRollItem(rollID)
+		local ok, texture, name, count, quality, bindOnPickUp, canNeed, canGreed, canDisenchant,
+			reasonNeed, reasonGreed, reasonDisenchant, _, canTransmog = pcall(GetLootRollItemInfo, rollID)
+		if not ok then return { known = false, failure = texture } end
+		local known = E:IsSecret(name) or (type(name) == "string" and name ~= "")
+		if E:IsSecret(canTransmog) then canTransmog = false end
+		if E:IsSecret(canDisenchant) then canDisenchant = false end
+		if E:IsSecret(canNeed) then canNeed = true end
+		if E:IsSecret(canGreed) then canGreed = true end
+		if not known then
+			-- Until the item is known the game's own checks decide: Need, Greed
+			-- and Pass are offered, Transmog and Disenchant are not.
+			canNeed, canGreed, canDisenchant, canTransmog = true, true, false, false
+		end
+		return {
+			known = known, texture = texture, name = known and name or nil,
+			count = Plain(count), quality = Plain(quality), bindOnPickUp = Plain(bindOnPickUp),
+			canNeed = canNeed and true or false, canGreed = canGreed and true or false,
+			canDisenchant = canDisenchant and true or false, canTransmog = canTransmog and true or false,
+			reasonNeed = Plain(reasonNeed), reasonGreed = Plain(reasonGreed), reasonDisenchant = Plain(reasonDisenchant),
+		}
+	end
+
+	-- The bar's item part: name, icon, count, color, binding and which roll
+	-- buttons are open. A roll whose item is not known yet says so and keeps
+	-- Need, Greed and Pass; the details come in once the client has them.
+	local function FillRollBar(bar, item)
+		local can = { canNeed = item.canNeed, canGreed = item.canGreed and not item.canTransmog,
+			canDisenchant = item.canDisenchant, canTransmog = item.canTransmog }
+		local reasons = { canNeed = item.reasonNeed, canGreed = item.reasonGreed, canDisenchant = item.reasonDisenchant }
+		for _, button in ipairs(bar.buttons) do
+			local key = button.info.key
+			local shown = true
+			-- Like Blizzard: Transmog takes Greed's place, Disenchant shows only when offered.
+			if key == "canTransmog" then shown = item.canTransmog end
+			if key == "canGreed" then shown = not item.canTransmog end
+			if key == "canDisenchant" then shown = item.canDisenchant end
+			button:SetShown(shown)
+			local enabled = not key or can[key] and true or false
+			button:SetEnabled(enabled)
+			button:SetAlpha(enabled and 1 or 0.4)
+			local normal = button:GetNormalTexture()
+			if normal then normal:SetDesaturated(not enabled) end
+			local reason = key and reasons[key]
+			button.reason = not enabled and reason and _G["LOOT_ROLL_INELIGIBLE_REASON" .. reason] or nil
+		end
+		SizeRollBar(bar)
+		local texture = item.texture
+		if not E:IsSecret(texture) and not texture then texture = E:ClientIcon(134400) end
+		bar.iconBox.icon:SetTexture(texture)
+		local count = item.count
+		bar.iconBox.count:SetText(type(count) == "number" and count > 1 and count or "")
+		bar.quality = item.quality
+		local r, g, b = QualityColor(item.quality)
+		if item.known then
+			bar.name:SetText(item.name)
+			bar.name:SetTextColor(r, g, b)
+		else
+			bar.name:SetText(E:GameText(rawget(_G, "RETRIEVING_ITEM_INFO"), L["Retrieving item information"]))
+			bar.name:SetTextColor(E:TokenColor("secondary"))
+		end
+		bar.bop:SetText(M.db.rollBoP and item.bindOnPickUp and (E:GameText(ITEM_BIND_ON_PICKUP, L["Binds when picked up"])) or "")
+		bar.needsInfo = not item.known or nil
+	end
+
+	-- Bars whose item the client had not loaded: ask for it, and fill the bar
+	-- in as soon as the game knows it (item event, or a short shared retry).
+	local ROLL_INFO_TICK = "EldoUI.Loot.rollInfo"
+	local RefreshRollInfo
+
+	local function AskForRollItem(bar)
+		local itemID = RollItemID(bar.rollID)
+		if itemID and itemID ~= bar.askedItem and C_Item and C_Item.RequestLoadItemDataByID then
+			bar.askedItem = itemID
+			-- A request that fails is made again on the next retry.
+			if not pcall(C_Item.RequestLoadItemDataByID, itemID) and bar.askedItem == itemID then bar.askedItem = nil end
+		end
+	end
+
+	local function OwnsRollBars()
+		return M.active and E:BlizzardAllowed(ROLL_ID, "replace")
+	end
+
+	-- A read can deliver an item event that refreshes again; that refresh
+	-- runs once the current one is done instead of inside it.
+	local refreshing, refreshAgain
+	local function RefreshPass()
+		local waiting = false
+		for _, bar in ipairs(rollBars) do
+			if not OwnsRollBars() then return false end
+			local rollID, serial = bar.rollID, bar.serial
+			if rollID and bar.needsInfo then
+				local item = ReadRollItem(rollID)
+				if not OwnsRollBars() then return false end
+				if bar.rollID ~= rollID or bar.serial ~= serial then item = { known = false } end
+				if item.failure ~= nil and item.failure ~= bar.infoFailure then
+					bar.infoFailure = item.failure
+					geterrorhandler()(item.failure)
+				end
+				if item.known then
+					bar.link = GetLootRollItemLink and Plain(GetLootRollItemLink(bar.rollID)) or nil
+					FillRollBar(bar, item)
+					MarkRollBar(bar)
+					UpdateBarArrow(bar)
+					UpdateChoices(bar, BarDrop(bar))
+				elseif bar.rollID == rollID and bar.serial == serial then
+					AskForRollItem(bar)
+					waiting = true
+				end
+			end
+		end
+		return waiting
+	end
+
+	RefreshRollInfo = function()
+		if refreshing then refreshAgain = true return end
+		refreshing = true
+		local ok, waiting, failure
+		repeat
+			refreshAgain = nil
+			ok, failure = pcall(RefreshPass)
+			waiting = ok and failure
+		until not refreshAgain or not ok
+		refreshing = nil
+		if waiting and OwnsRollBars() then
+			if not E.Ticker:IsSubscribed(ROLL_INFO_TICK) then E.Ticker:Subscribe(ROLL_INFO_TICK, ROLL_RETRY, RefreshRollInfo, M) end
+		else
+			E.Ticker:Unsubscribe(ROLL_INFO_TICK)
+		end
+		if not ok then error(failure, 0) end
+	end
+	M.RefreshRollInfo = function() RefreshRollInfo() end
+	E:RegisterEvent("GET_ITEM_INFO_RECEIVED", function(_, _, itemID, success)
+		if E:IsSecret(itemID) or E:IsSecret(success) then itemID, success = nil, nil end
+		local waiting = false
+		for _, bar in ipairs(rollBars) do
+			if bar.rollID and bar.needsInfo then
+				waiting = true
+				-- The client could not load it: ask again on the next retry.
+				if success == false and itemID ~= nil and bar.askedItem == itemID then bar.askedItem = nil end
+			end
+		end
+		if waiting and success ~= false then RefreshRollInfo() end
+	end, rollBars)
+
+	-- Every open roll gets its bar at once: a roll is never left unshown
+	-- because its item details are late or hidden.
+	function StartRollRead(self, rollID, wait)
+		local left = RollTimeLeft(rollID)
+		if not ContinueRollRead(rollID, wait) then return end
+		if not left then
+			pendingRolls[rollID] = nil
+			FinishRollRead(wait)
+			return
+		end
+		local item = ReadRollItem(rollID)
+		if not ContinueRollRead(rollID, wait) then return end
+		if item.failure ~= nil and item.failure ~= wait.lastFailure then
+			wait.lastFailure = item.failure
+			geterrorhandler()(item.failure)
+		end
+		local link = GetLootRollItemLink and Plain(GetLootRollItemLink(rollID)) or nil
+		if not ContinueRollRead(rollID, wait) then return end
+		local duration = Plain(wait.rollTime) or (C_Loot and C_Loot.GetLootRollDuration and Plain(C_Loot.GetLootRollDuration(rollID)))
+		if not ContinueRollRead(rollID, wait) then return end
+		left = RollTimeLeft(rollID)
+		if not ContinueRollRead(rollID, wait) then return end
+		if not left then
+			pendingRolls[rollID] = nil
+			FinishRollRead(wait)
+			return
+		end
+		if left == true then left = nil end
+		if type(duration) ~= "number" or duration <= 0 then duration = left or 60000 end
+		left = left or duration
+		local now = GetTime()
+		if not ContinueRollRead(rollID, wait) then return end
+		local bar = self:FreeRollBar()
+		local serial = bar.serial
+		if not ContinueRollRead(rollID, wait) then return end
+		bar.rollID = rollID
+		bar.link = link
+		bar.askedItem, bar.infoFailure = nil, item.failure
+		wait.bar, wait.serial, wait.link = bar, serial, link
+		FillRollBar(bar, item)
+		MarkRollBar(bar)
+		if not ContinueRollRead(rollID, wait, bar, serial) then return end
+		bar.urgent = nil
+		bar.timer:SetMinMaxValues(0, duration)
+		bar.timer:SetValue(left)
+		bar.endsAt = now + left / 1000
+		TimerColor(bar, left, duration)
+		UpdateBarArrow(bar)
+		if not ContinueRollRead(rollID, wait, bar, serial) then return end
+		UpdateChoices(bar, BarDrop(bar))
+		if not ContinueRollRead(rollID, wait, bar, serial) then return end
+		LayoutRolls()
+		if not ContinueRollRead(rollID, wait, bar, serial) then return end
+		E:SlideIn(bar, "RIGHT")
+		if not ContinueRollRead(rollID, wait, bar, serial) then return end
 		pendingRolls[rollID] = nil
 		FinishRollRead(wait)
-		return
+		WatchRolls()
+		if bar.needsInfo then
+			AskForRollItem(bar)
+			RefreshRollInfo()
+		end
 	end
-	local texture, name, count, quality, bindOnPickUp, canNeed, canGreed, canDisenchant,
-		reasonNeed, reasonGreed, reasonDisenchant, _, canTransmog = GetLootRollItemInfo(rollID)
-	if not ContinueRollRead(rollID, wait) then return end
-	if not name then
-		wait.reading = nil
-		self:RetryRoll(rollID, wait.rollTime, wait)
-		return
-	end
-	-- Secret answers still make a bar: the name and icon show as the game
-	-- gives them, and whatever needs a plain value (count, color, binding,
-	-- which choices are open) falls back to the game's own checks.
-	local link = GetLootRollItemLink and Plain(GetLootRollItemLink(rollID)) or nil
-	if not ContinueRollRead(rollID, wait) then return end
-	local duration = Plain(wait.rollTime) or (C_Loot and C_Loot.GetLootRollDuration and Plain(C_Loot.GetLootRollDuration(rollID)))
-	if not ContinueRollRead(rollID, wait) then return end
-	left = RollTimeLeft(rollID)
-	if not ContinueRollRead(rollID, wait) then return end
-	if not left then
-		pendingRolls[rollID] = nil
-		FinishRollRead(wait)
-		return
-	end
-	if left == true then left = nil end
-	if type(duration) ~= "number" or duration <= 0 then duration = left or 60000 end
-	left = left or duration
-	count, quality, bindOnPickUp = Plain(count), Plain(quality), Plain(bindOnPickUp)
-	if E:IsSecret(canTransmog) then canTransmog = false end
-	if E:IsSecret(canDisenchant) then canDisenchant = false end
-	if E:IsSecret(canNeed) then canNeed = true end
-	if E:IsSecret(canGreed) then canGreed = true end
-	reasonNeed, reasonGreed, reasonDisenchant = Plain(reasonNeed), Plain(reasonGreed), Plain(reasonDisenchant)
-	local now = GetTime()
-	if not ContinueRollRead(rollID, wait) then return end
-	local bar = self:FreeRollBar()
-	local serial = bar.serial
-	if not ContinueRollRead(rollID, wait) then return end
-	bar.rollID = rollID
-	bar.link = link
-	wait.bar, wait.serial, wait.link = bar, serial, link
-	local can = { canNeed = canNeed, canGreed = canGreed and not canTransmog, canDisenchant = canDisenchant, canTransmog = canTransmog }
-	local reasons = { canNeed = reasonNeed, canGreed = reasonGreed, canDisenchant = reasonDisenchant }
-	for _, button in ipairs(bar.buttons) do
-		local key = button.info.key
-		local shown = true
-		-- Like Blizzard: Transmog takes Greed's place, Disenchant shows only when offered.
-		if key == "canTransmog" then shown = canTransmog and true or false end
-		if key == "canGreed" then shown = not canTransmog end
-		if key == "canDisenchant" then shown = canDisenchant and true or false end
-		button:SetShown(shown)
-		local enabled = not key or can[key] and true or false
-		button:SetEnabled(enabled)
-		button:SetAlpha(enabled and 1 or 0.4)
-		local normal = button:GetNormalTexture()
-		if normal then normal:SetDesaturated(not enabled) end
-		local reason = key and reasons[key]
-		button.reason = not enabled and reason and _G["LOOT_ROLL_INELIGIBLE_REASON" .. reason] or nil
-	end
-	SizeRollBar(bar)
-	local r, g, b = QualityColor(quality)
-	bar.iconBox.icon:SetTexture(texture or E:ClientIcon(134400))
-	bar.iconBox.count:SetText(type(count) == "number" and count > 1 and count or "")
-	bar.quality = quality
-	MarkRollBar(bar)
-	if not ContinueRollRead(rollID, wait, bar, serial) then return end
-	bar.name:SetText(name)
-	bar.name:SetTextColor(r, g, b)
-	bar.bop:SetText(self.db.rollBoP and bindOnPickUp and (E:GameText(ITEM_BIND_ON_PICKUP, L["Binds when picked up"])) or "")
-	bar.urgent = nil
-	bar.timer:SetMinMaxValues(0, duration)
-	bar.timer:SetValue(left)
-	bar.endsAt = now + left / 1000
-	TimerColor(bar, left, duration)
-	UpdateBarArrow(bar)
-	if not ContinueRollRead(rollID, wait, bar, serial) then return end
-	UpdateChoices(bar, BarDrop(bar))
-	if not ContinueRollRead(rollID, wait, bar, serial) then return end
-	LayoutRolls()
-	if not ContinueRollRead(rollID, wait, bar, serial) then return end
-	E:SlideIn(bar, "RIGHT")
-	if not ContinueRollRead(rollID, wait, bar, serial) then return end
-	pendingRolls[rollID] = nil
-	FinishRollRead(wait)
-	WatchRolls()
 end
 
 function M:StartRoll(rollID, rollTime, expected)
@@ -2463,24 +2660,77 @@ local function SkinRollFrame(frame)
 	if frame.Name and frame.Name.SetFont then E:SetFont(frame.Name, E.tokens.size.body) end
 end
 
--- Blizzard re-anchors its frames whenever a roll starts or ends; put them on
--- EldoUI's roll spot afterwards when the Move switch is on.
+-- Blizzard re-anchors its frames whenever a roll starts or ends, and it
+-- does so before a new frame is shown. With the Move switch on, every frame
+-- in the game's list goes to EldoUI's roll spot by its own place in that
+-- list, shown yet or not: a new frame opens on the spot instead of above
+-- the action bars, and a frame stays where it is while the rolls around it
+-- start and end.
 local function PlaceBlizzardRolls()
-	if not E:BlizzardAllowed(ROLL_ID, "move") or not M.rollAnchor then return end
+	if not M.active or not E:BlizzardAllowed(ROLL_ID, "move") or E:BlizzardHidden(ROLL_ID) or not M.rollAnchor then return end
 	local container = GroupLootContainer
 	if not container or type(container.rollFrames) ~= "table" then return end
-	local step = 100 * M.db.blizzRollScale
-	local direction = M.db.rollGrow == "UP" and 1 or -1
-	local index = 0
-	for i = 1, container.maxIndex or 0 do
-		local frame = container.rollFrames[i]
-		if frame and frame.IsShown and frame:IsShown() then
+	local scale = M.db.blizzRollScale
+	local up = M.db.rollGrow == "UP"
+	local point = up and "BOTTOM" or "TOP"
+	local step = type(container.reservedSize) == "number" and container.reservedSize or 100
+	for slot = 1, container.maxIndex or 0 do
+		local frame = container.rollFrames[slot]
+		if frame and frame.SetPoint then
 			if not blizzRollScale[frame] then blizzRollScale[frame] = frame:GetScale() end
-			frame:SetScale(M.db.blizzRollScale)
+			frame:SetScale(scale)
 			frame:ClearAllPoints()
-			local s = M.db.blizzRollScale
-			frame:SetPoint(direction > 0 and "BOTTOM" or "TOP", M.rollAnchor, direction > 0 and "BOTTOM" or "TOP", 0, index * step * direction / s)
-			index = index + 1
+			-- The offset is in the frame's own scaled units: one reserved
+			-- height per place in the list.
+			frame:SetPoint(point, M.rollAnchor, point, 0, (slot - 1) * step * (up and 1 or -1))
+		end
+	end
+end
+
+do
+	-- Blizzard also opens its roll frames outside the start event: after a
+	-- loading screen or a reload it reopens every roll still running. With its
+	-- roll frames hidden or replaced, such a frame closes as it opens and leaves
+	-- the game's list of open frames, so it never stands over the action bars.
+	-- Leaving the list lays out the game's bottom frames again, which waits for
+	-- the end of combat.
+	local function DropBlizzardRoll(frame)
+		frame:Hide()
+		E:RunOutOfCombat(function()
+			local container = GroupLootContainer
+			if not container or type(container.rollFrames) ~= "table" or not GroupLootContainer_RemoveFrame then return end
+			if not (M.active and E:BlizzardHidden(ROLL_ID)) then return end
+			for _ = 1, 8 do
+				local listed = false
+				for _, other in pairs(container.rollFrames) do
+					if other == frame then listed = true break end
+				end
+				if not listed or frame:IsShown() then return end
+				GroupLootContainer_RemoveFrame(container, frame)
+			end
+		end, frame)
+	end
+
+	-- Every time a Blizzard roll frame opens: closed again while its frames
+	-- are hidden or replaced, otherwise skinned and placed with the switches.
+	local function BlizzardRollShown(frame)
+		if not M.active or not E:BlizzardAllowed(ROLL_ID) then return end
+		if E:BlizzardHidden(ROLL_ID) then
+			DropBlizzardRoll(frame)
+			return
+		end
+		if E:BlizzardAllowed(ROLL_ID, "skin") then SkinRollFrame(frame) end
+		PlaceBlizzardRolls()
+	end
+
+	local rollShowHooked = setmetatable({}, { __mode = "k" })
+	function M:WatchBlizzardRollFrames()
+		for _, frame in ipairs(BlizzardRollFrames()) do
+			if not rollShowHooked[frame] then
+				rollShowHooked[frame] = true
+				frame:HookScript("OnShow", BlizzardRollShown)
+			end
+			if frame:IsShown() and E:BlizzardHidden(ROLL_ID) then DropBlizzardRoll(frame) end
 		end
 	end
 end
@@ -2586,6 +2836,7 @@ function M:ApplyRolls()
 		self:EndRoll(nil)
 	end
 
+	if self.active and E:BlizzardAllowed(ROLL_ID) then self:WatchBlizzardRollFrames() end
 	if self.active and E:BlizzardHidden(ROLL_ID) then
 		BlockBlizzardRolls()
 		if not own and not hideWarned then

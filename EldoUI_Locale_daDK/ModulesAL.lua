@@ -5535,6 +5535,7 @@ E:RegisterLocale("daDK", function() return {
 	["Resurrection coming"] = "Genoplivning på vej",
 	["Resurrection offered"] = "Genoplivning tilbudt",
 	["Resurrection wave"] = "Genoplivningsbølge",
+	["Retrieving item information"] = "Henter genstandens oplysninger",
 	["Return to Graveyard"] = "Return to Graveyard",
 	["Return to Graveyard button"] = "Knappen Return to Graveyard",
 	["Reverse swipe"] = "Omvendt swipe",
