@@ -81,6 +81,21 @@ Geprüft wurde jeder Fix gegen den Code von 0.7.3005 (nicht im Spiel). Nur sechs
 | F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderung in `InfoBar.lua` betrifft den Klick auf die Kartenblöcke (`E:OpenWorldMapAt` statt `ToggleWorldMap`). | Alles. |
 | F01–F04, F06–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
 
+## Nach dem Update auf EldoUI 0.7.3100 (23.11.2026)
+
+Der Fork steht seit `b850d60` auf EldoUI 0.7.3100 (vorher 0.7.3005; dazwischen 0.7.3006). Geprüft wurde jeder Fix
+gegen den Code von 0.7.3100 (nicht im Spiel). Beide hatten elf Dateien geändert: `EldoUI.toc`, `CHANGELOG.md`,
+`Bindings.xml`, `Core/Bindings.lua`, `Modules/Bags/Core.lua`, `Modules/Chat/Core.lua`, `Modules/ConsumableBar.lua`,
+`Modules/DBM.lua`, `Modules/Gathering/Core.lua`, `Modules/InfoBar.lua` und `Modules/QoL.lua` (dazu die Titelzeilen der
+TOCs von `EldoUI_Locale_daDK` und `EldoUI_LootSim`). Konflikte gab es nur in der TOC (Versionszeile), im CHANGELOG und
+bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben denen der Questgegenstandsleiste).
+
+| Nr. | In 0.7.3100 | Was im Fork bleibt |
+|---|---|---|
+| F24 | Nein: In `Modules/Bags/Core.lua` gibt EldoUI nur `CanBuyTab` als `M.CanBuyBankTab` heraus, für die neue Schaltfläche „Nächsten Bankreiter kaufen“ auf der Seitenleiste des Bankfensters (`Modules/Bags/BankActions.lua`). Sie ist wie das Plus auf der Taschenleiste seit 0.7.3005 die Kaufschaltfläche des Spiels; ohne sie öffnet sie Blizzards Bankfenster (`M:ShowBlizzardBank`, wie bisher). Neue Aufrufe von `OpenAllBags`, `CloseAllBags` oder `ToggleAllBags` gibt es nicht; die Textprüfung in `tools/bags/test_game_bag_code.lua` ist grün. | Alles. |
+| F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderungen in `InfoBar.lua` sind der neue Block „PvP rank“ und die Trefferwertung in den Blöcken Hit und Spell hit. | Alles. |
+| F01–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
+
 ---
 
 ## Import und Nachrichten anderer Spieler
