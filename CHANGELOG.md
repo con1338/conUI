@@ -12,12 +12,24 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 - Fishing's Only the splash turns every other sound off while fishing: music, ambience, dialog, emote, pet and ping sounds. The sound effects with the splash stay on, and your own settings come back when fishing mode ends.
 
+### Combat
+
+#### Fixed
+
+- Your damage numbers over enemies show again in a party or raid. The hit numbers on plates skip groups unless In groups too is on; there Blizzard's own damage numbers, which are only your hits, now show instead of staying off.
+
 ### Bags and loot
 
 #### Fixed
 
 - Right-clicking an item in EldoUI's bag window to use it (hearthstone, keys, recipes, or to put it into the trade window) is no longer blocked until a reload after a visit to the bank. EldoUI's bag window no longer runs the game's own bag code: bags opened from the Info Bar, with /eui find or with another window stay open until you close them.
 - Picking Bags in the Finder no longer blocks right-click use from the bags after a visit to the bank: it opens and closes EldoUI's bag window the same way the Info Bar does.
+
+### Map and minimap
+
+#### Fixed
+
+- The coordinate box and the waypoint arrow can be dragged as soon as move mode opens: they now show in Combat mode, the view it starts in. The coordinate box's right-click menu has Move, and a switched-off arrow leaves no box in move mode.
 
 ## [0.7.3100] - 2026-11-21
 
