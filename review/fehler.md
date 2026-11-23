@@ -32,6 +32,8 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F22 | Auktionshaus: Verkaufen-Seite bleibt nach „Schnellverkauf“ leer; Rechtsklick in die Taschen verboten (im Spiel gefunden) | mittel | teilweise | `391f0b7` |
 | F23 | Gilden-Tooltip der Infoleiste fragt im Kampf die Gildennachricht ab → ADDON_ACTION_BLOCKED (im Fehlerlog gefunden) | niedrig | behoben | `bb28608` |
 | F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
+| F25 | Das Koordinatenfeld (und der Wegpfeil) lässt sich nicht verschieben: im Verschiebemodus nur unter „Alle Rahmen“ (im Spiel gefunden) | niedrig | behoben (im Spiel offen) | `d1fece9` |
+| F26 | In einer Gruppe keine Schadenszahlen über Gegnern: Plakettenzahlen aus, Blizzards trotzdem auf 0 (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `1c693b8` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -625,6 +627,98 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
     eigener Rückfall im Finder ist darum nicht nötig.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
+### F25 – Das Koordinatenfeld lässt sich nicht verschieben (niedrig, im Spiel gefunden)
+- **Gefunden:** 23.11.2026 beim Spielen. Das kleine Koordinatenfeld des Moduls Wegpunkte ließ sich nicht verschieben.
+  Im Fehlerlog steht dazu nichts. In Defrons Profil gibt es keine gespeicherte Position für `EldoUI_WaypointCoords`: Das
+  Feld wurde also nie gezogen.
+- **Stelle:** `Modules/Waypoints/Coords.lua` (`M:BuildCoords`), `Modules/Waypoints/Core.lua` (`M:BuildArrow`),
+  `Core/Movers.lua` (`view`, `InMode`, `E:IsCombatMover`)
+- **Ursache:** Das Feld lässt sich nicht direkt ziehen, sondern nur im Verschiebemodus. Das sagt auch sein Tooltip. Der
+  Verschiebemodus öffnet aber jedes Mal in der Ansicht „Kampfmodus“ (`view.mode = "combat"`; beim Schließen setzt
+  `E:ToggleMoveMode` die Ansicht wieder darauf zurück). Dort zeigt er nur die Mover aus `COMBAT_MOVERS` und
+  `COMBAT_PREFIXES` und die mit `combat = true`. Das Koordinatenfeld gehörte nicht dazu. Es bekam keinen Kasten, und ein
+  Klick darauf öffnete wie sonst „Wegpunkt hinzufügen“. Ziehen ließ es sich nur in der Ansicht „Alle Rahmen“. Der Wegpfeil
+  (`EldoUI_WaypointArrow`) hatte denselben Fehler. Beides stammt aus EldoUI und steckt schon in 0.7.2001.
+- **Umsetzung:**
+  - Beide Mover tragen jetzt `combat = true` (fünftes Argument von `E:CreateMover`, beim Pfeil neu). Sie gehören zum
+    Hauptbildschirm wie die Minikarte, die schon im Kampfmodus ist.
+  - Der Pfeil-Mover trägt dazu `followShown = true`, wie das Koordinatenfeld: Sein Kasten erscheint nur, solange der
+    Pfeil eingeschaltet ist (`M:UpdateArrowShown` blendet den Halter mit `db.arrow` aus). Ohne das hätte der Kampfmodus
+    einen Kasten für einen abgeschalteten Pfeil gezeigt (Befund der Gegenprüfung).
+  - Das Rechtsklickmenü des Koordinatenfelds hat den Eintrag „Verschieben“: `E:MoveFrame` öffnet den Verschiebemodus,
+    wechselt die Ansicht, falls nötig, und wählt den Kasten aus. Der Text ist schon übersetzt.
+- **Übergang:** Im Verschiebemodus oben im Feld „Kampfmodus“ auf „Alle Rahmen“ umstellen.
+- **Gegenprüfung (23.11.2026):** Ein unabhängiger Prüfer hat den Diff gelesen, ohne diesen Ordner zu kennen. Er fand
+  keinen Fehler, der den Fix aufhält. Die Ursache hält er für plausibel, aber nicht aus dem Code beweisbar: Ob der
+  Spieler den Verschiebemodus geöffnet oder das Feld direkt zu ziehen versucht hat, ist nicht bekannt. Auch nach einer
+  zweiten Ursache hat er gesucht: Kein Mover überlappt in den mitgelieferten Layouts, die Sichtbarkeitsregeln ändern nur
+  die Deckkraft, und „In Instanzen ausblenden“ versteckt nur den Knopf. Seine Befunde und was daraus wurde:
+  - Kasten des abgeschalteten Pfeils im Kampfmodus: behoben (`followShown`, oben).
+  - Kein Weg „Verschieben“ vom Feld aus: Eintrag im Rechtsklickmenü (oben).
+  - Ein Kommentar sagte, die Layouts setzten das Feld neben die Minikarte. Das gilt nur für einige: korrigiert.
+- **Offen (nicht geändert):** Weitere Fenster sagen „Verschiebt es im Verschiebemodus“ und stehen nur unter „Alle
+  Rahmen“, laut Prüfer etwa Lagerpanel, Farmleiste, Angelleiste und Einkaufsliste (nur per Suche gefunden, nicht im
+  Einzelnen geprüft).
+- **Test:** keiner. Der Fix besteht aus Schaltern beim Anlegen der Mover und einem Menüeintrag. Die Regel dazu
+  (`E:IsCombatMover`) ist unverändert.
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
+### F26 – In einer Gruppe keine Schadenszahlen über Gegnern (mittel, im Spiel gefunden)
+- **Gefunden:** 23.11.2026 in einem Dungeon mit Gruppe: keine eigenen Schadenszahlen. Im Fehlerlog steht dazu nichts.
+  In `WTF/Config.wtf` stehen `floatingCombatTextCombatDamage_v2`, `floatingCombatTextCombatLogPeriodicSpells_v2` und
+  `floatingCombatTextPetMeleeDamage_v2` auf `"0"`. `EldoUIDB.cvarSnapshot` hält für alle drei den eigenen Wert des
+  Spielers, `"1"` (Besitzer `floating-combat-text`, `held`). Profil Defron: Zahlen auf den Namensplaketten an, „Auch in
+  Gruppen“ aus, Blizzards Zahlen auf „Blizzard-Einstellung“ (alles Vorgaben).
+- **Stelle:** `Modules/CombatText/Blizzard.lua` (`M:WorldMessageWanted`, `M:PlatesOwnWorldNumbers`,
+  `M:WorldNumbersTwice`, `M:ApplyBlizzard`), `Modules/CombatText/Plates.lua` (`Wanted`), `Modules/CombatText/Options.lua`
+  (Reiter Namensplaketten)
+- **Ursache:** Zwei Regeln passten nicht zusammen:
+  - Die Zahlen auf den Plaketten zeigen jeden Treffer auf den Gegner, gleich von wem. In einer Gruppe oder einem
+    Schlachtzug zeigt `Wanted` sie darum nur mit „Auch in Gruppen“ (`plates.inGroup`, Vorgabe aus).
+  - Damit ein Treffer nicht zweimal erscheint, setzte EldoUI Blizzards Zahlen über Gegnern (eigener Schaden,
+    periodischer Schaden, Begleiter) auf 0, solange die Plakettenzahlen *liefen* (`M:PlatesRunning`). Das galt auch in
+    der Gruppe, wo sie nichts zeichnen.
+
+  Mit den Vorgaben gab es so in jeder Gruppe gar keine Schadenszahlen. Beides stammt aus EldoUI und steckt schon in
+  0.7.2001. Der Stil „Punchy“ des Forks hat an dieser Stelle nichts geändert.
+- **Umsetzung:**
+  - Neu ist `M:PlatesDrawHere` (`Plates.lua`): Plakettenzahlen an, in einer Gruppe nur mit „Auch in Gruppen“. Die drei
+    Funktionen in `Blizzard.lua` fragen das statt `M:PlatesRunning`.
+  - In einer Gruppe ohne Plakettenzahlen bekommen Blizzards Zahlen den eigenen Wert des Spielers zurück
+    (`E:RestoreCVar`). Diese Zahlen zeigen nur die eigenen Treffer. Allein setzt EldoUI sie wieder auf 0.
+  - Ein Listener auf `GROUP_ROSTER_UPDATE` wendet die Einstellungen neu an, sobald sich „in einer Gruppe“ ändert
+    (`M.blizzardGrouped`). Das läuft außerhalb des Kampfs (`E:RunOutOfCombat`, Schlüssel `CombatText:blizzardGroup`).
+    Wer im Kampf einer Gruppe beitritt, sieht bis zum Kampfende keine Zahlen; endet die Gruppe im Kampf, zeigt jeder
+    Treffer bis dahin zwei.
+  - Den Gruppentest teilen sich beide Dateien (`M.InGroup` aus `Plates.lua`), damit Plaketten und CVars nicht
+    auseinanderlaufen.
+  - Unverändert: Mit „Auch in Gruppen“ zeigt EldoUI auch in der Gruppe die Plakettenzahlen, und Blizzards Zahlen bleiben
+    aus. Eine Zeile auf „Anzeigen“ oder „Ausblenden“ bleibt die Wahl des Spielers.
+  - Ein neuer Satz unter „Blizzards Zahlen über Gegnern“ erklärt das, solange die Plakettenzahlen an sind und „Auch in
+    Gruppen“ aus ist: „In einer Gruppe oder einem Schlachtzug, wo die Trefferzahlen auf Namensplaketten aus sind, zeigt
+    das Spiel stattdessen Blizzards Schadenszahlen: nur Eure eigenen Treffer.“ (`Options.lua`; deutsch in
+    `EldoUI_Locale_deDE/Fork.lua`, dänisch bleibt es englisch). Der Hinweis „Trefferzahlen auf Namensplaketten sind an,
+    daher bleiben Blizzards Schadenszahlen …“ hängt an `M:PlatesOwnWorldNumbers` und verschwindet darum in der Gruppe.
+- **Übergang:** Unter Kampftext → Namensplaketten „Eure Schadenszahlen über Gegnern“ auf „Anzeigen“ stellen. Allein
+  zeigt dann jeder Treffer zwei Zahlen.
+- **Gegenprüfung (23.11.2026):** Ein unabhängiger Prüfer hat den Diff gelesen, ohne diesen Ordner zu kennen. Er bestätigt
+  die Ursache aus dem Code und fand keinen Fehler, der den Fix aufhält. Ohne Abweichung geprüft hat er Ladereihenfolge,
+  Login und Reload in der Gruppe, Reload im Kampf, Schlachtzüge und Schlachtfelder, „Auch in Gruppen“ an, Zeilen auf
+  „Anzeigen“ oder „Ausblenden“, Blizzards Element auf „Ausblenden“ oder „Ersetzen“, ein anderes Kampftext-Addon, das
+  Modul aus und den Profilwechsel. Seine Befunde und was daraus wurde:
+  - Die Optionen sagten nicht, dass in der Gruppe jetzt Blizzards Zahlen kommen: der neue Satz (oben).
+  - Lücke bei einem Gruppenwechsel im Kampf: bleibt so (CVars nur außerhalb des Kampfs), im Code beschrieben.
+  - Zwei gleiche Gruppentests in zwei Dateien: zusammengelegt (`M.InGroup`).
+- **Offen (nicht geändert):** Dieselbe Art Lücke gibt es auch allein. Bei „Welche Plaketten“ = „Nur Euer Ziel“ zeigen
+  Treffer auf andere Gegner (etwa Weihe) nirgends eine Zahl. Ebenso, wenn die gegnerischen Namensplaketten aus sind:
+  Blizzards Zahlen bleiben aus, obwohl die Plaketten nichts zeichnen. Das ist EldoUIs Regel „eine Zahl je Treffer“ und
+  gehört nicht zu dieser Meldung.
+- **Nicht im Spiel prüfbar gewesen:** ob das Spiel die geänderten CVars sofort übernimmt, ohne Reload, und ob
+  `IsInGroup()` in einer Gruppe aus der Gruppensuche `true` ist. Beide Dateien nutzen denselben Aufruf.
+- **Test:** keiner. Ein Test müsste die CVar-Verwaltung aus `Core/Blizzard.lua` und den Gruppenwechsel nachbauen; auf dem
+  Entwicklungsrechner gibt es kein Lua.
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -656,6 +750,12 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F24 | Taschen über die Infoleiste öffnen, mit B schließen; noch einmal über die Infoleiste öffnen, einen Händler besuchen und verlassen | B schließt das Fenster; nach dem Händler bleibt es offen | offen |
 | F24 | mit einem Freund handeln: einen Gegenstand per Rechtsklick aus der Tasche ins Handelsfenster legen | er landet im Handelsfenster | offen |
 | F24 | `/reload`; im Finder „Taschen“ wählen (öffnet), noch einmal (schließt), wieder öffnen; zur Bank, etwas herausholen, Bank schließen; Ruhestein per Rechtsklick aus der Tasche benutzen | das Fenster öffnet und schließt; Rechtsklick wirkt, kein neuer Eintrag „ContainerFrame.lua:1611“ | offen |
+| F25 | `/eui move` öffnen (Ansicht „Kampfmodus“), das Koordinatenfeld ziehen, den Verschiebemodus schließen, `/reload` | Koordinatenfeld und Wegpfeil haben sofort einen Kasten; das Feld bleibt nach dem Reload am neuen Platz | offen |
+| F25 | Rechtsklick auf das Koordinatenfeld → „Verschieben“ | der Verschiebemodus öffnet, der Kasten des Felds ist ausgewählt | offen |
+| F25 | den Wegpunktpfeil in den Optionen der Wegpunkte abschalten, `/eui move` | kein Kasten „Wegpunktpfeil“, auch nicht unter „Alle Rahmen“ | offen |
+| F26 | allein: `/dump C_CVar.GetCVar("floatingCombatTextCombatDamage_v2")`, einen Gegner angreifen | `"0"`; die Zahlen stehen auf der Plakette des Ziels | offen |
+| F26 | außerhalb des Kampfs einer Gruppe beitreten, derselbe Befehl, einen Gegner angreifen | `"1"`; Blizzards eigene Schadenszahlen über dem Gegner, keine Plakettenzahlen | offen (Gruppe) |
+| F26 | die Gruppe verlassen, derselbe Befehl | wieder `"0"`, wieder Plakettenzahlen | offen (Gruppe) |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |

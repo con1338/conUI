@@ -420,6 +420,9 @@ local function Build()
 	-- One owner for the numbers over enemies: what happens now, in one line.
 	Add({ type = "description", hidden = function() return not M:PlatesOwnWorldNumbers() end,
 		label = L["Hit numbers on plates are on, so Blizzard's damage numbers left at \"Blizzard setting\" stay off: one number per hit."] })
+	-- Groups: the plate numbers skip them ("In groups too" off), so the game's own numbers show there.
+	Add({ type = "description", hidden = function() return not M:PlatesRunning() or M.db.plates.inGroup end,
+		label = L["In a party or raid, where hit numbers on plates are off, Blizzard's damage numbers show instead: only your own hits."] })
 	Add({ type = "description", tone = "warning", hidden = function() return not M:WorldNumbersTwice() or E:BlizzardAllowed(ID) end,
 		label = L["Blizzard's damage numbers are on too, so each hit shows twice. Turn on \"Let EldoUI change this\" on the Blizzard combat text tab."] })
 	for _, message in ipairs(M.BLIZZARD_MESSAGES) do

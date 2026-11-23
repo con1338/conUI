@@ -85,6 +85,7 @@ E:RegisterLocale("deDE", function() return {
 	["Hover a button of the Quest Item Bar and press a key, then click Save."] = "Zeigt auf einen Platz der Questgegenstandsleiste, drückt eine Taste und klickt dann auf „Speichern“.",
 	["How many minutes before the end the warning comes."] = "Wie viele Minuten vor dem Ende die Warnung kommt.",
 	["How many world buffs the member has (World Buffs module)."] = "Wie viele Weltbuffs das Mitglied hat (Modul Weltbuffs).",
+	["In a party or raid, where hit numbers on plates are off, Blizzard's damage numbers show instead: only your own hits."] = "In einer Gruppe oder einem Schlachtzug, wo die Trefferzahlen auf Namensplaketten aus sind, zeigt das Spiel stattdessen Blizzards Schadenszahlen: nur Eure eigenen Treffer.",
 	["Items that start a quest"] = "Gegenstände, die Quests beginnen",
 	["Items with a \"!\" that start a quest you don't have yet. A click shows the quest."] = "Gegenstände mit „!“, die eine Quest beginnen, die Ihr noch nicht habt. Ein Klick zeigt die Quest.",
 	["Items you left off the bar with Shift-right-click come back."] = "Gegenstände, die Ihr mit Umschalt-Rechtsklick von der Leiste genommen habt, kommen zurück.",

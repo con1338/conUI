@@ -72,6 +72,8 @@ function M:CoordsMenu(owner)
 		root:CreateButton(L["Waypoint where I stand"], function() M:AddHere() end)
 		root:CreateButton(L["Waypoint list"], function() M:ShowList() end)
 		root:CreateButton(L["Paste waypoints"], function() M:ShowPaste() end)
+		-- Opens move mode with this box selected, whatever the view.
+		root:CreateButton(L["Move"], function() E:MoveFrame("EldoUI_WaypointCoords") end)
 		E:AddHideEntries(root, "EldoUI_WaypointCoords")
 	end)
 end
@@ -101,8 +103,11 @@ function M:BuildCoords()
 	E:BindOptionsLink(frame, { page = "module:Waypoints", key = "coordBox" })
 	self.coordFrame = frame
 
+	-- combat: the box is part of the main screen (every layout places it),
+	-- so move mode shows it in the view it opens in, Combat mode; without it
+	-- the box was only in "All frames" and seemed stuck.
 	E:CreateMover(holder, "EldoUI_WaypointCoords", L["Waypoint Coordinates"], { "TOP", "UIParent", "TOP", 0, -210 },
-		{ enabledPath = { "coordBox" }, followShown = true })
+		{ enabledPath = { "coordBox" }, followShown = true, combat = true })
 	-- Its right-click Hide is the module's own coordinate box switch.
 	E:SetHideableSetting("EldoUI_WaypointCoords", function() return not M.db.coordBox end,
 		function(hidden) M.db.coordBox = not hidden M:UpdateCoordsShown() end)

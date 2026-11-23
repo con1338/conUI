@@ -473,7 +473,10 @@ function M:BuildArrow()
 	holder:SetSize(160, self.db.arrowSize + 34)
 	frame:SetPoint("TOP", holder, "TOP", 0, 0)
 	self.arrowHolder = holder
-	E:CreateMover(holder, "EldoUI_WaypointArrow", L["Waypoint Arrow"], { "TOP", "UIParent", "TOP", 0, -120 })
+	-- In move mode's Combat mode like the coordinate box (Coords.lua), and
+	-- like it only while it is switched on (the holder hides with db.arrow).
+	E:CreateMover(holder, "EldoUI_WaypointArrow", L["Waypoint Arrow"], { "TOP", "UIParent", "TOP", 0, -120 },
+		{ combat = true, followShown = true })
 end
 
 function M:LayoutArrow()
