@@ -15,11 +15,13 @@
 --            enableFloatingCombatText is set to 0, and only while EldoUI's
 --            scrolling text runs. Your damage numbers over enemies stay.
 -- Numbers over enemies have one owner: while EldoUI's hit numbers on enemy
--- plates run, Blizzard's damage numbers over enemies (your hits, periodic
+-- plates draw, Blizzard's damage numbers over enemies (your hits, periodic
 -- and pet damage) left at "Blizzard setting" are set to 0, so one hit draws
 -- one number over the enemy. Hit numbers off, the module off or Blizzard
--- default put the player's own values back. A row set to Show keeps
--- Blizzard's numbers as well, on purpose.
+-- default put the player's own values back, and so does a party or raid
+-- while the plate numbers skip groups ("In groups too" off): there no
+-- number at all would show otherwise. A row set to Show keeps Blizzard's
+-- numbers as well, on purpose.
 -- While another combat text addon is loaded (E:FeatureConflict), EldoUI
 -- leaves these CVars alone: that addon sets the same ones.
 --
@@ -134,21 +136,23 @@ end
 
 -- True while EldoUI's plate numbers own the numbers over enemies.
 function M:PlatesOwnWorldNumbers()
-	return self:PlatesRunning() and E:BlizzardAllowed(ID) and not E:BlizzardState(ID).hide and true or false
+	return self:PlatesDrawHere() and E:BlizzardAllowed(ID) and not E:BlizzardState(ID).hide and true or false
 end
 
 -- The player's choice for a message row, with the plate numbers' claim on
--- "Blizzard setting" for Blizzard's damage numbers over enemies.
+-- "Blizzard setting" for Blizzard's damage numbers over enemies. Only
+-- while the plate numbers draw: in a group they skip, the game's own
+-- numbers stay.
 function M:WorldMessageWanted(message)
 	local wanted = self.db.blizzard.messages[message.cvar]
-	if message.plateOwned and wanted ~= "on" and wanted ~= "off" and self:PlatesRunning() then return "off" end
+	if message.plateOwned and wanted ~= "on" and wanted ~= "off" and self:PlatesDrawHere() then return "off" end
 	return wanted
 end
 
 -- Both Blizzard's damage numbers over enemies and EldoUI's plate numbers
 -- draw the same hit (shown on the Nameplates tab), or nil.
 function M:WorldNumbersTwice()
-	if not self:PlatesRunning() or not (C_CVar and C_CVar.GetCVar) then return nil end
+	if not self:PlatesDrawHere() or not (C_CVar and C_CVar.GetCVar) then return nil end
 	if E:BlizzardAllowed(ID) and E:BlizzardState(ID).hide then return nil end
 	for _, message in ipairs(self.BLIZZARD_MESSAGES) do
 		if message.plateOwned and M.KnownCVar(message.cvar) and C_CVar.GetCVar(message.cvar) == "1" then
@@ -169,6 +173,8 @@ end
 
 -- Apply the element's switches. Out of combat (CVars, a game font object).
 function M:ApplyBlizzard()
+	-- The group state these CVars were set for (the group listener below).
+	self.blizzardGrouped = M.InGroup()
 	if not (self.active and E:BlizzardAllowed(ID)) or self:Conflict() then
 		self:RestoreBlizzard()
 		return
@@ -242,8 +248,19 @@ function M:AskHandOff()
 	})
 end
 
+-- Joining or leaving a party or raid can change who owns the numbers over
+-- enemies (M:PlatesDrawHere): the CVars follow, out of combat. A change in
+-- combat waits for its end: joining mid-fight shows no numbers until then,
+-- a group that ends mid-fight shows both.
+local groupListener = CreateFrame("Frame")
+groupListener:SetScript("OnEvent", function()
+	if not M.active or M.InGroup() == M.blizzardGrouped then return end
+	E:RunOutOfCombat(function() if M.active then M:ApplyBlizzard() end end, "CombatText:blizzardGroup")
+end)
+
 M:AddPart("Blizzard", {
 	enable = function()
+		groupListener:RegisterEvent("GROUP_ROSTER_UPDATE")
 		E:RunOutOfCombat(function() M:ApplyBlizzard() end)
 		C_Timer.After(4, function() if M.active then M:AskHandOff() end end)
 	end,
@@ -252,6 +269,7 @@ M:AddPart("Blizzard", {
 		M:AskHandOff()
 	end,
 	disable = function()
+		groupListener:UnregisterAllEvents()
 		E:RunOutOfCombat(function() M:RestoreBlizzard() end)
 	end,
 })

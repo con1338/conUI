@@ -248,6 +248,16 @@ end
 local function InGroup()
 	return IsInGroup and IsInGroup() or false
 end
+M.InGroup = InGroup -- the same group test for Blizzard.lua
+
+-- True while the plate numbers draw here: running, and in a party or raid
+-- only with "In groups too" on. Blizzard's damage numbers over enemies
+-- follow this (Blizzard.lua): a group without plate numbers keeps the
+-- game's own numbers, which are only your hits.
+function M:PlatesDrawHere()
+	if not self:PlatesRunning() then return false end
+	return (self.db.plates.inGroup and true) or not InGroup()
+end
 
 -- True when hits on `unit` may show (enemy, mode, group rule).
 local function Wanted(unit)
