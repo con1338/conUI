@@ -321,3 +321,22 @@ stehen – `deDE.py xref` prüft das.
 | Who list | Wer-Liste |
 | ToT (target of target) | ZdZ |
 | Skin X (Schalter) | „X mit Skin“ |
+
+## Festgelegt beim Update auf EldoUI 0.7.3100
+
+| Englisch | Deutsch |
+|---|---|
+| PvP rank / season rank / Rank Points | PvP-Rang / Saisonrang / Rangpunkte |
+| this week's cap / capped (this week) | Obergrenze dieser Woche / Obergrenze (dieser Woche) erreicht |
+| PvP rank bar | PvP-Rangleiste |
+| Racial ability / Racial defensive (Tastenkategorie), Kurzform Race2 | Volksfähigkeit / Volksdefensive, Volk2 |
+| Disease / Bleed / Poison cure (Verbrauchsgüterleiste) | Mittel gegen Krankheit / Blutung / Gift; zusammen „Heilmittel“ |
+| poultice / tourniquet / anti-venom | Umschlag / Aderpresse / Gegengift |
+| loyalty / loyalty rank | Loyalität / Loyalitätsstufe |
+| Rebellious … Best Friend (Loyalitätsstufen) | Rebellisch, Widerspenstig, Unterwürfig, Zuverlässig, Treu, Bester Freund (aus dem Gedächtnis, im Spiel prüfen) |
+| Futterarten (Jägertier) | Fleisch, Fisch, Käse, Brot, Pilze, Obst, Rohes Fleisch, Roher Fisch |
+| eats (Jägertier) | frisst |
+| Bring over (Daten eines umgezogenen Charakters) | Übernehmen |
+
+**Ein Schlüssel, zwei Bedeutungen:** „Fish“ ist Spaltenkopf (Angelfertigkeit im Twink-Fenster) und Futterart; beide
+heißen „Fisch“.

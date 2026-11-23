@@ -5938,7 +5938,7 @@ E:RegisterLocale("deDE", function() return {
 	["Your rank"] = "Euer Rang",
 	["Your restock list is kept too."] = "Eure Auffüllliste bleibt ebenfalls erhalten.",
 	["Your role"] = "Eure Rolle",
-	["Your season rank, filling toward the next rank, with a line where this week's cap stops it. Says so when you have reached this week's cap."] = "Euer Saisonrang, der sich zum nächsten Rang hin füllt, mit einer Linie, wo ihn die Obergrenze dieser Woche anhält. Sagt es, wenn Ihr die Obergrenze dieser Woche erreicht habt.",
+	["Your season rank, filling toward the next rank, with a line where this week's cap stops it. Says so when you have reached this week's cap."] = "Euer Saisonrang als Leiste bis zum nächsten Rang, mit einer Linie, wo die Obergrenze dieser Woche sie anhält. Zeigt an, wenn Ihr die Obergrenze dieser Woche erreicht habt.",
 	["Your shaman cooldowns were sent to the group."] = "Eure Schamanen-Abklingzeiten wurden an die Gruppe gesendet.",
 	["Your shield is gone"] = "Euer Schild ist abgelaufen",
 	["Your shield is running out"] = "Euer Schild läuft bald ab",
