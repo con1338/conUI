@@ -374,8 +374,8 @@ end
 
 -- Game panels: the same calls as the game's own key bindings
 -- (Bindings_Camelot.xml). `fn` names a global; `util` a PlayerSpellsUtil
--- function; `map` the world map. combat = false: the panel is protected in
--- combat.
+-- function; `map` the world map; `bags` the bags. combat = false: the panel
+-- is protected in combat.
 local PANELS = {
 	{ text = "Character", fn = "ToggleCharacter", arg = "PaperDollFrame", icon = "Interface\\Icons\\INV_Chest_Chain" }, -- no-L (translated where shown)
 	{ text = "Reputation", fn = "ToggleCharacter", arg = "ReputationFrame", icon = "Interface\\Icons\\INV_BannerPVP_02" }, -- no-L (translated where shown)
@@ -384,7 +384,7 @@ local PANELS = {
 	{ text = "Professions", fn = "ToggleProfessionsBook", icon = "Interface\\Icons\\Trade_BlackSmithing" }, -- no-L (translated where shown)
 	{ text = "Quest log", fn = "ToggleQuestLog", icon = "Interface\\Icons\\INV_Misc_Note_01" }, -- no-L (translated where shown)
 	{ text = "World map", map = true, icon = "Interface\\Icons\\INV_Misc_Map_01", combat = false }, -- no-L (translated where shown)
-	{ text = "Bags", fn = "ToggleAllBags", icon = "Interface\\Icons\\INV_Box_02" }, -- no-L (translated where shown)
+	{ text = "Bags", bags = true, icon = "Interface\\Icons\\INV_Box_02" }, -- no-L (translated where shown)
 	{ text = "Friends", fn = "ToggleFriendsFrame", icon = "Interface\\Icons\\INV_Letter_15" }, -- no-L (translated where shown)
 	{ text = "Guild", fn = "ToggleGuildFrame", icon = "Interface\\Icons\\INV_BannerPVP_01" }, -- no-L (translated where shown)
 	{ text = "Who", fn = "LFGVanilla_ToggleFrame", argGlobal = "LFG_TAB_WHO", icon = "Interface\\Icons\\INV_Misc_Note_02" }, -- no-L (translated where shown)
@@ -407,6 +407,13 @@ local function PanelCall(panel)
 	-- The world map opens through the game's own request (E:OpenWorldMapAt).
 	if panel.map then
 		return C_Map and type(C_Map.OpenWorldMap) == "function" and function() E:OpenWorldMapAt() end or nil
+	end
+	-- The bags through the Bags module, which keeps the game's bag code out
+	-- of EldoUI's code while its bag window replaces the game's and uses
+	-- the game's toggle otherwise (review/fehler.md F24).
+	if panel.bags then
+		local bags = E.modules.Bags
+		return bags and type(bags.ToggleBags) == "function" and function() bags:ToggleBags() end or nil
 	end
 	if panel.util then
 		local util = Global("PlayerSpellsUtil")
