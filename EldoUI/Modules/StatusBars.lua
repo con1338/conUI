@@ -56,6 +56,7 @@ local M = E:NewModule("StatusBars", {
 			color = { 0.58, 0.0, 0.55 }, restedColor = { 0.0, 0.39, 0.88 }, questColor = { 1.0, 0.82, 0.0 } },
 		rep = { enabled = true, reactionColor = true, color = { 0.0, 0.6, 0.1 }, onlyWhenMax = false, autoTrack = false },
 		honor = { enabled = true, show = "pvp", color = { 1.0, 0.71, 0.0 } },   -- show: always, pvp
+		rank = { enabled = false, show = "pvp", color = { 0.78, 0.36, 0.2 } },  -- the PvP season rank; show: always, pvp
 		pet = { enabled = true, color = { 0.58, 0.0, 0.55 } },
 		threat = { enabled = false, statusColor = true, color = { 0.85, 0.25, 0.2 }, onlyGroup = false },
 		blizzard = { textSize = 11 },
@@ -64,8 +65,9 @@ local M = E:NewModule("StatusBars", {
 })
 E:RegisterVisibilityFacet("EldoUI_XPBar", "rules", { module = "StatusBars", setting = "visibility" })
 
-local BAR_KEYS = { "xp", "rep", "honor", "pet", "threat" }
-local BAR_TITLES = E:TranslateValues({ xp = E.Key("Experience"), rep = E.Key("Reputation"), honor = E.Key("Honor"), pet = E.Key("Pet experience"), threat = E.Key("Threat") })
+local BAR_KEYS = { "xp", "rep", "honor", "rank", "pet", "threat" }
+local BAR_TITLES = E:TranslateValues({ xp = E.Key("Experience"), rep = E.Key("Reputation"), honor = E.Key("Honor"), rank = E.Key("PvP rank"),
+	pet = E.Key("Pet experience"), threat = E.Key("Threat") })
 
 local IsSecret = E.Secret
 
@@ -226,6 +228,17 @@ function readers.honor(db)
 end
 M.HonorCurrency = HonorCurrency
 
+-- The PvP season rank (E.PvPRank): fills toward the next rank; a thin line
+-- marks where this week's cap stops it when the cap falls inside the rank.
+function readers.rank(db)
+	if db.rank.show == "pvp" and not InPvP() then return nil end
+	local state = E.PvPRank and E.PvPRank:Read()
+	if not state then return nil end
+	local label = state.rank > 0 and L["Rank %d"]:format(state.rank) or L["No rank yet"]
+	if state.atTop then return { min = 0, max = 1, value = 1, label = label, color = db.rank.color, pvpRank = state } end
+	return { min = 0, max = state.needed, value = state.earned, label = label, color = db.rank.color, pvpRank = state, capShare = state.capShare }
+end
+
 function readers.pet()
 	if not (HasPetUI and GetPetExperience) then return nil end
 	local hasUI, isHunterPet = HasPetUI()
@@ -266,7 +279,8 @@ local function ScanReputation(track)
 		local data = C_Reputation.GetFactionDataByIndex(index)
 		local id = data and Number(data.factionID)
 		local standing = data and Number(data.currentStanding)
-		if id and id ~= 0 and standing and (not data.isHeader or data.isHeaderWithRep) then
+		-- The PvP rank track (faction 2800) is a rank, shown on its own bar.
+		if id and id ~= 0 and id ~= E.PvPRank.FACTION and standing and (not data.isHeader or data.isHeaderWithRep) then
 			local before = standings[id]
 			if track and before and standing > before then gained = id end
 			standings[id] = standing
@@ -312,6 +326,10 @@ local function BarText(key, data, db)
 		local numbers = ("%d%%"):format(math.floor(data.percent + 0.5))
 		return db.textLabel and (SECONDARY:format(data.label) .. "  " .. numbers) or numbers
 	end
+	if key == "rank" and data.pvpRank.capped then
+		local numbers = L["Capped this week"]
+		return db.textLabel and (SECONDARY:format(data.label) .. "  " .. numbers) or numbers
+	end
 	local span = data.max - data.min
 	local into = data.value - data.min
 	local percent = span > 0 and into / span * 100 or 100
@@ -342,6 +360,7 @@ local CLICK_HINTS = {
 	xp = { Key("Click"), Key("open the map and quest log") },
 	rep = { Key("Click"), Key("open the reputation list") },
 	honor = { Key("Click"), Key("open the PvP tab") },
+	rank = { Key("Click"), Key("open the PvP tab") },
 	pet = { Key("Click"), Key("open your pet's page") },
 }
 
@@ -381,7 +400,7 @@ local function OpenPanel(key)
 		-- The game's own map request (the quest log sits on the map), never
 		-- the toggle, which would leave the map's state tainted.
 		E:OpenWorldMapAt()
-	elseif key == "honor" then
+	elseif key == "honor" or key == "rank" then
 		E:OpenPvPPage()
 	end
 end
@@ -395,6 +414,13 @@ local function TooltipLines(key, data)
 			E.UIKit.TipPair(tooltip, L["Towards pulling aggro"], ("%d%%"):format(math.floor(data.scaled + 0.5)))
 		end
 		if data.tanking then tooltip:AddLine(L["You have aggro."], E:TokenColor("bad")) end
+		return
+	end
+	if key == "rank" then
+		E.PvPRank:AddTooltip(tooltip, data.pvpRank)
+		local hint = M.db.clickOpens and CLICK_HINTS[key]
+		local details = { L["Shift-click"], L["details window"] }
+		if hint then E:TooltipHint(tooltip, hint, details) else E:TooltipHint(tooltip, details) end
 		return
 	end
 	local span = data.max - data.min
@@ -606,6 +632,10 @@ function M:CreateBar(key)
 	bar.bonusMark = overlay:CreateTexture(nil, "OVERLAY")
 	bar.bonusMark:SetTexture(E.media.flat)
 	bar.bonusMark:Hide()
+	-- The rank bar: where this week's cap stops progress.
+	bar.capMark = overlay:CreateTexture(nil, "OVERLAY")
+	bar.capMark:SetTexture(E.media.flat)
+	bar.capMark:Hide()
 	bar.tag = CreateTag(self.holder)
 	bar.tag:SetFrameLevel(overlay:GetFrameLevel() + 1)
 	bar:SetScript("OnEnter", ShowTooltip)
@@ -740,6 +770,7 @@ function M:Layout()
 				end
 			end
 			self:UpdateTicks(bar, length)
+			self:UpdateCapMark(bar, length)
 			offset = offset + db.height + db.spacing
 		end
 	end
@@ -775,6 +806,30 @@ function M:UpdateTicks(bar, length)
 			tick:Hide()
 		end
 	end
+end
+
+-- The weekly cap line on the rank bar, two screen pixels wide.
+function M:UpdateCapMark(bar, length)
+	local mark = bar.capMark
+	local share = bar.data and bar.data.capShare
+	if not (mark and share and share > 0 and share < 1) then
+		if mark then mark:Hide() end
+		return
+	end
+	mark:ClearAllPoints()
+	local at = length * share
+	local size = math.max(1, E:PixelFor(bar) * 2)
+	if self.db.vertical then
+		mark:SetHeight(size)
+		mark:SetPoint("LEFT", bar, "BOTTOMLEFT", 0, at)
+		mark:SetPoint("RIGHT", bar, "BOTTOMRIGHT", 0, at)
+	else
+		mark:SetWidth(size)
+		mark:SetPoint("TOP", bar, "TOPLEFT", at, 0)
+		mark:SetPoint("BOTTOM", bar, "BOTTOMLEFT", at, 0)
+	end
+	mark:SetVertexColor(E:TokenColor("warn"))
+	mark:Show()
 end
 
 -- A new UI scale or screen size: the ticks are sized again in whole
@@ -818,7 +873,7 @@ end
 
 local EVENTS = {
 	"PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION", "PLAYER_LEVEL_UP", "PLAYER_UPDATE_RESTING",
-	"UPDATE_FACTION", "CURRENCY_DISPLAY_UPDATE",
+	"UPDATE_FACTION", "CURRENCY_DISPLAY_UPDATE", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "PLAYER_PVP_RANK_CHANGED",
 	"DISABLE_XP_GAIN", "ENABLE_XP_GAIN", "PLAYER_MAX_LEVEL_UPDATE", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA",
 	"QUEST_LOG_UPDATE", "QUEST_TURNED_IN",
 	-- A full-width bar follows a new resolution or UI scale.
@@ -851,7 +906,7 @@ end
 -- watched faction in its standing color. Each section remembers whether
 -- it is folded (per profile). Nothing here is combat data.
 ---------------------------------------------------------------------------
-local Details = { keys = { "xp", "rep", "honor", "pet" }, sections = {}, gap = 6 }
+local Details = { keys = { "xp", "rep", "honor", "rank", "pet" }, sections = {}, gap = 6 }
 M.Details = Details
 
 -- The rows of one section: { label, value[, kind] }.
@@ -860,6 +915,14 @@ function Details.Rows(key, data)
 	local function Add(label, value, kind) rows[#rows + 1] = { label = label, value = value, kind = kind } end
 	local span = data.max - data.min
 	local into = data.value - data.min
+	if key == "rank" then
+		local state = data.pvpRank
+		Add(L["Rank"], state.rank > 0 and tostring(state.rank) or "-")
+		if state.atTop then return rows end
+		Add(L["Rank Points"], ("%s / %s"):format(Long(state.earned), Long(state.needed)), state.capped and "warn" or nil)
+		if state.total and state.weekTotal then Add(L["Season total"], ("%s / %s"):format(Long(state.total), Long(state.weekTotal))) end
+		return rows
+	end
 	if key == "rep" then
 		Add(L["Standing"], data.standing ~= "" and data.standing or "-")
 	elseif data.level then
@@ -1411,7 +1474,7 @@ M.options = {
 	{ type = "toggle", key = "pet.enabled", label = "Pet experience bar", desc = "Your hunter pet's experience (Forever pets level up with you)." },
 	{ type = "color", key = "pet.color", dependsOn = "pet.enabled", label = "Pet XP color", desc = "Fill color of the pet experience bar." },
 
-	{ type = "tab", label = "Reputation and honor" },
+	{ type = "tab", label = "Reputation and PvP" },
 	{ type = "toggle", key = "rep.enabled", label = "Reputation bar", desc = "The faction you watch (tick \"Show as experience bar\" in the reputation list)." },
 	{ type = "toggle", key = "rep.reactionColor", dependsOn = "rep.enabled", label = "Color by standing", desc = "Red for hostile through green for exalted, the game's standing colors." },
 	{ type = "color", key = "rep.color", label = "Reputation color", desc = "Used when \"Color by standing\" is off.", dependsOn = "rep.enabled",
@@ -1423,6 +1486,11 @@ M.options = {
 	{ type = "select", key = "honor.show", dependsOn = "honor.enabled", label = "Show honor", desc = "Only in battlegrounds and world PvP, or all the time.",
 		values = { pvp = "In PvP", always = "Always" } },
 	{ type = "color", key = "honor.color", dependsOn = "honor.enabled", label = "Honor color", desc = "Fill color of the honor bar." },
+	{ type = "toggle", key = "rank.enabled", label = "PvP rank bar",
+		desc = "Your season rank, filling toward the next rank, with a line where this week's cap stops it. Says so when you have reached this week's cap." },
+	{ type = "select", key = "rank.show", dependsOn = "rank.enabled", label = "Show PvP rank", desc = "Only in battlegrounds and world PvP, or all the time.",
+		values = { pvp = "In PvP", always = "Always" } },
+	{ type = "color", key = "rank.color", dependsOn = "rank.enabled", label = "PvP rank color", desc = "Fill color of the PvP rank bar." },
 
 	{ type = "tab", label = "Threat" },
 	{ type = "toggle", key = "threat.enabled", label = "Threat bar",
@@ -1493,8 +1561,9 @@ E:RegisterStyles("StatusBars", {
 	{ key = "Hidden", title = "Mouse-over only", desc = "Invisible until you point at it.",
 		settings = { width = 620, height = 8, textShow = "hover",
 			visibility = { preset = "mouseover", show = "mouseover", fadedAlpha = 0, fadeTime = 0.2, delay = 0.5 } } },
-	{ key = "Endgame", title = "Endgame", desc = "Reputation and honor only; XP hides at the cap.",
-		settings = { width = 620, height = 8, textShow = "hover", vertical = false, xp = { hideAtMax = true }, rep = { enabled = true, autoTrack = true }, honor = { enabled = true, show = "always" }, threat = { enabled = true } } },
+	{ key = "Endgame", title = "Endgame", desc = "Reputation, honor and PvP rank only; XP hides at the cap.",
+		settings = { width = 620, height = 8, textShow = "hover", vertical = false, xp = { hideAtMax = true }, rep = { enabled = true, autoTrack = true }, honor = { enabled = true, show = "always" },
+			rank = { enabled = true, show = "always" }, threat = { enabled = true } } },
 	{ key = "Compact", title = "Compact", desc = "Short 400 px bars with current / max text.",
 		settings = { width = 400, height = 10, textShow = "always", textMode = "current", fontSize = 10 } },
-}, { restores = { "threat.enabled", "honor.show" } })
+}, { restores = { "threat.enabled", "honor.show", "rank.enabled", "rank.show" } })

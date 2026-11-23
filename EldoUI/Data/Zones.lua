@@ -5,9 +5,12 @@
 -- fishing skill a zone asks for and the dungeons and raids whose entrance
 -- lies in it). No other addon's data is used. Original zones use Classic
 -- reference values; Forever dungeon names and map IDs follow client 70938,
--- with level ranges from Blizzard's dungeon overview. The module prefers what the game
+-- with level ranges from Blizzard's dungeon overview, and Forever's new
+-- zones carry reported ranges marked checked = false. The module prefers what the game
 -- says (C_Map.GetMapLevels, C_EncounterJournal.GetDungeonEntrancesForMap,
--- your own Gathering finds) and falls back to this table.
+-- your own Gathering finds) and falls back to this table. Zone maps,
+-- territory and instance maps are checked against the client tables of
+-- build 1.60.1.70862.
 --
 -- Keys are uiMapIDs. Fields, all optional:
 --   min, max   level range
@@ -15,6 +18,11 @@
 --   herbs      herb node keys (E.zoneData.herbs), easiest first
 --   ore        ore node keys (E.zoneData.ore), easiest first
 --   fish       fishing skill from which no fish get away in the zone
+--   checked    false for a WoW: Forever zone whose range and territory are
+--              reported, not yet seen in the game (herbs, ore and fishing
+--              are left out there rather than guessed)
+--   new        true for a map WoW: Forever added; guide points written in
+--              the original game's map frame have no match there
 --   instances  instance keys (E.zoneData.instances) with an entrance here
 local _, E = ...
 
@@ -105,6 +113,7 @@ Z.instances = {
 	alcaz = { name = E.Key("Alcaz Prison"), kind = "dungeon", min = 48, max = 53, map = 2994, new = true },
 	blackmaw = { name = E.Key("Blackmaw Hold"), kind = "dungeon", min = 55, max = 60, map = 2974, new = true },
 	shapersterrace = { name = E.Key("The Shaper's Terrace"), kind = "dungeon", min = 58, max = 60, map = 3001, new = true },
+	kroldok = { name = E.Key("Krol'dok Stronghold"), kind = "dungeon", min = 40, max = 45, map = 3039, new = true },
 }
 
 local STARTER_HERBS = { "peacebloom", "silverleaf", "earthroot" }
@@ -137,6 +146,9 @@ Z.zones = {
 	[1453] = { faction = "Alliance", fish = 25, instances = { "stockade" } }, -- Stormwind City
 	[1455] = { faction = "Alliance", instances = { "thanes" } }, -- Ironforge
 	[1458] = { faction = "Horde", fish = 25, instances = { "lordaeron" } }, -- Undercity
+	-- New in WoW: Forever (zone maps from client 70862; ranges and territory
+	-- as reported, until seen in the game).
+	[2548] = { min = 36, max = 44, faction = "contested", checked = false, new = true, instances = { "kroldok" } }, -- Riverglades: Alliance, Horde and neutral towns
 
 	-- Kalimdor
 	[1411] = { min = 1, max = 10, faction = "Horde", herbs = STARTER_HERBS, ore = { "copper" }, fish = 25 }, -- Durotar
@@ -160,6 +172,13 @@ Z.zones = {
 	[1454] = { faction = "Horde", fish = 25, instances = { "ragefire" } }, -- Orgrimmar
 	[1456] = { faction = "Horde" }, -- Thunder Bluff
 	[1457] = { faction = "Alliance", fish = 25 }, -- Darnassus
+	-- New in WoW: Forever (zone maps from client 70862; ranges and territory
+	-- as reported, until seen in the game).
+	[2652] = { min = 35, max = 45, faction = "contested", checked = false, new = true }, -- Shen'dralas, through Desolace's Valley of Bones
+	[2482] = { min = 55, max = 60, faction = "contested", checked = false, new = true }, -- Mount Hyjal, between Felwood and Winterspring
+
+	-- Zephras Isle (its own continent, the Skyborne starting zone; checked = false)
+	[2521] = { min = 1, max = 10, faction = "contested", checked = false, new = true }, -- Zephras Isle
 }
 
 -- The original game's instance map IDs and folded names: a dungeon entrance

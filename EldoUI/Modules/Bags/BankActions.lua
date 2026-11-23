@@ -2,10 +2,12 @@
 -- Each one runs only on the player's click, and only where the game
 -- offers it.
 --
---   Buy a tab     the next bank tab shows a plus on the bag bar. The plus
---                 is the game's own purchase button (the template Blizzard
---                 provides for addons): its click opens the game's confirm
---                 with the cost, and only that confirm buys the tab.
+--   Buy a tab     a rail button at the bank while the game sells another
+--                 tab, and a plus on the next tab of the bag bar when the
+--                 bar is shown. Both are the game's own purchase button
+--                 (the template Blizzard provides for addons): its click
+--                 opens the game's confirm with the cost, and only that
+--                 confirm buys the tab.
 --   Deposit       a rail button puts everything that fits into the bank,
 --                 the game's own deposit. Right-click deposits into the
 --                 warband bank where it is shown; that one asks first, with
@@ -132,6 +134,37 @@ end
 
 hooksecurefunc(M, "UpdateBar", function(_, window) PlaceBuyButtons(window) end)
 
+-- The rail's purchase button: the game's purchase button laid over the
+-- rail button, so the bank sells its next tab with or without the bag bar.
+-- Nil when the client has no such template; the rail button then opens the
+-- game's own bank window, which has its own purchase button.
+local function RailBuyButton(window, railButton)
+	if window.railBuy ~= nil then return window.railBuy or nil end
+	local ok, made = pcall(CreateFrame, "Button", nil, railButton, PURCHASE_TEMPLATE)
+	if not ok or not made then
+		window.railBuy = false
+		return nil
+	end
+	made:SetAllPoints(railButton)
+	made:SetFrameLevel(railButton:GetFrameLevel() + 2)
+	local hover = made:CreateTexture(nil, "HIGHLIGHT")
+	hover:SetAllPoints()
+	hover:SetColorTexture(1, 1, 1, E.tokens.hover.hud)
+	made:SetScript("OnEnter", BuyTooltip)
+	made:SetScript("OnLeave", GameTooltip_Hide)
+	window.railBuy = made
+	return made
+end
+
+-- The bank type whose next tab the window offers: the character bank
+-- first, then the account bank where it is shown. Only for the live bank.
+local function OfferedTab(window)
+	if not (window.viewChar == E.charKey and M:BankIsOpen() and M.CanBuyBankTab) then return nil end
+	if M.CanBuyBankTab(BANK_CHARACTER) then return BANK_CHARACTER end
+	if M.AccountTabsShown() and M.CanBuyBankTab(BANK_ACCOUNT) then return BANK_ACCOUNT end
+end
+M.OfferedBankTab = OfferedTab
+
 ---------------------------------------------------------------------------
 -- Deposit
 ---------------------------------------------------------------------------
@@ -178,11 +211,15 @@ function M.RailButtons(window, isBank)
 			end
 		end,
 		onClick = function(_, mouse) M:Deposit(mouse) end, options = { page = "module:Bags", key = "bankMode" } }
+	local buy = { key = "buytab", art = E:ClientIcon("Interface\\Icons\\INV_Misc_Coin_01"), mono = true,
+		tipTitle = L["Buy the next bank tab"], tip = L["Open the game's own bank window, e.g. to buy bank space."],
+		onClick = function() M:ShowBlizzardBank() end }
 	local at = #list + 1
 	for index, def in ipairs(list) do
 		if def.key == "blizzard" then at = index + 1 end
 	end
 	table.insert(list, at, deposit)
+	table.insert(list, at + 1, buy)
 	return list
 end
 
@@ -195,10 +232,26 @@ hooksecurefunc(M, "UpdateWindow", function(_, window)
 		button.eldoClicks = true
 	end
 	local shown = window.viewChar == E.charKey and (CanDeposit(BANK_CHARACTER) or (M.AccountTabsShown() and CanDeposit(BANK_ACCOUNT)))
+	local layout = false
 	if button:IsShown() ~= (shown and true or false) then
 		button:SetShown(shown)
-		window.rail:Layout()
+		layout = true
 	end
+	-- The next tab to buy, on the rail.
+	local railButton = window.rail.buttons.buytab
+	if railButton then
+		local bankType = OfferedTab(window)
+		local overlay = bankType and RailBuyButton(window, railButton)
+		if overlay then
+			overlay:SetAttribute("overrideBankType", bankType)
+			overlay.bankType = bankType
+		end
+		if railButton:IsShown() ~= (bankType ~= nil) then
+			railButton:SetShown(bankType ~= nil)
+			layout = true
+		end
+	end
+	if layout then window.rail:Layout() end
 end)
 
 ---------------------------------------------------------------------------

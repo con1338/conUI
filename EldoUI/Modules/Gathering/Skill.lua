@@ -9,6 +9,8 @@
 -- own skill comes from the game's skill list (C_SkillInfo). The color is
 -- the game's usual skill-up color for gathering: red below the skill,
 -- orange, yellow, green, then gray when it no longer raises your skill.
+-- Every required skill matches a gathering lock in the client's Lock table
+-- of build 1.60.1.70862.
 local _, E = ...
 local L = E.L
 local M = E.Gathering
@@ -73,9 +75,20 @@ local NODE_DATA = {
 	},
 }
 
+-- WoW: Forever's own nodes: { required skill, main yield item ID }. The
+-- client tables EldoUI reads hold the yield and the skill, but not the
+-- node's name or object id, so the node is learned the first time its
+-- yield comes out of a node you gather (Nodes:LearnFromYield). The key is
+-- the name the node goes by here until then.
+local FOREVER_NODES = {
+	ore = {
+		["Heavy Thorium Vein"] = { 300, 248815 }, -- Mount Hyjal
+	},
+}
+
 -- E.NodeSkill: the gathering node behind a shown name or object id,
 -- shared by the map pins and the tooltip's Gathering skill row.
-local Nodes = { byName = {}, byEntry = {} }
+local Nodes = { byName = {}, byEntry = {}, byYield = {} }
 E.NodeSkill = Nodes
 M.REQUIRED_SKILL = {}
 for kind, list in pairs(NODE_DATA) do
@@ -85,6 +98,14 @@ for kind, list in pairs(NODE_DATA) do
 		M.REQUIRED_SKILL[kind][name] = data[1]
 		Nodes.byName[name] = info
 		for index = 3, #data do Nodes.byEntry[data[index]] = info end
+	end
+end
+for kind, list in pairs(FOREVER_NODES) do
+	for name, data in pairs(list) do
+		local info = { kind = kind, name = name, rank = data[1], itemID = data[2], forever = true }
+		M.REQUIRED_SKILL[kind][name] = data[1]
+		Nodes.byName[name] = info
+		Nodes.byYield[data[2]] = info
 	end
 end
 
@@ -121,6 +142,12 @@ function Nodes:Find(name, entry)
 	if type(name) ~= "string" or name == "" then name = nil end
 	entry = Clean(entry)
 	local info = type(entry) == "number" and self.byEntry[entry] or nil
+	if not info and type(entry) == "number" then
+		-- An object id learned from a WoW: Forever node's yield.
+		local saved = Learned()
+		local english = saved and saved["#" .. entry]
+		info = type(english) == "string" and self.byName[english] or nil
+	end
 	if info then
 		local saved = name and name ~= info.name and Learned()
 		if saved and saved[name] ~= info.name then saved[name] = info.name end
@@ -134,6 +161,26 @@ function Nodes:Find(name, entry)
 	if type(english) == "string" and self.byName[english] then return self.byName[english] end
 	local loot = LootNames()
 	return loot and loot[name] or nil
+end
+
+-- A node gathered by its shown name (and object id, when the loot names
+-- it) that gave one of these items: a WoW: Forever node no name or id
+-- here matches yet is learned from its yield, so its pins, tooltip and the
+-- skill filter know it from now on. Returns the node, or nil.
+function Nodes:LearnFromYield(name, entry, itemIDs)
+	name, entry = Clean(name), Clean(entry)
+	if type(name) ~= "string" or name == "" or type(itemIDs) ~= "table" then return nil end
+	if self:Find(name, entry) then return nil end
+	for _, itemID in ipairs(itemIDs) do
+		local info = self.byYield[tonumber(itemID) or 0]
+		local saved = info and Learned()
+		if saved then
+			saved[name] = info.name
+			if type(entry) == "number" then saved["#" .. entry] = info.name end
+			return info
+		end
+	end
+	return nil
 end
 
 -- The object id in a GameObject GUID, or nil.

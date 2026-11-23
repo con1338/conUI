@@ -2,7 +2,7 @@
 ## Title: |cff33aaffcon|rUI Dansk
 ## Notes: Danish texts for conUI. Loads only when Dansk is picked under General > conUI language.
 ## Author: Eldodeldo
-## Version: 0.7.3005
+## Version: 0.7.3100
 ## Group: EldoUI
 ## Category: User Interface
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga

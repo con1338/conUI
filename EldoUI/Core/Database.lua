@@ -876,6 +876,9 @@ E:RegisterStore("profileKeys", { owner = "Core", key = "charKey" })
 E:RegisterStore("profiles", { owner = "Core", key = "profile", version = E.PROFILE_SCHEMA, versionKey = "schema" })
 E:RegisterStore("global", { owner = "Core" })
 E:RegisterStore("private", { owner = "Core", key = "charKey" })
+-- Answers to "bring over your data" after a ruleset move: "<old key>\n<new
+-- key>" -> "moved" or "fresh" (section "A character that moved").
+E:RegisterStore("rulesetMoves", { owner = "Core" })
 E:RegisterStore("installed", { owner = "Installer", key = "charKey" })
 E:RegisterStore("installerRun", { owner = "Installer", key = "charKey" })
 E:RegisterStore("installerBackup", { owner = "Installer", key = "charKey" })
@@ -2583,6 +2586,132 @@ local function MigrateCharacterKey(newKey)
 	end
 	return claimed
 end
+
+---------------------------------------------------------------------------
+-- A character that moved to another ruleset. On WoW: Forever a character
+-- can change ruleset (the paid transfer's destination ruleset, or a fallen
+-- Hardcore character's move), and its key ("<name> - <realm>") changes
+-- with the realm. Its old records are found by its GUID or, as a full
+-- name is unique per region across every ruleset, by its full name. The
+-- player is asked once, at login: Bring over moves every per-character
+-- entry from the old key to this one, Start fresh leaves the old record
+-- alone and never asks again for that pair, Later asks at the next login.
+-- Nothing moves without the click. Ruleset data (auction prices, the
+-- instance limit) is keyed by ruleset, not by character, and stays.
+---------------------------------------------------------------------------
+local RULESET_STORES = { "inventory", "journal" }
+
+local function MoveAnswers()
+	if type(EldoUIDB) ~= "table" then return {} end
+	if type(EldoUIDB.rulesetMoves) ~= "table" then EldoUIDB.rulesetMoves = {} end
+	return EldoUIDB.rulesetMoves
+end
+
+local function PairKey(oldKey, newKey) return oldKey .. "\n" .. newKey end
+
+-- The old key of this character under another realm, and that realm, or
+-- nil. Only on WoW: Forever, and a name match needs the full name.
+function E:RulesetMoveCandidate(newKey)
+	if type(EldoUIDB) ~= "table" or not (self.IsForeverClient and self:IsForeverClient()) then return nil end
+	newKey = newKey or self.charKey or CharacterKey()
+	local guid, full = MyGuid(), self:CharacterName()
+	local byName = type(full) == "string" and full ~= self:PlayerName()
+	local realm = GetRealmName()
+	local answers = type(EldoUIDB.rulesetMoves) == "table" and EldoUIDB.rulesetMoves or {}
+	local found
+	for _, store in ipairs(RULESET_STORES) do
+		local list = EldoUIDB[store]
+		for key, record in pairs(type(list) == "table" and list or {}) do
+			local cut = type(key) == "string" and key:find(" - ", 1, true)
+			if cut and key ~= newKey and type(record) == "table" and answers[PairKey(key, newKey)] == nil then
+				local name, oldRealm = key:sub(1, cut - 1), key:sub(cut + 3)
+				local mine = (guid ~= nil and record.guid == guid) or (byName and name == full)
+				if mine and oldRealm ~= realm and (not found or key < found) then found = key end
+			end
+		end
+	end
+	if not found then return nil end
+	return found, found:sub(found:find(" - ", 1, true) + 3)
+end
+
+-- Bring over: every per-character entry two levels into EldoUIDB moves
+-- from oldKey to newKey and replaces what this character saved since the
+-- move; the modules move what lies deeper. Takes effect after a reload.
+-- A move to another realm can give the character a new GUID; its moved
+-- records then still name the old one. The character data and journal
+-- records take the new GUID here, and a module that keeps more records by
+-- GUID re-stamps them in its own handler: fn(db, oldKey, newKey, oldGuid,
+-- newGuid), called before the key moves run.
+local rulesetGuidMoves = {}
+function E:RegisterRulesetGuidMove(fn)
+	if type(fn) == "function" then rulesetGuidMoves[#rulesetGuidMoves + 1] = fn end
+end
+
+function E:BringOverCharacter(oldKey, newKey)
+	newKey = newKey or self.charKey
+	if type(EldoUIDB) ~= "table" or type(oldKey) ~= "string" or oldKey == newKey then return false end
+	local oldGuid, newGuid = RecordOwner(oldKey), MyGuid()
+	local function Take(t)
+		if t[oldKey] ~= nil then t[newKey], t[oldKey] = t[oldKey], nil end
+	end
+	for key, value in pairs(EldoUIDB) do
+		if type(value) == "table" and key ~= "profiles" and key ~= "global" and key ~= "rulesetMoves" then
+			Take(value)
+			for _, inner in pairs(value) do
+				if type(inner) == "table" then Take(inner) end
+			end
+		end
+	end
+	if oldGuid and newGuid and oldGuid ~= newGuid then
+		for _, store in ipairs(RULESET_STORES) do
+			local list = EldoUIDB[store]
+			local record = type(list) == "table" and list[newKey]
+			if type(record) == "table" and record.guid == oldGuid then record.guid = newGuid end
+		end
+		for _, fn in ipairs(rulesetGuidMoves) do
+			local ok, err = pcall(fn, EldoUIDB, oldKey, newKey, oldGuid, newGuid)
+			if not ok then geterrorhandler()(("EldoUI bringing over a moved character: %s"):format(tostring(err))) end
+		end
+	end
+	RunKeyMoves(oldKey, newKey)
+	MoveAnswers()[PairKey(oldKey, newKey)] = "moved"
+	return true
+end
+
+function E:StartFreshCharacter(oldKey, newKey)
+	if type(oldKey) ~= "string" then return end
+	MoveAnswers()[PairKey(oldKey, newKey or self.charKey)] = "fresh"
+end
+
+-- The question, once per login.
+function E:OfferRulesetMove()
+	local oldKey, oldRealm = self:RulesetMoveCandidate()
+	if not oldKey or not self.ShowConfirm then return nil end
+	local L, newKey = self.L, self.charKey
+	return self:ShowConfirm({
+		title = L["Bring over your EldoUI data?"],
+		text = L["This character's EldoUI data is saved under %s. Bring over its settings, profile, Journal, bags and history from there? What EldoUI saved here since the move is replaced. The change shows after a reload."]
+			:format(oldRealm),
+		accept = L["Bring over"],
+		extra = { L["Start fresh"], function() E:StartFreshCharacter(oldKey, newKey) end },
+		cancel = L["Later"],
+		key = "rulesetMove",
+		onAccept = function()
+			if E:BringOverCharacter(oldKey, newKey) and E.ShowReloadPrompt then
+				E:ShowReloadPrompt(L["Your EldoUI data from %s is here after a reload."]:format(oldRealm))
+			end
+		end,
+	})
+end
+
+local RulesetMove = {}
+E:RegisterEvent("PLAYER_LOGIN", function()
+	if C_Timer and C_Timer.After then
+		C_Timer.After(4, function() E:OfferRulesetMove() end)
+	else
+		E:OfferRulesetMove()
+	end
+end, RulesetMove)
 
 function E:InitializeDatabase()
 	-- Profile preparation retains whether the account itself was new.

@@ -13,7 +13,9 @@
 --   LG:StartTour()   the main tour (welcome, Journal, dungeon map, Open
 --       World, Best in Slot, filter, simulator, wishlist, search, Database,
 --       Catalog, settings). Starts by itself the first time the window
---       opens outside combat and instances, after the first-run card.
+--       opens outside combat and instances, after the first-run card;
+--       when another help shows at that moment, it starts as soon as that
+--       help ends while the window is still open.
 --   LG:StartJournalTour()  the My Adventure tour (Today, Next trips, the
 --       rail and its footer); starts by itself once, the first time Today
 --       shows after the main tour was seen
@@ -223,6 +225,14 @@ function LG:Open(key, arg)
 	-- A step's page switch must not start anything new.
 	if not Tour:Running() then MaybeAutoStart() end
 end
+
+-- A help bubble that held the first tour back ended (Got it, Skip, its
+-- frame gone): start the tour now if the window is still open. Combat and
+-- a help replaced by another start nothing.
+Tour:OnEnd(function(_, _, how)
+	if how == "combat" or how == "replaced" or how == "off" then return end
+	if LG.active then MaybeAutoStart() end
+end)
 
 local baseFinish = LG.FinishFirstRun
 function LG:FinishFirstRun(rating, list)

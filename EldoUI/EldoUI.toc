@@ -4,7 +4,7 @@
 ## Author: Eldodeldo
 ## X-License: Apache-2.0
 ## X-Copyright: Copyright 2026 Eldodeldo
-## Version: 0.7.3005-p2
+## Version: 0.7.3100-p1
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
 ## AddonCompartmentFunc: EldoUI_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: EldoUI_OnAddonCompartmentEnter
@@ -114,6 +114,7 @@ Data\DungeonFloorEdges.lua
 Data\ItemLimitGroups.lua
 Data\QuestLines.lua
 Data\PvPRewards.lua
+Data\ForeverFactions.lua
 Data\ForeverDungeons.lua
 Data\LevelXP.lua
 Core\DungeonMaps.lua
@@ -125,6 +126,7 @@ Core\UnitGraphics.lua
 Core\Orb.lua
 Core\CharacterStore.lua
 Core\PlayRates.lua
+Core\PvPRank.lua
 # Class premades and the key and spell preview
 Data\ClassPremades.lua
 Core\Premades.lua
@@ -285,6 +287,7 @@ Data\Training\Shaman.lua
 Data\Training\Warlock.lua
 Data\Training\Warrior.lua
 Data\Training\PetAbilities.lua
+Data\Training\PetCare.lua
 Modules\TrainingPets.lua
 Modules\Training.lua
 Modules\Social.lua
@@ -433,6 +436,7 @@ Modules\LootGuide\Adventure\UI\StatsSpread.lua
 Modules\LootGuide\Adventure\UI\Card.lua
 Modules\LootGuide\Adventure\Options.lua
 # Eldostar
+Data\EldostarPlaces.lua
 Modules\Eldostar\Core.lua
 Modules\Eldostar\Corrections.lua
 Modules\Eldostar\Window.lua

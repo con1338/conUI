@@ -89,20 +89,20 @@ mit in die Liste zu rutschen.
 
 ## Release
 
-1. In `EldoUI/EldoUI.toc` (und `EldoUI_Locale_deDE/EldoUI_Locale_deDE.toc`) `## Version:` setzen, z. B. `0.7.3005-p1`, und nach `main` bringen.
+1. In `EldoUI/EldoUI.toc` (und `EldoUI_Locale_deDE/EldoUI_Locale_deDE.toc`) `## Version:` setzen, z. B. `0.7.3100-p1`, und nach `main` bringen.
 2. Release starten, auf einem der zwei Wege:
-   - **Auf GitHub, ohne git:** Actions → **Release** → **Run workflow**, Branch `main`, Tag `v0.7.3005-p1` eintragen → Run.
+   - **Auf GitHub, ohne git:** Actions → **Release** → **Run workflow**, Branch `main`, Tag `v0.7.3100-p1` eintragen → Run.
      Der Workflow legt den Tag auf den neuesten Commit von `main` und das Release dazu.
-   - **Mit git:** `git tag v0.7.3005-p1 && git push origin v0.7.3005-p1`
+   - **Mit git:** `git tag v0.7.3100-p1 && git push origin v0.7.3100-p1`
 
 Der Workflow bricht ab, wenn der Tag nicht zur Version passt, es den Tag schon für einen anderen Stand gibt oder
 eine Prüfung fehlschlägt. Das ZIP heißt
 `conUI-<Version>.zip` und enthält alle `EldoUI*`-Ordner, die git kennt: entpacken nach `Interface\AddOns`, fertig.
 Lokal: `python3 tools/ci/build_zip.py` → `dist/`.
 
-**Versions-Endung `-pN`:** Der Fork hängt an die EldoUI-Version eine Endung an (`0.7.3005-p1`). EldoUIs
+**Versions-Endung `-pN`:** Der Fork hängt an die EldoUI-Version eine Endung an (`0.7.3100-p1`). EldoUIs
 Versionscheck liest nur die Zahlen davor. Andere EldoUI-Spieler in Gilde und Gruppe bekommen so keinen falschen
-Hinweis „neuere Version“, und eine echte neue EldoUI-Version (0.7.3006) wird weiter gemeldet. Der Hinweis
+Hinweis „neuere Version“, und eine echte neue EldoUI-Version (0.7.3101) wird weiter gemeldet. Der Hinweis
 „Was ist neu“ nach einem Update gehört zur EldoUI-Version vor der Endung (`EldoUI/Core/Config.lua`).
 
 ## Neue EldoUI-Version übernehmen
@@ -130,7 +130,9 @@ gibt es zwei Quellen und zwei Merges (zuerst so gemacht für 0.7.3001):
    Fork behält nur den Teil, den EldoUI nicht abdeckt (Entscheidung des Nutzers vom 16.11.2026). Das betrifft auch
    Fork-Änderungen, die ohne Konflikt durchgelaufen sind; welche es waren, steht in `review/`.
 4. **Deutsches Paket:** Die dänische Liste gibt die Schlüssel vor. Texte, die sie nicht mehr hat, fliegen aus den
-   vier deutschen Dateien, neue brauchen eine Übersetzung (`deDE.py export` / `import`).
+   vier deutschen Dateien, neue brauchen eine Übersetzung (`deDE.py export` / `import`). Neue Texte des Loot
+   Guides zuerst mit `deDE.py seed-lootguide` aus EldoUIs eigener deutscher Loot-Guide-Tabelle holen, dann sagen
+   beide dasselbe (bei 0.7.3100 kamen so alle 22 neuen Loot-Guide-Texte, von 116 neuen insgesamt).
 5. Versionen auf `<EldoUI-Version>-p1` setzen (siehe Release), Prüfungen grün, im Spiel testen, Tag pushen.
 6. **Name conUI:** Der Fork ändert nur den sichtbaren Namen, damit dieser Merge klein bleibt. Ordner, Globals,
    gespeicherte Einstellungen und alle Texte im Code heißen weiter EldoUI; `EldoUI/Core/Brand.lua` tauscht den

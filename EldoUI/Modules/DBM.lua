@@ -147,6 +147,14 @@ local function Core()
 	if type(dbm) == "table" and type(dbm.Options) == "table" and type(dbm.DefaultOptions) == "table" then return dbm end
 end
 
+-- The boss mod's own option that hides the quest tracker during a boss
+-- fight (on by default). The Quest Tracker reads it, so both hide the
+-- tracker for the same fight and EldoUI's rule never shows it mid-fight.
+function E:BossModHidesTracker()
+	local dbm = Core()
+	return dbm ~= nil and dbm.Options.HideObjectivesFrame == true
+end
+
 local function Bars()
 	if not C_AddOns.IsAddOnLoaded("DBM-StatusBarTimers") then return end
 	local dbt = _G.DBT

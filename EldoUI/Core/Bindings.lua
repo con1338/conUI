@@ -127,6 +127,9 @@ function E:NameKeyBindings()
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton7:LeftButton"] = L["Use the Hearthstone (Consumable Bar)"]
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton8:LeftButton"] = L["Mount up (Consumable Bar)"]
 	_G["BINDING_NAME_CLICK EldoUI_ConsumableButton9:LeftButton"] = L["Use your mana gem (Consumable Bar)"]
+	for index, what in ipairs({ L["Disease cure"], L["Bleed cure"], L["Poison cure"] }) do
+		_G[("BINDING_NAME_CLICK EldoUI_ConsumableButton%d:LeftButton"):format(9 + index)] = L["Use the best %s (Consumable Bar)"]:format(E:InSentence(what))
+	end
 	_G.BINDING_HEADER_ELDOUIQUICKDRAW = (E.brand or "EldoUI") .. " Quickdraw"
 	for index = 1, 16 do
 		_G[("BINDING_NAME_CLICK EldoUI_Quickdraw%d:LeftButton"):format(index)] = L["Quickdraw menu %d (hold)"]:format(index)

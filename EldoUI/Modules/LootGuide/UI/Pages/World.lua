@@ -158,7 +158,7 @@ local function BuildIndex()
 	local function Add(npc, rare)
 		local mob = LG:Mob(npc)
 		if not mob or mob.instance then return end
-		local uiMapID = ZoneOf(npc, store)
+		local uiMapID = mob.forever and mob.map or ZoneOf(npc, store)
 		if not uiMapID then return end
 		local zone = result.zones[uiMapID]
 		if not zone then
@@ -174,6 +174,14 @@ local function BuildIndex()
 	for _, npc in ipairs(LD.rares or {}) do
 		rares[npc] = true
 		Add(npc, true)
+	end
+	-- WoW: Forever rares the loot data lacks, on the map they were seen on.
+	local overlay = E.foreverData and E.foreverData.rares
+	for npc in pairs(type(overlay) == "table" and overlay or {}) do
+		if not rares[npc] and not (LD.mobs and LD.mobs[npc]) then
+			rares[npc] = true
+			Add(npc, true)
+		end
 	end
 	for _, npc in ipairs(LD.worldMobs or {}) do
 		if not rares[npc] then Add(npc, false) end
@@ -458,7 +466,12 @@ local function FillCard(card, npc, page)
 	card.level:SetText(levelHex .. (L["Level %s"]):format(LevelRange(mob and mob.minLevel, mob and mob.maxLevel))
 		.. "|r  " .. (P.WORLD_RANK[mob and mob.rank or 4] or L["Rare"]))
 	local camps = LG:SpawnPoints("npc", npc)
-	card.camps:SetText(E:Plural(#camps, "%d camp", "%d camps"):format(#camps))
+	if mob and mob.forever then
+		-- A WoW: Forever rare the loot data lacks: where a player saw it.
+		card.camps:SetText(mob.x and mob.y and (L["Seen at %d, %d"]):format(math.floor(mob.x * 100 + 0.5), math.floor(mob.y * 100 + 0.5)) or "")
+	else
+		card.camps:SetText(E:Plural(#camps, "%d camp", "%d camps"):format(#camps))
+	end
 	card.seen:SetShown(LG:IsSeenNow(npc))
 	local button = P.MapButton("npc", npc, name)
 	card.map:SetScript("OnClick", button[2])

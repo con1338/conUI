@@ -35,6 +35,11 @@ local RATINGS = {
 	ITEM_MOD_HIT_RANGED_RATING_SHORT = { "rangedHit", 7 },
 	ITEM_MOD_HIT_SPELL_RATING_SHORT = { "spellHit", 8 },
 }
+-- Percent lines the item score reads from WoW: Forever tooltips: already a
+-- percent, no rating conversion.
+local PERCENTS = {
+	PCT_CRIT = "crit", PCT_HIT = "hit", PCT_SPELL_CRIT = "spellCrit", PCT_SPELL_HIT = "spellHit",
+}
 
 local function Secret(value)
 	return issecretvalue and issecretvalue(value)
@@ -90,6 +95,11 @@ function Gear.Stats(itemID)
 		if value and value ~= 0 then
 			if RAW[key] then
 				stats[RAW[key]] = (stats[RAW[key]] or 0) + value
+			elseif PERCENTS[key] then
+				stats[PERCENTS[key]] = (stats[PERCENTS[key]] or 0) + value
+				-- WoW: Forever's percent hit and crit lines count for spells too.
+				if key == "PCT_CRIT" then stats.spellCritAlso = true end
+				if key == "PCT_HIT" then stats.spellHitAlso = true end
 			elseif RATINGS[key] then
 				local rule = RATINGS[key]
 				stats[rule[1]] = (stats[rule[1]] or 0) + Percent(rule[2], value)
@@ -155,7 +165,7 @@ local function Put(sheet, stats, sign)
 	sheet.rangedCrit = (sheet.rangedCrit or sheet.crit) + agi / critPer + Get("crit") + Get("rangedCrit")
 	sheet.rangedHit = (sheet.rangedHit or sheet.hit or 0) + Get("hit") + Get("rangedHit")
 	sheet.hit = (sheet.hit or 0) + Get("hit")
-	sheet.spellHit = (sheet.spellHit or 0) + Get("spellHit")
+	sheet.spellHit = (sheet.spellHit or 0) + Get("spellHit") + (stats.spellHitAlso and Get("hit") or 0)
 	local spellCrit = Get("spellCrit") + (stats.spellCritAlso and Get("crit") or 0)
 	if info.spellCritInt then spellCrit = spellCrit + int / (info.spellCritInt * level / 60) end
 	if type(sheet.spellCrit) == "table" then AddEach(sheet.spellCrit, spellCrit) else sheet.spellCrit = (sheet.spellCrit or 0) + spellCrit end

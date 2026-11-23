@@ -84,13 +84,18 @@ local function ItemIndex()
 			if type(sources) == "string" and sources:find("w", 1, true) then out.epics[#out.epics + 1] = itemID end
 		end
 	end
-	-- WoW: Forever's battleground reputation rewards (Data/PvPRewards.lua).
-	for itemID, packed in pairs(E.pvpRewards and E.pvpRewards.items or {}) do
-		local faction, standing = (Field(packed, 11) or ""):match("^(%d+):(%d+)$")
-		if faction and not (data and data.items and data.items[itemID]) then
-			faction = tonumber(faction)
-			out.factions[faction] = out.factions[faction] or {}
-			table.insert(out.factions[faction], { itemID = itemID, standing = tonumber(standing) })
+	-- WoW: Forever's battleground reputation rewards (Data/PvPRewards.lua)
+	-- and its own factions' rewards (Data/ForeverFactions.lua). A Classic item
+	-- the loot data already ties to a faction keeps that one.
+	for _, list in ipairs({ E.pvpRewards and E.pvpRewards.items or {}, E.foreverFactions and E.foreverFactions.items or {} }) do
+		for itemID, packed in pairs(list) do
+			local faction, standing = (Field(packed, 11) or ""):match("^(%d+):(%d+)$")
+			local classic = data and data.items and data.items[itemID]
+			if faction and not (classic and (Field(classic, 18) or "") ~= "") then
+				faction = tonumber(faction)
+				out.factions[faction] = out.factions[faction] or {}
+				table.insert(out.factions[faction], { itemID = itemID, standing = tonumber(standing) })
+			end
 		end
 	end
 	for _, list in pairs(out) do
@@ -375,6 +380,27 @@ E:TranslateFields(LG.FACTIONS, "name")
 LG.STANDING_THRESHOLD = { [0] = -42000, [1] = -6000, [2] = -3000, [3] = 0, [4] = 3000, [5] = 9000, [6] = 21000, [7] = 42000 }
 local FACTION_BY_ID = {}
 for _, faction in ipairs(LG.FACTIONS) do FACTION_BY_ID[faction.id] = faction end
+-- WoW: Forever's own factions (Data/ForeverFactions.lua, client tables) come
+-- first, in the game's order; one listed above keeps its place and gains its cap.
+do
+	local forever = E.foreverFactions and E.foreverFactions.factions
+	if type(forever) == "table" then
+		local sides = { A = "Alliance", H = "Horde" }
+		local list = {}
+		for _, row in ipairs(forever) do
+			local known = FACTION_BY_ID[row[1]]
+			if known then
+				known.cap = row[3]
+			else
+				local faction = { id = row[1], side = sides[row[2]], cap = row[3], name = row[4] }
+				FACTION_BY_ID[faction.id] = faction
+				list[#list + 1] = faction
+			end
+		end
+		for _, faction in ipairs(LG.FACTIONS) do list[#list + 1] = faction end
+		LG.FACTIONS = list
+	end
+end
 
 function LG:FactionName(factionID)
 	local rep = C_Reputation
@@ -413,11 +439,27 @@ function LG:FactionStanding(factionID)
 		max = tonumber(Plain(data.nextReactionThreshold)), name = Plain(data.name) }
 end
 
--- Reputation left to reach a standing (0 when reached; nil when unknown).
+-- The most reputation a faction gives when it stops below Exalted, and the
+-- standing that is: (cap, standing), or nil.
+function LG:FactionCap(factionID)
+	local known = FACTION_BY_ID[tonumber(factionID) or 0]
+	local cap = known and tonumber(known.cap)
+	if not cap then return end
+	local standing = 0
+	for index = 7, 0, -1 do
+		if cap >= self.STANDING_THRESHOLD[index] then standing = index break end
+	end
+	return cap, standing
+end
+
+-- Reputation left to reach a standing (0 when reached; nil when unknown or
+-- above the faction's cap).
 function LG:StandingToGo(factionID, standing)
 	local live = self:FactionStanding(factionID)
 	local need = self.STANDING_THRESHOLD[tonumber(standing) or 0]
 	if not (live and need) then return end
+	local cap = self:FactionCap(factionID)
+	if cap and need > cap then return end
 	if live.standing >= standing then return 0 end
 	if not live.value then return end
 	return math.max(need - live.value, 0)

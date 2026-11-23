@@ -418,6 +418,10 @@ function M:OnCastSucceeded(castGUID)
 		return
 	end
 	self:Record(cast, mapID, x, y)
+	-- A herb or vein no name here matches: its loot may name it (below).
+	if not (E.NodeSkill and E.NodeSkill:Find(cast.name)) then
+		self.lastGather = { name = cast.name, kind = cast.kind.key, untilTime = GetTime() + LOOT_WAIT }
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -456,9 +460,31 @@ function M:OnLootOpened(isFromItem)
 		self:OnFishingLoot()
 		return
 	end
+	local gathered = self.lastGather
+	self.lastGather = nil
+	if gathered and GetTime() <= gathered.untilTime then self:LearnNode(gathered) end
 	if not wait or GetTime() > wait.untilTime then return end
 	if not self.db.record or not LootLooksLikeTreasure() then return end
 	self:Record(wait.cast, wait.mapID, wait.x, wait.y)
+end
+
+-- The loot of a herb or vein no name here matched: when it holds a WoW:
+-- Forever node's yield, that node is learned under the shown name (and the
+-- loot's object id). Only what the loot window shows is read.
+function M:LearnNode(gathered)
+	local Nodes = E.NodeSkill
+	local count = GetNumLootItems and Clean(Try(GetNumLootItems))
+	if not (Nodes and type(count) == "number" and count > 0 and GetLootSlotLink) then return end
+	local items = {}
+	for slot = 1, count do
+		local link = Clean(Try(GetLootSlotLink, slot))
+		local itemID = type(link) == "string" and tonumber(link:match("item:(%d+)"))
+		if itemID then items[#items + 1] = itemID end
+	end
+	local source = rawget(_G, "GetLootSourceInfo") and Try(GetLootSourceInfo, 1)
+	local info = Nodes:LearnFromYield(gathered.name, M.EntryOf(source), items)
+	if info and info.kind == gathered.kind then self:RefreshPins() end
+	return info
 end
 
 function M:OnCastStopped(castGUID)

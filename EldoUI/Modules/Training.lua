@@ -678,6 +678,28 @@ local function PetInfoRows(rows)
 		local family = pet.familyName and (" " .. GREY .. pet.familyName .. "|r") or ""
 		rows[#rows + 1] = { info = "pet", text = ("|cffffffff%s|r%s  %s"):format(pet.name or L["Your pet"], family, GREY .. level .. "|r"),
 			right = pet.loyalty and (GREY .. pet.loyalty .. "|r") or "" }
+		local care = E.TrainingPets
+		if pet.happiness then
+			local name = G("PET_HAPPINESS" .. pet.happiness) or L["Happiness %d of 3"]:format(pet.happiness)
+			local text = pet.damage and L["%s: deals %s damage"]:format(name, ("|cffffffff%d%%|r"):format(pet.damage)) or name
+			local rate = pet.loyaltyRate
+			local right = rate and rate > 0 and (E:TextHex("good") .. L["Loyalty rising"] .. "|r")
+				or rate and rate < 0 and (E:TextHex("bad") .. L["Loyalty falling"] .. "|r") or ""
+			rows[#rows + 1] = { info = "happiness", text = text, right = right, tip = "happiness" }
+		end
+		local diet = care and care:DietText(pet.family)
+		if diet then rows[#rows + 1] = { info = "diet", text = L["Eats: %s"]:format("|cffffffff" .. diet .. "|r") } end
+		local ranks = care and care:LoyaltyRanks() or {}
+		if pet.loyaltyRank and #ranks > 0 then
+			local text = pet.loyaltyRank < #ranks and L["Next loyalty rank: %s"]:format("|cffffffff" .. ranks[pet.loyaltyRank + 1] .. "|r")
+				or L["%s is the highest loyalty rank."]:format(ranks[#ranks])
+			rows[#rows + 1] = { info = "loyalty", text = text, right = GREY .. ("%d / %d"):format(pet.loyaltyRank, #ranks) .. "|r", tip = "loyalty" }
+		end
+		if pet.xp then
+			local Number = BreakUpLargeNumbers or tostring
+			rows[#rows + 1] = { info = "xp", text = L["Experience: %s / %s"]:format("|cffffffff" .. Number(pet.xp) .. "|r", Number(pet.xpMax)),
+				right = GREY .. ("%d%%"):format(math.floor(pet.xp / pet.xpMax * 100)) .. "|r" }
+		end
 		if pet.free then
 			local free = pet.free < 0 and (E:TextHex("bad") .. pet.free .. "|r") or ("|cffffffff" .. pet.free .. "|r")
 			rows[#rows + 1] = { info = "points", text = L["Training points: %s free of %d"]:format(free, pet.total) }
@@ -1283,9 +1305,21 @@ function M:ShowTooltip(owner, row)
 	if not GameTooltip or E.FrameCheck(GameTooltip, "IsForbidden") or not row then return end
 	StopComparing()
 	if row.info then
-		if not (row.toggle or row.load) then return end
+		if not (row.toggle or row.load or row.tip) then return end
 		GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-		if row.toggle then
+		if row.tip == "happiness" then
+			GameTooltip:AddLine(L["Happiness"])
+			E.UIKit.TipText(GameTooltip, L["A happy pet deals more damage and an unhappy one less. Feed it to keep it happy."])
+		elseif row.tip == "loyalty" then
+			GameTooltip:AddLine(L["Loyalty"])
+			E.UIKit.TipText(GameTooltip, L["A happy pet gains loyalty over time and an unhappy one loses it. Each loyalty rank gives it more training points."])
+			local ranks = E.TrainingPets and E.TrainingPets:LoyaltyRanks() or {}
+			local current = view.pets and view.pets.pet and view.pets.pet.loyaltyRank
+			for index, name in ipairs(ranks) do
+				local color = index == current and E.UIKit.TEXT or E.UIKit.SECONDARY
+				GameTooltip:AddDoubleLine(name, tostring(index), color[1], color[2], color[3], color[1], color[2], color[3])
+			end
+		elseif row.toggle then
 			GameTooltip:AddLine(L["Pet abilities"])
 			E:TooltipHint(GameTooltip, { L["Click"], view.pets and view.pets.filtered and L["show every family"] or L["show only your pet's family"] })
 		else
@@ -1545,7 +1579,7 @@ local function FillRow(row, data, db, index, money)
 		row.name:SetPoint("LEFT", 4, 0)
 		local clickable = data.toggle or data.load
 		row.name:SetText((clickable and AccentHex() or "") .. data.text .. (clickable and "|r" or ""))
-		row:EnableMouse(clickable and true or false)
+		row:EnableMouse((clickable or data.tip) and true or false)
 		return
 	end
 	row:EnableMouse(true)
@@ -2386,7 +2420,27 @@ local function SlashTaken(command)
 	return false
 end
 
+-- On a beast a Hunter could tame: what its family eats. Never in combat,
+-- and never on a pet someone already has.
+local function BeastDietSection(_, unit, add)
+	if classToken ~= "HUNTER" or InCombatLockdown() or type(unit) ~= "string" or not E.TrainingPets then return end
+	local controlled = Try(UnitPlayerControlled, unit)
+	if IsSecret(controlled) or controlled then return end
+	local _, family = Try(UnitCreatureFamily, unit)
+	if IsSecret(family) then return end
+	local diet = E.TrainingPets:DietText(family)
+	if diet then add(L["Eats"], diet) end
+end
+
+M.BeastDietSection = BeastDietSection
+
 function M:RegisterExtras()
+	if classToken == "HUNTER" and not self.dietDone and E.RegisterTooltipSection then
+		self.dietDone = true
+		E:RegisterTooltipSection("petDiet", { order = 46, title = "Hunter: what a beast eats", default = "always", module = "Training",
+			desc = "On a beast you could tame: the food its family eats. Hunters only, never in combat.",
+			unit = BeastDietSection })
+	end
 	if self.db.slashWT and not self.slashDone and not C_AddOns.IsAddOnLoaded("WhatsTraining") and not SlashTaken("/wt") then
 		self.slashDone = true
 		_G["SLASH_ELDOUITRAINING1"] = "/wt"
@@ -2514,6 +2568,11 @@ local function UnitEvents(on)
 		unitEvents:RegisterUnitEvent("UNIT_LEVEL", "pet")
 		unitEvents:RegisterEvent("UNIT_PET_TRAINING_POINTS")
 		unitEvents:RegisterEvent("PET_BAR_UPDATE")
+		-- Happiness, loyalty and the pet's experience for the lines on top;
+		-- an event this client lacks is skipped.
+		pcall(unitEvents.RegisterUnitEvent, unitEvents, "UNIT_HAPPINESS", "pet")
+		pcall(unitEvents.RegisterEvent, unitEvents, "UNIT_PET_EXPERIENCE")
+		pcall(unitEvents.RegisterEvent, unitEvents, "PET_UI_UPDATE")
 	end
 end
 

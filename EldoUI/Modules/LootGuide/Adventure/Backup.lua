@@ -850,6 +850,11 @@ function B:Restore(index, mode, charKey)
 	if not data then return false, err end
 	local theirs, mine = Owner(data.journal), TargetGUID(charKey)
 	if theirs and entry.guid == nil and not entry.pending then entry.guid = theirs end
+	-- A backup made before the character moved to another ruleset names its
+	-- GUID from then; the journal inside takes the one it has now.
+	if theirs and mine and theirs == entry.formerGuid and Owner(entry) == mine then
+		data.journal.guid, theirs = mine, mine
+	end
 	if theirs and mine and theirs ~= mine then
 		return false, L["This backup is of another character's journal, so it can't be restored into this one."]
 	end
@@ -1487,6 +1492,21 @@ function B.SortOnKeyMove(db, oldKey, newKey)
 	B.Claim(oldKey, newKey, mine)
 end
 E:RegisterCharacterKeyMove(B.SortOnKeyMove)
+
+-- A character brought over from another ruleset with a new GUID: its
+-- backups, moved to its new key, take the new GUID (so they stay with it)
+-- and keep the old one for a restore.
+function B.TakeNewGuid(db, oldKey, newKey, oldGuid, newGuid)
+	local all = db.journalBackups
+	local list = type(all) == "table" and all[newKey]
+	if type(list) ~= "table" then return end
+	for _, entry in ipairs(list) do
+		if type(entry) == "table" and not entry.pending and B.EntryGUID(entry, newKey) == oldGuid then
+			entry.guid, entry.formerGuid = newGuid, oldGuid
+		end
+	end
+end
+if E.RegisterRulesetGuidMove then E:RegisterRulesetGuidMove(B.TakeNewGuid) end
 
 -- At login: this character's backups left under an older key of its name.
 function B.ClaimOlder()

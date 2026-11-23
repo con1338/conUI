@@ -31,7 +31,7 @@ E:TranslateFields(A.GROUPS, "title")
 
 A.KIND_TITLE = {
 	raid = Key("Raid attunement"), key = Key("Key"), misc = Key("Quest chain"), dungeon = Key("Dungeon quests"),
-	class = Key("Class quests"), forever = Key("Forever dungeon"),
+	class = Key("Class quests"), forever = Key("Forever dungeon"), forever_raid = Key("Forever raid"),
 }
 
 -- Our own one-line descriptions (never another addon's text).
@@ -49,6 +49,12 @@ A.DESC = {
 	strat_city = Key("The Key to the City opens the service gate of Stratholme; a boss inside drops it."),
 	aqual = Key("Duke Hydraxis gives the Aqual Quintessence that puts out the runes in Molten Core."),
 	scepter = Key("The long chain of Anachronos and the three dragonflights that opens the gates of Ahn'Qiraj."),
+}
+
+-- A line after the description (Onyxia's Lair: the amulet is per character).
+A.DESC_EXTRA = {
+	onyxia_a = Key("Every raid member needs their own Drakefire Amulet."),
+	onyxia_h = Key("Every raid member needs their own Drakefire Amulet."),
 }
 
 -- Entries whose client name would not say what they are.
@@ -74,6 +80,18 @@ A.FOREVER = {
 	{ key = "shapers_terrace", name = Key("The Shapers Terrace"), kind = "dungeon" },
 	{ key = "sleeping_bag_a", name = Key("Sleeping Bag"), kind = "misc", side = "Alliance" },
 	{ key = "sleeping_bag_h", name = Key("Sleeping Bag"), kind = "misc", side = "Horde" },
+	-- The raids that open with the December raids. No attunement has been
+	-- announced for them, so their page lists what you can already get
+	-- ready: the level, an item the raid uses and the related reputation.
+	--   catalog  the Journal's key for the raid
+	--   ready    level, items { { id, name, note } } and factions to show
+	{ key = "barrow_deeps", name = Key("Barrow Deeps"), kind = "forever_raid", catalog = "forever:barrow",
+		desc = Key("WoW: Forever's 10-player raid in Mount Hyjal. No attunement has been announced."),
+		ready = { level = 60, factions = { 2819 }, items = { { id = 277136, name = Key("Brooch of the Wardens"),
+			note = Key("Beta data ties it to a prison area in the raid; the game has not confirmed it yet.") } } } },
+	{ key = "hyjal_summit", name = Key("Hyjal Summit"), kind = "forever_raid", catalog = "forever:hyjal",
+		desc = Key("WoW: Forever's 20-player raid in Mount Hyjal. No attunement has been announced."),
+		ready = { level = 60, factions = { 2765 } } },
 	{ key = "dalaran_sewer_key_h", name = Key("Dalaran Sewer Key"), kind = "key", side = "Horde",
 		instanceName = Key("City of Dalaran"), goalItems = { 277507 },
 		desc = "Tracks whether you have the Dalaran Sewer Key. One key holder can open the gate for the group; you do not need to finish the dungeon quest first." },
@@ -259,9 +277,11 @@ function A:CollectEntries(LD)
 	local hand = LD and type(LD.attuneForever) == "table" and LD.attuneForever or {}
 	for _, def in ipairs(A.FOREVER) do
 		local instance = (def.instanceName or def.kind == "dungeon") and byName[Fold(def.instanceName or def.name)] or nil
+		-- An announced raid is listed from the schedule before the game has it.
+		if def.catalog and LG:InstanceInfo(def.catalog) then instance = def.catalog end
 		Add({ key = def.key, kind = "forever", subKind = def.kind, group = "forever", side = def.side, fixedName = def.name,
 			instance = instance, forever = true, hand = HandSteps(hand[def.key]), quests = {}, goalQuests = {}, goalItems = CopyTable(def.goalItems or {}),
-			desc = def.desc,
+			desc = def.desc, ready = def.ready, minLevel = def.ready and def.ready.level, maxLevel = def.ready and def.ready.level,
 			links = {}, inGame = instance ~= nil })
 	end
 	return list

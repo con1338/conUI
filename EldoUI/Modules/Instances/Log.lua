@@ -43,7 +43,7 @@ local selected -- id of the selected run
 local TABS = {
 	{ key = "all", title = "All", desc = "Every run, newest first." },
 	{ key = "party", title = "Dungeons", desc = "Dungeon runs. These count toward the hourly limit." },
-	{ key = "raid", title = "Raids", desc = "Raid runs. They count only with \"Count raids\" on." },
+	{ key = "raid", title = "Raids", desc = "Raid runs. Raids for up to 20 players count; 40-player raids count only with \"Count raids\" on." },
 	{ key = "pvp", title = "PvP", desc = "Battlegrounds with the result and honor. They never count." },
 }
 
@@ -205,7 +205,7 @@ function M:FillRunTooltip(tooltip, run)
 		tooltip:AddLine(L["Battlegrounds never count toward the hourly limit."], E:TokenColor("secondary", true))
 	elseif not self:Counts(run) then
 		tooltip:AddLine(" ")
-		tooltip:AddLine(run.kind == "raid" and not run.uncounted and L["Raids don't count toward the hourly limit."]
+		tooltip:AddLine(run.kind == "raid" and not run.uncounted and L["40-player raids don't count toward the hourly limit."]
 			or L["This run doesn't count toward the hourly limit."], E:TokenColor("secondary", true))
 	else
 		local age = self:Now() - self:CountTime(run)

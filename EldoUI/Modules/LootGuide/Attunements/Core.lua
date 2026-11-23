@@ -442,7 +442,8 @@ end
 function A:Desc(entry)
 	if type(entry) == "string" then entry = self:Get(entry) end
 	if not entry then return nil end
-	if entry.desc then return E:Translate(entry.desc) end
+	local extra = self.DESC_EXTRA and self.DESC_EXTRA[entry.key]
+	if entry.desc then return E:Translate(entry.desc) .. (extra and (" " .. E:Translate(extra)) or "") end
 	if entry.kind == "class" and self.ClassChainLine then return self:ClassChainLine(entry.key) end
 end
 
@@ -1027,7 +1028,8 @@ function A:Unwritten(entry)
 end
 
 function A:NothingToShow(entry)
-	return self:Unwritten(entry) and not self:HasSeenFor(entry)
+	if type(entry) == "string" then entry = self:Get(entry) end
+	return self:Unwritten(entry) and not entry.ready and not self:HasSeenFor(entry)
 end
 
 -- opts: all (no filters), group (one group key).

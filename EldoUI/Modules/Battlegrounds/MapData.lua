@@ -35,11 +35,10 @@ M.MAPS = {
 	-- Warsong Gulch: capture the flag, 3 captures (10+).
 	[489] = {
 		key = "wsg", uiMapID = 1460, name = Key("Warsong Gulch"),
-		-- Both flags come back a short while after a capture. Sources
-		-- differ: 20 seconds (Warcraft Wiki, Warsong Gulch) or 12 seconds
-		-- (the timers other battleground addons show on this client). 20
-		-- stays until a capture is timed in game.
-		flags = true, flagRespawn = 20,
+		-- Both flags come back 12 seconds after a capture on this client.
+		-- Older guides give 20 seconds; the bar is checked against a
+		-- capture timed in game.
+		flags = true, flagRespawn = 12,
 		-- Retail stops the match after 20 minutes; Classic has no limit.
 		-- Forever's limit is unknown, so the time left comes from the
 		-- game's own clock widget when the match shows one.

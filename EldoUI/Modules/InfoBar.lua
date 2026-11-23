@@ -1075,6 +1075,38 @@ E:RegisterDataText("Honor", {
 	end,
 })
 
+-- PvP rank: WoW: Forever's season rank (E.PvPRank), the Rank Points still
+-- to go to the next rank, or that this week's cap is reached.
+E:RegisterDataText("PvP rank", {
+	events = { "UPDATE_FACTION", "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "PLAYER_PVP_RANK_CHANGED" },
+	text = function()
+		local state = E.PvPRank:Read()
+		if not state then return Label(L["PvP rank"]) end
+		local rank = state.rank > 0 and L["Rank %d"]:format(state.rank) or L["No rank yet"]
+		if state.atTop then return Value(rank) end
+		if state.capped then return Value(rank) .. Label(" · ") .. Value(L["capped"]) end
+		return Value(rank) .. Label(" · ") .. Value(L["%s to Rank %d"]:format(BreakUpLargeNumbers(state.needed - state.earned), state.rank + 1))
+	end,
+	tooltip = function(tooltip)
+		E.PvPRank:AddTooltip(tooltip, E.PvPRank:Read())
+	end,
+	hint = function()
+		local guide = E.LootGuide
+		if guide and guide.active and guide.OpenSection then
+			return { { Key("Click"), Key("PvP tab") }, { Key("Shift-click"), Key("Loot Guide PvP page") } }
+		end
+		return { Key("Click"), Key("PvP tab") }
+	end,
+	onClick = function()
+		local guide = E.LootGuide
+		if IsShiftKeyDown() and guide and guide.active and guide.OpenSection then
+			guide:OpenSection("pvp")
+			return
+		end
+		E:OpenPvPPage()
+	end,
+})
+
 ---------------------------------------------------------------------------
 -- Place: zone, coordinates, speed
 ---------------------------------------------------------------------------
@@ -2255,6 +2287,16 @@ local function Sum(...)
 	return total
 end
 
+-- Hit chance as the character sheet shows it: what hit rating on gear gives
+-- (GetCombatRatingBonus) plus the hit from talents and effects. Nil while
+-- either part is not a plain number.
+function StatData.RatedHit(rating, modifier)
+	if not modifier then return nil end
+	local index = rawget(_G, rating)
+	if not (GetCombatRatingBonus and type(index) == "number") then return modifier() end
+	return Sum(GetCombatRatingBonus(index), modifier())
+end
+
 -- percent: the value is a percentage (statDecimals apply).
 StatData.STATS = {
 	{ key = "Strength", title = "Strength", label = "Str", get = function() return StatAt(2, UnitStat("player", 1)) end },
@@ -2269,8 +2311,8 @@ StatData.STATS = {
 	{ key = "Crit", title = "Melee crit", label = "Crit", percent = true, get = function() return GetCritChance and GetCritChance() end },
 	{ key = "RangedCrit", title = "Ranged crit", label = "RCrit", percent = true, get = function() return GetRangedCritChance and GetRangedCritChance() end },
 	{ key = "SpellCrit", title = "Spell crit", label = "SCrit", percent = true, get = function() return StatData.BestSchool(GetSpellCritChance) end },
-	{ key = "Hit", title = "Hit", label = "Hit", percent = true, get = function() return GetHitModifier and GetHitModifier() end },
-	{ key = "SpellHit", title = "Spell hit", label = "SHit", percent = true, get = function() return GetSpellHitModifier and GetSpellHitModifier() end },
+	{ key = "Hit", title = "Hit", label = "Hit", percent = true, get = function() return StatData.RatedHit("CR_HIT_MELEE", GetHitModifier) end },
+	{ key = "SpellHit", title = "Spell hit", label = "SHit", percent = true, get = function() return StatData.RatedHit("CR_HIT_SPELL", GetSpellHitModifier) end },
 	{ key = "Haste", title = "Haste", label = "Haste", percent = true, get = function() return GetHaste and GetHaste() end },
 	{ key = "SpellPower", title = "Spell power", label = "SP", get = function() return StatData.BestSchool(GetSpellBonusDamage) end },
 	{ key = "HealingPower", title = "Healing power", label = "Heal", get = function() return GetSpellBonusHealing and GetSpellBonusHealing() end },
