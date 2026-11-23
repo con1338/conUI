@@ -2,7 +2,7 @@
 ## Title: |cff33aaffcon|rUI Deutsch
 ## Notes: Deutsche Texte für conUI. Lädt nur, wenn unter General > conUI language Deutsch gewählt ist oder der Client deutsch ist.
 ## Author: Eldodeldo (Fork)
-## Version: 0.7.3100-p1
+## Version: 0.7.3100-p2
 ## Group: EldoUI
 ## Category: User Interface
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
