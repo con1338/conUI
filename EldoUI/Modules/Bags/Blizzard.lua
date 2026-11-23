@@ -115,12 +115,22 @@ local function Parts(button)
 	return p
 end
 
+-- In the combined bag, WoW: Forever's slot background art shows which bag
+-- a slot comes from, so it stays; separate bag windows lose it, as their
+-- frame already says which bag they are.
+local function InCombinedBag(button)
+	local combined = rawget(_G, "ContainerFrameCombinedBags")
+	local parent = combined and button.GetParent and button:GetParent()
+	return parent ~= nil and parent == combined
+end
+M.BlizzardSlotInCombinedBag = InCombinedBag
+
 local function SkinSlotArt(button, p)
 	if p.skinned then return end
 	p.skinned = true
 	Alpha(button.GetNormalTexture and button:GetNormalTexture(), 0)
 	Alpha(button.IconBorder, 0)
-	Alpha(button.Background, 0)
+	Alpha(button.Background, InCombinedBag(button) and 1 or 0)
 	local icon = SlotIcon(button)
 	if icon then
 		E:TrimIcon(icon)

@@ -47,7 +47,7 @@ for _, npc in ipairs(WORLD_BOSSES) do worldBossSet[npc] = true end
 ---------------------------------------------------------------------------
 -- The dungeon finder (live): levels to enter and art, by instance map
 ---------------------------------------------------------------------------
-local lfgByMap      -- instance map -> { id, name, min, max, size, texture }
+local lfgByMap      -- instance map -> { id, name, min, max, recMin, recMax, size, texture }
 
 local function LfgIndex()
 	if lfgByMap then return lfgByMap end
@@ -61,6 +61,7 @@ local function LfgIndex()
 		if r[1] and type(name) == "string" and not Secret(name) and not Secret(mapID) and tonumber(mapID) then
 			local entry = { id = id, name = name, min = not Secret(r[5]) and tonumber(r[5]) or nil,
 				max = not Secret(r[6]) and tonumber(r[6]) or nil, size = not Secret(r[14]) and tonumber(r[14]) or nil,
+				recMin = not Secret(r[8]) and tonumber(r[8]) or nil, recMax = not Secret(r[9]) and tonumber(r[9]) or nil,
 				texture = type(texture) == "string" and not Secret(texture) and texture ~= "" and texture or nil }
 			lfgByMap[tonumber(mapID)] = lfgByMap[tonumber(mapID)] or entry
 		end
@@ -69,6 +70,14 @@ local function LfgIndex()
 end
 
 LG:Listen("LFG_UPDATE_RANDOM_INFO", "places", function() lfgByMap = nil; LG.catalog = nil end)
+
+-- The levels the dungeon finder recommends for a dungeon, or nil when it
+-- gives none: the game's own range wins over the data's.
+local function GameRange(lfg)
+	local low, high = lfg and lfg.recMin, lfg and lfg.recMax
+	if low and high and low > 0 and high >= low then return low, high end
+end
+LG.LfgGameRange = GameRange
 
 ---------------------------------------------------------------------------
 -- Catalog
@@ -98,8 +107,9 @@ local function BuildCatalog()
 				local group = inst.parent and LD.groups and LD.groups[inst.parent]
 				local status = inst.status or "classic"
 				if LG.NOT_ON_FOREVER and LG.NOT_ON_FOREVER[key] then status = "notforever" end
+				local low, high = GameRange(lfg)
 				Add({ key = key, name = LG:InstanceName(key) or inst.name or key, kind = inst.kind == "raid" and "raid" or "dungeon",
-					min = inst.min, max = inst.max, size = inst.size, map = inst.map, status = status,
+					min = low or inst.min, max = high or inst.max, gameRange = low and true or nil, size = inst.size, map = inst.map, status = status,
 					parent = inst.parent, groupName = group and group.name, aliases = LG:InstanceAliases(key, inst.aliases), order = index,
 					phase = LG:InstanceStep(key), enterLevel = lfg and lfg.min, lfg = lfg, bosses = #(inst.bosses or {}) })
 				if inst.map then mapsKnown[inst.map] = true end
@@ -156,11 +166,17 @@ local function BuildCatalog()
 			-- A Forever dungeon the finder lists: the client's own name, levels and map.
 			if same.forever then
 				same.map, same.name = same.map or mapID, lfg.name
-				same.min, same.max = lfg.min or same.min, lfg.max or same.max
+				local low, high = GameRange(lfg)
+				if low then
+					same.min, same.max, same.gameRange = low, high, true
+				else
+					same.min, same.max = lfg.min or same.min, lfg.max or same.max
+				end
 			end
 		elseif not mapsKnown[mapID] then
-			Add({ key = "lfg:" .. lfg.id, name = lfg.name, kind = kind,
-				min = lfg.min, max = lfg.max, size = lfg.size or 5, map = mapID, status = LD and "forever" or "live",
+			local low, high = GameRange(lfg)
+			Add({ key = "lfg:" .. lfg.id, name = lfg.name, kind = kind, gameRange = low and true or nil,
+				min = low or lfg.min, max = high or lfg.max, size = lfg.size or 5, map = mapID, status = LD and "forever" or "live",
 				lfg = lfg, enterLevel = lfg.min, order = 1000 + (lfg.min or 0), bosses = 0 })
 		end
 	end

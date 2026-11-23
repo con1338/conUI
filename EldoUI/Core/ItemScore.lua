@@ -21,6 +21,10 @@
 --     expertise fall back to part of the crit and hit weights; weapon DPS is
 --     weighted per slot (the off hand at half). "Equip:" lines the stat API
 --     leaves out are read with the client's own ITEM_MOD_* strings.
+--     WoW: Forever gear gives hit, crit, haste, expertise, dodge, parry and
+--     block as a percent ("Improves your chance to hit by 1.0%"). Those
+--     lines are read with the client's TOOLTIP_ITEM_STAT_* strings and
+--     count at their percent, with no rating conversion.
 --   * custom scales the player made, imported or got from a stat priority.
 -- Editing a starter or spec scale stores a copy; resetting removes it.
 --
@@ -167,6 +171,18 @@ local SPEC_READ = {
 	ITEM_MOD_BLOCK_RATING_SHORT = { w = "Block", cr = 5 },
 	ITEM_MOD_BLOCK_VALUE_SHORT = { w = "BlockValue" },
 	ITEM_MOD_DAMAGE_PER_SECOND_SHORT = { dps = true },
+	-- Percent lines (read from the tooltip, see PERCENT_LINES): spec
+	-- weights are per 1 %, so they need no conversion. Expertise weights are
+	-- per point, at 0.25 % per point.
+	PCT_HIT = { either = { "Hit", "SpellHit" } },
+	PCT_CRIT = { either = { "Crit", "SpellCrit" } },
+	PCT_SPELL_HIT = { w = "SpellHit" },
+	PCT_SPELL_CRIT = { w = "SpellCrit" },
+	PCT_HASTE = { w = "Haste" },
+	PCT_EXPERTISE = { w = "Expertise", per = 4 },
+	PCT_DODGE = { w = "Dodge" },
+	PCT_PARRY = { w = "Parry" },
+	PCT_BLOCK = { w = "Block" },
 }
 for _, stat in ipairs(STATS) do
 	if stat.key:find("Resistance$") then
@@ -637,6 +653,49 @@ local function EquipPatterns()
 	return equipPatterns
 end
 
+-- Percent "Equip:" lines: the client's TOOLTIP_ITEM_STAT_<name>_INCREASE
+-- and _DECREASE strings, matched against the whole line (two client
+-- languages print another prefix than ITEM_SPELL_TRIGGER_ONEQUIP). Each
+-- reads into its own PCT_* key; a rating key the stat API returns for the
+-- same stat is that same bonus and is dropped (replaces).
+local PERCENT_LINES = {
+	{ name = "HIT_PERCENT", key = "PCT_HIT", replaces = { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_MELEE_RATING_SHORT", "ITEM_MOD_HIT_RANGED_RATING_SHORT" } },
+	{ name = "CRIT_PERCENT", key = "PCT_CRIT", replaces = { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_MELEE_RATING_SHORT", "ITEM_MOD_CRIT_RANGED_RATING_SHORT" } },
+	{ name = "HASTE_PCT", key = "PCT_HASTE", replaces = { "ITEM_MOD_HASTE_RATING_SHORT" } },
+	{ name = "EXPERTISE_PCT", key = "PCT_EXPERTISE", replaces = { "ITEM_MOD_EXPERTISE_RATING_SHORT" } },
+	{ name = "DODGE_PCT", key = "PCT_DODGE", replaces = { "ITEM_MOD_DODGE_RATING_SHORT" } },
+	{ name = "PARRY_PCT", key = "PCT_PARRY", replaces = { "ITEM_MOD_PARRY_RATING_SHORT" } },
+	{ name = "BLOCK_CHANCE", key = "PCT_BLOCK", replaces = { "ITEM_MOD_BLOCK_RATING_SHORT" } },
+}
+ItemScore.PERCENT_LINES = PERCENT_LINES
+
+local percentPatterns
+local function PercentPatterns()
+	if percentPatterns then return percentPatterns end
+	percentPatterns = {}
+	for _, line in ipairs(PERCENT_LINES) do
+		for _, direction in ipairs({ "INCREASE", "DECREASE" }) do
+			local text = Safe(rawget(_G, "TOOLTIP_ITEM_STAT_" .. line.name .. "_" .. direction))
+			local pattern = type(text) == "string" and FormatToPattern(text)
+			if pattern then
+				percentPatterns[#percentPatterns + 1] = { pattern = pattern, key = line.key, sign = direction == "INCREASE" and 1 or -1 }
+			end
+		end
+	end
+	-- A client without these strings is asked again next time.
+	local list = percentPatterns
+	if #list == 0 then percentPatterns = nil end
+	return list
+end
+
+-- Builds the line patterns again from the client's strings (after the
+-- strings changed, as the test kit does for each client language).
+function ItemScore:ResetStatPatterns()
+	percentPatterns, equipPatterns = nil, nil
+	wipe(equipLineCache)
+	Invalidate()
+end
+
 -- The same single-stat patterns also provide compact tooltip labels.
 function ItemScore:ShortEquipText(text)
 	text = Safe(text)
@@ -670,7 +729,21 @@ local function EquipLineStats(link, known)
 			if ok and type(data) == "table" and type(data.lines) == "table" then
 				for _, line in ipairs(data.lines) do
 					local text = Safe(line.leftText)
-					if type(text) == "string" and text:sub(1, #trigger) == trigger then
+					local percent
+					if type(text) == "string" then
+						text = strtrim(text)
+						for _, entry in ipairs(PercentPatterns()) do
+							local value = text:match(entry.pattern)
+							value = value and ParseNumber(value)
+							if value then
+								cached = cached or {}
+								cached[entry.key] = (cached[entry.key] or 0) + value * entry.sign
+								percent = true
+								break
+							end
+						end
+					end
+					if not percent and type(text) == "string" and text:sub(1, #trigger) == trigger then
 						text = strtrim(text:sub(#trigger + 1))
 						for _, entry in ipairs(EquipPatterns()) do
 							local value = text:match(entry.pattern)
@@ -694,6 +767,13 @@ local function EquipLineStats(link, known)
 		if not known or known[key] == nil then
 			merged = merged or (known and CopyTable(known) or {})
 			merged[key] = value
+		end
+	end
+	if merged then
+		for _, line in ipairs(PERCENT_LINES) do
+			if merged[line.key] ~= nil then
+				for _, rating in ipairs(line.replaces) do merged[rating] = nil end
+			end
 		end
 	end
 	return merged or known
@@ -880,15 +960,18 @@ local function SpecWeighted(stats, scale, role, which)
 				elseif rule.sameAs and Safe(stats[rule.sameAs]) == value then -- luacheck: ignore 542
 					-- Healing that is the same bonus as the spell power: counted there.
 				elseif rule.either then
+					-- The higher weight: the most a bonus adds, or the
+					-- most a negative one ("decrease" line) takes away.
 					local best = 0
 					for index, name in ipairs(rule.either) do
 						local amount = value
 						if rule.cr then amount = RatingPercent(rule.cr[index], value) end
-						best = math.max(best, amount * Weight(weights, name))
+						local part = amount * Weight(weights, name)
+						if value > 0 then best = math.max(best, part) else best = math.min(best, part) end
 					end
 					total = total + best
 				else
-					local amount = rule.cr and RatingPercent(rule.cr, value) or value
+					local amount = rule.cr and RatingPercent(rule.cr, value) or value * (rule.per or 1)
 					total = total + amount * Weight(weights, rule.w)
 				end
 			end

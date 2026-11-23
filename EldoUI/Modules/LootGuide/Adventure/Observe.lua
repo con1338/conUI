@@ -2,7 +2,8 @@
 --
 -- What the game shows you that the quest data does not know yet: a quest
 -- WoW: Forever added or changed, a dungeon the instance list lacks, a zone
--- whose level range differs. It is written to EldoUIDB.journalSeen (the
+-- whose level range differs, a rare or elite outside instances the loot
+-- data does not know. It is written to EldoUIDB.journalSeen (the
 -- shape is at the top of Modules/LootGuide/Quests.lua), the Journal's
 -- quest pages read it at once (LG:JourneyChanged()), and "Report new
 -- content" (LG:ShowJourneyReport) puts it in a copy box for a
@@ -11,7 +12,8 @@
 -- Only what a dialog or the map shows you is read: the quest window
 -- (QUEST_DETAIL, QUEST_COMPLETE), the gossip list (GOSSIP_SHOW), your
 -- quest log (QUEST_ACCEPTED), the hand-in (QUEST_TURNED_IN), the instance
--- and the map you are in. No combat data, nothing automated. A secret
+-- and the map you are in, and the creature you target or point at (its
+-- name, level and classification; the place is yours). No combat data, nothing automated. A secret
 -- value is skipped. Titles and names are kept on English clients only
 -- (the data is English; another language would look like a change).
 -- Settings: A.db.observe (on by default).
@@ -20,6 +22,7 @@
 --   O:Quest(questID, fields)   note a quest's fields when they are new
 --   O:Instance()               note the instance you are in, when new
 --   O:Zone()                   note the map you are on, when new
+--   O:Creature(unit)           note a rare or elite the loot data lacks
 --   O:Report()                 the copy box (LG:ShowJourneyReport)
 --   O.NpcID(unit)              the npc id of a unit, or nil
 local _, E = ...
@@ -228,6 +231,27 @@ function O:Zone()
 	return Add("zones", map, { name = name, min = min, max = max })
 end
 
+-- Rares and elites: classifications the game gives the unit.
+O.RARE_CLASSES = { rare = true, rareelite = true, elite = true, worldboss = true }
+
+function O:Creature(unit)
+	if not O.On() then return false end
+	unit = unit or "target"
+	if Call(UnitIsPlayer, unit) or Call(UnitPlayerControlled, unit) then return false end
+	local class = Text(Call(UnitClassification, unit))
+	if not (class and O.RARE_CLASSES[class]) then return false end
+	if Call(IsInInstance) then return false end
+	local npc = O.NpcID(unit)
+	if not npc then return false end
+	-- Only with the loot data loaded: without it every creature is unknown.
+	if not (LG and LG.DataStatus and select(3, LG:DataStatus())) then return false end
+	if LG:Mob(npc) then return false end
+	local level = Number(Call(UnitLevel, unit))
+	local map, x, y = Where()
+	return Add("rares", npc, { name = NpcName(unit), level = level and level > 0 and level or nil, class = class,
+		map = map, x = x, y = y })
+end
+
 function O:Report()
 	if LG and LG.ShowJourneyReport then return LG:ShowJourneyReport() end
 	return false
@@ -249,6 +273,8 @@ local events = R.Events({
 	GOSSIP_SHOW = function() O.OnGossip() end,
 	PLAYER_ENTERING_WORLD = function() C_Timer.After(2, Place) end,
 	ZONE_CHANGED_NEW_AREA = function() C_Timer.After(1, Place) end,
+	PLAYER_TARGET_CHANGED = function() O:Creature("target") end,
+	UPDATE_MOUSEOVER_UNIT = function() O:Creature("mouseover") end,
 })
 O.events = events
 
@@ -256,7 +282,7 @@ O.events = events
 A.ObserveOptions = {
 	{ type = "header", label = "New Forever content" },
 	{ type = "toggle", key = "observe", label = "Remember new Forever content",
-		desc = "Notes the quests, dungeons and zone level ranges the game shows you that the quest data does not know yet, so the quest pages can show them. Only what dialogs and the map show is read." },
+		desc = "Notes the quests, dungeons, zone level ranges and rares the game shows you that the guide does not know yet, so the guide can show them. Reads only dialogs, the map and your target." },
 	{ type = "execute", label = "Report new content",
 		desc = "Shows what was noted as one block to copy into a journal-data issue. Nothing is sent from the game.",
 		func = function() O:Report() end },

@@ -1139,17 +1139,40 @@ M.LevelOrder = LevelOrder
 
 -- Zone names are compared as the guides write them: in English, so on a
 -- client in another language the answer is unknown.
-local function PlaceIs(current, name)
+local function EnglishClient()
 	local locale = GetLocale and GetLocale()
-	if locale ~= "enUS" and locale ~= "enGB" then return nil end
+	return locale == "enUS" or locale == "enGB"
+end
+
+-- A guide place (English) in the client's language: the game's name for
+-- its area (Data/EldostarPlaces.lua holds the area ids), or nil.
+local function LocalPlaceName(name)
+	local area = type(name) == "string" and E.eldostarPlaces and E.eldostarPlaces[name]
+	if not area or not (C_Map and C_Map.GetAreaInfo) then return nil end
+	local text = PlainCall(C_Map.GetAreaInfo, area)
+	return type(text) == "string" and text ~= "" and text or nil
+end
+M.LocalPlaceName = LocalPlaceName
+
+-- Is the game's place text `current` the guide's place `name`? true or
+-- false, nil when the client can't tell (no area id on a client in
+-- another language). loose: a mismatch is nil, not false (texts such as
+-- a flight master's node name need not be the area's name).
+local function PlaceIs(current, name, loose)
 	current = Plain(current)
-	if type(current) ~= "string" then return nil end
-	return E:FoldText(current) == E:FoldText(name)
+	if type(current) ~= "string" or type(name) ~= "string" then return nil end
+	current = E:FoldText(current)
+	local localName = LocalPlaceName(name)
+	if localName and current == E:FoldText(localName) then return true end
+	if EnglishClient() then return current == E:FoldText(name) end
+	if not localName or loose then return nil end
+	return false
 end
 
 local function BindIs(name)
 	return PlaceIs(GetBindLocation and PlainCall(GetBindLocation), name)
 end
+M.PlaceIs, M.BindIs = PlaceIs, BindIs
 
 local function Entered(goal)
 	local flying = PlainCall(UnitOnTaxi, "player")
@@ -1160,9 +1183,9 @@ local function Entered(goal)
 		local info = C_Map and C_Map.GetMapInfo and PlainCall(C_Map.GetMapInfo, goal.placeMap)
 		expected = type(info) == "table" and Plain(info.name) or nil
 	end
+	if type(expected) ~= "string" or expected == "" then expected = LocalPlaceName(goal.place) end
 	if type(expected) ~= "string" or expected == "" then
-		local locale = GetLocale and GetLocale()
-		if locale ~= "enUS" and locale ~= "enGB" then return nil end
+		if not EnglishClient() then return nil end
 		expected = goal.place
 	end
 	if not expected then return nil end
@@ -2359,7 +2382,8 @@ end
 local function EraMapKnown(map)
 	local zones = E.zoneData and E.zoneData.zones
 	-- Arathi Basin also retains the original map's coordinate frame.
-	return map == 1461 or (zones and zones[map] ~= nil) or false
+	local zone = zones and zones[map]
+	return map == 1461 or (zone ~= nil and not (type(zone) == "table" and zone.new)) or false
 end
 M.EraMapKnown = EraMapKnown
 
@@ -2771,7 +2795,7 @@ end
 
 -- True when the player is at a place the guide names (the subzone, the
 -- minimap's name or the zone), false when not, nil when the client can't
--- tell (another language).
+-- tell (a place with no area id on a client in another language).
 local function HereIs(place)
 	local answer
 	for _, get in ipairs({ GetSubZoneText, GetMinimapZoneText, GetZoneText }) do
@@ -3218,7 +3242,7 @@ local function AtFlightMaster(goal, npc)
 	if recognized then return nil end
 	local node = TaxiHere()
 	if type(node) == "string" then
-		local is = PlaceIs(node:match("^([^,]+)") or node, goal.place)
+		local is = PlaceIs(node:match("^([^,]+)") or node, goal.place, true)
 		if is ~= nil then return is end
 	end
 	return nil

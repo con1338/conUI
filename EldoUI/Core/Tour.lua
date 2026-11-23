@@ -40,6 +40,8 @@
 --   Tour:Offer(key, ...)      runs a registered help's offer
 --   Tour:Enabled(), Tour:SetEnabled(on), Tour:Seen(key[, scope]),
 --   Tour:Reset() (every help shows again), Tour:Running(), Tour:End()
+--   Tour:OnEnd(fn)            fn(form, key, how) after any help ends (a
+--                             part whose own help waited can start it then)
 --   /eui tour                 lists the helps; /eui tour <name> shows one
 --                             again; /eui tour reset shows them all again
 local _, E = ...
@@ -612,13 +614,21 @@ end
 ---------------------------------------------------------------------------
 -- Ending, and what is showing
 ---------------------------------------------------------------------------
+local endHooks = {}
+function Tour:OnEnd(fn)
+	if type(fn) == "function" then endHooks[#endHooks + 1] = fn end
+end
+
 -- how: "done", "skip", "gotit", "button", "combat", "gone", "off", "replaced"
 function Tour:End(how)
 	local ending = current
 	current = nil
 	if overlay then overlay:Hide() end
 	if spotFrame then spotFrame:Hide() end
-	if ending then Call(ending.opts and ending.opts.onClose, how or "done") end
+	if ending then
+		Call(ending.opts and ending.opts.onClose, how or "done")
+		for _, fn in ipairs(endHooks) do Call(fn, ending.form, ending.key, how or "done") end
+	end
 	-- The next help waits a moment, so two never flash one after the other.
 	if #queue > 0 and C_Timer then C_Timer.After(0.5, Pump) end
 end

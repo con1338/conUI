@@ -1269,14 +1269,15 @@ S.Forgotten = Forgotten
 --     quests = { [questID] = { t, title, level, minLevel, giver, giverName, map, x, y,
 --                              header, plevel, faction, ender, enderName, xp, money } },
 --     instances = { [instanceMapID] = { t, name, size, min, max } },
---     zones = { [uiMapID] = { t, name, min, max } } }
--- At most 600 entries over the three lists; past that the oldest go.
+--     zones = { [uiMapID] = { t, name, min, max } },
+--     rares = { [npcID] = { t, name, level, class, map, x, y } } }
+-- At most 600 entries over the lists; past that the oldest go.
 --   J:Seen()                     the table (made on first use)
 --   J:AddSeen(list, id, fields)  merge fields into one entry; false when
 --                                nothing changed. The caller then calls
 --                                LG:JourneyChanged() (Observe.lua does).
 ---------------------------------------------------------------------------
-S.SEEN_LISTS = { "quests", "instances", "zones" }
+S.SEEN_LISTS = { "quests", "instances", "zones", "rares" }
 
 -- The load check: the first data shape's `rows` list and values of the
 -- wrong kind are set aside, never reset.
@@ -1296,7 +1297,7 @@ E:RegisterStore("journalSeen", { title = "Journal: places and quests seen", vali
 local seenChecked = setmetatable({}, { __mode = "k" })
 
 function J:Seen()
-	if type(EldoUIDB) ~= "table" then return { v = 1, rev = 0, quests = {}, instances = {}, zones = {} } end
+	if type(EldoUIDB) ~= "table" then return { v = 1, rev = 0, quests = {}, instances = {}, zones = {}, rares = {} } end
 	local seen = EldoUIDB.journalSeen
 	if type(seen) ~= "table" then
 		-- First use (anything else saved here is kept inside the new table).
@@ -1315,7 +1316,7 @@ function J:Seen()
 	return seen
 end
 
--- Entries over the three lists, and the oldest one.
+-- Entries over the lists, and the oldest one.
 local function SeenCount(seen)
 	local count, oldest, oldestList, oldestID = 0, nil, nil, nil
 	for _, list in ipairs(S.SEEN_LISTS) do

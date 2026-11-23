@@ -320,17 +320,23 @@ end
 -- "name|quality|class|subclass|slot|itemLevel|reqLevel|classMask|side|set|faction:standing".
 -- The loot data has none of them. The rank each needs comes from the game
 -- (LG:PvPRewardRank), never from the item; a battleground reputation reward
--- names its faction and standing.
+-- names its faction and standing. WoW: Forever's own factions' rewards
+-- (Data/ForeverFactions.lua, client tables) use the same record.
 local function BuildPvPReward(itemID)
 	local list = E.pvpRewards and E.pvpRewards.items
 	local packed = list and list[itemID]
-	if type(packed) ~= "string" then return end
+	local pvp = type(packed) == "string"
+	if not pvp then
+		list = E.foreverFactions and E.foreverFactions.items
+		packed = list and list[itemID]
+		if type(packed) ~= "string" then return end
+	end
 	local f = Split(packed, "|")
 	local faction, standing = (f[11] or ""):match("^(%d+):(%d+)$")
 	return {
 		id = itemID, name = LG:DataName("item", itemID, f[1]), quality = tonumber(f[2]), class = tonumber(f[3]),
 		subclass = tonumber(f[4]), invType = tonumber(f[5]), itemLevel = tonumber(f[6]), reqLevel = tonumber(f[7]),
-		classMask = tonumber(f[8]), side = f[9] ~= "" and f[9] or nil, set = tonumber(f[10]), stats = {}, pvpReward = true,
+		classMask = tonumber(f[8]), side = f[9] ~= "" and f[9] or nil, set = tonumber(f[10]), stats = {}, pvpReward = pvp or nil,
 		repFaction = tonumber(faction), repStanding = tonumber(standing),
 	}
 end
@@ -403,6 +409,11 @@ local function BuildItem(itemID)
 	-- Marshal / High Warlord, rank 14); players know the rank number.
 	if record.honorRank and record.honorRank >= 5 then record.honorRank = record.honorRank - 4 end
 	local faction, standing = (f[18] or ""):match("^(%d+):(%d+)$")
+	if not faction then
+		-- A Classic item a WoW: Forever faction now sells (client tables).
+		local forever = E.foreverFactions and E.foreverFactions.items and E.foreverFactions.items[itemID]
+		faction, standing = (type(forever) == "string" and Split(forever, "|")[11] or ""):match("^(%d+):(%d+)$")
+	end
 	if faction then record.repFaction, record.repStanding = tonumber(faction), tonumber(standing) end
 	local skill, rank = (f[11] or ""):match("^(%d+):(%d+)$")
 	if skill then record.skill, record.skillRank = tonumber(skill), tonumber(rank) end
@@ -429,9 +440,20 @@ end
 -- Creature record (Creatures.lua):
 -- "name|minLevel|maxLevel|rank|instanceKey|displayID|spawnCount|creatureType|tameFamily"
 -- tameFamily: the pet family of a beast a Hunter can tame (none on others).
+-- A WoW: Forever creature the loot data lacks, from the Forever overlay's
+-- rares (name, level and the map it was seen on).
+local function OverlayMob(npc)
+	local rares = E.foreverData and E.foreverData.rares
+	local rare = type(rares) == "table" and rares[npc]
+	if type(rare) ~= "table" or type(rare.name) ~= "string" then return end
+	local level = tonumber(rare.level)
+	return { id = npc, name = rare.name, minLevel = level, maxLevel = level, rank = 0, spawns = 0, forever = true,
+		map = tonumber(rare.map), x = tonumber(rare.x), y = tonumber(rare.y) }
+end
+
 local function BuildMob(npc)
 	local packed = LD and LD.mobs and LD.mobs[npc]
-	if type(packed) ~= "string" then return end
+	if type(packed) ~= "string" then return OverlayMob(npc) end
 	local f = Split(packed, "|")
 	local family = tonumber(f[9])
 	return {
@@ -1046,7 +1068,8 @@ end
 ---------------------------------------------------------------------------
 -- Stats for E.ItemScore from a LootData record (items the client has not
 -- cached yet). Only stats whose meaning is the same in both worlds are
--- handed over; percent-based Classic bonuses (crit, hit) are left out.
+-- handed over. Percent bonuses (crit, hit, dodge, parry, block) go to the
+-- item score's percent keys, the same ones its tooltip reading fills.
 ---------------------------------------------------------------------------
 local STAT_KEYS = {
 	str = "ITEM_MOD_STRENGTH_SHORT", agi = "ITEM_MOD_AGILITY_SHORT", sta = "ITEM_MOD_STAMINA_SHORT",
@@ -1055,6 +1078,8 @@ local STAT_KEYS = {
 	spd = "ITEM_MOD_SPELL_POWER_SHORT", heal = "ITEM_MOD_SPELL_HEALING_DONE_SHORT",
 	mp5 = "ITEM_MOD_MANA_REGENERATION_SHORT", hp5 = "ITEM_MOD_HEALTH_REGEN_SHORT",
 	blk = "ITEM_MOD_BLOCK_VALUE_SHORT",
+	crit = "PCT_CRIT", hit = "PCT_HIT", scrit = "PCT_SPELL_CRIT", shit = "PCT_SPELL_HIT",
+	dodge = "PCT_DODGE", parry = "PCT_PARRY", block = "PCT_BLOCK",
 }
 
 local function RecordStats(itemID)

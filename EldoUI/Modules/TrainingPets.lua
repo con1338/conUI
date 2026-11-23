@@ -116,14 +116,84 @@ local function PetHas(spell)
 	return Try(C_SpellBook.IsSpellInSpellBook, spell, bank, false) == true
 end
 
--- { name, family, familyName, level, loyalty, total, used, free, speed } or
--- nil. speed: seconds between the pet's attacks, as the game reports it now.
+---------------------------------------------------------------------------
+-- What a family eats and the loyalty ranks (Data/Training/PetCare.lua)
+---------------------------------------------------------------------------
+-- The food types in the order of the client's food mask bits, lowest first.
+local FOODS = { E.Key("Meat"), E.Key("Fish"), E.Key("Cheese"), E.Key("Bread"), E.Key("Fungus"), E.Key("Fruit"),
+	E.Key("Raw Meat"), E.Key("Raw Fish") }
+
+-- The loyalty ranks as the client table names them, in the language shown.
+local LOYALTY_NAMES = E:TranslateValues({
+	Rebellious = E.Key("Rebellious"), Unruly = E.Key("Unruly"), Submissive = E.Key("Submissive"),
+	Dependable = E.Key("Dependable"), Faithful = E.Key("Faithful"), ["Best Friend"] = E.Key("Best Friend"),
+})
+
+-- The food types a family eats, in the language shown, or nil when the
+-- family is not a Hunter pet.
+function P:Diet(family)
+	local care = D and D.petCare
+	local mask = care and type(family) == "number" and care.diet[family]
+	if type(mask) ~= "number" then return nil end
+	local out = {}
+	for bit = 1, #FOODS do
+		if math.floor(mask / 2 ^ (bit - 1)) % 2 == 1 then out[#out + 1] = L[FOODS[bit]] end
+	end
+	return #out > 0 and out or nil
+end
+
+function P:DietText(family)
+	local foods = self:Diet(family)
+	return foods and table.concat(foods, ", ") or nil
+end
+
+-- The loyalty ranks, lowest first, in the language shown.
+function P:LoyaltyRanks()
+	local out = {}
+	for position, name in ipairs(D and D.petCare and D.petCare.loyalty or {}) do out[position] = LOYALTY_NAMES[name] or name end
+	return out
+end
+
+-- The rank number in the game's loyalty text: its number, else the rank
+-- it names.
+function P:LoyaltyRank(text)
+	if type(text) ~= "string" then return nil end
+	local ranks = self:LoyaltyRanks()
+	local number = tonumber(text:match("%d+"))
+	if number and number >= 1 and number <= #ranks then return number end
+	local lower = text:lower()
+	for position, name in ipairs(D and D.petCare and D.petCare.loyalty or {}) do
+		if lower:find(name:lower(), 1, true) or lower:find(ranks[position]:lower(), 1, true) then return position end
+	end
+end
+
+-- { name, family, familyName, level, loyalty, loyaltyRank, total, used,
+-- free, speed, happiness, damage, loyaltyRate, xp, xpMax } or nil.
+-- speed: seconds between the pet's attacks, as the game reports it now.
+-- happiness 1 to 3 with the damage percent it gives and the loyalty rate
+-- (above 0 rising, below 0 falling), as the game reports them.
 function P:Pet()
 	if not Plain(UnitExists("pet")) then return nil end
 	local pet = { name = Plain(UnitName("pet")), level = Plain(UnitLevel("pet")) }
 	local familyName, family = UnitCreatureFamily("pet")
 	pet.familyName, pet.family = Plain(familyName), Plain(family)
 	if C_PetInfo and C_PetInfo.GetPetLoyalty then pet.loyalty = Plain(Try(C_PetInfo.GetPetLoyalty)) end
+	if type(pet.loyalty) ~= "string" or pet.loyalty == "" then pet.loyalty = nil end
+	pet.loyaltyRank = self:LoyaltyRank(pet.loyalty)
+	if C_PetInfo and C_PetInfo.GetPetHappiness then
+		local happiness, damage, rate = Try(C_PetInfo.GetPetHappiness)
+		happiness, damage, rate = Plain(happiness), Plain(damage), Plain(rate)
+		if type(happiness) == "number" and happiness >= 1 then
+			pet.happiness = happiness
+			pet.damage = type(damage) == "number" and damage > 0 and damage or nil
+			pet.loyaltyRate = type(rate) == "number" and rate or nil
+		end
+	end
+	if GetPetExperience then
+		local xp, xpMax = Try(GetPetExperience)
+		xp, xpMax = Plain(xp), Plain(xpMax)
+		if type(xp) == "number" and type(xpMax) == "number" and xpMax > 0 then pet.xp, pet.xpMax = xp, xpMax end
+	end
 	if UnitAttackSpeed then
 		local speed = Plain(Try(UnitAttackSpeed, "pet"))
 		if type(speed) == "number" and speed > 0 then pet.speed = speed end

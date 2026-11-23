@@ -351,6 +351,7 @@ function P.InstanceTooltip(tooltip, key)
 	E.UIKit.TipTitle(tooltip, info.name)
 	local _, confidence = LG:Confidence(key)
 	tooltip:AddDoubleLine(L["Level"], P.LevelText(info), r, g, b, 1, 1, 1)
+	if info.gameRange then tooltip:AddLine(L["The game's recommended levels."], r, g, b) end
 	if info.enterLevel then tooltip:AddDoubleLine(L["Enter from level"], tostring(info.enterLevel), r, g, b, 1, 1, 1) end
 	local zone = LG:InstanceZone(key)
 	if zone then tooltip:AddDoubleLine(L["Zone"], zone, r, g, b, 1, 1, 1) end

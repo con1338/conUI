@@ -23,12 +23,15 @@
 --     run.bosses counts the bosses killed (ENCOUNTER_END / BOSS_KILL).
 --
 -- How the limit works: the server lets an account enter a limited number
--- of new instances per hour (5 on Forever, counted over all characters on
--- the same ruleset, the "realm" on Forever; the Forever dungeon guides give
--- five resets per hour, where the modern game allows ten). EldoUI only sees
--- your own entries, so the count is an estimate and is labeled as one.
--- Whether a raid entry counts is not settled for Forever, so raids count
--- only with "Count raids" on, and the player can set the limit.
+-- of new instances per hour, counted over all characters on the same
+-- ruleset (the "realm" on Forever). The default is 10 per hour with no
+-- daily limit: the Forever server runs the modern instance rules, and the
+-- instance trackers made for the Forever client use the same numbers.
+-- Older guides give five per hour; when the server refuses an entry
+-- earlier, the refusal notice offers its count as the new limit. Dungeons
+-- and raids for up to 20 players count; a 40-player raid does not (it has
+-- its own saved lockout) unless "Count raids" is on. EldoUI only sees your
+-- own entries, so the count is an estimate and is labeled as one.
 --
 -- Rules (Midnight / Forever): presentation only. Optional logging runs the
 -- game's own combat log without reading it. Nothing is sent to other
@@ -56,7 +59,7 @@ local M = E:NewModule("Instances", {
 	defaults = {
 		enabled = false,
 		-- Limit
-		hourlyLimit = 5,
+		hourlyLimit = 10,
 		dailyLimit = 0,          -- 0: no daily limit
 		countRaids = false,
 		detectSameRun = true,
@@ -95,6 +98,16 @@ local M = E:NewModule("Instances", {
 	},
 })
 E.Instances = M
+
+-- The default hourly limit went from 5 to 10. A profile that still holds
+-- the old default moves to the new one once; any other value the player
+-- set stays.
+function M.MigrateHourlyLimit(profile)
+	local modules = type(profile) == "table" and type(profile.modules) == "table" and profile.modules
+	local own = modules and type(modules.Instances) == "table" and modules.Instances
+	if own and own.hourlyLimit == 5 then own.hourlyLimit = nil end
+end
+E:RegisterProfileMigration(M.MigrateHourlyLimit, "Instances:hourlyLimit", 1)
 
 local floor, max, min = math.floor, math.max, math.min
 local HOUR, DAY = 3600, 86400
@@ -512,11 +525,19 @@ end
 ---------------------------------------------------------------------------
 -- Counting
 ---------------------------------------------------------------------------
--- Does this run count toward the limit? Dungeons do; raids only with
+-- Does this run count toward the limit? Dungeons and raids for up to 20
+-- players do; 40-player raids (and raids of an unknown size) only with
 -- "Count raids"; battlegrounds never.
+local BIG_RAID = 40
+M.BIG_RAID = BIG_RAID
+
 function M:Counts(run)
 	if run.kind == "pvp" or run.uncounted then return false end
-	if run.kind == "raid" then return self.db.countRaids and true or false end
+	if run.kind == "raid" then
+		if self.db.countRaids then return true end
+		local size = tonumber(run.maxPlayers)
+		return size ~= nil and size > 0 and size < BIG_RAID
+	end
 	return run.kind == "party"
 end
 
@@ -559,7 +580,7 @@ function M:Summary(now)
 	now = now or self:Now()
 	local hourList = self:CountedRuns(HOUR, now)
 	local dayList = self:CountedRuns(DAY, now)
-	local hourLimit = max(1, floor(tonumber(self.db.hourlyLimit) or 5))
+	local hourLimit = max(1, floor(tonumber(self.db.hourlyLimit) or 10))
 	local dayLimit = max(0, floor(tonumber(self.db.dailyLimit) or 0))
 	local wait = WaitFor(hourList, hourLimit, HOUR, now)
 	if dayLimit > 0 and wait ~= nil then
@@ -1260,7 +1281,7 @@ function M:EnteredNotice(run)
 	if run.kind == "pvp" then
 		text = (L["Entered %s (battlegrounds never count toward the limit)."]):format(self:RunTitle(run))
 	elseif not self:Counts(run) then
-		text = (L["Entered %s (raids don't count toward the hourly limit)."]):format(self:RunTitle(run))
+		text = (L["Entered %s (40-player raids don't count toward the hourly limit)."]):format(self:RunTitle(run))
 	elseif run.how == "login" then
 		text = (L["Logged in inside %s: %s."]):format(self:RunTitle(run), self:CountLine())
 	else

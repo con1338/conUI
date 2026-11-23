@@ -46,6 +46,9 @@ local M = E:NewModule("ConsumableBar", {
 		hearth = false,
 		mount = false,
 		manaGem = true,       -- mages only: the conjured mana gem
+		diseaseCure = false,  -- WoW: Forever's First Aid cures
+		bleedCure = false,
+		poisonCure = false,
 		hideEmpty = true,     -- hide buttons you have nothing for
 		conjuredFirst = true, -- mage food and water before bought food
 		skipBuffFood = true,  -- Well Fed food only when picked
@@ -94,6 +97,15 @@ local MOUNT_ITEMS = {
 -- Jade, Mana Citrine, Mana Ruby. Their use spell shares the name of the
 -- mana potions' (Restore Mana), so they go by item.
 local MANA_GEMS = { 5514, 5513, 8007, 8008 }
+-- WoW: Forever's First Aid cures (client tables, build 1.60.1.70862). Each
+-- cures one effect up to a level that its own use text names; the button
+-- holds the one that just covers your level (CureLevel below).
+local DISEASE_CURES = { 255716, 255717, 255718, 255719 } -- Simple, Clever, Superior and Powerful Poultice
+local BLEED_CURES = { 255720, 255721, 255722 } -- Woolen, Leather and Surgical Tourniquet
+local POISON_CURES = { 6452, 6453, 255715, 19440 } -- Anti-Venom, Strong, Potent and Powerful Anti-Venom
+-- WoW: Forever's Discolored healing potions (Alchemy), whatever their use
+-- spell is called.
+local DISCOLORED_POTIONS = { 4596, 247239, 247240, 247241, 247242, 241650 }
 M.MANA_GEMS = MANA_GEMS
 
 -- The mage's conjured food and water, by item so every game language
@@ -167,7 +179,7 @@ M.USE_SPELLS = USE_SPELLS
 M.CATEGORIES = {
 	{ key = "food", label = "Food", spells = { 433 }, fallback = { "Food" }, icon = 133945 },
 	{ key = "drink", label = "Drink", spells = { 430 }, fallback = { "Drink" }, icon = 132794 },
-	{ key = "healthPotion", label = "Health potion", spells = { 441 }, fallback = { "Healing Potion" }, icon = 134830 },
+	{ key = "healthPotion", label = "Health potion", spells = { 441 }, fallback = { "Healing Potion" }, icon = 134830, items = DISCOLORED_POTIONS },
 	{ key = "manaPotion", label = "Mana potion", spells = { 437 }, fallback = { "Restore Mana" }, icon = 134851 },
 	{ key = "bandage", label = "Bandage", spells = { 746 }, fallback = { "First Aid" }, icon = 133685 },
 	{ key = "healthstone", label = "Healthstone", spells = { 6262 }, fallback = { "Healthstone" }, icon = 135230, items = HEALTHSTONES },
@@ -175,6 +187,9 @@ M.CATEGORIES = {
 	{ key = "mount", label = "Mount", spells = {}, fallback = {}, icon = "Interface\\Icons\\Ability_Mount_RidingHorse", items = MOUNT_ITEMS, alwaysBest = true },
 	{ key = "manaGem", label = "Mana gem", spells = {}, fallback = {}, icon = "Interface\\Icons\\INV_Misc_Gem_Ruby_01", items = MANA_GEMS,
 		alwaysBest = true, class = "MAGE", keepShown = true },
+	{ key = "diseaseCure", label = "Disease cure", spells = {}, fallback = {}, icon = "Interface\\Icons\\INV_Misc_Bandage_09", items = DISEASE_CURES, cure = true },
+	{ key = "bleedCure", label = "Bleed cure", spells = {}, fallback = {}, icon = "Interface\\Icons\\INV_Misc_Bandage_12", items = BLEED_CURES, cure = true },
+	{ key = "poisonCure", label = "Poison cure", spells = {}, fallback = {}, icon = "Interface\\Icons\\INV_Drink_14", items = POISON_CURES, cure = true },
 }
 M.categoryByKey = {}
 local categoryByItem = {}
@@ -186,9 +201,9 @@ end
 -- Button orders (keys of M.CATEGORIES). The buttons keep their names (and
 -- key bindings); only their place on the bar changes.
 M.ORDERS = {
-	rest = { "food", "drink", "healthPotion", "manaPotion", "manaGem", "bandage", "healthstone", "hearth", "mount" },
-	combat = { "healthPotion", "manaPotion", "manaGem", "healthstone", "bandage", "food", "drink", "hearth", "mount" },
-	travel = { "mount", "hearth", "food", "drink", "healthPotion", "manaPotion", "manaGem", "bandage", "healthstone" },
+	rest = { "food", "drink", "healthPotion", "manaPotion", "manaGem", "bandage", "diseaseCure", "bleedCure", "poisonCure", "healthstone", "hearth", "mount" },
+	combat = { "healthPotion", "manaPotion", "manaGem", "healthstone", "diseaseCure", "bleedCure", "poisonCure", "bandage", "food", "drink", "hearth", "mount" },
+	travel = { "mount", "hearth", "food", "drink", "healthPotion", "manaPotion", "manaGem", "bandage", "diseaseCure", "bleedCure", "poisonCure", "healthstone" },
 }
 
 -- Is the category's button for this character's class?
@@ -287,8 +302,40 @@ local function Unusable(itemID)
 	return usable == false
 end
 
+-- The level a First Aid cure works up to: the last number in its use text
+-- ("Use: Cures 1 disease up to level 35."), else its item level plus 9 (the
+-- Classic anti-venoms' rule) until the game has the tooltip.
+local cureLevels = {}
+local function CureLevel(itemID)
+	if cureLevels[itemID] then return cureLevels[itemID] end
+	local prefix = rawget(_G, "ITEM_SPELL_TRIGGER_ONUSE")
+	local info = C_TooltipInfo and C_TooltipInfo.GetItemByID and Try(C_TooltipInfo.GetItemByID, itemID)
+	if type(prefix) == "string" and type(info) == "table" and type(info.lines) == "table" then
+		for _, line in ipairs(info.lines) do
+			local text = type(line) == "table" and Clean(line.leftText)
+			if type(text) == "string" and text:sub(1, #prefix) == prefix then
+				local last
+				for number in text:gmatch("%d+") do last = tonumber(number) end
+				if last and last > 0 then
+					cureLevels[itemID] = last
+					return last
+				end
+			end
+		end
+	end
+	local _, itemLevel = ItemLevelReq(itemID)
+	return itemLevel > 0 and itemLevel + 9 or 0
+end
+M.CureLevel = CureLevel
+
 -- Score of one item for its category: higher is picked.
 local function Score(db, category, itemID, minLevel, itemLevel)
+	if category.cure then
+		-- The weakest cure that still covers your level, else the strongest.
+		local level = CureLevel(itemID)
+		local player = UnitLevel and Clean(UnitLevel("player")) or 60
+		return level >= (player or 60) and (1e5 - level) or level
+	end
 	local score = minLevel * 1000 + itemLevel
 	if db.pick == "lowest" and not category.alwaysBest then score = -score end
 	if db.conjuredFirst and IsConjured(itemID) then score = score + 1e6 end
@@ -835,6 +882,9 @@ M.options = {
 	{ type = "toggle", key = "mount", label = "Mount", desc = "A button for a mount: the best mount item in your bags, or a mount from your collection (right-click picks which)." },
 	{ type = "toggle", key = "manaGem", label = "Mana gem", desc = "A button for your conjured mana gem, with its cooldown. It stays on the bar while you carry none, so you see when to conjure one.",
 		requires = function() return M.ForClass(M.categoryByKey.manaGem) end },
+	{ type = "toggle", key = "diseaseCure", label = "Disease cure", desc = "A button for a First Aid poultice: the one that covers your level, else the strongest you carry." },
+	{ type = "toggle", key = "bleedCure", label = "Bleed cure", desc = "A button for a First Aid tourniquet: the one that covers your level, else the strongest you carry." },
+	{ type = "toggle", key = "poisonCure", label = "Poison cure", desc = "A button for an anti-venom: the one that covers your level, else the strongest you carry." },
 	{ type = "toggle", key = "hideEmpty", label = "Hide empty buttons", desc = "Hide a button while you carry nothing for it (the mana gem stays)." },
 	{ type = "select", key = "order", label = "Button order", values = {
 		rest = "Food and drink first",
@@ -870,8 +920,9 @@ E:RegisterStyles("ConsumableBar", {
 		settings = { food = true, drink = true, healthPotion = true, manaPotion = true, bandage = true, healthstone = true, hearth = false, mount = false, hideEmpty = true, buttonSize = 32, vertical = false, order = "rest" } },
 	{ key = "Caster", title = "Caster", desc = "Drink, mana potion, health potion and healthstone, potions first.",
 		settings = { food = false, drink = true, manaPotion = true, healthPotion = true, bandage = false, healthstone = true, hearth = false, mount = false, order = "combat" } },
-	{ key = "Melee", title = "Melee", desc = "Food, health potion, bandage and healthstone, potions first.",
-		settings = { food = true, drink = false, manaPotion = false, healthPotion = true, bandage = true, healthstone = true, hearth = false, mount = false, order = "combat" } },
+	{ key = "Melee", title = "Melee", desc = "Food, health potion, bandage, the three cures and healthstone, potions first.",
+		settings = { food = true, drink = false, manaPotion = false, healthPotion = true, bandage = true, healthstone = true, hearth = false, mount = false,
+			diseaseCure = true, bleedCure = true, poisonCure = true, order = "combat" } },
 	{ key = "Traveller", title = "Traveler", desc = "Mount and Hearthstone first, then food, drink and bandage.",
 		settings = { food = true, drink = true, manaPotion = false, healthPotion = false, bandage = true, healthstone = false, hearth = true, mount = true, order = "travel" } },
 	{ key = "Compact", title = "Compact", desc = "Small 24 px buttons close together.",

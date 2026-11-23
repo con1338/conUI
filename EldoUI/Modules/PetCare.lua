@@ -290,6 +290,7 @@ end
 
 M.options = {
 	{ type = "description", label = "For hunters: a Feed Pet button by the pet frame; one click feeds one piece of food. The [pet:happiness] tag shows happiness." },
+	{ type = "description", label = "A happy pet deals more damage and gains loyalty; an unhappy pet deals less and loses loyalty." },
 	{ type = "header", label = "Feed button" },
 	{ type = "toggle", key = "feedButton", label = "Feed Pet button", desc = "A button that casts Feed Pet on the chosen food." },
 	{ type = "toggle", key = "auto", label = "Pick food from the bags", desc = "Without a food dropped on the button, use the lowest level food in your bags that your pet eats and still enjoys.", dependsOn = "feedButton" },

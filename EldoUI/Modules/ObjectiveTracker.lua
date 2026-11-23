@@ -761,6 +761,16 @@ local function InTrackedInstance()
 	return inInstance and kind and types and types[kind] and true or false
 end
 
+-- During a boss fight the boss mod addon can hide the tracker itself (its
+-- own option). While it does, the visibility rule keeps the tracker hidden
+-- too; after the fight the rule decides again.
+local function BossModHides()
+	if not (E.BossModHidesTracker and E:BossModHidesTracker()) then return false end
+	local fighting = IsEncounterInProgress and IsEncounterInProgress()
+	return E.Plain(fighting) == true
+end
+M.BossModHides = BossModHides
+
 -- v0.6 had its own fade settings (in combat / in instances: keep, see-
 -- through or invisible; see-through until mouse-over). They become the
 -- shared visibility block once: one faded alpha (the lowest of the old
@@ -819,7 +829,7 @@ function M:UpdateAlpha()
 	local hidden = self.active and (E:BlizzardHidden(ELEMENT) or BoxHidden() or self.userCollapsed)
 	if self.active and not hidden and Allowed("improve") then
 		if type(self.db.visibility) ~= "table" then self.db.visibility = E:VisibilityDefaults() end
-		E:AttachVisibility(tracker, self.db.visibility, { inInstance = InTrackedInstance })
+		E:AttachVisibility(tracker, self.db.visibility, { inInstance = InTrackedInstance, forceHide = BossModHides })
 		self.alphaSet = true
 		return
 	end
@@ -1276,12 +1286,19 @@ function M:HookTracker()
 	end
 end
 
+local function BossFightChanged()
+	local tracker = Tracker()
+	if tracker and E:IsVisibilityAttached(tracker) then E:UpdateVisibility(tracker) end
+end
+
 -- Combat, zone and the other conditions are followed by Core/Visibility.lua.
 local EVENTS = {
 	PLAYER_ENTERING_WORLD = function()
 		M:UpdateAlpha()
 		M:WatchQuestie()
 	end,
+	ENCOUNTER_START = BossFightChanged,
+	ENCOUNTER_END = BossFightChanged,
 }
 
 function M:OnInitialize()

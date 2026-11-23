@@ -117,7 +117,40 @@ C.info = {
 	resurrect = { label = "Resurrection", short = Key("Res"), desc = "Brings an ally back." },
 	buff = { label = "Class buff", short = Key("Buff"), desc = "Your armor, aura, shield or group buff." },
 	roleUtility = { label = "Role utility", short = Key("Role"), desc = "A spell for your role: a taunt, a mark or a slow fall." },
+	racial1 = { label = "Racial defensive", short = Key("Race"), desc = "Your race's own break, cleanse or escape." },
+	racial2 = { label = "Racial ability", short = Key("Race2"), desc = "Your race's own damage, heal or utility ability." },
 }
+
+-- Racial abilities: every race has one or two actives. They take the
+-- first two of your class's open buttons for your role (bar 2, then bar
+-- 3; then the buttons your class keeps free): racial1 the defensive,
+-- racial2 the other one. Only the race's own
+-- spells are ever known, so the first known spell of a list is yours; a
+-- race without a second active leaves that button open. A class with no
+-- such button left (a Hunter has a spell on every one) keeps the racial
+-- in the spellbook, where you place it yourself.
+C.racials = {
+	racial1 = {
+		1259718, -- Will to Survive (Human)
+		20594, -- Stoneform (Dwarf)
+		20589, -- Escape Artist (Gnome)
+		20580, -- Shadowmeld (Night Elf)
+		1299026, -- Shatter Curse (Orc)
+		7744, -- Will of the Forsaken (Undead)
+		1260270, -- Rapid Regeneration (Troll)
+		1259416, -- Walk on Air (Skyborne)
+	},
+	racial2 = {
+		1259799, -- Elune's Light (Night Elf)
+		1259813, 1259812, 1259823, 1259821, 1259817, -- Eureka! (Gnome, one per class)
+		20572, -- Blood Fury (Orc)
+		20577, -- Cannibalize (Undead)
+		20549, -- War Stomp (Tauren)
+		20554, -- Berserking (Troll)
+		1259705, 1259686, -- Read Leyline, Skysight (Skyborne)
+	},
+}
+C.racialOrder = { "racial1", "racial2" }
 
 -- core1 -> core: numbered categories share one description.
 function C.Info(key)
@@ -1156,12 +1189,24 @@ end
 -- added by a plugin names none yet). role defaults to yours (an older
 -- "damage" reads as your class's damage role); page, on bar 1 of a class
 -- that pages it, to the page the game shows now.
+local RacialSlots
+
 function C.Resolve(bar, button, class, role, page)
 	local key = C.slots[bar] and C.slots[bar][button]
 	local out = { key = key, info = C.Info(key), state = "open" }
 	if not key then return out end
 	class = class or PlayerClass()
 	role = ClassRole(class, role or (E.GetRole and E:GetRole()) or "none")
+	local racial = class and RacialSlots(class, role)[bar .. ":" .. button]
+	if racial then
+		for _, id in ipairs(C.racials[racial]) do
+			if Known(id) then
+				out.key, out.info, out.state, out.racial = racial, C.info[racial], "ready", true
+				out.spell, out.name, out.icon = id, Name(id), Icon(id)
+				return out
+			end
+		end
+	end
 	local paged = bar == 1 and C.pages[class or ""] ~= nil
 	if paged then
 		page = page or C.CurrentPage(class)
@@ -1202,6 +1247,47 @@ function C.Resolve(bar, button, class, role, page)
 	return out
 end
 
+-- Which buttons the racials take for a class and role, read once:
+-- "bar:button" -> "racial1" or "racial2". Open buttons (no class spell
+-- for the role) come first, then buttons the class keeps free.
+local racialSlots = {}
+function RacialSlots(class, role)
+	local cacheKey = class .. ":" .. tostring(role)
+	local cache = racialSlots[cacheKey]
+	if cache then return cache end
+	cache = {}
+	local block = C.classes[class]
+	local index = 1
+	for _, kept in ipairs({ false, true }) do
+		for bar = 2, 3 do
+			for button, key in ipairs(block and C.slots[bar] or {}) do
+				local pick = Pick(block[key], role, nil, false)
+				local free = not pick or pick.open
+				if kept then free = pick and pick.reserved end
+				if index <= #C.racialOrder and free then
+					cache[bar .. ":" .. button] = C.racialOrder[index]
+					index = index + 1
+				end
+			end
+		end
+	end
+	racialSlots[cacheKey] = cache
+	return cache
+end
+
+-- Where the racials sit for a class and role: { racial1 = { bar, button },
+-- racial2 = { bar, button } }.
+function C.RacialHomes(class, role)
+	class = class or PlayerClass()
+	if not (class and C.classes[class]) then return {} end
+	local out = {}
+	for slot, racial in pairs(RacialSlots(class, ClassRole(class, role or (E.GetRole and E:GetRole()) or "none"))) do
+		local bar, button = slot:match("^(%d+):(%d+)$")
+		out[racial] = { bar = tonumber(bar), button = tonumber(button) }
+	end
+	return out
+end
+
 -- Every spell's home for a class and role, read once: id -> { bar,
 -- button, page, tier } or { home, tier }.
 local homes = {}
@@ -1221,6 +1307,17 @@ local function Homes(class, role)
 						cache[id] = { bar = bar, button = button, page = page ~= "normal" and page or nil, tier = TierOf(pick, role) }
 					end
 				end
+			end
+		end
+	end
+	-- A class whose bars 2 and 3 have no button left for a racial (every
+	-- one holds a class spell) keeps that racial in the spellbook.
+	local racialHomes = C.RacialHomes(class, role)
+	for _, racial in ipairs(C.racialOrder) do
+		local at = racialHomes[racial]
+		for _, id in ipairs(C.racials[racial]) do
+			if not cache[id] then
+				cache[id] = at and { bar = at.bar, button = at.button, tier = 3 } or { home = "book", tier = 3 }
 			end
 		end
 	end

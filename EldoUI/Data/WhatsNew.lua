@@ -18,6 +18,36 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.3100",
+		date = Key("November 2026"),
+		summary = Key("4 new features, 10 improvements and 8 fixes."),
+		items = {
+			Key("Journal: The Reputation page lists WoW: Forever's own factions, such as the Nightclaw Druids, Kirin Tor and The Watchers, with what each sells at every standing and the reputation still to go."),
+			Key("Bags and loot: The Consumable Bar can show a button each for your cure against disease, bleeding and poison, picking the one that fits your level, and each can get a key."),
+			Key("Info Bar: A new PvP rank block, and an optional PvP rank bar with the Status Bars, show your season rank and the Rank Points to the next one, or that you reached this week's cap."),
+			Key("Hunter: The Training window's Pet abilities tab shows your pet's happiness with the damage it gives, whether loyalty is rising, its next loyalty rank, its experience and what its family eats."),
+			Key("Journal: Dungeon levels, \"fits your level\" and My Adventure's dungeon cards follow the levels the dungeon finder recommends whenever the game gives them, and the dungeon's tooltip says so."),
+			Key("Journal: Rares and elites outside dungeons that the Loot Guide does not know yet, such as WoW: Forever's new ones, are now noted, and Report new content includes them so they can join the guide in a later version."),
+			Key("Map and minimap: Zone Info knows WoW: Forever's new zones (Riverglades, Shen'dralas, Mount Hyjal and Zephras Isle) and shows their level range and territory when the game gives none."),
+			Key("Map and minimap: Gathering knows WoW: Forever's Heavy Thorium vein in Mount Hyjal once you mine it: its pins and tooltip show the Mining 300 requirement, and the skill filter treats it like every other vein."),
+		},
+	},
+	{
+		version = "0.7.3006",
+		date = Key("November 2026"),
+		summary = Key("8 fixes."),
+		items = {
+			Key("Bags and loot: Every loot roll gets its roll bar at once, also while the item's details are still loading, so no roll is missed or shown in the game's own window instead."),
+			Key("Bags and loot: The game's own roll windows no longer reappear over the action bars after a loading screen while EldoUI's roll bars replace them."),
+			Key("Bags and loot: With the game's roll windows moved, each one opens directly on the roll spot and stays where it opened while other rolls start and end."),
+			Key("Bags and loot: Roll bars stay in the order their rolls started, so a new roll joins at the end instead of pushing the others down."),
+			Key("Bags and loot: The loot window closes with Escape, closing it ends the loot, an empty corpse or chest no longer leaves the loot open, and a leftover loot confirmation closes with the loot."),
+			Key("Bags and loot: Every item in the loot window shows, also one whose details the game keeps hidden, and a row from the last loot no longer disappears under a new item."),
+			Key("Bags and loot: EldoUI's bank window offers more bank space again: a button on its side bar buys the next bank tab, with its price and the game's own confirmation, also when the bag bar is off."),
+			Key("Info Bar: The Hit and Spell hit blocks count the hit rating on your gear, so they match the character sheet."),
+		},
+	},
+	{
 		version = "0.7.3005",
 		date = Key("November 2026"),
 		summary = Key("8 fixes."),

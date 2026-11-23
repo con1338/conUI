@@ -2634,6 +2634,8 @@ local function CanBuyTab(bankType)
 	return ok and can == true
 end
 
+M.CanBuyBankTab = CanBuyTab
+
 local function BarEntries(window)
 	local entries = {}
 	if window.kind == "bags" then

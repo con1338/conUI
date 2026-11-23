@@ -166,6 +166,10 @@ local function DrawFaction(section)
 	section.header:Show()
 	section.header.name:SetText(faction.name)
 	section.header.bar:SetStanding(faction.live)
+	local cap, capStanding = LG:FactionCap(faction.id)
+	if cap then
+		P.FlowText(flow, (L["Reputation with this faction stops at %s."]):format(LG:StandingName(capStanding)), 11, "secondary")
+	end
 	local text = E:FoldText(s.search or "")
 	local rewards = LG:FactionRewards(faction.id)
 	local quests = LG:FactionQuests(faction.id)
