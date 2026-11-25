@@ -96,6 +96,7 @@ local M = E:NewModule("Minimap", {
 		binOpen = false,           -- the click drawer's last state, for binKeepOpen
 		badge = true,              -- EldoUI's own minimap button (gathered first in the bin)
 		badgeAngle = 200,          -- where it sits on the map's edge while not in the bin: degrees, 0 = east
+		ownAngles = {},            -- the same for the buttons other modules add (E:AddMinimapButton): key -> degrees
 		railSide = "LEFT",         -- the edge of the button rail: LEFT, RIGHT (buttons set to "RAIL" sit on it)
 		buttons = {
 			tracking = "TOPLEFT",
@@ -1977,10 +1978,15 @@ function Bin.Candidates()
 			list[#list + 1] = frame
 		end
 	end
-	-- EldoUI's own button first, so it leads the bin.
+	-- EldoUI's own button first, so it leads the bin, then the buttons
+	-- other EldoUI modules add (E:AddMinimapButton).
 	if M.badge and M.db and M.db.badge then
 		found[M.badge] = true
 		list[1] = M.badge
+	end
+	for _, own in ipairs(M.ownButtons) do
+		found[own.button] = true
+		list[#list + 1] = own.button
 	end
 	for _, child in ipairs({ Minimap:GetChildren() }) do Add(child) end
 	if Usable(MinimapBackdrop) then
@@ -2370,7 +2376,7 @@ function M:ReleaseButton(button, icons)
 	local name = button:GetName()
 	local iconName = icons and name and name:match("^LibDBIcon10_(.+)$")
 	if iconName and icons.Refresh then pcall(icons.Refresh, icons, iconName) end
-	if button == self.badge then self:PlaceBadge() end
+	if button == self.badge or rawget(button, "ownKey") then self:PlaceOnEdge(button) end
 end
 
 function M:CollectButtons(discoveryOnly)
@@ -2427,12 +2433,21 @@ function M:CollectButtons(discoveryOnly)
 			end
 		end
 	end
-	-- EldoUI's own button leads the bin, also when it joined later.
-	for index = 2, #binOrder do
-		if binOrder[index] == self.badge then
-			table.insert(binOrder, 1, table.remove(binOrder, index))
-			changed = true
-			break
+	-- EldoUI's own buttons lead the bin (its own button first, then the
+	-- ones other modules added, in their order), also when they joined later.
+	local lead = { self.badge }
+	for _, own in ipairs(self.ownButtons) do lead[#lead + 1] = own.button end
+	local at = 1
+	for _, button in ipairs(lead) do
+		for index = at, #binOrder do
+			if binOrder[index] == button then
+				if index ~= at then
+					table.insert(binOrder, at, table.remove(binOrder, index))
+					changed = true
+				end
+				at = at + 1
+				break
+			end
 		end
 	end
 	if discoveryOnly and not changed and not refreshPending then return false end
@@ -2490,60 +2505,88 @@ function Badge.CursorAngle()
 	return math.deg(math.atan2(y / scale - cy, x / scale - cx)) % 360
 end
 
-function M:PlaceBadge()
-	local badge = self.badge
-	if not badge or binned[badge] then return end
-	if badge:GetParent() ~= Minimap then badge:SetParent(Minimap) end
-	local x, y = Badge.Offset(self.db.badgeAngle, self.db.shape == "round", Minimap:GetWidth(), Minimap:GetHeight())
-	badge:SetScale(1)
-	badge:ClearAllPoints()
-	badge:SetPoint("CENTER", Minimap, "CENTER", x, y)
+-- The saved angle of one of EldoUI's own buttons on the map's edge: the
+-- EldoUI button keeps its own setting, the added ones one each by key.
+function Badge.Angle(button)
+	if button == M.badge then return M.db.badgeAngle end
+	local saved = M.db.ownAngles
+	local angle = type(saved) == "table" and saved[rawget(button, "ownKey")]
+	return type(angle) == "number" and angle or rawget(button, "ownAngle") or 200
 end
 
-function M:CreateBadge()
-	local badge = CreateFrame("Button", "EldoUI_MinimapButton", Minimap)
-	badge:SetSize(31, 31)
-	badge:SetFrameStrata("MEDIUM")
-	badge:SetFrameLevel(8)
-	badge:RegisterForClicks("AnyUp")
-	badge:RegisterForDrag("LeftButton")
-	badge:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
-	local back = badge:CreateTexture(nil, "BACKGROUND")
+function Badge.SetAngle(button, angle)
+	if button == M.badge then
+		M.db.badgeAngle = angle
+		return
+	end
+	if type(M.db.ownAngles) ~= "table" then M.db.ownAngles = {} end
+	M.db.ownAngles[rawget(button, "ownKey")] = angle
+end
+
+-- One of EldoUI's own buttons on the map's edge, while the bin does not
+-- hold it.
+function M:PlaceOnEdge(button)
+	if not (button and self.db) or binned[button] then return end
+	if button:GetParent() ~= Minimap then button:SetParent(Minimap) end
+	local x, y = Badge.Offset(Badge.Angle(button), self.db.shape == "round", Minimap:GetWidth(), Minimap:GetHeight())
+	button:SetScale(1)
+	button:ClearAllPoints()
+	button:SetPoint("CENTER", Minimap, "CENTER", x, y)
+end
+
+function M:PlaceBadge() self:PlaceOnEdge(self.badge) end
+
+-- A round button in the look of the other addon buttons on the map: dark
+-- backing, the icon in a round cut, the tracking ring. Dragged around the
+-- map's edge while it is not in the bin.
+function Badge.Draw(name, texture)
+	local button = CreateFrame("Button", name, Minimap)
+	button:SetSize(31, 31)
+	button:SetFrameStrata("MEDIUM")
+	button:SetFrameLevel(8)
+	button:RegisterForClicks("AnyUp")
+	button:RegisterForDrag("LeftButton")
+	button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+	local back = button:CreateTexture(nil, "BACKGROUND")
 	back:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
 	back:SetSize(24, 24)
 	back:SetPoint("CENTER")
-	local icon = badge:CreateTexture(nil, "ARTWORK")
-	icon:SetTexture(E.media.icon)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetTexture(texture)
 	icon:SetSize(20, 20)
 	icon:SetPoint("CENTER")
-	local cut = badge:CreateMaskTexture()
+	local cut = button:CreateMaskTexture()
 	cut:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 	cut:SetAllPoints(icon)
 	icon:AddMaskTexture(cut)
-	local ring = badge:CreateTexture(nil, "OVERLAY")
+	local ring = button:CreateTexture(nil, "OVERLAY")
 	ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 	ring:SetSize(53, 53)
 	ring:SetPoint("TOPLEFT")
-	badge.icon = icon
-	badge:SetScript("OnClick", function(_, button) EldoUI_OnAddonCompartmentClick(nil, button) end)
-	badge:SetScript("OnEnter", function(frame) EldoUI_OnAddonCompartmentEnter(nil, frame) end)
-	badge:SetScript("OnLeave", function() EldoUI_OnAddonCompartmentLeave() end)
-	-- Dragged around the map's edge while it is not in the bin.
-	badge:SetScript("OnDragStart", function(frame)
+	button.icon = icon
+	button:SetScript("OnDragStart", function(frame)
 		if binned[frame] then return end
 		frame:LockHighlight()
 		frame:SetScript("OnUpdate", function()
 			local angle = Badge.CursorAngle()
 			if angle then
-				M.db.badgeAngle = math.floor(angle + 0.5) % 360
-				M:PlaceBadge()
+				Badge.SetAngle(frame, math.floor(angle + 0.5) % 360)
+				M:PlaceOnEdge(frame)
 			end
 		end)
 	end)
-	badge:SetScript("OnDragStop", function(frame)
+	button:SetScript("OnDragStop", function(frame)
 		frame:SetScript("OnUpdate", nil)
 		frame:UnlockHighlight()
 	end)
+	return button
+end
+
+function M:CreateBadge()
+	local badge = Badge.Draw("EldoUI_MinimapButton", E.media.icon)
+	badge:SetScript("OnClick", function(_, button) EldoUI_OnAddonCompartmentClick(nil, button) end)
+	badge:SetScript("OnEnter", function(frame) EldoUI_OnAddonCompartmentEnter(nil, frame) end)
+	badge:SetScript("OnLeave", function() EldoUI_OnAddonCompartmentLeave() end)
 	self.badge = badge
 	return badge
 end
@@ -2559,6 +2602,86 @@ function M:ApplyBadge()
 	badge = badge or self:CreateBadge()
 	badge:Show()
 	self:PlaceBadge()
+end
+
+---------------------------------------------------------------------------
+-- Minimap buttons of other EldoUI modules (an integration's switch, say).
+-- Each is drawn like the EldoUI button and handled the same way: the bin
+-- gathers it right after the EldoUI button, "Manage buttons" can keep it on
+-- the map, and while the bin is off it rides the map's edge, where the
+-- player drags it (its angle is saved by key). The module that adds it
+-- says when it shows; while the Minimap module is off it is hidden.
+--
+--   E:AddMinimapButton(key, spec)  adds it (once per key) and returns it
+--     key    a short name; the frame is "EldoUI_<key>MinimapButton"
+--     spec   title    the name in "Manage buttons"
+--            icon     the icon texture
+--            angle    its first spot on the map's edge, degrees, 0 = east
+--            shown    function() -> true while the button should show
+--            onClick  function(button, mouseButton)
+--            onEnter  function(button), for the tooltip (hidden on leave)
+--   E:RefreshMinimapButton(key)    asks `shown` again, after a change
+---------------------------------------------------------------------------
+M.ownButtons = {} -- in the order they were added: { key, spec, button }
+local ownByKey = {}
+
+local function OwnShown(own)
+	if not (M.active and M.db) then return false end
+	local ok, shown = pcall(own.spec.shown)
+	if not ok then
+		geterrorhandler()(shown)
+		return false
+	end
+	return shown and true or false
+end
+
+-- layout: the module's own Apply, which places the button like the EldoUI
+-- button and gathers the bin itself afterwards. Any other call (the module
+-- that added the button asks again) changes only what changed: a button
+-- that shows already stays where it is, also where another addon that
+-- gathers minimap buttons keeps it, and the bin's show and hide hooks only
+-- run for a real change. One that shows anew goes on the map's edge and,
+-- while the bin gathers, into the bin at once.
+function M:ApplyOwnButton(own, layout)
+	-- The minimap overlay keeps the map's chrome hidden; closing it lays
+	-- everything out again.
+	if not layout and self.minimapOverlay and self:RefreshMinimapOverlay() then return end
+	local button = own.button
+	local shown, was = OwnShown(own), button:IsShown() and true or false
+	if shown ~= was then button:SetShown(shown) end
+	if not shown or not (layout or not was) then return end
+	self:PlaceOnEdge(button)
+	if not layout and not binned[button] and self.db.binMode ~= "off" then self:CollectButtons(true) end
+end
+
+function M:ApplyOwnButtons()
+	for _, own in ipairs(self.ownButtons) do self:ApplyOwnButton(own, true) end
+end
+
+function E:AddMinimapButton(key, spec)
+	local own = ownByKey[key]
+	if not own then
+		local button = Badge.Draw("EldoUI_" .. key .. "MinimapButton", spec.icon)
+		button:Hide()
+		button.ownKey, button.ownAngle, button.ownTitle = key, spec.angle, spec.title
+		button:SetScript("OnClick", function(frame, mouseButton)
+			if spec.onClick then spec.onClick(frame, mouseButton) end
+		end)
+		button:SetScript("OnEnter", function(frame)
+			if spec.onEnter then spec.onEnter(frame) end
+		end)
+		button:SetScript("OnLeave", function() GameTooltip_Hide() end)
+		own = { key = key, spec = spec, button = button }
+		ownByKey[key] = own
+		M.ownButtons[#M.ownButtons + 1] = own
+	end
+	M:ApplyOwnButton(own, false)
+	return own.button
+end
+
+function E:RefreshMinimapButton(key)
+	local own = ownByKey[key]
+	if own then M:ApplyOwnButton(own, false) end
 end
 
 function M:ApplyBin()
@@ -2587,8 +2710,9 @@ end
 function Bin.ManageValues()
 	local values = { [""] = L["Pick a button"] }
 	local exclude = M.db and M.db.binExclude or {}
-	for name in pairs(Bin.seen) do
-		values[name] = (exclude[name] and L["%s: kept on the map"] or L["%s: in the bin"]):format(Bin.Title(name))
+	for name, button in pairs(Bin.seen) do
+		local title = rawget(button, "ownTitle") or Bin.Title(name)
+		values[name] = (exclude[name] and L["%s: kept on the map"] or L["%s: in the bin"]):format(title)
 	end
 	return E:RawValues(values)
 end
@@ -3028,6 +3152,7 @@ do
 		for _, key in ipairs(chromeKeys) do
 			HideChrome(overlay, module[key])
 		end
+		for _, own in ipairs(module.ownButtons) do HideChrome(overlay, own.button) end
 		for _, key in ipairs(BUTTON_KEYS) do
 			for _, frame in ipairs(ButtonFrames(key)) do HideChrome(overlay, frame) end
 		end
@@ -3115,6 +3240,7 @@ function M:Apply()
 	self.layingOut = true
 	self:ApplyMap()
 	self:ApplyBadge()
+	self:ApplyOwnButtons()
 	self:ApplyButtons()
 	self:ApplyQueue()
 	if self.Layer then self.Layer.Apply() end
@@ -3164,6 +3290,7 @@ function M:OnDisable()
 	self:UnregisterEvent("ADDON_LOADED")
 	if self.Layer then self.Layer.Disable() end
 	if self.badge then self.badge:Hide() end
+	for _, own in ipairs(self.ownButtons) do own.button:Hide() end
 	E:RunOutOfCombat(function()
 		if M.active then return end
 		M:RestoreQueue()

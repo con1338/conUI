@@ -96,6 +96,10 @@ check_tests() {
 	lua5.1 tools/fishing/test_fishing.lua || bad+=("$name")
 	name="RestedXP on a client in another language: target names, guide chain, group names"; step "$name"
 	lua5.1 tools/integrations/test_rxp_locale.lua || bad+=("$name")
+	name="RestedXP's step list on a click: the minimap button and the key"; step "$name"
+	lua5.1 tools/integrations/test_rxp_steplist.lua || bad+=("$name")
+	name="RestedXP: sizes to fit EldoUI, the arrow and windows on layout spots"; step "$name"
+	lua5.1 tools/integrations/test_rxp_parts.lua || bad+=("$name")
 	name="Quality of Life: Wowhead links in the game's language"; step "$name"
 	lua5.1 tools/qol/test_wowhead.lua || bad+=("$name")
 	name="Quality of Life: XP after each title in the quest log"; step "$name"

@@ -41,6 +41,9 @@
 	<Binding name="ELDOUI_TALENTS" category="ADDONS">
 		EldoUI:ToggleTalentPlanner()
 	</Binding>
+	<Binding name="ELDOUI_RXP_STEPLIST" category="ADDONS">
+		EldoUI:ToggleRXPStepList()
+	</Binding>
 	<Binding name="ELDOUI_SHOW_HUD" runOnUp="true" category="ADDONS">
 		EldoUI:SetHUDHold(keystate == "down")
 	</Binding>

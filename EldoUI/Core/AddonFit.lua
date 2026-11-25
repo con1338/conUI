@@ -69,7 +69,13 @@
 --     alone, and the page says "not placed".
 --   * The player's own moves win: when the player drags the addon's frame,
 --     the slot's mover follows; without a mover the frame stays where they
---     put it until they pick a layout again.
+--     put it until they pick a layout again. A click that moves nothing is
+--     no drag. A frame the player placed before the fit ever did stays
+--     there until they choose the layout's spot for it (Fit:TakeOver, a
+--     button on the Other addons page).
+--   * A row that loses its spot (another addon takes it, or its `free`
+--     says no) gets its frame back where it was, as the whole adapter does
+--     when it is switched off.
 --   * Every frame read that can be secret (GetRect, GetPoint, GetScale,
 --     GetEffectiveScale) is checked first; a secret answer leaves the
 --     frame alone.
@@ -459,36 +465,53 @@ function Fit:PlaceRow(adapter, row, frame)
 	return true
 end
 
--- Gives a frame back its own scale and its own points (the fit is off for
--- it now). The status is cleared: the next pass says why it is not placed.
+-- Gives one row's frame back its own scale and its own points.
+function Fit:ReleaseRow(adapter, row)
+	local state = adapter.state
+	local base = state.base and state.base[row.index]
+	local points = state.points and state.points[row.index]
+	local frame = (base or points) and RowFrame(row)
+	if frame and row.guard and Call(row.guard, frame, "release") ~= true then frame = nil end
+	if frame and base and not row.noScale then
+		if row.scale then Call(row.scale, frame, 1) else frame:SetScale(base) end
+	end
+	if frame and row.guard and Call(row.guard, frame, "scale", base) ~= true then frame = nil end
+	if frame and points then
+		frame:ClearAllPoints()
+		if row.guard and Call(row.guard, frame, "clear") ~= true then frame = nil end
+		for _, p in ipairs(points) do
+			if not frame then break end
+			frame:SetPoint(p[1], p[2], p[3], p[4], p[5])
+			if row.guard and Call(row.guard, frame, "point", p) ~= true then frame = nil end
+		end
+	end
+	if frame then Call(row.afterRelease, frame) end
+	if state.base then state.base[row.index] = nil end
+	if state.points then state.points[row.index] = nil end
+	if state.fits then state.fits[row.index] = nil end
+	if state.held then state.held[row.index] = nil end
+end
+
+-- Gives every frame back its own scale and its own points (the fit is off
+-- for it now). The status is cleared: the next pass says why it is not placed.
 function Fit:Release(adapter)
 	local state = adapter.state
-	for _, row in ipairs(adapter.frames) do
-		local base = state.base and state.base[row.index]
-		local points = state.points and state.points[row.index]
-		local frame = (base or points) and RowFrame(row)
-		if frame and row.guard and Call(row.guard, frame, "release") ~= true then frame = nil end
-		if frame and base and not row.noScale then
-			if row.scale then Call(row.scale, frame, 1) else frame:SetScale(base) end
-		end
-		if frame and row.guard and Call(row.guard, frame, "scale", base) ~= true then frame = nil end
-		if frame and points then
-			frame:ClearAllPoints()
-			if row.guard and Call(row.guard, frame, "clear") ~= true then frame = nil end
-			for _, p in ipairs(points) do
-				if not frame then break end
-				frame:SetPoint(p[1], p[2], p[3], p[4], p[5])
-				if row.guard and Call(row.guard, frame, "point", p) ~= true then frame = nil end
-			end
-		end
-		if frame then Call(row.afterRelease, frame) end
-	end
+	for _, row in ipairs(adapter.frames) do self:ReleaseRow(adapter, row) end
 	state.base = nil
 	state.rowPlaced = nil
 	state.points = nil
 	state.fit = nil
 	state.fits = nil
+	state.held = nil
 	state.status, state.why = nil, nil
+end
+
+-- The player chose the layout's spot for frames they had placed
+-- themselves: from now on they count as placed by the fit before.
+function Fit:TakeOver(adapter)
+	for _, row in ipairs(adapter.frames) do NotePlaced(adapter, row) end
+	adapter.state.userPlaced = nil
+	self:Schedule(0)
 end
 
 -- Why an adapter is not placed right now, or nil when it may be.
@@ -554,6 +577,8 @@ function Fit:PlaceAdapter(adapter, onlyRow)
 		return
 	end
 	local placed, waiting, why = 0, 0, nil
+	state.held = state.held or {}
+	state.userPlaced = nil
 	for _, row in ipairs(adapter.frames) do
 		if not onlyRow or row == onlyRow then
 		if adapter.observe then
@@ -563,10 +588,15 @@ function Fit:PlaceAdapter(adapter, onlyRow)
 		local frame = RowFrame(row)
 		local free = row.free and Call(row.free)
 		local taken = self.placed[row.slot]
+		local lost = false
 		if not frame then
 			waiting = waiting + 1
 		elseif row.ready and not Call(row.ready, frame) then
 			waiting = waiting + 1
+		elseif state.moved and state.moved[row.index] then
+			-- The player dragged it, and no mover could follow: it stays
+			-- until a layout is picked again.
+			why = why or "moved"
 		elseif not self:PlacedBefore(adapter, row) and E.PlainCall(frame.IsUserPlaced, frame) == true then
 			-- The player placed this frame before the fit ever did: the game
 			-- saves its spot and sets it again at login, also without EldoUI,
@@ -574,23 +604,31 @@ function Fit:PlaceAdapter(adapter, onlyRow)
 			-- player dragged since counts as moved by the player: picking a
 			-- layout puts it back, though the drag set the same flag.
 			why = why or "userPlaced"
+			state.userPlaced = state.userPlaced or {}
+			state.userPlaced[row.index] = true
 		elseif free == false or type(free) == "string" then
 			why = why or (type(free) == "string" and free or "busy")
+			lost = true
 		elseif taken and taken ~= adapter.id then
 			why = why or "taken"
 			state.takenBy = taken
+			lost = true
 		else
 			self:Hook(adapter, row, frame)
 			local ok, reason = self:PlaceRow(adapter, row, frame)
 			if ok then
 				placed = placed + 1
 				if state.rowPlaced then state.rowPlaced[row.index] = true end
+				state.held[row.index] = true
 				self.placed[row.slot] = adapter.id
 				NotePlaced(adapter, row)
 			else
 				why = why or reason
 			end
 		end
+		-- A frame the fit held on a spot that is not its own any more goes
+		-- back where it was.
+		if lost and state.held[row.index] then self:ReleaseRow(adapter, row) end
 		end
 	end
 	if onlyRow and state.rowPlaced then
@@ -632,21 +670,30 @@ end
 -- the next layout pick or Reset puts both back. Without a mover the frame
 -- stays where the player put it until a layout is picked again.
 function Fit:Pull(adapter, row, frame)
-	if self.pulling or adapter.state.status ~= "placed" or InCombatLockdown() then return end
+	local state = adapter.state
+	-- Only a frame the fit holds on its spot: a drag of one it left alone
+	-- (another addon's spot, the player's own) moves no mover.
+	if self.pulling or InCombatLockdown() or not (state.held and state.held[row.index]) then return end
 	local slot = self.slots[row.slot]
-	local mover = slot and E.movers[slot.mover]
+	local spot = slot and (self.frames[row.slot] or E.movers[slot.mover])
 	local left, bottom, width, height = self.RectOf(frame)
-	if not left then return end
+	if not (left and spot) then return end
+	-- Where the frame's point is now, and where the spot puts it.
+	local sleft, sbottom, swidth, sheight = self.RectOf(spot)
+	if not sleft then return end
+	local point, _, wantX, wantY = Fit.Spot(row, slot, frame, sleft, sbottom, swidth, sheight)
+	local x, y = PointOf(point, left, bottom, width, height)
+	-- A click: the addon ends every press with StopMovingOrSizing.
+	if math.abs(x - wantX) < 1 and math.abs(y - wantY) < 1 then return end
+	local mover = E.movers[slot.mover]
 	if row.noPull or not mover or (E.IsMoverLocked and E:IsMoverLocked(slot.mover)) then
-		adapter.moved = true
-		adapter.state.status = "moved"
+		state.moved = state.moved or {}
+		state.moved[row.index] = true
+		state.held[row.index] = nil
 		return
 	end
-	-- Where the frame's point is now, and where the slot's point would be.
-	local mleft, mbottom, mwidth, mheight = self.RectOf(mover)
+	local mleft, mbottom = self.RectOf(mover)
 	if not mleft then return end
-	local point, _, wantX, wantY = Fit.Spot(row, slot, frame, mleft, mbottom, mwidth, mheight)
-	local x, y = PointOf(point, left, bottom, width, height)
 	self.pulling = true
 	E:SaveMoverFromRect(slot.mover, mleft + x - wantX, mbottom + y - wantY)
 	self.pulling = false
@@ -753,7 +800,10 @@ end, owner)
 -- A layout picked again puts back what the player moved by hand.
 E:RegisterLayoutCallback(function(_, _, silent)
 	if silent then return end
-	for _, adapter in pairs(Fit.adapters) do adapter.moved = nil end
+	for _, adapter in pairs(Fit.adapters) do
+		adapter.moved = nil
+		adapter.state.moved = nil
+	end
 	Fit:Schedule(0.2)
 end)
 E:RegisterRoleCallback(function() Fit:Schedule(0.2) end)
@@ -892,9 +942,10 @@ end
 
 function Fit:SlotTitles(adapter)
 	local titles, seen = {}, {}
+	local held = adapter.state.held
 	for _, row in ipairs(adapter.frames) do
 		local slot = self.slots[row.slot]
-		if slot and not seen[slot.key] then
+		if slot and not seen[slot.key] and not (held and next(held) and not held[row.index]) then
 			seen[slot.key] = true
 			titles[#titles + 1] = L[slot.title]
 		end
