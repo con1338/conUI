@@ -36,6 +36,8 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 #### New
 
 - RestedXP's list of every guide step folds away and back with one click: a RestedXP step list button in the minimap's addon button bin, or a key (Key Bindings > AddOns > EldoUI). The current step card and the arrow stay. EldoUI uses RestedXP's own Show step list switch and gives the list back at the height you had, where RestedXP would open it at its default height. Turn the button off under Integrations > RestedXP.
+- Integrations > RestedXP has Sizes to fit EldoUI: RestedXP's guide text and arrow text take the size of EldoUI's own text (Large text counts), and its arrow, active items and targets grow by as much. A window scale you set goes back to 100 %, since the larger text does the job. EldoUI asks first, names the RestedXP profile, and Undo puts every value back. The guide text changes after a reload.
+- Layouts place RestedXP's arrow on the layout's waypoint arrow spot, and its active items and targets beside the guide, where move mode moves them too. Dragging them in RestedXP moves their spot. The item and target windows follow the guide only while EldoUI places it; switch all three off on the Other addons page (Place RestedXP arrow and windows).
 
 ## [0.7.3100] - 2026-11-21
 

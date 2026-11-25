@@ -43,6 +43,10 @@ Some addons are made to work with conUI and never make it step back: conUI place
 
 With RestedXP, the **RestedXP step list** button in the minimap's addon button bin folds RestedXP's list of every guide step away and back; the current step card and the arrow stay. There is also a key for it (Key Bindings > AddOns > conUI). conUI uses RestedXP's own **Show step list** switch and gives the list back at the height you had. Turn the button off with **Step list button on the minimap** under Integrations > RestedXP.
 
+**Sizes to fit conUI** under Integrations > RestedXP sets RestedXP's guide text and arrow text to the size of conUI's own text (General > Accessibility > Large text counts) and lets its arrow, active items and targets grow by as much; a window scale you set goes back to 100 %. You see every value first, and **Undo the size change** puts them back. The guide text changes after a reload.
+
+The layout also places RestedXP's arrow on its waypoint arrow spot and RestedXP's active items and targets beside the guide (movers **RestedXP active items** and **RestedXP targets** in `/eui move`). The two windows follow the guide only while conUI places it. Turn all three off with **Place RestedXP arrow and windows** on the Other addons page.
+
 ## For addon authors
 
 Plugins declare which addons do the same job as their modules in the same way. See [Other addons that do the same job](../PLUGINS.md#other-addons-that-do-the-same-job) in the plugin guide.
