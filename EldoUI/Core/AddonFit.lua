@@ -38,6 +38,11 @@
 --             noScale = true,                   -- optional: never scaled (edge bars)
 --             noPull = true,                    -- optional: a drag of it never moves the
 --                                               -- slot's mover (a small part of a bigger spot)
+--             ownSpot = true,                   -- optional: the addon saves and restores the
+--                                               -- frame's spot itself and lets the player drag
+--                                               -- it with StartMoving, which marks every
+--                                               -- dragged frame user placed; that mark then
+--                                               -- says nothing, so the fit places it anyway
 --             after = { "UpdatePosition" },     -- optional: the frame's own methods that
 --                                               -- put it back on the addon's spot; the
 --                                               -- fit places it again after each
@@ -567,7 +572,7 @@ function Fit:PlaceAdapter(adapter, onlyRow)
 			waiting = waiting + 1
 		elseif row.ready and not Call(row.ready, frame) then
 			waiting = waiting + 1
-		elseif not self:PlacedBefore(adapter, row) and E.PlainCall(frame.IsUserPlaced, frame) == true then
+		elseif not row.ownSpot and not self:PlacedBefore(adapter, row) and E.PlainCall(frame.IsUserPlaced, frame) == true then
 			-- The player placed this frame before the fit ever did: the game
 			-- saves its spot and sets it again at login, also without EldoUI,
 			-- so the fit leaves it there. A frame the fit placed and the
