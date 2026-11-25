@@ -202,6 +202,16 @@ function E:AddonFitOptions(options)
 			table.insert(options, { type = "toggle", key = FitKey(adapter.id), label = L["Place %s"]:format(adapter.title),
 				desc = L["Off: %s stays where its own settings put it."]:format(adapter.title),
 				disabled = function() if not Fit:LayerOn() then return L["The layout spots for other addons are off."] end end })
+			-- A frame the player placed before the fit ever did stays there
+			-- until they choose the layout's spot for it.
+			table.insert(options, { type = "execute", label = L["Put it on the layout spot"], width = 220,
+				desc = L["You placed %s yourself, so the layout leaves it where you put it. This puts it on the layout's spot instead, and later layouts move it too. Turning it off again gives your spot back until you log out."]:format(adapter.title),
+				hidden = function() return not (adapter.state.userPlaced and next(adapter.state.userPlaced)) end,
+				disabled = function() if not (Fit:LayerOn() and Fit:AddonOn(adapter.id)) then return L["The layout spots for other addons are off."] end end,
+				func = function()
+					Fit:TakeOver(adapter)
+					if E.RefreshConfig then E:RefreshConfig() end
+				end })
 			if E.modules.Integrations then ChangeRows(options, Fit, adapter) end
 		end
 	end
