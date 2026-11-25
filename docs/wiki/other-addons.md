@@ -45,7 +45,7 @@ With RestedXP, the **RestedXP step list** button in the minimap's addon button b
 
 **Sizes to fit conUI** under Integrations > RestedXP sets RestedXP's guide text and arrow text to the size of conUI's own text (General > Accessibility > Large text counts) and lets its arrow, active items and targets grow by as much; a window scale you set goes back to 100 %. You see every value first, and **Undo the size change** puts them back. The guide text changes after a reload.
 
-The layout also places RestedXP's arrow on its waypoint arrow spot and RestedXP's active items and targets beside the guide (movers **RestedXP active items** and **RestedXP targets** in `/eui move`). The two windows follow the guide only while conUI places it. Turn all three off with **Place RestedXP arrow and windows** on the Other addons page.
+While conUI places RestedXP's guide, the layout also places RestedXP's arrow right under its waypoint arrow spot (conUI's own arrow keeps the spot) and RestedXP's active items and targets beside the guide (movers **RestedXP active items** and **RestedXP targets** in `/eui move`). With the guide kept in RestedXP they stay where RestedXP puts them. A window you placed yourself before stays there until you pick **Put it on the layout spot** on the Other addons page; **Place RestedXP arrow and windows** there turns all three off.
 
 ## For addon authors
 

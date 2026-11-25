@@ -33,8 +33,8 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
 | C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt (seit 0.7.3000 von EldoUI) | `95002b5`, `c323ceb` |
 | C9 | RestedXP: Schrittliste per Klick ein- und ausklappen, Knopf im Knopfsammler der Minikarte (Wunsch des Nutzers) | klein–mittel | umgesetzt | `7f2a0a8`, `c944dc7`, `8b4d37d` |
-| C10 | RestedXP: Schrift, Pfeil und Fenster mit einem Klick passend zu EldoUIs Textgröße (Wunsch des Nutzers) | klein | umgesetzt | `9df8a1d` |
-| C11 | RestedXP: Pfeil auf den Pfeil-Platz des Layouts, aktive Gegenstände und Ziele neben den Guide (Wunsch des Nutzers) | mittel | umgesetzt | `4a50a5d`, `9df8a1d` |
+| C10 | RestedXP: Schrift, Pfeil und Fenster mit einem Klick passend zu EldoUIs Textgröße (Wunsch des Nutzers) | klein | umgesetzt | `9df8a1d`, `fe372f7` |
+| C11 | RestedXP: Pfeil auf den Pfeil-Platz des Layouts, aktive Gegenstände und Ziele neben den Guide (Wunsch des Nutzers) | mittel | umgesetzt | `4a50a5d`, `9df8a1d`, `d25ae5e`, `fe372f7` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb`, `775b23d`, `f9c0fc9` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -1069,60 +1069,95 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     `rxpSize` im Modell der Änderungen an fremden Einstellungen (wie die Schrittkarte: vorher fragen, RestedXP-Profil
     nennen, Rückgängig). Sie setzt in RestedXPs Profil `guideFontSize` und `arrowText` auf EldoUIs Textgröße
     (gerundet, in RestedXPs Grenzen 9–18 und 5–20). `arrowScale`, `activeItemsScale` und `activeTargetScale` wachsen im
-    selben Maß (13/9, also 145 %, in 5-%-Schritten und RestedXPs Grenzen). Eine `windowScale`, die der Spieler gesetzt
-    hat, geht auf 100 % zurück, sonst würde das Fenster doppelt wachsen. Danach ruft EldoUI RestedXPs
-    `settings:LoadScales()`, setzt die Pfeilschrift wie RestedXPs eigene Option und bietet ein Neuladen an, denn den
-    Guide-Text liest RestedXP nur beim Aufbau. Neue Zeilen im RestedXP-Reiter unter „RestedXPs eigene Einstellungen“:
-    Status, „Größen passend zu EldoUI“ und „Größenänderung rückgängig machen“. Geprüft an RestedXP v4.11.36
-    (`SettingsPanel.lua`: Optionen, Grenzen, `LoadScales`).
-  - **Test:** `tools/integrations/test_rxp_parts.lua` (zusammen mit C11, 57 Prüfungen): Plan mit allen Werten und
-    dem Profilnamen, Prozentangaben in der Frage, Fensterskalierung nur, wenn gesetzt, „Große Schrift“ 140 % (18 und
-    200 %), Anwenden mit `LoadScales`, Pfeilschrift und Neuladen-Angebot, Rückgängig mit RestedXPs Standard zurück und
-    einem seitdem selbst geänderten Wert, der bleibt und genannt wird; Optionszeilen; ohne RestedXP-Einstellungen
-    nichts.
+    selben Maß (13/9, also 145 %, in 5-%-Schritten und RestedXPs Grenzen). Eine andere Fensterskalierung als 100 % geht auf
+    100 % zurück, sonst würde das Fenster doppelt wachsen. Danach ruft EldoUI RestedXPs `settings:LoadScales()`, setzt
+    die Pfeilschrift wie RestedXPs eigene Option und bietet ein Neuladen an, aber nur, wenn die Guide-Schrift jetzt
+    anders ist als die, mit der RestedXP sein Fenster gebaut hat. Das Modell der Änderungen kennt dafür neu
+    `Default(target, field)`: Ein AceDB-Profil speichert keinen Wert, der dem Standard gleicht, und wirft ihn beim
+    Ausloggen weg; Plan und Rückgängig vergleichen deshalb, was RestedXP liest (auch Standards aus einem Profil, das
+    RestedXP für neue Charaktere kopiert), nicht, was gespeichert ist. Die Frage zeigt Schriftgrößen als Zahl und
+    Skalierungen in Prozent. Neue Zeilen im RestedXP-Reiter unter „RestedXPs eigene Einstellungen“: Status, „Größen
+    passend zu EldoUI“ und „Größenänderung rückgängig machen“. Geprüft an RestedXP v4.11.36 (`SettingsPanel.lua`:
+    Optionen, Grenzen, `LoadScales`).
+  - **Test:** `tools/integrations/test_rxp_parts.lua` (zusammen mit C11, 82 Prüfungen): Plan mit allen Werten ab
+    RestedXPs Standard und dem Profilnamen; Prozent in der Frage, auch 100 % und 200 %; Fensterskalierung nur, wenn
+    nicht 100 %, auch aus RestedXPs Profilstandards; „Große Schrift“ 140 %; Anwenden mit `LoadScales`, Pfeilschrift
+    und Neuladen-Angebot; Ausloggen wie AceDB (100 % weg), danach nichts neu anzubieten und Rückgängig gibt 130 %
+    zurück; ein seitdem selbst geänderter Wert bleibt und wird genannt; Neuladen nur, wenn sich die Guide-Schrift
+    gegenüber dem Aufbau ändert; Optionszeilen; ohne RestedXP-Einstellungen nichts.
   - **Im Spiel prüfen:** `/eui` → Integrationen → RestedXP → „Größen passend zu EldoUI“. Erwartung: Die Frage nennt
-    Schriftgröße des Guides 9 → 13, Pfeilschrift 13, Skalierungen 145 % und das Profil. Anwenden, neu laden: Guide-Text
-    und Pfeil sind lesbar groß. Danach „Größenänderung rückgängig machen“: alles wie vorher.
+    Schriftgröße des Guides 9 → 13, Pfeilschrift 9 → 13, Skalierungen 100 % → 145 % und das Profil. Anwenden, neu laden:
+    Guide-Text und Pfeil sind lesbar groß. Danach „Größenänderung rückgängig machen“: alles wie vorher, auch eine
+    eigene Fensterskalierung.
 - **C11 RestedXP: Pfeil und Fenster im Layout:** EldoUI platzierte nur das Guide-Fenster (`EldoUI_RXP`). RestedXPs
-  Pfeil (`RXPG_ARROW`), das Fenster für aktive Gegenstände (`RXPItemFrame`, nur im klassischen Fenster, mit sicheren
-  Knöpfen) und das Ziel-Fenster (`RXPTargetFrame`) standen, wo RestedXP sie hinsetzt. RestedXP speichert ihre Lage in
-  seinem Profil (`framePositions`, beim Ausloggen und nach dem Ziehen aus den Punkten gelesen, beim Einloggen und
-  Profilwechsel mit `settings:LoadFramePositions` zurückgesetzt).
+  Pfeil (`RXPG_ARROW`), das Fenster für aktive Gegenstände (`RXPItemFrame`) und das Ziel-Fenster (`RXPTargetFrame`,
+  beide mit sicheren Knöpfen, beide mit jedem der zwei Guide-Fenster) standen, wo RestedXP sie hinsetzt. RestedXP
+  speichert ihre Lage in seinem Profil (`framePositions`, beim Ausloggen und nach dem Ziehen aus den Punkten gelesen,
+  beim Einloggen und Profilwechsel mit `settings:LoadFramePositions` zurückgesetzt).
   - **Umgesetzt:**
-    - `Data/AddonFit.lua`: neuer Adapter `guideParts` („RestedXP-Pfeil und -Fenster“) im Addon-Fit. Der Pfeil geht auf
-      den Platz `arrow` (EldoUIs Wegpunktpfeil-Platz, wie TomTom; TomTom ist früher registriert und behält ihn, wenn
-      der Spieler es gewählt hat), die Oberkante auf die des Platzes. Die beiden Fenster gehen auf zwei neue Plätze
-      `rxpItems` und `rxpTargets`, ohne Skalierung, und nur, solange EldoUI den Guide platziert (sonst „bleibt, wo
-      RestedXP es hinsetzt, wie sein Guide-Fenster“). Nach RestedXPs `LoadFramePositions` und `ResetArrowPosition`
-      platziert der Fit neu.
-    - `Core/AddonFit.lua`: neuer Zeilenschalter `ownSpot`. RestedXP lässt seine Fenster mit `StartMoving` ziehen, das
-      jedes gezogene Fenster als vom Spieler platziert markiert. Ohne den Schalter hätte der Fit ein einmal gezogenes
-      RestedXP-Fenster nie platziert; RestedXP setzt den Platz ohnehin selbst zurück, die Markierung sagt also nichts.
+    - `Data/AddonFit.lua`: neuer Adapter `guideParts` („RestedXP-Pfeil und -Fenster“) im Addon-Fit, nur solange
+      EldoUI RestedXPs Guide platziert (Integration an, RestedXP als Guide, „Mit dem Layout platzieren“). Sonst lässt
+      EldoUI RestedXP in Ruhe, wie der Reiter sagt. Der Pfeil geht mit seiner Oberkante knapp unter den Platz `arrow`:
+      EldoUIs eigener Pfeil (Wegpunkt per /way, Eldostars Ziel, der Leichenpfeil als Geist) behält den Platz, so
+      liegen die beiden nie übereinander. TomTom ist früher registriert und behält den Platz, wenn der Spieler es für
+      Wegpunkte gewählt hat. Die beiden Fenster gehen auf zwei neue Plätze `rxpItems` und `rxpTargets`, ohne
+      Skalierung, nicht, solange der Guide für die Einrichtung unter dem Spielerrahmen wartet. Das Ziel-Fenster erst,
+      wenn es eine Größe hat (vor dem ersten Ziel keine). Nach RestedXPs `LoadFramePositions` und
+      `ResetArrowPosition` platziert der Fit neu.
     - `Modules/Integrations.lua`: zwei neue Mover „RestedXP: aktive Gegenstände“ und „RestedXP: Ziele“. Sie hängen am
-      Mover des Guides (oben rechts daneben, Ziele darunter), deshalb setzt jedes Layout sie neben seinen Guide-Platz.
-      Sie erscheinen mit dem Guide-Mover. Nach jedem Platzieren und Ziehen des Guides platziert der Fit neu.
-    - Wie immer im Fit: nur außerhalb des Kampfs und nie im Bosskampf, Ziehen in RestedXP verschiebt den Mover des
-      Platzes, Schalter „RestedXP-Pfeil und -Fenster platzieren“ auf der Seite „Andere Addons“, beim ersten Platzieren
-      ein Hinweis mit Rückgängig.
+      Mover des Guides (oben rechts daneben, Ziele darunter mit Platz für den Titel des Ziel-Fensters) und haben die
+      Größe, die die Fenster in RestedXPs Skalierung zeigen. Jedes Layout setzt sie deshalb neben seinen Guide-Platz.
+      Nach jedem Platzieren und Ziehen des Guides und nach Größen- und Skalierungsänderungen der Fenster platziert
+      der Fit neu.
+    - `Core/AddonFit.lua`, für alle Adapter: Eine Zeile, die ihren Platz verliert (ein anderes Addon bekommt ihn,
+      oder `free` sagt nein), gibt ihr Fenster zurück, wie der ganze Adapter beim Ausschalten (`Fit:ReleaseRow`).
+      Ziehen verschiebt den Mover nur noch bei echter Bewegung, denn RestedXP beendet jeden Klick mit
+      `StopMovingOrSizing`, und nur für Fenster, die der Fit gerade hält. „Vom Spieler verschoben“ gilt pro Zeile.
+      Die Seite „Andere Addons“ nennt nur die Plätze, die ein Addon wirklich hat. Ein Fenster, das der Spieler vor
+      dem Fit platziert hat, bleibt dort; neu ist dafür „Auf den Layout-Platz setzen“ auf der Seite
+      (`Fit:TakeOver`).
+    - Wie immer im Fit: nur außerhalb des Kampfs und nie im Bosskampf, Schalter „RestedXP-Pfeil und -Fenster
+      platzieren“ auf der Seite „Andere Addons“, beim ersten Platzieren ein Hinweis mit Rückgängig.
     - Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
-  - **Test:** `tools/integrations/test_rxp_parts.lua`: Adapter erkannt und benannt; Pfeil, Gegenstände und Ziele
-    platziert, obwohl als „vom Spieler platziert“ markiert; Mover neben dem Guide; nach `LoadFramePositions` und
-    Pfeil-Reset neu platziert; Ziehen verschiebt den richtigen Mover; im Kampf nichts, danach schon; Guide nicht von
-    EldoUI platziert: Fenster bleiben, der Pfeil wird weiter platziert, Grund auf der Seite; Schalter aus gibt RestedXPs Punkte zurück.
-    Gegenproben: ohne `ownSpot` 14 Fehlschläge, ohne die Guide-Bedingung, ohne den Neu-Platzieren-Haken, ohne
-    Fensterskalierung, ohne Pfeilschrift und mit Movern ohne Bezug zum Guide je mindestens einer.
-  - **Offen:** Die Seite „Andere Addons“ nennt beim Zustand „Vom Layout platziert“ alle drei Plätze, auch wenn nur
-    der Pfeil platziert ist (Guide nicht von EldoUI platziert); der Grund steht dann in `/eui diag`. Zeigen EldoUIs
-    eigener Wegpunktpfeil und RestedXPs Pfeil gleichzeitig etwas an, liegen sie auf demselben Platz übereinander.
-    Beides ist im Spiel noch nicht gesehen.
+  - **Test:** `tools/integrations/test_rxp_parts.lua`: Adapter erkannt und benannt; Pfeil knapp unter dem Pfeil-Platz,
+    Gegenstände und Ziele auf ihren Plätzen; Seite nennt die Plätze; Mover neben dem Guide, Mover der Gegenstände so
+    groß wie das Fenster bei 145 %; nach `LoadFramePositions` neu platziert; Klick ohne Bewegung verschiebt nichts,
+    Ziehen den richtigen Mover; gesperrter Platz: nur dieses Fenster bleibt; im Kampf nichts, danach schon; ein
+    anderes Addon zuerst auf dem Pfeil-Platz: RestedXPs Pfeil zurück, Seite nennt den Platz nicht mehr, Ziehen
+    verschiebt nichts, Platz frei: wieder da; Guide nicht von EldoUI platziert und Integration aus: alle drei zurück,
+    Grund auf der Seite; Guide wartet auf die Einrichtung: nur der Pfeil; ein selbst platzierter Pfeil bleibt, bis
+    „Auf den Layout-Platz setzen“. Gegenproben: Gegen den Stand vor der Gegenprüfung 33 Fehlschläge; elf einzeln
+    wieder eingebaute Fehler (u. a. kein Zurückgeben, Ziehen bei jedem Klick, Pfeil über EldoUIs Pfeil, feste
+    Mover-Größe, Neuladen jedes Mal) je mindestens einer.
   - **Im Spiel prüfen:**
     1. Neue Version kopieren, `/reload`. Erwartung: einmal der Hinweis, dass das Layout „RestedXP-Pfeil und -Fenster“
-       platziert hat. Der RestedXP-Pfeil steht auf dem Platz des Wegpunktpfeils, aktive Gegenstände rechts oben neben
-       dem Guide, Ziele darunter.
-    2. `/eui move`: Mover „RestedXP: aktive Gegenstände“ und „RestedXP: Ziele“ neben dem Guide, verschiebbar.
-    3. Den Pfeil in RestedXP ziehen, dann `/reload`: Er bleibt am neuen Platz.
+       platziert hat. RestedXPs Pfeil steht knapp unter dem Platz des Wegpunktpfeils, aktive Gegenstände rechts oben
+       neben dem Guide, Ziele darunter.
+    2. War eines davon in RestedXP schon verschoben: Es bleibt; `/eui addons page` → „Auf den Layout-Platz
+       setzen“.
+    3. `/eui move`: Mover „RestedXP: aktive Gegenstände“ und „RestedXP: Ziele“ neben dem Guide, verschiebbar. Ein
+       Klick auf RestedXPs Pfeil verschiebt nichts; Ziehen und `/reload`: Er bleibt am neuen Platz.
     4. Ein Quest mit Gegenstand im Kampf annehmen: Das Fenster rückt erst nach dem Kampf an seinen Platz. Kein
        `ADDON_ACTION_BLOCKED` in `/eui errors`.
+  - **Gegenprüfung von C10 und C11 (25.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las die Commits
+    `4a50a5d`, `9df8a1d` und `f3b1b83` und RestedXPs Code (v4.11.36 und aktueller Stand), ohne diese Einträge vorher zu
+    kennen, und ließ alle Prüfungen laufen (grün). Keine Lua-Fehler, kein Taint; Werte und Grenzen, LoadScales und
+    Pfeilschrift, das Ziel-Profil, die Reihenfolge gegenüber TomTom und RestedXPs Login sowie die Mover-Listen sind in
+    Ordnung. Seine Befunde und was daraus wurde (Korrekturen in `d25ae5e` und `fe372f7`, jeder Fall im Test):
+
+    | # | Befund | Schwere | Ergebnis |
+    |---|---|---|---|
+    | B1 | Rückgängig nach einem Neuladen: AceDB wirft das geschriebene 100 % weg, Rückgängig hielt es für vom Spieler geändert und gab 130 % nicht zurück | mittel–hoch | behoben: `Default` im Änderungsmodell |
+    | B2 | Zeilen, die ihren Platz verlieren, wurden nie zurückgegeben (Fenster neben dem leeren Guide-Platz, RestedXPs Pfeil unter TomTom); die Seite nannte alle drei Plätze | mittel | behoben: `ReleaseRow`, Seite nennt nur gehaltene Plätze |
+    | B3 | Der Pfeil wurde auch mit Integration aus oder Eldostar als Guide platziert und lag auf EldoUIs eigenem Pfeil | mittel | behoben: nur mit platziertem Guide, knapp unter dem Platz |
+    | B4 | `ownSpot` übergeht, was der Spieler selbst platziert hat, und das lässt sich nach dem Ausloggen nicht mehr zurückholen | mittel | geändert: `ownSpot` entfernt, stattdessen „Auf den Layout-Platz setzen“ |
+    | B5 | Das Ziel-Fenster überdeckt das Item-Fenster (feste Mover-Größe, Titel ragt 8 Einheiten hoch) | mittel | behoben: Mover so groß wie das Fenster, Abstand 24 |
+    | B6 | Ein bloßer Klick wirkte wie Ziehen (Kette zum Guide gerissen, ohne Mover alles „verschoben“, Klick auf RestedXPs Pfeil verschob TomToms Mover) | klein–mittel | behoben: nur bei Bewegung, nur gehaltene Zeilen, „verschoben“ pro Zeile |
+    | B7 | Ganze Skalierungen als nackte Zahl („to 1“, „to 2“) | klein | behoben |
+    | B8 | Fenster neben dem leeren Guide-Platz, solange der Guide auf die Einrichtung wartet | klein | behoben |
+    | B9 | Neuladen auch ohne neue Guide-Schrift; Kommentar „kein RXPItemFrame mit dem neuen Fenster“ falsch; Kopf veraltet; Standards aus RestedXPs Profilkopie; Ziel-Fenster ohne Größe als „geheim“ gemeldet; Status nannte den Ordner | klein | behoben; der Haken auf „Pfeil zurücksetzen“ bleibt (der Layout-Platz ist der Platz) |
+    | B10 | Deutsch: „aktiven Ziele“, „eine andere Fensterskalierung als 100 %“, „stellt die früheren Werte wieder her“ | klein | korrigiert |
+    | B11 | Testlücken zu B1 bis B8 | klein | ergänzt (82 Prüfungen) |
 
 ## D – Infrastruktur für den Fork
 
