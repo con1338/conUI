@@ -1,6 +1,8 @@
 -- EldoUI Integrations: layouts place the windows of other popular addons.
 --
--- Details! (meter windows 1 and 2), RestedXP guides (RXPFrame), BigWigs
+-- Details! (meter windows 1 and 2), RestedXP guides (RXPFrame; its arrow,
+-- active items and targets go through the addon fit, Data/AddonFit.lua,
+-- the last two on movers of this module beside the guide), BigWigs
 -- (bars, emphasized bars, messages, countdown) and Questie (its quest tracker) each get
 -- a "proxy mover": an invisible EldoUI frame with a mover, so layout presets,
 -- move mode and the Positions page place them like any EldoUI frame. The
@@ -16,8 +18,8 @@
 --   * Details and Questie windows hold secure buttons, so every move runs
 --     through E:RunOutOfCombat (Queue below).
 --   * Nothing here reads combat data; it only moves and frames windows.
---   * A change to another addon's own settings (RestedXP's step card,
---     Questie's grow corner, Guidelime's window spot) happens only when the
+--   * A change to another addon's own settings (RestedXP's step card and
+--     sizes, Questie's grow corner, Guidelime's window spot) happens only when the
 --     player applies it, keeps every value it writes as it was before, and
 --     has an Undo (section "Changes to a companion's own settings").
 --   * Another addon's first-run window (a welcome window, a first choice)
@@ -54,10 +56,12 @@ local M = E:NewModule("Integrations", {
 	frames = {
 		"EldoUI_Details1", "EldoUI_Details2", "EldoUI_BigWigsBars", "EldoUI_BigWigsEmphasize",
 		"EldoUI_BigWigsMessages", "EldoUI_BigWigsCountdown", "EldoUI_RXP", "EldoUI_Questie",
+		"EldoUI_RXPItems", "EldoUI_RXPTargets",
 	},
 	movers = {
 		"EldoUI_Details1", "EldoUI_Details2", "EldoUI_BigWigsBars", "EldoUI_BigWigsEmphasize",
 		"EldoUI_BigWigsMessages", "EldoUI_BigWigsCountdown", "EldoUI_RXP", "EldoUI_Questie",
+		"EldoUI_RXPItems", "EldoUI_RXPTargets",
 	},
 	blizzard = {},
 	savedKeys = { "profile.modules.Integrations", "EldoUIDB.companionChanges" },
@@ -1084,6 +1088,23 @@ function M:FollowStepCard()
 	rawset(card, "anchor", "BOTTOM")
 end
 
+-- RestedXP's active items and targets have spots of their own right of
+-- the guide (Data/AddonFit.lua places them there): their movers hang on
+-- the guide's, so every layout puts them beside its guide spot, and they
+-- show while the guide's mover does.
+local RXP_PARTS = {
+	{ name = "EldoUI_RXPItems", title = Key("RestedXP active items"), width = 120, height = 40,
+		point = { "TOPLEFT", "EldoUI_RXPMover", "TOPRIGHT", 8, 0 } },
+	{ name = "EldoUI_RXPTargets", title = Key("RestedXP targets"), width = 180, height = 40,
+		point = { "TOPLEFT", "EldoUI_RXPItemsMover", "BOTTOMLEFT", 0, -8 } },
+}
+
+-- The guide's spot or size changed: its windows beside it are placed again.
+local function PlaceRXPParts()
+	local fit = E.addonFit
+	if fit and fit.Schedule then fit:Schedule(0) end
+end
+
 function M:PlaceRXP()
 	if not self:RXPWanted() then
 		self:FollowStepCard()
@@ -1137,6 +1158,7 @@ function M:PlaceRXP()
 		M.rxpAnchorWrite = nil
 		if not complete then M.rxpReleaseBlocked = true end
 		if not ok then error(err) end
+		PlaceRXPParts()
 	end)
 end
 
@@ -1150,6 +1172,7 @@ function M:PullRXP()
 	SetProxySize("EldoUI_RXP", width, height)
 	E:SaveMoverFromRect("EldoUI_RXP", left, bottom)
 	self.pulling = false
+	PlaceRXPParts()
 	-- A drag into the top half turns the step card under the guide.
 	if self.db.rxp.cardDown then
 		local _, relative, relativePoint = (rawget(frame, "CurrentStepFrame") or frame):GetPoint(1)
@@ -1216,11 +1239,17 @@ function M:SetupRXP()
 	self:ReleaseRXPPlacement()
 	if not self:RXPWanted() then
 		self:HideProxy("EldoUI_RXP")
+		for _, part in ipairs(RXP_PARTS) do self:HideProxy(part.name) end
+		PlaceRXPParts()
 		return
 	end
 	self:Proxy("EldoUI_RXP", L["RestedXP Guide"], 300, 400,
 		{ "TOPRIGHT", "UIParent", "TOPRIGHT", -400, -358 },
 		{ onMoved = function() M:PlaceRXP() end })
+	for _, part in ipairs(RXP_PARTS) do
+		self:Proxy(part.name, L[part.title], part.width, part.height, part.point, { onMoved = PlaceRXPParts })
+	end
+	PlaceRXPParts()
 	self:HookRXP()
 	-- The setup was finished or skipped: the guide leaves the spot it
 	-- took under the game's player frame for the layout's spot.
@@ -1357,6 +1386,102 @@ E:RegisterAddonSetup("RestedXP", {
 		return false, L["EldoUI has nothing to undo here."]
 	end,
 })
+
+---------------------------------------------------------------------------
+-- RestedXP's sizes to fit EldoUI's text
+---------------------------------------------------------------------------
+-- RestedXP draws its guide text and the arrow's text at 9 by default, in
+-- UI units. EldoUI draws its 1440-unit canvas on every screen (on 4K one
+-- unit is 1.5 pixels), so RestedXP's text is far smaller than EldoUI's
+-- own (13, times General > Accessibility > Large text). The change "Sizes
+-- to fit EldoUI" sets RestedXP's own options to EldoUI's text size: Guide
+-- Font Size (9 to 18; RestedXP reads it when it builds the window, so a
+-- reload) and Arrow Text Size (5 to 20); the arrow, the active items and
+-- the targets grow by as much as the text (Arrow Scale 0.2 to 2, Active
+-- Item Scale and Active Target Scale 0.8 to 3). A Window Scale other than
+-- 100 % goes back to 100 %, since the larger text does the job: the window
+-- would grow twice. Same model as the step card above: asked first, the
+-- RestedXP profile named, Undo. Checked against RestedXP v4.11.36
+-- (SettingsPanel.lua: the option ranges, settings:LoadScales, the arrow's
+-- text font set as its own option does).
+local RXP_FONT_DEFAULT = 9 -- RestedXP's default for both texts
+
+local function Within(value, low, high) return math.max(low, math.min(high, value)) end
+local function Step(value) return math.floor(value * 20 + 0.5) / 20 end -- RestedXP's 5 % steps
+
+-- EldoUI's body text size in UI units.
+function M:RXPTextSize()
+	local body = E.tokens and E.tokens.size and E.tokens.size.body or 13
+	local scale = E.TextScale and E:TextScale() or 1
+	return body * scale
+end
+
+function M:RXPSizesWanted()
+	local text = self:RXPTextSize()
+	local font = Within(Round(text), 9, 18)
+	local grow = font / RXP_FONT_DEFAULT
+	local wanted = {
+		guideFontSize = font,
+		arrowText = Within(Round(text), 5, 20),
+		arrowScale = Within(Step(grow), 0.2, 2),
+		activeItemsScale = Within(Step(grow), 0.8, 3),
+		activeTargetScale = Within(Step(grow), 0.8, 3),
+	}
+	-- Only a window scale the player set: RestedXP's default is 100 % already.
+	local profile = RXPSettingsProfile()
+	local window = profile and tonumber(rawget(profile, "windowScale"))
+	if window and math.abs(window - 1) > 1e-3 then wanted.windowScale = 1 end
+	return wanted
+end
+
+local function RXPAddonObject()
+	local AceAddon = _G.LibStub and _G.LibStub("AceAddon-3.0", true)
+	if not AceAddon then return nil end
+	local ok, addon = pcall(AceAddon.GetAddon, AceAddon, "RXPGuides", true)
+	return ok and type(addon) == "table" and addon or nil
+end
+
+-- The numbers as RestedXP's options show them.
+local function DescribeSize(value)
+	if type(value) ~= "number" then return tostring(value) end
+	if value % 1 == 0 then return tostring(value) end
+	return ("%d %%"):format(Round(value * 100))
+end
+
+M.changes.rxpSize = {
+	addon = "rxp",
+	title = "RestedXP: sizes to fit EldoUI",
+	Target = RXPSettingsProfile,
+	Wanted = function() return M:RXPSizesWanted() end,
+	labels = {
+		guideFontSize = Key("Guide font size"), arrowText = Key("Arrow text size"), arrowScale = Key("Arrow scale"),
+		activeItemsScale = Key("Active item scale"), activeTargetScale = Key("Active target scale"),
+		windowScale = Key("Window scale"),
+	},
+	unset = Key("RestedXP's default"),
+	Describe = DescribeSize,
+	-- The scales and the arrow's text now, the guide's text after a reload.
+	Refresh = function()
+		local addon = RXPAddonObject()
+		local settings = addon and rawget(addon, "settings")
+		local profile = type(settings) == "table" and rawget(settings, "profile")
+		if type(profile) == "table" then
+			if type(settings.LoadScales) == "function" then
+				local ok, err = pcall(settings.LoadScales, settings)
+				if not ok then geterrorhandler()(err) end
+			end
+			local arrow = _G.RXPG_ARROW
+			local text = Usable(arrow) and rawget(arrow, "text")
+			local font, size = rawget(addon, "font"), tonumber(profile.arrowText)
+			if Usable(text) and type(text.SetFont) == "function" and type(font) == "string" and size then
+				pcall(text.SetFont, text, font, size, "OUTLINE")
+			end
+		end
+		M:RefitRXP()
+		PlaceRXPParts()
+		E:ShowReloadPrompt(L["RestedXP shows its guide text in the new size after a reload."])
+	end,
+}
 
 ---------------------------------------------------------------------------
 -- RestedXP's step list on a click
@@ -2492,7 +2617,8 @@ M.options = {
 		hidden = function() return not (M:RXPLocaleShown() and M:RXPLocaleStatus() ~= "") end },
 	{ type = "toggle", key = "rxp.listButton", label = "Step list button on the minimap",
 		desc = "A button in the minimap's addon button bin (on the map's edge while the bin is off) folds RestedXP's list of every step away and shows it again, the same as RestedXP's option \"Show step list\". The current step card and the arrow stay. EldoUI gives the list back at the height you had. A key for it: Key Bindings > AddOns > EldoUI. Needs the Minimap module." },
-	{ type = "header", label = "RestedXP's own settings", hidden = function() return not M:ChangeShown("rxpStepCard") end },
+	{ type = "header", label = "RestedXP's own settings",
+		hidden = function() return not (M:ChangeShown("rxpStepCard") or M:ChangeShown("rxpSize")) end },
 	{ type = "description", label = function() return M:ChangeStatus("rxpStepCard") end,
 		hidden = function() return not M:ChangeShown("rxpStepCard") end },
 	{ type = "execute", label = "Step card under the guide", width = 240,
@@ -2503,6 +2629,16 @@ M.options = {
 		desc = "Puts RestedXP's \"Current step frame anchor\" back as it was before EldoUI's change. A value you changed in RestedXP since stays yours.",
 		hidden = function() return not M:ChangeApplied("rxpStepCard") end,
 		func = function() M:UndoChangeAndSay("rxpStepCard") end },
+	{ type = "description", label = function() return M:ChangeStatus("rxpSize") end,
+		hidden = function() return not M:ChangeShown("rxpSize") end },
+	{ type = "execute", label = "Sizes to fit EldoUI", width = 240,
+		desc = "Sets RestedXP's guide text and arrow text to the size of EldoUI's own text (General > Accessibility > Large text counts), and lets the arrow, the active items and the targets grow by as much. A window scale other than 100 % goes back to 100 %, since the larger text does the job. EldoUI asks first and shows which RestedXP profile changes. The guide text changes after a reload. Undo puts the old values back.",
+		hidden = function() return not M:ChangeOffered("rxpSize") end,
+		func = function() M:AskApplyChange("rxpSize") end },
+	{ type = "execute", label = "Undo the size change", width = 240,
+		desc = "Puts RestedXP's text sizes and scales back as they were before EldoUI's change. A value you changed in RestedXP since stays yours.",
+		hidden = function() return not M:ChangeApplied("rxpSize") end,
+		func = function() M:UndoChangeAndSay("rxpSize") end },
 
 	{ type = "tab", label = "BigWigs" },
 	Status("bigwigs"),

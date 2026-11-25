@@ -53,6 +53,11 @@ Slot("raid", "EldoUI_Raid", Key("Raid frames"), { 408, 334 }, { "TOPLEFT", "UIPa
 Slot("swingMain", "EldoUI_SwingMainHand", Key("Swing timer"), { 240, 14 }, { "CENTER", "UIParent", "CENTER", 0, -384 })
 Slot("swingOff", "EldoUI_SwingOffHand", Key("Off hand swing timer"), { 240, 14 }, { "CENTER", "UIParent", "CENTER", 0, -404 })
 Slot("swingRanged", "EldoUI_SwingRanged", Key("Ranged swing timer"), { 240, 14 }, { "CENTER", "UIParent", "CENTER", 0, -424 })
+-- RestedXP's active items and targets: spots of their own, right of the
+-- guide spot. Their movers are the Integrations module's (they hang on the
+-- "RestedXP Guide" mover), so every layout puts them beside its guide.
+Slot("rxpItems", "EldoUI_RXPItems", Key("RestedXP active items"), { 120, 40 }, { "TOPLEFT", "UIParent", "TOPLEFT", 330, -42 })
+Slot("rxpTargets", "EldoUI_RXPTargets", Key("RestedXP targets"), { 180, 40 }, { "TOPLEFT", "UIParent", "TOPLEFT", 330, -90 })
 for index = 1, 6 do
 	Slot("aura" .. index, "EldoUI_AuraGroup" .. index, Key("Aura icons"), { 240, 60 },
 		{ "CENTER", "UIParent", "CENTER", -320, 200 - (index - 1) * 64 })
@@ -104,6 +109,10 @@ local ADDONS = {
 	damageMeter = { folder = "Details", name = "Details!", version = "Details.20261107.15402.172", placement = "details" },
 	levelingGuide = { folder = "RXPGuides", name = "RestedXP", version = "v4.11.26", placement = "rxp",
 		window = "RXPFrame", betaWindow = "RXPV2GuideWindow", steps = "RXPActiveStepsFrame%s" },
+	-- The rest of RestedXP's classic window set; the adapter is below.
+	guideParts = { folder = "RXPGuides", name = Key("RestedXP arrow and windows"), version = "v4.11.36",
+		addon = "RXPGuides", arrow = "RXPG_ARROW", items = "RXPItemFrame", targets = "RXPTargetFrame",
+		restore = "LoadFramePositions", resetArrow = "ResetArrowPosition" },
 	stepGuide = { folder = "Guidelime", name = "Guidelime", version = "6.008", placement = "guidelime", saved = "GuidelimeDataChar" },
 	bossTimers = { folder = "BigWigs", name = "BigWigs", version = "v427.6", placement = "bigwigs" },
 	questHelper = { folder = "Questie", name = "Questie", version = "12.1.0", placement = "questie" },
@@ -1243,6 +1252,66 @@ do
 			{ slot = "swingRanged", frame = GlobalFrame(N.folder, N.bar:format("ranged")) },
 		},
 	})
+end
+
+---------------------------------------------------------------------------
+-- RestedXP's arrow, active items and targets: the arrow on the layout's
+-- waypoint arrow spot (after TomTom, which keeps it when the player picked
+-- it for the Waypoints job), the item and target windows on their spots
+-- right of the guide. The guide window itself is the Integrations
+-- module's ("RestedXP Guide" mover); its two windows follow it only while
+-- that module places the guide, so they never land beside an empty spot.
+-- RestedXP keeps each frame's spot in its profile (`framePositions`, saved
+-- from the live points at logout and when the player drags one, put back
+-- at login and on a profile switch with settings:LoadFramePositions), so
+-- the fit places again after each restore and a spot it placed carries
+-- over by itself. The player drags them with StartMoving, which marks them
+-- user placed (ownSpot). The item window holds secure buttons: like every
+-- move here, its placement waits for the end of a fight. The new guide
+-- window keeps its items inside itself (no RXPItemFrame).
+---------------------------------------------------------------------------
+do
+	local N = ADDONS.guideParts
+
+	local function Addon()
+		local AceAddon = _G.LibStub and _G.LibStub("AceAddon-3.0", true)
+		if not AceAddon then return nil end
+		local ok, addon = pcall(AceAddon.GetAddon, AceAddon, N.addon, true)
+		return ok and type(addon) == "table" and addon or nil
+	end
+
+	-- RestedXP putting its saved spots back: the fit places once more.
+	local hooked = false
+	local function Ready()
+		if hooked then return true end
+		local addon = Addon()
+		local settings = addon and rawget(addon, "settings")
+		if type(settings) ~= "table" then return true end
+		hooked = true
+		local function Again() Fit:Schedule(0) end
+		if type(settings[N.restore]) == "function" then hooksecurefunc(settings, N.restore, Again) end
+		if type(addon[N.resetArrow]) == "function" then hooksecurefunc(addon, N.resetArrow, Again) end
+		return true
+	end
+
+	-- Beside the guide only while the Integrations module places it.
+	local function BesideGuide()
+		local integrations = E.modules and E.modules.Integrations
+		if integrations and integrations.RXPWanted and integrations:RXPWanted() and E.movers.EldoUI_RXP then return nil end
+		return Key("kept where RestedXP puts it, like its guide window")
+	end
+
+	local adapter = Register("guideParts", {
+		frames = {
+			{ slot = "arrow", frame = GlobalFrame(N.folder, N.arrow), point = "TOP", ownSpot = true, ready = Ready },
+			{ slot = "rxpItems", frame = GlobalFrame(N.folder, N.items), point = "TOPLEFT", noScale = true, ownSpot = true,
+				ready = Ready, free = BesideGuide },
+			{ slot = "rxpTargets", frame = GlobalFrame(N.folder, N.targets), point = "TOPLEFT", noScale = true, ownSpot = true,
+				ready = Ready, free = BesideGuide },
+		},
+	})
+	-- Its name in the language shown ("RestedXP arrow and windows").
+	if adapter then E:TranslateFields({ adapter }, "title") end
 end
 
 ---------------------------------------------------------------------------
