@@ -32,7 +32,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
 | C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
 | C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt (seit 0.7.3000 von EldoUI) | `95002b5`, `c323ceb` |
-| C9 | RestedXP: Schrittliste per Klick ein- und ausklappen, Knopf im Knopfsammler der Minikarte (Wunsch des Nutzers) | klein–mittel | umgesetzt | `7f2a0a8`, `c944dc7` |
+| C9 | RestedXP: Schrittliste per Klick ein- und ausklappen, Knopf im Knopfsammler der Minikarte (Wunsch des Nutzers) | klein–mittel | umgesetzt | `7f2a0a8`, `c944dc7`, `8b4d37d` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb`, `775b23d`, `f9c0fc9` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -1005,21 +1005,30 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       ziehbar (Winkel je Knopf in `ownAngles`). Verschwindet mit dem Minimap-Modul und im Minikarten-Overlay.
     - `EldoUI/Modules/Integrations.lua`, Abschnitt „RestedXP's step list on a click“: Knopf „RestedXP-Schrittliste“
       (Schriftrolle, eingeklappt grau) und Taste „RestedXPs Schrittliste ein-/ausblenden“ (`ELDOUI_RXP_STEPLIST` in
-      `Bindings.xml`). Beide rufen RestedXPs eigenen Schalter, nur auf Klick. Vor dem Einklappen merkt sich EldoUI die
-      Höhe der Liste (`rxp.listHeight`) und gibt sie beim Aufklappen zurück (`profile.frameHeight` und die
-      Fensterhöhe, wie RestedXPs Schalter selbst). Im neuen Guide-Fenster nur der Schalter, es hat seine eigene Höhe.
-      Ein Guide ohne Liste bleibt, wie er ist, mit einer Chatzeile. Strg-Klick öffnet die Einstellung. Neuer
+      `Bindings.xml`). Beide rufen RestedXPs eigenen Schalter, nur auf Klick. EldoUI merkt sich die Höhe der sichtbaren
+      Liste je RestedXP-Profil (`rxp.listHeights`, Profilname aus `GetSettingsDB`): beim Einklappen und bei jeder
+      Größenänderung von `RXPFrame` mit sichtbarer Liste (`OnSizeChanged`, also auch nach RestedXPs eigenem Schalter
+      und einem Alt-Ziehen). Beim Aufklappen gibt es sie zurück (`profile.frameHeight` und die Fensterhöhe, wie
+      RestedXPs Größenänderung selbst). Im neuen Guide-Fenster nur der Schalter, es hat seine eigene Höhe. Ohne
+      geladenen Guide und bei einem Guide ohne Liste bleibt alles, wie es ist, mit einer Chatzeile. Das graue Symbol
+      folgt auch RestedXPs eigenem Schalter. Strg-Klick öffnet die Einstellung. Neuer
       Schalter „Schrittlisten-Schaltfläche an der Minikarte“ (`rxp.listButton`, Standard an) im RestedXP-Reiter.
       Regel oben in `Integrations.lua` ergänzt. Der Platz des Guides passt sich an, weil EldoUI die Größe des
       Fensters schon verfolgt (`HookRXP`, `OnSizeChanged`).
     - Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
-  - **Test:** `tools/integrations/test_rxp_steplist.lua` (läuft in `tools/ci/check_all.sh tests`, 48 Prüfungen). Er
+  - **Test:** `tools/integrations/test_rxp_steplist.lua` (läuft in `tools/ci/check_all.sh tests`, 72 Prüfungen). Er
     startet ganz EldoUI im Offline-Spiel (`tools/harness/wow.lua`) neben einem Modell von RestedXP (nach v4.11.36
-    nachgebaut, kein RestedXP-Code). Geprüft: Knopf im Knopfsammler nach dem EldoUI-Knopf und in „Schaltflächen
-    verwalten“; Klick klappt ein, der nächste gibt 400 statt 125 zurück; ohne gespeicherte Höhe RestedXPs Standard;
-    Taste; Strg-Klick; Guide ohne Liste; neues Fenster; Knopf weg mit Integration, eigenem Schalter, Minimap-Modul
-    und einem RestedXP ohne Schalter, danach wieder da; Knopfsammler aus: am Kartenrand beim gespeicherten Winkel;
-    keine Fehler.
+    nachgebaut, kein RestedXP-Code: Schalter, Profilname, `BottomFrame.UpdateFrame` beim nächsten Update, dazu
+    `OnSizeChanged` wie im Spiel). Geprüft: Knopf im Knopfsammler direkt nach dem EldoUI-Knopf, auch vor dem Knopf
+    eines anderen Addons, der zuerst gefunden wurde, und in „Schaltflächen verwalten“, dort auf der Karte behalten;
+    Klick klappt ein (Fenster 28 hoch), der nächste gibt 400 statt 125 zurück; ohne gespeicherte Höhe RestedXPs
+    Standard; RestedXPs eigener Schalter und Alt-Ziehen dazwischen (600 gemerkt, Symbol folgt); je Profil die eigene
+    Höhe; Taste; Strg-Klick und sein Hinweis im Tooltip; kein Guide geladen, Guide ohne Liste; Kampf mit geschütztem
+    Fenster wartet; neues Fenster; Knopf weg mit Integration, eigenem Schalter, Integrations- und Minimap-Modul und
+    einem RestedXP ohne Schalter, danach wieder da; eine Aktualisierung ohne Änderung ruft kein Show; ein Knopf, den
+    ein anderes Addon genommen hat, bleibt dort; Knopfsammler aus: am Kartenrand beim gespeicherten Winkel; keine
+    Fehler. Gegen den Stand vor der Gegenprüfung schlagen 13 Prüfungen fehl (bricht dann ab), mit nur der alten
+    `Minimap.lua` 2.
   - **Im Spiel prüfen:**
     1. Neue Version in den AddOns-Ordner kopieren, `/reload` reicht (keine neue Datei in der TOC, nur `Bindings.xml`
        geändert: Für die Taste das Spiel ganz neu starten).
@@ -1030,6 +1039,26 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     4. Noch einmal klicken. Erwartung: Die Liste ist in der Höhe zurück, die sie vorher hatte.
     5. Tastaturbelegung > AddOns > EldoUI: „RestedXPs Schrittliste ein-/ausblenden“ belegen und drücken.
     6. Danach: `/eui errors` ohne neue Einträge.
+  - **Gegenprüfung (25.11.2026, Wunsch des Nutzers):** Ein unabhängiger Prüf-Agent las die drei Commits und
+    RestedXPs Code (v4.11.36 und aktueller Stand), ohne diesen Eintrag vorher zu kennen, und ließ alle Prüfungen
+    laufen (grün). Keine Lua-Fehler, kein Taint, nichts ohne Klick; RestedXPs Verhalten ist richtig gelesen, der
+    EldoUI-Knopf nach dem Umbau unverändert. Seine Befunde und was daraus wurde (Korrekturen in `8b4d37d`, jeder Fall
+    im Test):
+
+    | # | Befund | Schwere | Ergebnis |
+    |---|---|---|---|
+    | B1 | Die gemerkte Höhe lag im EldoUI-Profil (meist geteilt), RestedXPs Höhe gilt je Charakter: Charakter B überschrieb die Höhe von A | mittel | behoben: je RestedXP-Profil (`listHeights`) |
+    | B2 | Gemerkt nur beim eigenen Einklappen: nach RestedXPs Schalter und Alt-Ziehen gab EldoUI eine alte Höhe zurück | klein–mittel | behoben: `OnSizeChanged` mit sichtbarer Liste |
+    | B3 | Das graue Symbol folgte RestedXPs eigenem Schalter nicht | klein | behoben: nach jeder Größenänderung, beim Zeigen des Knopfs und mit dem Tooltip |
+    | B4 | Mit einem anderen Knopfsammler-Addon holte jeder Klick den Knopf an den Kartenrand zurück | klein–mittel | behoben: platziert nur beim ersten Zeigen und im Layout des Moduls, wie der EldoUI-Knopf |
+    | B5 | Bei offenem Minikarten-Overlay weckte jede Aktualisierung die Haken des Knopfsammlers (`SetShown` ohne Änderung) | klein | behoben: `SetShown` nur bei Änderung, im Overlay erst nach dem Schließen |
+    | B6 | Der Test prüfte weniger als behauptet (Reihenfolge, Overlay, Kampf, Modul aus, Neu-Layout von RestedXP) | klein | erweitert (72 Prüfungen); das Overlay selbst läuft im Offline-Spiel nicht, geprüft wird das ausbleibende `Show` |
+    | B7 | Regeln und Kommentare: Schreiben von `frameHeight` nicht als Ausnahme genannt, Version im Kopf, „10 or less“ | klein | korrigiert |
+    | B8 | Deutsch: nach „Klick:“ klein, „RestedXP-Einbindung“ wie der Schalter | klein | korrigiert |
+    | B9 | Ohne Guide die Meldung „zeigt keine Schrittliste“; kein Strg-Hinweis im Tooltip nach dem Klick; Kampfweg über `Queue`; Modul aus mit falscher Meldung | klein | behoben: eigene Meldung „Kein RestedXP-Guide geladen.“, Hinweis wieder da, `E:RunOutOfCombat`, Meldung nennt das Modul |
+
+    Die Zeile `addon.updateBottomFrame = true` nach dem Zurückgeben der Höhe ist doppelt (RestedXPs Schalter setzt sie
+    schon, sein Update läuft erst danach) und bleibt als Absicherung; der Test kann sie nicht unterscheiden.
 
 ## D – Infrastruktur für den Fork
 
