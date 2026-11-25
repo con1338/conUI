@@ -23,6 +23,10 @@
 --   * Another addon's first-run window (a welcome window, a first choice)
 --     is never hidden, clicked or answered: the EldoUI setup waits for it
 --     (section "First-run windows of the companions").
+--   * RestedXP's step list (the list of every step under the current step
+--     card) folds away and back only on the player's click on EldoUI's
+--     minimap button or key, through RestedXP's own switch, the one its
+--     option "Show step list" uses (section "RestedXP's step list on a click").
 --   * One exception to "never changes their code": on a client in another
 --     language, "Fit RestedXP to this game language" wraps a few RestedXP
 --     functions so its English paid guides work there
@@ -76,6 +80,8 @@ local M = E:NewModule("Integrations", {
 			theme = true,       -- offer an "EldoUI" theme in RXP's theme list
 			cardDown = true,    -- the step card opens under the guide on a spot in the top half
 			locale = true,      -- fit RestedXP to a client in another language (IntegrationsRXPLocale.lua)
+			listButton = true,  -- a minimap button that folds RestedXP's step list away and back
+			-- listHeight: the step list's height before EldoUI folded it, given back when it opens
 		},
 		bigwigs = {
 			enabled = true,
@@ -1350,6 +1356,177 @@ E:RegisterAddonSetup("RestedXP", {
 })
 
 ---------------------------------------------------------------------------
+-- RestedXP's step list on a click
+---------------------------------------------------------------------------
+-- RestedXP's classic guide window is the current step card and, under the
+-- guide's name, the list of every step of the guide. RestedXP's option
+-- "Show step list" (Guide Window) folds that list away, so only the card,
+-- the arrow and the active items stay. EldoUI's minimap button (in the
+-- addon button bin) and the key "Show or hide RestedXP's step list" call
+-- the same switch, RestedXP's settings:SetStepListShown, on the player's
+-- click only; nothing folds or opens by itself.
+-- RestedXP stores the list as the window's height (profile.frameHeight,
+-- 10 or less: folded) and opens it again at its default height (125). So
+-- before folding EldoUI notes the height the list had (rxp.listHeight)
+-- and gives it back when it opens, through the same profile value and
+-- the window's height. The new guide window keeps its own open height,
+-- so there EldoUI only calls the switch.
+-- Checked against RestedXP v4.11.36 and its code of November 2026: the
+-- switch, IsStepListShown and the `hidewindow` guides (no list at all).
+local RXP_LIST_KEY = "RXPStepList"
+local RXP_LIST_ICON = "Interface\\Icons\\INV_Scroll_03"
+local RXP_LIST_MIN = 35 -- RestedXP's own line: a taller window shows the list
+
+-- RestedXP's settings module while it has the step list switch, and the
+-- addon itself.
+local function RXPStepListSettings()
+	if not C_AddOns.IsAddOnLoaded("RXPGuides") then return end
+	local AceAddon = _G.LibStub and _G.LibStub("AceAddon-3.0", true)
+	if not AceAddon then return end
+	local ok, addon = pcall(AceAddon.GetAddon, AceAddon, "RXPGuides", true)
+	if not (ok and type(addon) == "table") then return end
+	local settings = rawget(addon, "settings")
+	if type(settings) ~= "table" or type(settings.SetStepListShown) ~= "function"
+		or type(settings.IsStepListShown) ~= "function" or type(rawget(settings, "profile")) ~= "table" then
+		return
+	end
+	return settings, addon
+end
+
+-- A guide RestedXP shows without any list (its `hidewindow` guides).
+local function RXPGuideHasNoList(addon)
+	local guide = rawget(addon, "currentGuide")
+	return type(guide) == "table" and guide.hidewindow and true or false
+end
+
+-- true (shown), false (folded) or nil (no RestedXP with the switch).
+function M:RXPStepListShown()
+	local settings = RXPStepListSettings()
+	if not settings then return nil end
+	local ok, shown = pcall(settings.IsStepListShown, settings)
+	if not ok then return nil end
+	return shown and true or false
+end
+
+function M:RXPStepListButtonShown()
+	return self:On("rxp") and self.db.rxp.listButton and RXPStepListSettings() ~= nil or false
+end
+
+-- Folds the list away when it shows, opens it when it is folded.
+function M:ToggleRXPStepList()
+	if not self:On("rxp") then
+		if C_AddOns.IsAddOnLoaded("RXPGuides") then
+			self:Print(L["The RestedXP integration is off (Integrations > RestedXP)."])
+		else
+			self:Print(L["RestedXP is not loaded."])
+		end
+		return
+	end
+	local settings, addon = RXPStepListSettings()
+	if not settings then
+		self:Print(L["This RestedXP version has no step list switch."])
+		return
+	end
+	if RXPGuideHasNoList(addon) then
+		self:Print(L["This RestedXP guide shows no step list."])
+		return
+	end
+	local frame = _G.RXPFrame
+	-- RestedXP's window holds no secure buttons; should it ever, the
+	-- change waits for the end of the fight.
+	if InCombatLockdown() and Usable(frame) and E.FrameCheck(frame, "IsProtected") then
+		self:Print(L["The step list changes after combat."])
+		Queue("RXP:stepList", function() M:ToggleRXPStepList() end)
+		return
+	end
+	local shown = self:RXPStepListShown()
+	if shown == nil then return end
+	local cfg = self.db.rxp
+	local classic = not self.RXPBetaWindow()
+	local profile = settings.profile
+	if shown then
+		if classic then
+			local height = tonumber(profile.frameHeight)
+			-- No height saved: RestedXP's default, which it opens at anyway.
+			cfg.listHeight = height and height >= RXP_LIST_MIN and Round(height) or nil
+		end
+		settings:SetStepListShown(false)
+	else
+		settings:SetStepListShown(true)
+		local height = classic and tonumber(cfg.listHeight)
+		if height and height >= RXP_LIST_MIN and Usable(frame) and settings:IsStepListShown() then
+			profile.frameHeight = height
+			frame:SetHeight(height)
+			-- RestedXP lays the list out again on its next update.
+			addon.updateBottomFrame = true
+		end
+	end
+	self:RefreshRXPStepListButton()
+end
+
+-- The button's tooltip: what a click does now.
+function M:RXPStepListTooltip(button)
+	GameTooltip:SetOwner(button, "ANCHOR_LEFT")
+	GameTooltip:SetText(L["RestedXP step list"])
+	local _, addon = RXPStepListSettings()
+	local shown = self:RXPStepListShown()
+	if addon and RXPGuideHasNoList(addon) then
+		GameTooltip:AddLine(L["This RestedXP guide shows no step list."], 1, 1, 1, true)
+	elseif shown then
+		GameTooltip:AddLine(L["Click: fold the list of every step away. The current step card and the arrow stay."], 1, 1, 1, true)
+	elseif shown == false then
+		GameTooltip:AddLine(L["Click: show the list of every step of the guide."], 1, 1, 1, true)
+	end
+	local key = GetBindingKey and GetBindingKey("ELDOUI_RXP_STEPLIST")
+	if key then
+		GameTooltip:AddLine(L["Key: %s"]:format(GetBindingText and GetBindingText(key) or key), 0.7, 0.7, 0.7)
+	end
+	GameTooltip:Show()
+end
+
+-- Folded, the icon is grayed a little, so the bin shows the state.
+function M:RefreshRXPStepListButton()
+	if not E.RefreshMinimapButton then return end
+	E:RefreshMinimapButton(RXP_LIST_KEY)
+	local button = self.rxpListButton
+	if button and button.icon then
+		button.icon:SetDesaturated(self:RXPStepListShown() == false)
+	end
+end
+
+-- The button joins the minimap the first time RestedXP is there (the
+-- Minimap module draws and gathers it, Modules/Minimap.lua).
+function M:SetupRXPStepList()
+	if not E.AddMinimapButton then return end
+	if not self.rxpListButton then
+		if not C_AddOns.IsAddOnLoaded("RXPGuides") then return end
+		local button = E:AddMinimapButton(RXP_LIST_KEY, {
+			title = L["RestedXP step list"],
+			icon = RXP_LIST_ICON,
+			angle = 225,
+			shown = function() return M:RXPStepListButtonShown() end,
+			onClick = function(frame, mouseButton)
+				if E:IsOptionsLinkClick(frame, mouseButton) then return end
+				M:ToggleRXPStepList()
+				if GameTooltip:IsOwned(frame) then M:RXPStepListTooltip(frame) end
+			end,
+			onEnter = function(frame) M:RXPStepListTooltip(frame) end,
+		})
+		self.rxpListButton = button
+		-- After the scripts, so the hint joins the tooltip: Ctrl-click opens
+		-- this setting.
+		E:BindOptionsLink(button, { page = "module:Integrations", key = "rxp.listButton", tab = "RestedXP" })
+	end
+	self:RefreshRXPStepListButton()
+end
+
+-- Bindings.xml: "Show or hide RestedXP's step list".
+function E:ToggleRXPStepList()
+	M:ToggleRXPStepList()
+end
+E:NameBinding("BINDING_NAME_ELDOUI_RXP_STEPLIST", Key("Show or hide RestedXP's step list"))
+
+---------------------------------------------------------------------------
 -- BigWigs: bars follow EldoUI movers through BigWigs' custom anchor
 ---------------------------------------------------------------------------
 -- BigWigs anchors its bars to any named frame (normalPosition[5]). EldoUI
@@ -2016,6 +2193,7 @@ function M:Setup()
 	self:SetupDetails()
 	self:SetupRXP()
 	self:SetupRXPLocale()
+	self:SetupRXPStepList()
 	self:SetupBigWigs()
 	if self:On("bigwigs") then self:RegisterBigWigsStyle() end
 	self:SetupQuestie()
@@ -2043,7 +2221,11 @@ function M:OnEnable()
 	self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
 		M:WatchFirstRun()
 		C_Timer.After(1, function()
-			if M.active then M:PlaceAll() end
+			if M.active then
+				M:PlaceAll()
+				-- RestedXP's settings are ready by now.
+				M:SetupRXPStepList()
+			end
 		end)
 	end)
 	-- Questie makes its first-run window once a fight is over.
@@ -2058,6 +2240,7 @@ function M:OnEnable()
 			M:SetupRXPLocale()
 			-- Automatic may pick RestedXP now.
 			E:GuideProviderChanged()
+			M:SetupRXPStepList()
 		elseif name == "Guidelime" then
 			E:GuideProviderChanged()
 		elseif name == "Questie" or name == "Details" then
@@ -2082,6 +2265,8 @@ function M:OnDisable()
 	self:UpdateRXPTheme()
 	-- RestedXP's own group names come back, its own answers pass unchanged.
 	self:SetupRXPLocale()
+	-- The step list button goes; the list stays as the player left it.
+	self:RefreshRXPStepListButton()
 	E:GuideProviderChanged()
 end
 
@@ -2215,6 +2400,8 @@ M.options = {
 		hidden = function() return not M:RXPLocaleShown() end },
 	{ type = "description", label = function() return M:RXPLocaleStatus() end,
 		hidden = function() return not (M:RXPLocaleShown() and M:RXPLocaleStatus() ~= "") end },
+	{ type = "toggle", key = "rxp.listButton", label = "Step list button on the minimap",
+		desc = "A button in the minimap's addon button bin (on the map's edge while the bin is off) folds RestedXP's list of every step away and shows it again, the same as RestedXP's option \"Show step list\". The current step card and the arrow stay. EldoUI gives the list back at the height you had. A key for it: Key Bindings > AddOns > EldoUI. Needs the Minimap module." },
 	{ type = "header", label = "RestedXP's own settings", hidden = function() return not M:ChangeShown("rxpStepCard") end },
 	{ type = "description", label = function() return M:ChangeStatus("rxpStepCard") end,
 		hidden = function() return not M:ChangeShown("rxpStepCard") end },
