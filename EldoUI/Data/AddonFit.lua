@@ -1255,20 +1255,25 @@ do
 end
 
 ---------------------------------------------------------------------------
--- RestedXP's arrow, active items and targets: the arrow on the layout's
--- waypoint arrow spot (after TomTom, which keeps it when the player picked
--- it for the Waypoints job), the item and target windows on their spots
--- right of the guide. The guide window itself is the Integrations
--- module's ("RestedXP Guide" mover); its two windows follow it only while
--- that module places the guide, so they never land beside an empty spot.
--- RestedXP keeps each frame's spot in its profile (`framePositions`, saved
--- from the live points at logout and when the player drags one, put back
--- at login and on a profile switch with settings:LoadFramePositions), so
--- the fit places again after each restore and a spot it placed carries
--- over by itself. The player drags them with StartMoving, which marks them
--- user placed (ownSpot). The item window holds secure buttons: like every
--- move here, its placement waits for the end of a fight. The new guide
--- window keeps its items inside itself (no RXPItemFrame).
+-- RestedXP's arrow, active items and targets, while the Integrations
+-- module places RestedXP's guide window ("RestedXP Guide" mover): with the
+-- integration off, another guide picked or "Place with the layout" off,
+-- EldoUI leaves all of RestedXP alone, as its page says. The arrow goes
+-- right under the layout's waypoint arrow spot: EldoUI's own arrow keeps
+-- that spot (a /way waypoint, Eldostar's goal, the corpse arrow of a
+-- ghost), so the two never cover each other. TomTom, registered before,
+-- keeps the spot when the player picked it for waypoints; RestedXP's arrow
+-- then goes back where RestedXP put it. The item and target windows go on
+-- their spots right of the guide, not while the guide still waits under
+-- the player frame for the setup. RestedXP keeps each frame's spot in its
+-- profile (`framePositions`, saved from the live points at logout and
+-- when the player drags one, put back at login and on a profile switch
+-- with settings:LoadFramePositions), so the fit places again after each
+-- restore. A frame the player dragged before the fit placed it stays
+-- where they put it until they choose the layout's spot on the Other
+-- addons page. The item and target windows hold secure buttons: like
+-- every move here, they wait for the end of a fight. RestedXP makes all
+-- three with either of its guide windows.
 ---------------------------------------------------------------------------
 do
 	local N = ADDONS.guideParts
@@ -1294,20 +1299,47 @@ do
 		return true
 	end
 
-	-- Beside the guide only while the Integrations module places it.
-	local function BesideGuide()
-		local integrations = E.modules and E.modules.Integrations
-		if integrations and integrations.RXPWanted and integrations:RXPWanted() and E.movers.EldoUI_RXP then return nil end
-		return Key("kept where RestedXP puts it, like its guide window")
+	-- The target window has no size before its first target.
+	local function ReadyWithSize(frame)
+		if not Ready() then return false end
+		local width, height = SizeOf(frame)
+		return width ~= nil and width > 1 and height > 1
 	end
+
+	local KEPT = Key("kept where RestedXP puts it, like its guide window")
+
+	local function Integrations()
+		return E.modules and E.modules.Integrations
+	end
+
+	-- Only while the Integrations module places the guide window.
+	local function GuidePlaced()
+		local integrations = Integrations()
+		if integrations and integrations.RXPWanted and integrations:RXPWanted() and E.movers.EldoUI_RXP then return nil end
+		return KEPT
+	end
+
+	-- Beside the guide: also not while the guide waits under the player
+	-- frame for the setup (its spot is empty then).
+	local function BesideGuide()
+		local kept = GuidePlaced()
+		if kept then return kept end
+		local integrations = Integrations()
+		if integrations and integrations.rxpHeld then return Key("placed once the setup is done, like the guide window") end
+		return nil
+	end
+
+	-- The arrow's top a little under the waypoint arrow spot.
+	local function UnderSpot() return "TOP", "BOTTOM", 0, -4 end
 
 	local adapter = Register("guideParts", {
 		frames = {
-			{ slot = "arrow", frame = GlobalFrame(N.folder, N.arrow), point = "TOP", ownSpot = true, ready = Ready },
-			{ slot = "rxpItems", frame = GlobalFrame(N.folder, N.items), point = "TOPLEFT", noScale = true, ownSpot = true,
+			{ slot = "arrow", frame = GlobalFrame(N.folder, N.arrow), point = UnderSpot, noScale = true,
+				ready = Ready, free = GuidePlaced },
+			{ slot = "rxpItems", frame = GlobalFrame(N.folder, N.items), point = "TOPLEFT", noScale = true,
 				ready = Ready, free = BesideGuide },
-			{ slot = "rxpTargets", frame = GlobalFrame(N.folder, N.targets), point = "TOPLEFT", noScale = true, ownSpot = true,
-				ready = Ready, free = BesideGuide },
+			{ slot = "rxpTargets", frame = GlobalFrame(N.folder, N.targets), point = "TOPLEFT", noScale = true,
+				ready = ReadyWithSize, free = BesideGuide },
 		},
 	})
 	-- Its name in the language shown ("RestedXP arrow and windows").

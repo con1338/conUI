@@ -39,7 +39,8 @@
 -- Checked against these releases for WoW: Forever 1.60.1:
 --   Details! Damage Meter  Details.20261107.15402.172
 --   RestedXP Guides        v4.11.26 (the classic guide and the beta guide window),
---                          the step list switch v4.11.36
+--                          the step list switch and the sizes v4.11.36 (its arrow
+--                          and windows: Data/AddonFit.lua, also v4.11.36)
 --   BigWigs                v427.6
 --   Questie                12.1.0 with QuestieDB 1.0.6
 --   Guidelime              6.008
@@ -230,6 +231,11 @@ end
 --   Wanted() field = value for every field it writes
 --   labels   field = the setting's name, for the question before Apply
 --   Describe(value), unset   optional: a value, and no value, in words
+--   Default(target, field)   optional: the value the addon reads for a field
+--            it does not store. An AceDB profile drops every value equal to
+--            its default at logout, so a written default comes back as no
+--            value; with Default, the plan and Undo compare what the addon
+--            reads, not what it stores
 --   Refresh() optional: lets the addon show the new values
 -- Before the first write the value of every field is kept as it was, or
 -- marked as not set at all, per change and per profile of that addon, in
@@ -281,6 +287,17 @@ local function Copy(value)
 	return type(value) == "table" and CopyTable(value) or value
 end
 
+-- What the other addon reads for a field: the stored value, or (for a
+-- change with Default) its default when it stores none.
+local function Effective(change, target, field)
+	local value = rawget(target, field)
+	if value == nil and type(change.Default) == "function" then
+		local ok, default = pcall(change.Default, target, field)
+		if ok then value = default end
+	end
+	return value
+end
+
 -- The other addon's name, for messages.
 local function ChangeAddon(change)
 	return change and (change.addonTitle or ADDONS[change.addon]) or ""
@@ -312,7 +329,7 @@ function M:ChangePlan(key)
 	local plan = { key = key, place = place, shared = shared, rows = {},
 		applied = ChangeStore(key, place) ~= nil }
 	for field, value in pairs(wanted) do
-		local current = rawget(target, field)
+		local current = Effective(change, target, field)
 		if not Same(current, value) then
 			plan.rows[#plan.rows + 1] = { field = field, label = change.labels and change.labels[field] or field,
 				from = Copy(current), to = Copy(value) }
@@ -374,7 +391,7 @@ function M:ApplyChange(key, seen, quiet)
 	if ok and type(wanted) == "table" then
 		for field, value in pairs(wanted) do
 			if not record.fields[field] then
-				local current = rawget(target, field)
+				local current = Effective(change, target, field)
 				record.fields[field] = { had = current ~= nil, before = Copy(current), after = Copy(value) }
 			end
 		end
@@ -399,7 +416,7 @@ function M:UndoChange(key)
 	if key == "guidelime" and GuidelimePlaced and GuidelimePlaced() then self.stepGuideSessionOnSpot = true end
 	local kept = {}
 	for field, saved in pairs(record.fields or {}) do
-		if Same(rawget(target, field), saved.after) then
+		if Same(Effective(change, target, field), saved.after) then
 			if saved.had then target[field] = Copy(saved.before) else target[field] = nil end
 		else
 			kept[#kept + 1] = change.labels and change.labels[field] or field
@@ -1092,15 +1109,61 @@ end
 -- the guide (Data/AddonFit.lua places them there): their movers hang on
 -- the guide's, so every layout puts them beside its guide spot, and they
 -- show while the guide's mover does.
+-- Each mover takes the size its window shows (at RestedXP's own scale), so
+-- the target spot starts under the real item window. The target window's
+-- title hangs 8 of its units over its top (Targeting.lua): the gap leaves
+-- room for it up to a target scale of 200 %.
 local RXP_PARTS = {
-	{ name = "EldoUI_RXPItems", title = Key("RestedXP active items"), width = 120, height = 40,
+	{ name = "EldoUI_RXPItems", frame = "RXPItemFrame", title = Key("RestedXP active items"), width = 120, height = 40,
 		point = { "TOPLEFT", "EldoUI_RXPMover", "TOPRIGHT", 8, 0 } },
-	{ name = "EldoUI_RXPTargets", title = Key("RestedXP targets"), width = 180, height = 40,
-		point = { "TOPLEFT", "EldoUI_RXPItemsMover", "BOTTOMLEFT", 0, -8 } },
+	{ name = "EldoUI_RXPTargets", frame = "RXPTargetFrame", title = Key("RestedXP targets"), width = 180, height = 40,
+		point = { "TOPLEFT", "EldoUI_RXPItemsMover", "BOTTOMLEFT", 0, -24 } },
 }
 
--- The guide's spot or size changed: its windows beside it are placed again.
-local function PlaceRXPParts()
+-- The size a RestedXP window shows, in UIParent units, or nil.
+local function ShownSize(frame)
+	if not Usable(frame) then return nil end
+	local width, height = E.PlainCallAll(frame.GetSize, frame)
+	local scale = E.PlainCall(frame.GetEffectiveScale, frame)
+	if type(width) ~= "number" or type(height) ~= "number" or type(scale) ~= "number" or width < 1 or height < 1 then return nil end
+	scale = scale / UIParent:GetEffectiveScale()
+	return width * scale, height * scale
+end
+
+-- Once each: the windows' own size and scale changes (RestedXP grows the
+-- item window with each item, its scale options set the scale). RestedXP
+-- makes the windows while it starts, so this looks again each time.
+local rxpPartHooks = setmetatable({}, { __mode = "k" })
+local PlaceRXPParts
+local function HookRXPParts()
+	for _, part in ipairs(RXP_PARTS) do
+		local frame = _G[part.frame]
+		if Usable(frame) and not rxpPartHooks[frame] and type(frame.HookScript) == "function" then
+			rxpPartHooks[frame] = true
+			frame:HookScript("OnSizeChanged", function() if M.active then PlaceRXPParts() end end)
+		end
+	end
+	if M.rxpScalesHooked then return end
+	local AceAddon = _G.LibStub and _G.LibStub("AceAddon-3.0", true)
+	local ok, addon = false, nil
+	if AceAddon then ok, addon = pcall(AceAddon.GetAddon, AceAddon, "RXPGuides", true) end
+	local settings = ok and type(addon) == "table" and rawget(addon, "settings")
+	if type(settings) == "table" and type(settings.LoadScales) == "function" then
+		M.rxpScalesHooked = true
+		hooksecurefunc(settings, "LoadScales", function() if M.active then PlaceRXPParts() end end)
+	end
+end
+
+-- The guide's spot or size changed, or one of its windows did: the movers
+-- take the windows' sizes, and the windows are placed again.
+PlaceRXPParts = function()
+	HookRXPParts()
+	for _, part in ipairs(RXP_PARTS) do
+		if M.proxies[part.name] then
+			local width, height = ShownSize(_G[part.frame])
+			SetProxySize(part.name, width or part.width, height or part.height)
+		end
+	end
 	local fit = E.addonFit
 	if fit and fit.Schedule then fit:Schedule(0) end
 end
@@ -1332,6 +1395,7 @@ end
 
 M.changes.rxpStepCard = {
 	addon = "rxp",
+	addonTitle = "RestedXP",
 	title = "RestedXP: step card under the guide",
 	Target = RXPSettingsProfile,
 	Wanted = function() return { anchorOrientation = "bottom" } end,
@@ -1405,6 +1469,18 @@ E:RegisterAddonSetup("RestedXP", {
 -- (SettingsPanel.lua: the option ranges, settings:LoadScales, the arrow's
 -- text font set as its own option does).
 local RXP_FONT_DEFAULT = 9 -- RestedXP's default for both texts
+-- RestedXP's defaults for the fields this change writes (SettingsPanel.lua).
+local RXP_SIZE_DEFAULTS = { guideFontSize = 9, arrowText = 9, arrowScale = 1, activeItemsScale = 1,
+	activeTargetScale = 1, windowScale = 1 }
+
+-- What RestedXP reads for a field it does not store: its AceDB profile's
+-- defaults (also a profile it was told to copy for new characters), else
+-- the release's own default.
+local function RXPSizeDefault(target, field)
+	local ok, value = pcall(function() return target[field] end)
+	if ok and value ~= nil then return value end
+	return RXP_SIZE_DEFAULTS[field]
+end
 
 local function Within(value, low, high) return math.max(low, math.min(high, value)) end
 local function Step(value) return math.floor(value * 20 + 0.5) / 20 end -- RestedXP's 5 % steps
@@ -1417,6 +1493,8 @@ function M:RXPTextSize()
 end
 
 function M:RXPSizesWanted()
+	-- Before anything is written: the size RestedXP built its window with.
+	self:RXPBuiltFont()
 	local text = self:RXPTextSize()
 	local font = Within(Round(text), 9, 18)
 	local grow = font / RXP_FONT_DEFAULT
@@ -1427,9 +1505,9 @@ function M:RXPSizesWanted()
 		activeItemsScale = Within(Step(grow), 0.8, 3),
 		activeTargetScale = Within(Step(grow), 0.8, 3),
 	}
-	-- Only a window scale the player set: RestedXP's default is 100 % already.
+	-- Only a window scale other than 100 %: that is RestedXP's default.
 	local profile = RXPSettingsProfile()
-	local window = profile and tonumber(rawget(profile, "windowScale"))
+	local window = profile and tonumber(rawget(profile, "windowScale") or RXPSizeDefault(profile, "windowScale"))
 	if window and math.abs(window - 1) > 1e-3 then wanted.windowScale = 1 end
 	return wanted
 end
@@ -1441,15 +1519,27 @@ local function RXPAddonObject()
 	return ok and type(addon) == "table" and addon or nil
 end
 
--- The numbers as RestedXP's options show them.
+-- The numbers as RestedXP's options show them: font sizes (5 and up) as
+-- they are, scales (3 at most) in percent.
 local function DescribeSize(value)
 	if type(value) ~= "number" then return tostring(value) end
-	if value % 1 == 0 then return tostring(value) end
-	return ("%d %%"):format(Round(value * 100))
+	if value < 4 then return ("%d %%"):format(Round(value * 100)) end
+	return tostring(Round(value))
+end
+
+-- RestedXP reads its guide font size once, when it builds the window: the
+-- size it built with, read the first time EldoUI looks (after login).
+function M:RXPBuiltFont()
+	if self.rxpBuiltFont == nil then
+		local profile = RXPSettingsProfile()
+		if profile then self.rxpBuiltFont = tonumber(rawget(profile, "guideFontSize") or RXPSizeDefault(profile, "guideFontSize")) end
+	end
+	return self.rxpBuiltFont
 end
 
 M.changes.rxpSize = {
 	addon = "rxp",
+	addonTitle = "RestedXP",
 	title = "RestedXP: sizes to fit EldoUI",
 	Target = RXPSettingsProfile,
 	Wanted = function() return M:RXPSizesWanted() end,
@@ -1459,6 +1549,7 @@ M.changes.rxpSize = {
 		windowScale = Key("Window scale"),
 	},
 	unset = Key("RestedXP's default"),
+	Default = RXPSizeDefault,
 	Describe = DescribeSize,
 	-- The scales and the arrow's text now, the guide's text after a reload.
 	Refresh = function()
@@ -1479,7 +1570,11 @@ M.changes.rxpSize = {
 		end
 		M:RefitRXP()
 		PlaceRXPParts()
-		E:ShowReloadPrompt(L["RestedXP shows its guide text in the new size after a reload."])
+		-- A reload only when the guide's text is not the size RestedXP built.
+		local built, now = M:RXPBuiltFont(), type(profile) == "table" and tonumber(rawget(profile, "guideFontSize") or RXPSizeDefault(profile, "guideFontSize"))
+		if built == nil or now ~= built then
+			E:ShowReloadPrompt(L["RestedXP shows its guide text in the new size after a reload."])
+		end
 	end,
 }
 
@@ -2440,6 +2535,7 @@ function M:OnEnable()
 				M:PlaceAll()
 				-- RestedXP's settings are ready by now.
 				M:SetupRXPStepList()
+				M:RXPBuiltFont()
 			end
 		end)
 	end)
