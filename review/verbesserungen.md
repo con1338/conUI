@@ -32,6 +32,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C6 | RestedXP im deutschen Client: Zielnamen, Guide-Kette, Gruppennamen (Wunsch des Nutzers) | mittel | umgesetzt | `befb8ab` |
 | C7 | Leisten-Schnappschüsse sichern auch, welche Aktionsleisten an sind (Forever-Hotfix 13.11.) | klein | umgesetzt | `95002b5` |
 | C8 | Kampfsimulation: Richturteil würfelt als Fernkampfangriff (Forever-Hotfix 11.11.) | klein | umgesetzt (seit 0.7.3000 von EldoUI) | `95002b5`, `c323ceb` |
+| C9 | RestedXP: Schrittliste per Klick ein- und ausklappen, Knopf im Knopfsammler der Minikarte (Wunsch des Nutzers) | klein–mittel | umgesetzt | `7f2a0a8`, `c944dc7` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb`, `775b23d`, `f9c0fc9` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -983,6 +984,52 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     Test: `tools/lootsim/test_judgement.lua` (13 Prüfungen, ohne die Regel 5 Fehlschläge).
   - **Offen:** Ob ein Krit des Richturteils jetzt wie ein Fernkampf-Krit zählt, sagt der Hotfix nicht. Es gibt keinen
     Spieltest dafür, nur die Zahlen der Simulation.
+- **C9 RestedXP: Schrittliste per Klick:** Der Nutzer levelt mit den gekauften RestedXP-Guides im klassischen
+  Guide-Fenster auf einem 4K-Bildschirm (25.11.2026). Um den Text zu lesen, hat er das Fenster vergrößert. Danach
+  füllt der ganze Guide die linke Seite. Gewünscht: nur der aktuelle Schritt und der Pfeil, die Liste aller Schritte
+  bei Bedarf per Klick, am besten über einen Knopf im Knopfsammler der Minikarte. Kein Aufklappen beim Drüberfahren.
+  - **Geprüft** (RestedXP-Code von GitHub, Tag v4.11.36 und Stand 24.11.2026, nur gelesen, nichts davon im Repo):
+    RestedXP kann die Liste selbst einklappen, Option „Schrittliste anzeigen“ (Guide Window), Funktion
+    `settings:SetStepListShown(bool)` in `SettingsPanel.lua`. Die Liste ist die Höhe von `RXPFrame`, gespeichert als
+    `profile.frameHeight`; bei 10 ist sie eingeklappt, ab 35 sichtbar (`IsStepListShown`). Beim Aufklappen setzt
+    RestedXP die Höhe auf seinen Standard 125 (`addon.height`) zurück, die eigene Höhe des Spielers geht verloren.
+    Guides mit `hidewindow` haben keine Liste, dort tut der Schalter nichts. `RXPFrame` enthält keine geschützten
+    Knöpfe. Für die Schriftgröße gibt es RestedXPs eigene Option „Schriftgroesse des Guides“ (Standard 9, bis 18,
+    Neuladen): Auf 4K zeichnet EldoUI die 1440p-Fläche (1 Einheit sind 1,5 Pixel), Schrift 9 ist dort sehr klein.
+    Darauf hat der Nutzer in der Antwort einen Hinweis bekommen; EldoUI ändert sie nicht.
+  - **Umgesetzt:**
+    - `EldoUI/Modules/Minimap.lua`: neue Schnittstelle `E:AddMinimapButton(key, spec)` und
+      `E:RefreshMinimapButton(key)` für Minimap-Knöpfe anderer EldoUI-Module. Gezeichnet wie der EldoUI-Knopf
+      (`Badge.Draw`, der EldoUI-Knopf nutzt sie jetzt auch), im Knopfsammler direkt nach dem EldoUI-Knopf, in
+      „Schaltflächen verwalten“ mit eigenem Namen, mit ausgeschaltetem Knopfsammler am Kartenrand und dort
+      ziehbar (Winkel je Knopf in `ownAngles`). Verschwindet mit dem Minimap-Modul und im Minikarten-Overlay.
+    - `EldoUI/Modules/Integrations.lua`, Abschnitt „RestedXP's step list on a click“: Knopf „RestedXP-Schrittliste“
+      (Schriftrolle, eingeklappt grau) und Taste „RestedXPs Schrittliste ein-/ausblenden“ (`ELDOUI_RXP_STEPLIST` in
+      `Bindings.xml`). Beide rufen RestedXPs eigenen Schalter, nur auf Klick. Vor dem Einklappen merkt sich EldoUI die
+      Höhe der Liste (`rxp.listHeight`) und gibt sie beim Aufklappen zurück (`profile.frameHeight` und die
+      Fensterhöhe, wie RestedXPs Schalter selbst). Im neuen Guide-Fenster nur der Schalter, es hat seine eigene Höhe.
+      Ein Guide ohne Liste bleibt, wie er ist, mit einer Chatzeile. Strg-Klick öffnet die Einstellung. Neuer
+      Schalter „Schrittlisten-Schaltfläche an der Minikarte“ (`rxp.listButton`, Standard an) im RestedXP-Reiter.
+      Regel oben in `Integrations.lua` ergänzt. Der Platz des Guides passt sich an, weil EldoUI die Größe des
+      Fensters schon verfolgt (`HookRXP`, `OnSizeChanged`).
+    - Deutsche Texte in `EldoUI_Locale_deDE/Fork.lua`.
+  - **Test:** `tools/integrations/test_rxp_steplist.lua` (läuft in `tools/ci/check_all.sh tests`, 48 Prüfungen). Er
+    startet ganz EldoUI im Offline-Spiel (`tools/harness/wow.lua`) neben einem Modell von RestedXP (nach v4.11.36
+    nachgebaut, kein RestedXP-Code). Geprüft: Knopf im Knopfsammler nach dem EldoUI-Knopf und in „Schaltflächen
+    verwalten“; Klick klappt ein, der nächste gibt 400 statt 125 zurück; ohne gespeicherte Höhe RestedXPs Standard;
+    Taste; Strg-Klick; Guide ohne Liste; neues Fenster; Knopf weg mit Integration, eigenem Schalter, Minimap-Modul
+    und einem RestedXP ohne Schalter, danach wieder da; Knopfsammler aus: am Kartenrand beim gespeicherten Winkel;
+    keine Fehler.
+  - **Im Spiel prüfen:**
+    1. Neue Version in den AddOns-Ordner kopieren, `/reload` reicht (keine neue Datei in der TOC, nur `Bindings.xml`
+       geändert: Für die Taste das Spiel ganz neu starten).
+    2. Knopfsammler der Minikarte öffnen. Erwartung: eine Schriftrolle „RestedXP-Schrittliste“ direkt nach dem
+       EldoUI-Knopf, Tooltip „Klick: Die Liste aller Schritte einklappen …“.
+    3. Klicken. Erwartung: Nur die Schrittkarte, der Guide-Name und der Pfeil bleiben, das Symbol wird grau. Der
+       Guide bleibt an seinem Platz, oben bündig.
+    4. Noch einmal klicken. Erwartung: Die Liste ist in der Höhe zurück, die sie vorher hatte.
+    5. Tastaturbelegung > AddOns > EldoUI: „RestedXPs Schrittliste ein-/ausblenden“ belegen und drücken.
+    6. Danach: `/eui errors` ohne neue Einträge.
 
 ## D – Infrastruktur für den Fork
 

@@ -31,6 +31,12 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 - The coordinate box and the waypoint arrow can be dragged as soon as move mode opens: they now show in Combat mode, the view it starts in. The coordinate box's right-click menu has Move, and a switched-off arrow leaves no box in move mode.
 
+### Other addons
+
+#### New
+
+- RestedXP's list of every guide step folds away and back with one click: a RestedXP step list button in the minimap's addon button bin, or a key (Key Bindings > AddOns > EldoUI). The current step card and the arrow stay. EldoUI uses RestedXP's own Show step list switch and gives the list back at the height you had, where RestedXP would open it at its default height. Turn the button off under Integrations > RestedXP.
+
 ## [0.7.3100] - 2026-11-21
 
 ### Setup and profiles

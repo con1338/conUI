@@ -41,6 +41,8 @@ Your layout also has spots for the frames of supported addons you keep. Out of c
 
 Some addons are made to work with conUI and never make it step back: conUI places Details!, BigWigs, Deadly Boss Mods and others in your layout and sets them up from the setup's Other addons step (`/eui install addons`).
 
+With RestedXP, the **RestedXP step list** button in the minimap's addon button bin folds RestedXP's list of every guide step away and back; the current step card and the arrow stay. There is also a key for it (Key Bindings > AddOns > conUI). conUI uses RestedXP's own **Show step list** switch and gives the list back at the height you had. Turn the button off with **Step list button on the minimap** under Integrations > RestedXP.
+
 ## For addon authors
 
 Plugins declare which addons do the same job as their modules in the same way. See [Other addons that do the same job](../PLUGINS.md#other-addons-that-do-the-same-job) in the plugin guide.
