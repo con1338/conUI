@@ -8,19 +8,29 @@
 -- left side. Wanted: only the current step and the arrow, the list of every
 -- step on a click, from a button in the minimap's addon button bin.
 -- This starts all of EldoUI in the offline game (tools/harness/wow.lua)
--- next to a model of RestedXP. The model is written after what RestedXP
--- v4.11.36 does (SettingsPanel.lua: settings:IsStepListShown, a window
--- taller than 35 shows the list, and settings:SetStepListShown, which sets
--- the window and profile.frameHeight to 125 or 10 and does nothing for a
--- guide with `hidewindow`), not RestedXP's code.
--- Checked: the button is drawn, gathered in the bin after EldoUI's own and
--- named in "Manage buttons"; a click folds the list and the next one gives
--- it back at the player's height (RestedXP's default when none was saved);
--- the key does the same; a guide without a list stays as it is; the new
--- guide window gets only the switch; the button goes with the integration,
--- its own switch, the Minimap module and a RestedXP without the switch,
--- and comes back; with the bin off it sits on the map's edge at its saved
--- angle; no errors on the way.
+-- next to a model of RestedXP, written after what RestedXP v4.11.36 does,
+-- not RestedXP's code:
+--   * SettingsPanel.lua: settings:IsStepListShown (a saved window height
+--     under 35 is folded), settings:SetStepListShown (window and
+--     profile.frameHeight to 125 or 10, a new layout asked for, nothing for
+--     a guide with `hidewindow`), GetSettingsDB (the profile's name);
+--   * GuideWindow.lua: BottomFrame.UpdateFrame on RestedXP's next update (a
+--     list under 30 hides and the window keeps 28; a hidden list shows
+--     again at the saved height, at least 50), the empty guide;
+--   * the game: a size change runs the frame's OnSizeChanged.
+-- Checked: the button is drawn, gathered in the bin right after EldoUI's
+-- own (before another addon's button found first), named in "Manage
+-- buttons", kept on the map's edge from there; a click folds the list and
+-- the next one gives it back at the player's height (RestedXP's default
+-- when none was saved), noted by RestedXP profile, also after RestedXP's
+-- own switch and an Alt-drag; the icon follows RestedXP's own switch; the
+-- key does the same as a click; Ctrl-click opens the setting; no guide or a
+-- guide without a list stays as it is; the new guide window gets only the
+-- switch; a fight with a protected window waits; the button goes with the
+-- integration, its own switch, the Integrations and Minimap modules and a
+-- RestedXP without the switch, and comes back; a refresh with nothing new
+-- neither shows the button again nor takes it from another addon; with the
+-- bin off it sits on the map's edge at its saved angle; no errors.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/integrations/") or "./"
 
 local passed, failed = 0, 0
@@ -54,12 +64,17 @@ rawset(tip, "SetOwner", function(self, owner) self.__owner = owner wipe(tooltip)
 rawset(tip, "IsOwned", function(self, owner) return self.__owner == owner end)
 rawset(tip, "SetText", function(_, text) tooltip[#tooltip + 1] = tostring(text) end)
 rawset(tip, "AddLine", function(_, text) tooltip[#tooltip + 1] = tostring(text) end)
+rawset(tip, "NumLines", function() return #tooltip end)
 local function TooltipHas(text)
 	for _, line in ipairs(tooltip) do
 		if line:find(text, 1, true) then return true end
 	end
 	return false
 end
+
+-- Another addon's minimap button, there before EldoUI gathers.
+local foreign = CreateFrame("Button", "Foo_MinimapButton", Minimap)
+foreign:SetSize(31, 31)
 
 World.phase = "load"
 World.LoadAddOn("EldoUI")
@@ -71,8 +86,19 @@ local E = World.addons.EldoUI.ns
 local calls = 0
 local RXPFrame = CreateFrame("Frame", "RXPFrame", UIParent)
 RXPFrame:SetSize(235, 125)
+-- The game runs OnSizeChanged after a size change.
+local SetHeight = RXPFrame.SetHeight
+rawset(RXPFrame, "SetHeight", function(self, height)
+	local old = self:GetHeight()
+	SetHeight(self, height)
+	local script = self:GetScript("OnSizeChanged")
+	if height ~= old and script then script(self, self:GetWidth(), height) end
+end)
+local bottomShown = true
 local rxp = { height = 125, RXPFrame = RXPFrame, updateBottomFrame = false }
-local settings = { profile = {} }
+local profiles = { ["Tester - Realm"] = {} }
+local profileName = "Tester - Realm"
+local settings = { profile = profiles[profileName] }
 function settings:IsStepListShown()
 	local frameHeight = self.profile and self.profile.frameHeight
 	return frameHeight == nil or frameHeight >= 35
@@ -84,7 +110,38 @@ function settings:SetStepListShown(value)
 	self.profile.frameHeight = value and rxp.height or 10
 	rxp.updateBottomFrame = true
 end
+settings.GetSettingsDB = function() return profileName end
 rxp.settings = settings
+local function UseProfile(name)
+	profiles[name] = profiles[name] or {}
+	profileName, settings.profile = name, profiles[name]
+end
+
+-- RestedXP's next update: BottomFrame.UpdateFrame (the list is the window
+-- less 17 units).
+local function RXPUpdate()
+	if not rxp.updateBottomFrame then return end
+	rxp.updateBottomFrame = false
+	local guide = rxp.currentGuide
+	if RXPFrame:GetHeight() - 17 < 30 then
+		bottomShown = false
+		if RXPFrame:GetHeight() < 28 then RXPFrame:SetHeight(28) end
+	elseif guide and guide.hidewindow then
+		bottomShown = false
+		RXPFrame:SetHeight(28)
+	elseif not bottomShown then
+		if settings.profile.frameHeight then RXPFrame:SetHeight(math.max(settings.profile.frameHeight, 50)) end
+		bottomShown = true
+	end
+end
+
+-- An Alt-drag in RestedXP: the size changes, the release saves it.
+local function AltDrag(height)
+	RXPFrame:SetHeight(height)
+	settings.profile.frameHeight = RXPFrame:GetHeight()
+	rxp.updateBottomFrame = true
+	RXPUpdate()
+end
 
 local AceAddon = LibStub:NewLibrary("AceAddon-3.0", 1)
 function AceAddon:GetAddon(name, silent)
@@ -92,15 +149,15 @@ function AceAddon:GetAddon(name, silent)
 	if not silent then error("no addon " .. tostring(name)) end
 end
 
-World.addons.RXPGuides = { name = "RXPGuides", meta = { Title = "RestedXP Guides" }, files = {}, demand = false }
-table.insert(World.addonList, "RXPGuides")
-World.LoadAddOn("RXPGuides")
-
 -- As after the setup: EldoUI may place the minimap buttons (Blizzard UI >
 -- Minimap buttons, Replace), so the bin gathers them.
 local state = E.db and E.db.blizzard and E.db.blizzard["minimap-buttons"]
 Check(state ~= nil, "the saved settings have the minimap buttons' element")
 if state then state.enabled, state.replace = true, true end
+
+World.addons.RXPGuides = { name = "RXPGuides", meta = { Title = "RestedXP Guides" }, files = {}, demand = false }
+table.insert(World.addonList, "RXPGuides")
+World.LoadAddOn("RXPGuides")
 
 World.phase = "PLAYER_LOGIN"
 World.loggedIn = true
@@ -109,6 +166,7 @@ World.phase = "PLAYER_ENTERING_WORLD"
 World.Fire("PLAYER_ENTERING_WORLD", true, false)
 World.phase = "timers"
 World.RunTimers(5)
+World.phase = "test"
 
 local minimap = E.modules.Minimap
 local integrations = E.modules.Integrations
@@ -122,6 +180,9 @@ if not button then
 	os.exit(1)
 end
 local bin = _G.EldoUI_ButtonBin
+local cfg = integrations.db.rxp
+-- A button that registered for clicks takes them, as in the game.
+rawset(button, "IsMouseClickEnabled", function() return true end)
 
 local function Refresh()
 	integrations:OnProfileChanged()
@@ -130,73 +191,117 @@ end
 local function Click(mouse)
 	local onClick = button:GetScript("OnClick")
 	onClick(button, mouse or "LeftButton")
+	RXPUpdate()
 	World.RunTimers(3)
 end
+local function Key()
+	_G.EldoUI:ToggleRXPStepList()
+	RXPUpdate()
+	World.RunTimers(3)
+end
+local function Noted() return type(cfg.listHeights) == "table" and cfg.listHeights[profileName] or nil end
 
--- Drawn, shown and in the bin, right after EldoUI's own button.
+-- Drawn, shown and in the bin, right after EldoUI's own button and before
+-- the other addon's button the bin found first.
 Check(button:IsShown(), "the button shows while RestedXP has the switch")
 Check(button:GetParent() == bin, "the bin gathers the button")
-Check(minimap.ownButtons[1] and minimap.ownButtons[1].button == button, "the Minimap module lists it as an added button")
+Check(foreign:GetParent() == bin, "the bin gathers the other addon's button too")
+local order = minimap.Bin.Visible()
+Check(order[1] == _G.EldoUI_MinimapButton and order[2] == button and order[3] == foreign,
+	"bin order: EldoUI's button, the step list, then the other addon's")
 Check(rawget(button, "icon") ~= nil, "the button has its icon")
 local manage
 for _, option in ipairs(minimap.options or {}) do
 	if option.key == "binManage" then manage = option end
 end
-if manage and type(manage.values) == "function" then
-	local found = false
-	local values = manage.values()
+local function ManageNames(text)
+	local values = manage and type(manage.values) == "function" and manage.values() or {}
 	for _, entry in pairs(values) do
-		if type(entry) == "string" and entry:find("RestedXP step list", 1, true) then found = true end
+		if type(entry) == "string" and entry:find(text, 1, true) then return true end
 		if type(entry) == "table" then
-			for _, text in pairs(entry) do
-				if type(text) == "string" and text:find("RestedXP step list", 1, true) then found = true end
+			for _, value in pairs(entry) do
+				if type(value) == "string" and value:find(text, 1, true) then return true end
 			end
 		end
 	end
-	Check(found, "\"Manage buttons\" names it \"RestedXP step list\"")
-else
-	Check(false, "the Minimap page has \"Manage buttons\"")
+	return false
 end
+Check(ManageNames("RestedXP step list: in the bin"), "\"Manage buttons\" names it \"RestedXP step list\"")
 Check(_G.BINDING_NAME_ELDOUI_RXP_STEPLIST == "Show or hide RestedXP's step list", "the key has its name in the Key Bindings window")
 
 -- The tooltip says what a click does.
 button:GetScript("OnEnter")(button)
 Check(TooltipHas("RestedXP step list"), "the tooltip has the title")
 Check(TooltipHas("fold the list of every step away"), "the tooltip offers to fold the shown list")
+Check(TooltipHas("Ctrl"), "the tooltip names Ctrl-click for the setting")
 
 -- The player's own height: folded, then given back.
 local gray
 rawset(button.icon, "SetDesaturated", function(_, value) gray = value and true or false end)
-settings.profile.frameHeight = 400
-RXPFrame:SetHeight(400)
+AltDrag(400)
+Check(Noted() == 400, "an Alt-drag in RestedXP is noted while the list shows")
 Click()
-Check(settings.profile.frameHeight == 10 and RXPFrame:GetHeight() == 10, "a click folds the list (RestedXP's switch)")
-Check(integrations.db.rxp.listHeight == 400, "EldoUI notes the list's height before folding it")
+Check(settings.profile.frameHeight == 10 and RXPFrame:GetHeight() == 28, "a click folds the list (RestedXP's switch; its window keeps 28)")
+Check(Noted() == 400, "the fold keeps the list's height, not RestedXP's 10 or 28")
 Check(gray == true, "folded, the icon is grayed")
-button:GetScript("OnEnter")(button)
-Check(TooltipHas("show the list of every step"), "folded, the tooltip offers to show the list")
+Check(TooltipHas("show the list of every step"), "after the click the tooltip offers to show the list")
+Check(TooltipHas("Ctrl"), "and still names Ctrl-click")
 Click()
-Check(settings.profile.frameHeight == 400 and RXPFrame:GetHeight() == 400, "the next click gives the list back at 400, not RestedXP's 125")
-Check(rxp.updateBottomFrame == true, "RestedXP lays its list out again")
+Check(settings.profile.frameHeight == 400 and RXPFrame:GetHeight() == 400 and bottomShown,
+	"the next click gives the list back at 400, not RestedXP's 125")
 Check(gray == false, "shown, the icon is in color again")
 
 -- No height saved: RestedXP's default.
 settings.profile.frameHeight = nil
 RXPFrame:SetHeight(125)
+cfg.listHeights = nil
 Click()
 Check(settings.profile.frameHeight == 10, "folded from RestedXP's default height")
-Check(integrations.db.rxp.listHeight == nil, "nothing noted when RestedXP had no height saved")
+Check(Noted() == nil, "nothing noted when RestedXP had no height saved")
 Click()
 Check(settings.profile.frameHeight == 125 and RXPFrame:GetHeight() == 125, "opened at RestedXP's default height")
 
+-- RestedXP's own switch and an Alt-drag in between.
+AltDrag(400)
+Click()
+settings:SetStepListShown(true)
+RXPUpdate()
+World.RunTimers(3)
+Check(gray == false, "RestedXP's own switch opened it: the icon is in color")
+AltDrag(600)
+settings:SetStepListShown(false)
+RXPUpdate()
+World.RunTimers(3)
+Check(gray == true, "RestedXP's own switch folded it: the icon is gray")
+Check(Noted() == 600, "the height of the list RestedXP showed is noted, not EldoUI's older 400")
+Click()
+Check(settings.profile.frameHeight == 600 and RXPFrame:GetHeight() == 600, "EldoUI opens it at 600")
+
+-- One note per RestedXP profile (one per character unless shared).
+AltDrag(400)
+Click()
+UseProfile("Other - Realm")
+settings.profile.frameHeight = 200
+RXPFrame:SetHeight(200)
+Click()
+Check(Noted() == 200, "the other profile notes its own height")
+UseProfile("Tester - Realm")
+RXPFrame:SetHeight(28)
+Click()
+Check(settings.profile.frameHeight == 400 and RXPFrame:GetHeight() == 400, "back on the first profile: its own 400, not 200")
+UseProfile("Other - Realm")
+RXPFrame:SetHeight(28)
+Click()
+Check(settings.profile.frameHeight == 200, "and the other profile gets its 200")
+UseProfile("Tester - Realm")
+RXPFrame:SetHeight(400)
+
 -- The key does the same.
 local before = calls
-_G.EldoUI:ToggleRXPStepList()
-World.RunTimers(3)
+Key()
 Check(calls == before + 1 and settings.profile.frameHeight == 10, "the key folds the list")
-_G.EldoUI:ToggleRXPStepList()
-World.RunTimers(3)
-Check(settings.profile.frameHeight == 125, "the key opens it again")
+Key()
+Check(settings.profile.frameHeight == 400, "the key opens it again at the noted height")
 
 -- Ctrl-click is the options link, not a toggle.
 before = calls
@@ -213,53 +318,88 @@ E.OpenConfigFromLink = open
 Check(calls == before, "Ctrl-click leaves the list alone")
 Check(opened, "Ctrl-click opens the setting")
 
--- A guide RestedXP shows without a list.
-rxp.currentGuide = { hidewindow = true }
+-- No guide loaded, and a guide RestedXP shows without a list.
+for _, case in ipairs({
+	{ guide = { empty = true, hidewindow = true, name = "" }, text = "No RestedXP guide is loaded.", what = "no guide loaded" },
+	{ guide = { hidewindow = true, name = "A guide" }, text = "This RestedXP guide shows no step list.", what = "a guide without a list" },
+}) do
+	rxp.currentGuide = case.guide
+	local count = #printed
+	before = calls
+	Click()
+	Check(calls == before and settings.profile.frameHeight == 400, case.what .. ": the list stays as it is")
+	Check(PrintedSince(count, case.text), case.what .. ": and says why")
+	button:GetScript("OnEnter")(button)
+	Check(TooltipHas(case.text), case.what .. ": the tooltip says it too")
+end
+rxp.currentGuide = nil
+
+-- A fight while the window is protected: the change waits.
+local combat = _G.InCombatLockdown
+rawset(_G, "InCombatLockdown", function() return true end)
+rawset(RXPFrame, "IsProtected", function() return true, true end)
 local count = #printed
 before = calls
-Click()
-Check(calls == before and settings.profile.frameHeight == 125, "a guide without a list stays as it is")
-Check(PrintedSince(count, "This RestedXP guide shows no step list."), "and says why")
-button:GetScript("OnEnter")(button)
-Check(TooltipHas("This RestedXP guide shows no step list."), "the tooltip says it too")
-rxp.currentGuide = nil
+Key()
+Check(calls == before, "in a fight with a protected window: no change yet")
+Check(PrintedSince(count, "The step list changes after combat."), "and says when")
+rawset(_G, "InCombatLockdown", combat)
+World.Fire("PLAYER_REGEN_ENABLED")
+RXPUpdate()
+World.RunTimers(3)
+rawset(RXPFrame, "IsProtected", nil)
+Check(calls == before + 1 and settings.profile.frameHeight == 10, "after the fight it folds")
+Key()
 
 -- The new guide window: only RestedXP's switch, its own open height.
 local beta = CreateFrame("Frame", "RXPV2GuideWindowFrame", UIParent)
 rawset(_G, "RXPV2GuideWindow", { frame = beta })
 settings.profile.frameHeight = 300
 RXPFrame:SetHeight(300)
-integrations.db.rxp.listHeight = 400
+cfg.listHeights[profileName] = 400
 Click()
-Check(settings.profile.frameHeight == 10 and integrations.db.rxp.listHeight == 400, "new window: folded, the classic height note stays")
+Check(settings.profile.frameHeight == 10 and Noted() == 400, "new window: folded, the classic height note stays")
 Click()
 Check(settings.profile.frameHeight == 125, "new window: RestedXP opens it by itself")
 rawset(_G, "RXPV2GuideWindow", nil)
+settings.profile.frameHeight = 400
+RXPFrame:SetHeight(400)
 
--- The button goes with the integration, its own switch and the Minimap
--- module, and comes back.
-integrations.db.rxp.enabled = false
+-- The button goes with the integration, its own switch and both modules,
+-- and comes back.
+cfg.enabled = false
 Refresh()
 Check(not button:IsShown(), "integration off: no button")
 count = #printed
 before = calls
-_G.EldoUI:ToggleRXPStepList()
+Key()
 Check(calls == before, "integration off: the key leaves RestedXP alone")
 Check(PrintedSince(count, "The RestedXP integration is off"), "and says so")
-integrations.db.rxp.enabled = true
+cfg.enabled = true
 Refresh()
 Check(button:IsShown(), "integration on: the button is back")
 
-integrations.db.rxp.listButton = false
+cfg.listButton = false
 Refresh()
 Check(not button:IsShown(), "\"Step list button on the minimap\" off: no button")
 before = calls
-_G.EldoUI:ToggleRXPStepList()
+Key()
 Check(calls == before + 1, "the key works without the button")
-_G.EldoUI:ToggleRXPStepList()
-integrations.db.rxp.listButton = true
+Key()
+cfg.listButton = true
 Refresh()
 Check(button:IsShown(), "switch on: the button is back")
+
+E:SetModuleEnabled("Integrations", false)
+World.RunTimers(3)
+Check(not button:IsShown(), "Integrations module off: no button")
+count = #printed
+before = calls
+Key()
+Check(calls == before and PrintedSince(count, "Integrations"), "Integrations module off: the key names the module")
+E:SetModuleEnabled("Integrations", true)
+World.RunTimers(3)
+Check(button:IsShown() and button:GetParent() == bin, "Integrations module on: the button is back in the bin")
 
 E:SetModuleEnabled("Minimap", false)
 World.RunTimers(3)
@@ -274,25 +414,58 @@ settings.SetStepListShown = nil
 Refresh()
 Check(not button:IsShown(), "a RestedXP without the switch: no button")
 count = #printed
-_G.EldoUI:ToggleRXPStepList()
+Key()
 Check(PrintedSince(count, "This RestedXP version has no step list switch."), "the key says why")
 settings.SetStepListShown = switch
 Refresh()
 Check(button:IsShown(), "the switch is there again: the button too")
 
--- The bin off: on the map's edge at its own saved angle.
+-- A refresh with nothing new runs none of the bin's show hooks.
+local shows = 0
+local Show, SetShown = button.Show, button.SetShown
+rawset(button, "Show", function(self) shows = shows + 1 return Show(self) end)
+rawset(button, "SetShown", function(self, value) shows = shows + 1 return SetShown(self, value) end)
+Refresh()
+Key()
+Key()
+Check(shows == 0, "a refresh or a click with the button shown leaves it alone (" .. shows .. " show calls)")
+rawset(button, "Show", nil)
+rawset(button, "SetShown", nil)
+
+-- "Manage buttons": kept on the map's edge, then gathered again.
 Minimap:SetSize(200, 200)
 minimap.db.ownAngles.RXPStepList = 90
+minimap.db.binExclude.EldoUI_RXPStepListMinimapButton = true
+minimap:CollectButtons()
+World.RunTimers(3)
+local point, relative, _, x, y = button:GetPoint(1)
+Check(button:GetParent() == Minimap and point == "CENTER" and relative == Minimap and math.abs(x or 99) < 1 and (y or 0) > 0,
+	"kept on the map: on its edge at its saved angle (90 degrees: above the map)")
+Check(ManageNames("RestedXP step list: kept on the map"), "\"Manage buttons\" says it is kept on the map")
+minimap.db.binExclude.EldoUI_RXPStepListMinimapButton = nil
+minimap:CollectButtons()
+World.RunTimers(3)
+Check(button:GetParent() == bin, "gathered again")
+
+-- The bin off: on the map's edge, where another addon that gathers
+-- minimap buttons may take it; a click or a refresh leaves it there.
 minimap.db.binMode = "off"
 minimap:OnProfileChanged()
 World.RunTimers(3)
 minimap:Apply()
 World.RunTimers(3)
-local point, relative, _, x, y = button:GetPoint(1)
+point, relative, _, x, y = button:GetPoint(1)
 Check(button:GetParent() == Minimap, "bin off: the button sits on the map")
-if not (point == "CENTER" and math.abs(x or 99) < 1 and (y or 0) > 0) then print("  point", point, relative, x, y, minimap.db.shape) end
-Check(point == "CENTER" and relative == Minimap and math.abs(x or 99) < 1 and (y or 0) > 0, "at its saved angle (90 degrees: above the map)")
+Check(point == "CENTER" and relative == Minimap and math.abs(x or 99) < 1 and (y or 0) > 0, "at its saved angle")
 Check(button:IsShown(), "and shows")
+local other = CreateFrame("Frame", "OtherButtonBag", UIParent)
+button:SetParent(other)
+button:ClearAllPoints()
+button:SetPoint("TOPLEFT", other, "TOPLEFT", 2, -2)
+Key()
+Key()
+Refresh()
+Check(button:GetParent() == other and select(2, button:GetPoint(1)) == other, "another addon took it: a click or a refresh leaves it there")
 minimap.db.binMode = "drawer"
 minimap:OnProfileChanged()
 World.RunTimers(3)

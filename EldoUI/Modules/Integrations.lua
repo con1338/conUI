@@ -12,7 +12,7 @@
 --   * Every addon has its own switch and only does anything while that
 --     addon is loaded. EldoUI never copies or changes their code, and never
 --     writes their saved settings except where noted (Questie's grow corner,
---     its own option).
+--     its own option; RestedXP's step list height, below).
 --   * Details and Questie windows hold secure buttons, so every move runs
 --     through E:RunOutOfCombat (Queue below).
 --   * Nothing here reads combat data; it only moves and frames windows.
@@ -26,7 +26,9 @@
 --   * RestedXP's step list (the list of every step under the current step
 --     card) folds away and back only on the player's click on EldoUI's
 --     minimap button or key, through RestedXP's own switch, the one its
---     option "Show step list" uses (section "RestedXP's step list on a click").
+--     option "Show step list" uses. Opening it, EldoUI then writes the
+--     height the list had back into RestedXP's saved window height, as
+--     RestedXP's own resize does (section "RestedXP's step list on a click").
 --   * One exception to "never changes their code": on a client in another
 --     language, "Fit RestedXP to this game language" wraps a few RestedXP
 --     functions so its English paid guides work there
@@ -34,7 +36,8 @@
 --
 -- Checked against these releases for WoW: Forever 1.60.1:
 --   Details! Damage Meter  Details.20261107.15402.172
---   RestedXP Guides        v4.11.26 (the classic guide and the beta guide window)
+--   RestedXP Guides        v4.11.26 (the classic guide and the beta guide window),
+--                          the step list switch v4.11.36
 --   BigWigs                v427.6
 --   Questie                12.1.0 with QuestieDB 1.0.6
 --   Guidelime              6.008
@@ -81,7 +84,7 @@ local M = E:NewModule("Integrations", {
 			cardDown = true,    -- the step card opens under the guide on a spot in the top half
 			locale = true,      -- fit RestedXP to a client in another language (IntegrationsRXPLocale.lua)
 			listButton = true,  -- a minimap button that folds RestedXP's step list away and back
-			-- listHeight: the step list's height before EldoUI folded it, given back when it opens
+			-- listHeights: RestedXP profile name -> the shown list's height, given back when it opens
 		},
 		bigwigs = {
 			enabled = true,
@@ -1365,14 +1368,18 @@ E:RegisterAddonSetup("RestedXP", {
 -- addon button bin) and the key "Show or hide RestedXP's step list" call
 -- the same switch, RestedXP's settings:SetStepListShown, on the player's
 -- click only; nothing folds or opens by itself.
--- RestedXP stores the list as the window's height (profile.frameHeight,
--- 10 or less: folded) and opens it again at its default height (125). So
--- before folding EldoUI notes the height the list had (rxp.listHeight)
--- and gives it back when it opens, through the same profile value and
--- the window's height. The new guide window keeps its own open height,
--- so there EldoUI only calls the switch.
+-- RestedXP keeps the list as the window's height (profile.frameHeight;
+-- under 35 the list is folded, and its switch folds to 10) and opens it
+-- again at its default height (125). So EldoUI notes the height of the
+-- shown list (rxp.listHeights, by RestedXP profile, which is one per
+-- character unless the player shares one): when it folds the list, and
+-- whenever the window changes size with the list showing (an Alt-drag in
+-- RestedXP, RestedXP's own switch). Opening, it gives that height back
+-- through the same profile value and the window's height. The new guide
+-- window keeps its own open height, so there EldoUI only calls the switch.
 -- Checked against RestedXP v4.11.36 and its code of November 2026: the
--- switch, IsStepListShown and the `hidewindow` guides (no list at all).
+-- switch, IsStepListShown, GetSettingsDB (the profile's name) and the
+-- `hidewindow` guides (no list; the empty guide while none is loaded).
 local RXP_LIST_KEY = "RXPStepList"
 local RXP_LIST_ICON = "Interface\\Icons\\INV_Scroll_03"
 local RXP_LIST_MIN = 35 -- RestedXP's own line: a taller window shows the list
@@ -1393,10 +1400,43 @@ local function RXPStepListSettings()
 	return settings, addon
 end
 
--- A guide RestedXP shows without any list (its `hidewindow` guides).
-local function RXPGuideHasNoList(addon)
+-- Why RestedXP shows no list now: "empty" (no guide loaded), "nolist" (a
+-- guide without one), or nil.
+local function RXPNoListReason(addon)
 	local guide = rawget(addon, "currentGuide")
-	return type(guide) == "table" and guide.hidewindow and true or false
+	if type(guide) ~= "table" or not guide.hidewindow then return nil end
+	return guide.empty and "empty" or "nolist"
+end
+
+local NO_LIST_TEXT = {
+	empty = Key("No RestedXP guide is loaded."),
+	nolist = Key("This RestedXP guide shows no step list."),
+}
+
+-- The name of RestedXP's profile in use, for the height note.
+local function RXPProfileName(settings)
+	local get = rawget(settings, "GetSettingsDB")
+	if type(get) == "function" then
+		local ok, name = pcall(get)
+		if ok and type(name) == "string" and name ~= "" then return name end
+	end
+	return E.charKey or "?"
+end
+
+function M:RXPListHeight(settings)
+	local heights = self.db.rxp.listHeights
+	local height = type(heights) == "table" and tonumber(heights[RXPProfileName(settings)])
+	return height and height >= RXP_LIST_MIN and height or nil
+end
+
+-- height nil: no note (RestedXP's default height is what it opens at).
+function M:SetRXPListHeight(settings, height)
+	local cfg = self.db.rxp
+	if type(cfg.listHeights) ~= "table" then
+		if height == nil then return end
+		cfg.listHeights = {}
+	end
+	cfg.listHeights[RXPProfileName(settings)] = height
 end
 
 -- true (shown), false (folded) or nil (no RestedXP with the switch).
@@ -1414,6 +1454,10 @@ end
 
 -- Folds the list away when it shows, opens it when it is folded.
 function M:ToggleRXPStepList()
+	if not self.active then
+		self:Print(E:ModuleOffHint("Integrations"))
+		return
+	end
 	if not self:On("rxp") then
 		if C_AddOns.IsAddOnLoaded("RXPGuides") then
 			self:Print(L["The RestedXP integration is off (Integrations > RestedXP)."])
@@ -1427,8 +1471,9 @@ function M:ToggleRXPStepList()
 		self:Print(L["This RestedXP version has no step list switch."])
 		return
 	end
-	if RXPGuideHasNoList(addon) then
-		self:Print(L["This RestedXP guide shows no step list."])
+	local noList = RXPNoListReason(addon)
+	if noList then
+		self:Print(L[NO_LIST_TEXT[noList]])
 		return
 	end
 	local frame = _G.RXPFrame
@@ -1436,32 +1481,59 @@ function M:ToggleRXPStepList()
 	-- change waits for the end of the fight.
 	if InCombatLockdown() and Usable(frame) and E.FrameCheck(frame, "IsProtected") then
 		self:Print(L["The step list changes after combat."])
-		Queue("RXP:stepList", function() M:ToggleRXPStepList() end)
+		E:RunOutOfCombat(function() M:ToggleRXPStepList() end, "Integrations:rxpStepList")
 		return
 	end
 	local shown = self:RXPStepListShown()
 	if shown == nil then return end
-	local cfg = self.db.rxp
 	local classic = not self.RXPBetaWindow()
 	local profile = settings.profile
-	if shown then
-		if classic then
-			local height = tonumber(profile.frameHeight)
-			-- No height saved: RestedXP's default, which it opens at anyway.
-			cfg.listHeight = height and height >= RXP_LIST_MIN and Round(height) or nil
+	-- RestedXP's own resizes while EldoUI switches are not the player's.
+	self.rxpListSwitching = true
+	local ok, err = pcall(function()
+		if shown then
+			if classic then
+				local height = tonumber(profile.frameHeight)
+				-- No height saved: RestedXP's default, which it opens at anyway.
+				self:SetRXPListHeight(settings, height and height >= RXP_LIST_MIN and Round(height) or nil)
+			end
+			settings:SetStepListShown(false)
+		else
+			local height = classic and self:RXPListHeight(settings)
+			settings:SetStepListShown(true)
+			if height and Usable(frame) and settings:IsStepListShown() then
+				profile.frameHeight = height
+				frame:SetHeight(height)
+				-- RestedXP's switch asked for a new layout already; once
+				-- more in case it ran before the height changed.
+				addon.updateBottomFrame = true
+			end
 		end
-		settings:SetStepListShown(false)
-	else
-		settings:SetStepListShown(true)
-		local height = classic and tonumber(cfg.listHeight)
-		if height and height >= RXP_LIST_MIN and Usable(frame) and settings:IsStepListShown() then
-			profile.frameHeight = height
-			frame:SetHeight(height)
-			-- RestedXP lays the list out again on its next update.
-			addon.updateBottomFrame = true
-		end
-	end
+	end)
+	self.rxpListSwitching = nil
+	if not ok then geterrorhandler()(err) end
 	self:RefreshRXPStepListButton()
+end
+
+-- RestedXP's window changed size: a shown list's height is the one to
+-- give back (an Alt-drag in RestedXP reaches here before RestedXP saves
+-- it), and the button's icon follows RestedXP's own switch.
+function M:NoteRXPStepList(height)
+	if not self:On("rxp") then return end
+	height = E.Plain(height)
+	if not self.rxpListSwitching and type(height) == "number" and height >= RXP_LIST_MIN
+		and not self.RXPBetaWindow() and self:RXPStepListShown() then
+		local settings = RXPStepListSettings()
+		if settings then self:SetRXPListHeight(settings, Round(height)) end
+	end
+	-- After RestedXP has saved what changed.
+	if not self.rxpIconQueued then
+		self.rxpIconQueued = true
+		C_Timer.After(0, function()
+			M.rxpIconQueued = nil
+			M:RefreshRXPStepListIcon()
+		end)
+	end
 end
 
 -- The button's tooltip: what a click does now.
@@ -1469,9 +1541,10 @@ function M:RXPStepListTooltip(button)
 	GameTooltip:SetOwner(button, "ANCHOR_LEFT")
 	GameTooltip:SetText(L["RestedXP step list"])
 	local _, addon = RXPStepListSettings()
+	local noList = addon and RXPNoListReason(addon)
 	local shown = self:RXPStepListShown()
-	if addon and RXPGuideHasNoList(addon) then
-		GameTooltip:AddLine(L["This RestedXP guide shows no step list."], 1, 1, 1, true)
+	if noList then
+		GameTooltip:AddLine(L[NO_LIST_TEXT[noList]], 1, 1, 1, true)
 	elseif shown then
 		GameTooltip:AddLine(L["Click: fold the list of every step away. The current step card and the arrow stay."], 1, 1, 1, true)
 	elseif shown == false then
@@ -1482,16 +1555,21 @@ function M:RXPStepListTooltip(button)
 		GameTooltip:AddLine(L["Key: %s"]:format(GetBindingText and GetBindingText(key) or key), 0.7, 0.7, 0.7)
 	end
 	GameTooltip:Show()
+	self:RefreshRXPStepListIcon()
 end
 
 -- Folded, the icon is grayed a little, so the bin shows the state.
-function M:RefreshRXPStepListButton()
-	if not E.RefreshMinimapButton then return end
-	E:RefreshMinimapButton(RXP_LIST_KEY)
+function M:RefreshRXPStepListIcon()
 	local button = self.rxpListButton
 	if button and button.icon then
 		button.icon:SetDesaturated(self:RXPStepListShown() == false)
 	end
+end
+
+function M:RefreshRXPStepListButton()
+	if not E.RefreshMinimapButton then return end
+	E:RefreshMinimapButton(RXP_LIST_KEY)
+	self:RefreshRXPStepListIcon()
 end
 
 -- The button joins the minimap the first time RestedXP is there (the
@@ -1508,7 +1586,11 @@ function M:SetupRXPStepList()
 			onClick = function(frame, mouseButton)
 				if E:IsOptionsLinkClick(frame, mouseButton) then return end
 				M:ToggleRXPStepList()
-				if GameTooltip:IsOwned(frame) then M:RXPStepListTooltip(frame) end
+				if GameTooltip:IsOwned(frame) then
+					M:RXPStepListTooltip(frame)
+					E:OptionsLinkHint(GameTooltip, frame)
+					GameTooltip:Show()
+				end
 			end,
 			onEnter = function(frame) M:RXPStepListTooltip(frame) end,
 		})
@@ -1516,6 +1598,14 @@ function M:SetupRXPStepList()
 		-- After the scripts, so the hint joins the tooltip: Ctrl-click opens
 		-- this setting.
 		E:BindOptionsLink(button, { page = "module:Integrations", key = "rxp.listButton", tab = "RestedXP" })
+		-- Shown again (the drawer opens): the icon as RestedXP is now.
+		button:HookScript("OnShow", function() M:RefreshRXPStepListIcon() end)
+	end
+	-- RestedXP's window, once: its size changes note the list's height.
+	local frame = _G.RXPFrame
+	if not self.rxpListHooked and Usable(frame) and type(frame.HookScript) == "function" then
+		self.rxpListHooked = true
+		frame:HookScript("OnSizeChanged", function(_, _, height) M:NoteRXPStepList(height) end)
 	end
 	self:RefreshRXPStepListButton()
 end

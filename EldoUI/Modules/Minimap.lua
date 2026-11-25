@@ -2635,18 +2635,27 @@ local function OwnShown(own)
 	return shown and true or false
 end
 
--- collect: a button that joins while the bin gathers goes in at once (the
--- module's Apply gathers the bin itself afterwards).
-function M:ApplyOwnButton(own, collect)
-	local shown = OwnShown(own)
-	own.button:SetShown(shown)
-	if not shown then return end
-	self:PlaceOnEdge(own.button)
-	if collect and not binned[own.button] and self.db.binMode ~= "off" then self:CollectButtons(true) end
+-- layout: the module's own Apply, which places the button like the EldoUI
+-- button and gathers the bin itself afterwards. Any other call (the module
+-- that added the button asks again) changes only what changed: a button
+-- that shows already stays where it is, also where another addon that
+-- gathers minimap buttons keeps it, and the bin's show and hide hooks only
+-- run for a real change. One that shows anew goes on the map's edge and,
+-- while the bin gathers, into the bin at once.
+function M:ApplyOwnButton(own, layout)
+	-- The minimap overlay keeps the map's chrome hidden; closing it lays
+	-- everything out again.
+	if not layout and self.minimapOverlay and self:RefreshMinimapOverlay() then return end
+	local button = own.button
+	local shown, was = OwnShown(own), button:IsShown() and true or false
+	if shown ~= was then button:SetShown(shown) end
+	if not shown or not (layout or not was) then return end
+	self:PlaceOnEdge(button)
+	if not layout and not binned[button] and self.db.binMode ~= "off" then self:CollectButtons(true) end
 end
 
 function M:ApplyOwnButtons()
-	for _, own in ipairs(self.ownButtons) do self:ApplyOwnButton(own, false) end
+	for _, own in ipairs(self.ownButtons) do self:ApplyOwnButton(own, true) end
 end
 
 function E:AddMinimapButton(key, spec)
@@ -2666,13 +2675,13 @@ function E:AddMinimapButton(key, spec)
 		ownByKey[key] = own
 		M.ownButtons[#M.ownButtons + 1] = own
 	end
-	M:ApplyOwnButton(own, true)
+	M:ApplyOwnButton(own, false)
 	return own.button
 end
 
 function E:RefreshMinimapButton(key)
 	local own = ownByKey[key]
-	if own then M:ApplyOwnButton(own, true) end
+	if own then M:ApplyOwnButton(own, false) end
 end
 
 function M:ApplyBin()
