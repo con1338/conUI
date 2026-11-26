@@ -13,10 +13,10 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Das gemeinsame Profil heißt bei einer neuen Installation „conUI 1440p“; wer schon ein „EldoUI 1440p“ hat,
 > behält es. Icon und Logo sind eigene Grafiken des Forks (`tools/brand/gen_logo.py`).
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
-> [EldoUI 0.7.3100](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3100) (Ordner `EldoUI*/`). Die Releases
+> [EldoUI 0.7.4001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.4001) (Ordner `EldoUI*/`). Die Releases
 > liegen unverändert im Branch `upstream-release` und kommen von dort per Merge nach `main`.
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
-> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 21.664 Texte,
+> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 21.610 Texte,
 > Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
 > aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
 > `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
@@ -24,7 +24,7 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > deutsche Texte). Ein Tag `v*` baut
 > das fertige ZIP auf der Releases-Seite dieses Repos, und ein täglicher Versionswächter meldet neue
 > WoW: Forever-Patches und EldoUI-Versionen als Issue. Wie das alles läuft: [`tools/ci/README.md`](tools/ci/README.md).
-> Fork-Versionen tragen die Endung `-pN` (`0.7.3100-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
+> Fork-Versionen tragen die Endung `-pN` (`0.7.4001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
 > Das Original-README folgt. Das Wiki in `docs/wiki/` spricht noch vom „0.7.1000 setup“: 0.7.1000 ist EldoUIs
 > Ausgangsstand für Profile und Presets. Was sich seitdem geändert hat, steht im [CHANGELOG](CHANGELOG.md) und in
 > [`docs/wiki/current-release.md`](docs/wiki/current-release.md). Geändert sind im Original der Name (conUI
@@ -124,7 +124,6 @@ conUI never connects to the internet and sends nothing to its author or to any w
 
 - **Version check** (on by default) tells guild and group members which conUI version you have, so you get one chat line when someone has a newer one. Never sent in combat, boss fights or PvP matches. Turn it off under Plugins > Notices.
 - **Party Quests sync** (on by default) shares your quest progress with your group and shows theirs. Not in battlegrounds or arenas. Turn it off under Party Quests > Sync with group.
-- **Layer hop** (off by default) asks your guild, and the hidden layer channel if you join it, for a player who can invite you to another layer. Every invite, accept and leave is your own click. Turn it on or off under Minimap > Layer hop.
 
 ## Documentation
 

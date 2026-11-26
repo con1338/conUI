@@ -259,14 +259,16 @@ end
 ---------------------------------------------------------------------------
 function GF:Marks(resultID, info)
 	local notes = E.PlayerNotes
-	if not (notes and notes.Get and notes.Key) then return {} end
+	if not (notes and notes.Get and notes.CharacterKey) then return {} end
 	info = info or Info(resultID)
 	if not info then return {} end
 	local out, seen = {}, {}
 	local function Add(name, isLeader)
-		if type(name) ~= "string" or Secret(name) or name == "" or seen[name] then return end
-		seen[name] = true
-		local record = notes:Get(notes.Key(name))
+		if type(name) ~= "string" or Secret(name) or name == "" then return end
+		local key = notes.CharacterKey(name)
+		if not key or seen[key] then return end
+		seen[key] = true
+		local record = notes:Get(key)
 		local mark = record and record.mark
 		if mark == "good" or mark == "avoid" then
 			out[#out + 1] = { name = name:match("^[^%-]+") or name, mark = mark, leader = isLeader }

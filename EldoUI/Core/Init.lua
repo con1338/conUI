@@ -84,6 +84,7 @@ local eventFrame = CreateFrame("Frame")
 local handlers = {}
 local lastHandlers = {} -- event -> list of functions run after every other handler
 local databaseLoaded = false
+local resumeStartup, delayedLogin, deferredWorldEntry
 
 -- The handler lists are copy-on-write: registering or unregistering builds
 -- a new table, so a handler that (un)registers handlers for the event that
@@ -159,8 +160,7 @@ local function DispatchLogin(...)
 	end
 end
 
-eventFrame:SetScript("OnEvent", function(_, event, ...)
-	if event == "PLAYER_LOGIN" and not databaseLoaded then return end
+local function DeliverEvent(event, ...)
 	local list = handlers[event]
 	if event == "PLAYER_LOGIN" then
 		DispatchLogin(...)
@@ -177,6 +177,31 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 			if not ok then geterrorhandler()(err) end
 		end
 	end
+end
+
+eventFrame:SetScript("OnEvent", function(_, event, ...)
+	local login, world = event == "PLAYER_LOGIN", event == "PLAYER_ENTERING_WORLD"
+	local identityUpdate = event == "GAME_RULES_CHANGED" or (event == "UNIT_NAME_UPDATE" and E.Plain((...)) == "player")
+	if resumeStartup and (login or (delayedLogin and (world or identityUpdate))) then
+		delayedLogin = true
+		if world then deferredWorldEntry = { ... } end
+		local ok, started = pcall(resumeStartup)
+		if not ok then
+			resumeStartup, deferredWorldEntry = nil, nil
+			geterrorhandler()(started)
+			return
+		end
+		if not started then return end
+		local entry = deferredWorldEntry
+		delayedLogin, deferredWorldEntry = nil, nil
+		if not login then DeliverEvent("PLAYER_LOGIN") end
+		if entry then
+			DeliverEvent("PLAYER_ENTERING_WORLD", entry[1], entry[2])
+			if world then return end
+		end
+	end
+	if login and not databaseLoaded then return end
+	DeliverEvent(event, ...)
 end)
 
 local function CopyList(list)
@@ -515,8 +540,9 @@ end
 -- moment the saved settings load at ADDON_LOADED. "before": the saved
 -- tables are there (EldoUIDB may still be nil on a fresh install) but no
 -- profile is chosen yet, for what the profile needs to find when it loads
--- (imported layouts). "after" (the default): the profile is loaded. Hooks
--- run in the order they were added, each one protected. Returns true; an
+-- (imported layouts). "after" (the default): the profile is loaded. The
+-- second argument says whether the character had a saved profile when
+-- the database chose its key. Hooks run in order, each protected. Returns true; an
 -- "after" hook added once the settings have loaded runs at once, and a
 -- "before" hook added that late can no longer run and returns false.
 ---------------------------------------------------------------------------
@@ -536,9 +562,9 @@ function E:OnDatabaseLoad(fn, when)
 	return true
 end
 
-local function RunDatabaseHooks(when)
+local function RunDatabaseHooks(when, ...)
 	for _, fn in ipairs(databaseHooks[when]) do
-		local ok, err = pcall(fn, E)
+		local ok, err = pcall(fn, E, ...)
 		if not ok then geterrorhandler()(err) end
 	end
 end
@@ -548,34 +574,54 @@ function E:InvalidateDatabase()
 end
 
 function E:LoadDatabase()
+	local ready, reason = self:PrepareProfileBaseline()
+	if reason == "identity" then return false, reason end
 	databaseLoaded = false
-	if not self:PrepareProfileBaseline() then
+	if not ready then
 		self:Print(E.L["EldoUI could not load these settings. Check that you are using the latest version of EldoUI."])
 		return false
 	end
 	RunDatabaseHooks("before")
-	if not self:InitializeDatabase() then
+	local loaded, hadProfile = self:InitializeDatabase()
+	if not loaded then
 		self:Print(E.L["EldoUI could not load these settings. Check that you are using the latest version of EldoUI."])
 		return false
 	end
 	databaseLoaded = true
-	RunDatabaseHooks("after")
+	RunDatabaseHooks("after", hadProfile)
 	return true
 end
 
 ---------------------------------------------------------------------------
 -- Startup
 ---------------------------------------------------------------------------
+local function StartAddon()
+	local loaded, reason = E:LoadDatabase()
+	if not loaded then
+		if reason == "identity" then
+			resumeStartup = StartAddon
+			eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+			eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
+			eventFrame:RegisterEvent("GAME_RULES_CHANGED")
+		else
+			resumeStartup = nil
+		end
+		return false
+	end
+	resumeStartup = nil
+	-- E.pixel for the scale EldoUI sets at PLAYER_LOGIN, so the borders of
+	-- frames modules build now are one screen pixel from the start.
+	E:UpdatePixel(E:GetTargetScale())
+	E:UpdateAccent()
+	E:InitializeModules()
+	E:InitializeOptions()
+	return true
+end
+
 E:RegisterEvent("ADDON_LOADED", function(self, _, loaded)
 	if loaded ~= addonName then return end
 	self:UnregisterEvent("ADDON_LOADED")
-	if not self:LoadDatabase() then return end
-	-- E.pixel for the scale EldoUI sets at PLAYER_LOGIN, so the borders of
-	-- frames modules build now are one screen pixel from the start.
-	self:UpdatePixel(self:GetTargetScale())
-	self:UpdateAccent()
-	self:InitializeModules()
-	self:InitializeOptions()
+	StartAddon()
 end)
 
 -- The scale comes first, before any other login handler.

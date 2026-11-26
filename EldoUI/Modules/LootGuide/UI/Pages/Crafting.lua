@@ -121,16 +121,23 @@ local function DrawDetail(section, craft)
 	local mySkill = LG:Player().professions[section.skill]
 	P.FlowItem(flow, { itemID = craft.result, onClick = function() P.OpenItem(craft.result) end })
 	local _, band, estimated, thresholds = BandText(craft, mySkill)
-	if craft.rank then
+	if craft.rank or not estimated then
 		local parts = {}
-		for _, key in ipairs({ "orange", "yellow", "green", "grey" }) do
+		if thresholds.learnConfirmed then
+			parts[1] = Kit.Hex(unpack(LG.BAND_COLORS.orange)) .. tostring(thresholds.orange) .. "|r"
+		end
+		for _, key in ipairs({ "yellow", "green", "grey" }) do
 			parts[#parts + 1] = Kit.Hex(unpack(LG.BAND_COLORS[key])) .. tostring(thresholds[key]) .. "|r"
 		end
-		P.FlowText(flow, (L["%s %d"]):format(LG:ProfessionName(section.skill), craft.rank) .. "   " .. table.concat(parts, " "), 12)
+		P.FlowText(flow, LG:ProfessionName(section.skill) .. "   " .. table.concat(parts, " "), 12)
 		if estimated then
-			P.FlowText(flow, L["Colors are estimated from the usual steps until you open your profession window."], 10, "dim")
+			P.FlowText(flow, L["Skill-up thresholds are estimated for this recipe."], 10, "dim")
 		end
-		if band == "red" then P.FlowText(flow, (L["You need %d skill to learn it."]):format(craft.rank), 11, "secondary") end
+		if band == "red" and thresholds.learnConfirmed then
+			P.FlowText(flow, (L["You need %d skill to learn it."]):format(thresholds.orange), 11, "secondary")
+		elseif craft.rank and not thresholds.learnConfirmed then
+			P.FlowText(flow, (L["Estimated learn rank: %d."]):format(thresholds.orange), 11, "secondary")
+		end
 	end
 	P.FlowText(flow, LG:CraftKnown(craft.id) and (Kit.Hex(unpack(Kit.GOOD)) .. L["You know this recipe."] .. "|r")
 		or L["You do not know this recipe yet."], 11, "secondary")

@@ -104,14 +104,17 @@ end
 local function NoteKey(key)
 	local M = E.PlayerNotes
 	if not (M and M.Store) or type(key) ~= "string" then return nil end
+	if E.PlainCall(RegionalUniqueNamesEnabled) == true then return M.CharacterKey(key) end
 	if M.FindByJournal then
 		local found = M:FindByJournal(key)
 		if found then return found end
 	end
+	local exact = M.Key(key)
+	if exact and M:Get(exact) then return exact end
 	for storeKey, record in pairs(M:Store()) do
-		if type(record) == "table" and J:Key(storeKey) == key then return storeKey end
+		if type(record) == "table" and J:Key(M:JournalName(storeKey)) == key then return storeKey end
 	end
-	return M.Key(key)
+	return exact
 end
 
 local function NoteOf(key)

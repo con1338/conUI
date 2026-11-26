@@ -5,7 +5,7 @@
 -- client, not only on English ones.
 --
 -- Built by tools/guidedata/gen_places.py from the client's AreaTable,
--- build 1.60.1.70862. Facts for interoperability; regenerate with the
+-- build 1.60.1.71037. Facts for interoperability; regenerate with the
 -- guide data.
 local _, E = ...
 

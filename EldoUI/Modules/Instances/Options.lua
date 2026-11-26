@@ -42,17 +42,16 @@ end
 function M:BuildOptions()
 	local options = {
 		{ type = "tab", label = L["General"] },
-		{ type = "description", label = L["Counts dungeon and raid entries against the hourly limit of 10, shared by your characters, and logs every run. The count is an estimate."] },
+		{ type = "description", label = L["Logs dungeon and raid runs and estimates the hourly count across your characters."] },
 		{ type = "execute", label = L["Open the run log"], desc = L["The log of every run (also a click on the Instances datatext, or /eui instances)."], func = function() M:OpenLog() end },
 		{ type = "header", label = L["Hourly limit"] },
 		{ type = "range", key = "hourlyLimit", label = L["Instances per hour"], min = 1, max = 10, step = 1,
-			desc = L["How many new instances the server lets you enter per hour. Change it if Forever uses a different limit."],
+			desc = L["Limit used for the hourly estimate. The default is five."],
 			cog = {
 				{ type = "range", key = "dailyLimit", label = L["Instances per day"], min = 0, max = 60, step = 1,
 					zeroText = "Off", desc = L["A daily limit to count against as well. Forever has none."] },
 			} },
 		{ type = "toggle", key = "countRaids", label = L["Count raids"], desc = L["40-player raids count toward the hourly limit too. Off: they show dimmed in the log and don't count. Dungeons and raids for up to 20 players always count."] },
-		{ type = "toggle", key = "detectSameRun", label = L["Detect the same run"], desc = L["Walking out and back into the same instance doesn't count twice: entries with the same instance ID, read from the mobs you target, are merged."] },
 		{ type = "select", key = "combatLogging", label = L["Log combat automatically"],
 			values = { off = L["Off"], raids = L["Raids"], all = L["Raids and dungeons"] }, order = { "off", "raids", "all" },
 			desc = L["Write the game's combat log in the chosen instances. Logging started here stops 30 seconds after you leave."] },
@@ -72,7 +71,6 @@ function M:BuildOptions()
 			desc = L["Adds a reminder in Scholomance and Stratholme when you carry an Argent Dawn trinket, have none equipped, and are below Exalted."] },
 		{ type = "toggle", key = "noticeRaid", label = L["Raid entered"], desc = L["The same line when you enter a raid."] },
 		{ type = "toggle", key = "noticePvP", label = L["Battleground entered"], desc = L["A line when you enter a battleground or arena, which never counts toward the limit."] },
-		{ type = "toggle", key = "noticeMerge", label = L["Same run merged"], desc = L["A line when an entry turns out to be the same run as the one before."] },
 		{ type = "toggle", key = "noticeFree", label = L["Slot free again"], desc = L["A line at the moment the hourly count drops below the limit again."],
 			cog = {
 				{ type = "media", key = "freeSound", label = L["Sound"], mediaKind = "sound", none = true, desc = L["A sound with the slot-free line."] },

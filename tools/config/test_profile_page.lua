@@ -130,6 +130,17 @@ local function Setup()
 		E.profileName = name
 		return true
 	end
+	-- Since EldoUI 0.7.4001 "New profile" goes through CreateProfile, which
+	-- turns down a name another profile has in any capitalization.
+	function E:CreateProfile(name, onExists)
+		for existing in pairs(EldoUIDB.profiles) do
+			if existing:lower() == name:lower() then
+				if onExists then onExists(existing) end
+				return false
+			end
+		end
+		return self:SetProfile(name)
+	end
 	function E:RenameProfile(old, new)
 		world.renamed[#world.renamed + 1] = old .. ">" .. new
 		EldoUIDB.profiles[new], EldoUIDB.profiles[old] = EldoUIDB.profiles[old], nil

@@ -2,7 +2,7 @@
 """Build the release ZIP: every addon folder, ready to unzip into Interface/AddOns.
 
   python3 tools/ci/build_zip.py                    # dist/conUI-<version>.zip
-  python3 tools/ci/build_zip.py --tag v0.7.3100-p1 # also check the tag matches the version
+  python3 tools/ci/build_zip.py --tag v0.7.4001-p1 # also check the tag matches the version
 
 The version comes from EldoUI/EldoUI.toc. Only files git tracks go in, so
 local leftovers (caches, test output) never ship; tools/, docs/ and review/

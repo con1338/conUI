@@ -69,36 +69,16 @@ local function PlayerClass()
 	return classFile
 end
 
--- True when this character already had an EldoUI profile before this login:
--- under its current key, or under an older key (its first name alone, or
--- the key with the Forever surname) whose records its GUID owns. A new
--- character that only shares a first name is not known.
-local function KnownCharacter()
-	if type(EldoUIDB) ~= "table" or type(EldoUIDB.profileKeys) ~= "table" then return false end
-	local realm = GetRealmName()
-	local keys = EldoUIDB.profileKeys
-	if E.CurrentCharacterKey and keys[E:CurrentCharacterKey()] then return true end
-	if not (E.OwnsOlderCharacterKey and E:OwnsOlderCharacterKey()) then return false end
-	if keys[("%s - %s"):format(E:PlayerName(), realm)] then return true end
-	local oldName = UnitName("player")
-	if type(oldName) == "string" and not (issecretvalue and issecretvalue(oldName)) and keys[("%s - %s"):format(oldName, realm)] then
-		return true
-	end
-	return false
-end
-
--- At the database start a character seen for the first time takes its
--- class's default profile, if one is set and still exists. Whether the
--- character is new is read before the profile loads, which records it.
-local knownCharacter, hadSettings = true, true
+-- Apply a class default only when the resolved character key had no saved
+-- profile after the database carried over any verified older settings.
+local hadSettings = true
 
 E:OnDatabaseLoad(function()
-	knownCharacter = KnownCharacter()
 	hadSettings = type(EldoUIDB) == "table"
 end, "before")
 
-E:OnDatabaseLoad(function(self)
-	if knownCharacter or not hadSettings then return end
+E:OnDatabaseLoad(function(self, hadProfile)
+	if hadProfile or not hadSettings then return end
 	local classFile = PlayerClass()
 	local wanted = classFile and ClassProfiles()[classFile]
 	if type(wanted) == "string" and wanted ~= "" and EldoUIDB.profiles[wanted] and wanted ~= self.profileName then

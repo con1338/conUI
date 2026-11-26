@@ -35,6 +35,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C9 | RestedXP: Schrittliste per Klick ein- und ausklappen, Knopf im Knopfsammler der Minikarte (Wunsch des Nutzers) | klein–mittel | umgesetzt | `7f2a0a8`, `c944dc7`, `8b4d37d` |
 | C10 | RestedXP: Schrift, Pfeil und Fenster mit einem Klick passend zu EldoUIs Textgröße (Wunsch des Nutzers) | klein | umgesetzt | `9df8a1d`, `fe372f7` |
 | C11 | RestedXP: Pfeil auf den Pfeil-Platz des Layouts, aktive Gegenstände und Ziele neben den Guide (Wunsch des Nutzers) | mittel | umgesetzt | `4a50a5d`, `9df8a1d`, `d25ae5e`, `fe372f7` |
+| C12 | Tooltip verschieben: Verschiebefeld im Kampfmodus, der Tooltip wächst vom Rand weg (Wunsch des Nutzers) | klein | umgesetzt | `853eb7e`, `0e18af3` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb`, `775b23d`, `f9c0fc9` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -76,8 +77,9 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 ## A – Deutsche Übersetzung
 
 > **Umgesetzt:** `EldoUI_Locale_deDE` ist vollständig (20.827 von 20.827 Texten; seit EldoUI 0.7.3001 wieder
-> vollständig mit 21.525, seit 0.7.3005 mit 21.557, seit 0.7.3100 mit 21.664, siehe D1), Anrede „Ihr/Euch“,
-> Begriffe des deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/` (`deDE.py status|check|xref`).
+> vollständig mit 21.525, seit 0.7.3005 mit 21.557, seit 0.7.3100 mit 21.664, seit 0.7.4001 mit 21.610, siehe
+> D1), Anrede „Ihr/Euch“, Begriffe des deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/`
+> (`deDE.py status|check|xref`).
 > Im Code: deutsches Datumsformat (`Core/Dates.lua`) und `E:InSentence` für Wörter, die in Sätze eingesetzt
 > werden.
 > Nicht geprüft am deutschen Client sind Zauber-, Gegenstands- und Gebietsnamen, die die Übersetzer aus dem
@@ -1158,6 +1160,51 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     | B9 | Neuladen auch ohne neue Guide-Schrift; Kommentar „kein RXPItemFrame mit dem neuen Fenster“ falsch; Kopf veraltet; Standards aus RestedXPs Profilkopie; Ziel-Fenster ohne Größe als „geheim“ gemeldet; Status nannte den Ordner | klein | behoben; der Haken auf „Pfeil zurücksetzen“ bleibt (der Layout-Platz ist der Platz) |
     | B10 | Deutsch: „aktiven Ziele“, „eine andere Fensterskalierung als 100 %“, „stellt die früheren Werte wieder her“ | klein | korrigiert |
     | B11 | Testlücken zu B1 bis B8 | klein | ergänzt (82 Prüfungen) |
+- **C12 Tooltip verschieben:** Wunsch des Nutzers (26.11.2026): Der Tooltip im Spiel soll sich verschieben lassen,
+  er „klebt auf der rechten Seite“. Mit „Fest“ oder „Intelligent“ (Vorgabe) liegt der Tooltip auf dem Verschiebefeld
+  „Tooltip“ (`EldoUI_Tooltip`), das die Einrichtung freischaltet (Blizzard-UI > Tooltips: Verschieben). Drei Gründe,
+  warum es trotzdem festzusitzen schien:
+  - Der Verschiebemodus öffnet in der Ansicht „Kampfmodus“. Dort fehlte das Feld (nicht in `COMBAT_MOVERS`), es stand
+    nur unter „Alle Rahmen“, wie das Koordinatenfeld bei F25.
+  - Der Tooltip hing immer mit seiner rechten unteren Ecke an der rechten unteren Ecke des Felds. Ein Feld links oder
+    oben ließ ihn trotzdem nach links und oben wachsen.
+  - „Intelligent“ setzte ihn bei offenen Taschen immer auf die Taschen, egal wo das Feld lag; die Taschen stehen rechts.
+  - **Umgesetzt** (`Modules/Tooltip.lua`, Abschnitt „Anchor“):
+    - Das Feld gehört zum Kampfmodus (`combat = true` beim Anlegen, wie die Minikarte).
+    - `GrowPoint`: Der Tooltip wächst aus der Ecke des Ankerpunkts, den das Feld selbst hat, wenn es an einer Ecke
+      oder Kante des Bildschirms hängt. Den wählt der Verschiebemodus nach dem Bildschirmdrittel, in dem das Feld liegt
+      (`Measure`, `Core/Movers.lua`), und die Seite Positionen kann ihn setzen. Ein Feld an einem anderen („Anheften
+      an“) oder von der Mitte aus gemessen (importierte Plätze) bekommt die Ecke aus dem Drittel, in dem es liegt
+      (`ScreenCorner`). Links wächst er nach rechts, im oberen Drittel nach unten, in der Mitte von unten Mitte aus;
+      sonst wie bisher nach oben. Die Plätze der Layouts sind rechts unten, dort ändert sich nichts.
+    - „Intelligent“ setzt ihn nur noch auf die Taschen, wenn sie das Feld überdecken (`Overlaps`), oder wenn sich
+      Taschen oder Feld nicht messen lassen (wie bisher).
+    - Tooltip > Position hat „Verschieben“ (`E:MoveFrame`, wie bei der Klassenleiste): öffnet den Verschiebemodus und
+      wählt den Kasten aus. Versteckt bei „Cursor“ und „Blizzard“, gesperrt ohne „Verschieben“ in Blizzard-UI. Der Text
+      ist deutsch in `Fork.lua`.
+  - **Test:** `tools/tooltip/test_tooltip_mover.lua` (44 Prüfungen, im ganzen Offline-Start): Feld im Kampfmodus; die
+    Wachstumsecke für den Layout-Platz, oben links, links und oben, auch nach einem Zug im Verschiebemodus; Mitte und
+    importierte Plätze, angeheftet an ein anderes Feld; „Intelligent“ mit Taschen über und neben dem Feld und mit
+    Taschen, die sich nicht messen lassen; „Cursor“, „Blizzard“ und ohne „Verschieben“ unverändert; „Verschieben“ in
+    den Optionen. Mit dem Code vor C12 schlagen 12 Prüfungen fehl, mit der ersten Fassung (`853eb7e`) 5.
+  - **Gegenprüfung (26.11.2026):** Ein unabhängiger Prüfer hat den Diff gelesen, ohne diesen Ordner zu kennen. Er fand
+    keinen Fehler, der die Änderung aufhält. Ohne Abweichung: `E.movers.EldoUI_Tooltip` ist das Verschiebefeld, der
+    Anker liegt mittig darauf und gleich groß; der sichere Bereich ändert den Punkt nicht; alle Plätze der Layouts,
+    Rollen und des Gamepads sind rechts unten; Tooltips bleiben mit „Verschieben“ am Bildschirm; der Hook liest nur
+    EldoUIs eigene Rahmen (kein Taint); `combat = true` zieht das Feld nicht in die Platzprüfung der Einrichtung.
+
+    | Befund | Gewicht | Reaktion |
+    |---|---|---|
+    | Der Ankerpunkt sagt nur bei Zügen das Drittel: angeheftete Felder (Seite der Verbindung) und importierte Plätze (immer CENTER) wuchsen in die falsche Richtung | niedrig–mittel | behoben: `ScreenCorner` |
+    | Lassen sich die Taschen nicht messen, blieb der Tooltip auf dem Feld, womöglich über den Taschen | niedrig | behoben: dann wie bisher auf die Taschen |
+    | Die Taschenprüfung nimmt den Kasten (250 × 120), nicht die Fläche, in die der Tooltip wächst: Ein Feld rechts oben, das nach unten wächst, kann hohe Taschen darunter verdecken | niedrig (plausibel) | bleibt: Die Größe des Tooltips steht beim Anheften noch nicht fest; zeigt er auf einen Taschenplatz, weicht „Intelligent“ ohnehin aus |
+    | Kommentar „in der Mitte von der Mitte aus“ ungenau | kosmetisch | korrigiert |
+    | Testlücken: Blizzard-Platz nur über die Optionszeile geprüft, falsche Kanten nicht zurückgesetzt, keine Verbindungen, Importe, sicherer Bereich | niedrig | ergänzt, bis auf den sicheren Bereich (der Nachbau hat keinen) |
+  - **Im Spiel prüfen:** `/eui move` öffnen (Ansicht „Kampfmodus“): Der Kasten „Tooltip“ ist da. Ihn nach links oben
+    ziehen, schließen, über eine Aktionstaste fahren: Der Tooltip steht oben links und wächst nach unten. Die Taschen
+    öffnen, über einen Gegenstand fahren: Er bleibt oben links. Zurück nach rechts unten: wie vorher. Tooltip >
+    Position > „Verschieben“ öffnet den Verschiebemodus mit dem Kasten ausgewählt. Fehlt der Kasten ganz, ist unter
+    Blizzard-UI > Tooltips „Verschieben“ aus.
 
 ## D – Infrastruktur für den Fork
 
@@ -1293,6 +1340,54 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       - `/eui move` mit voller Verbrauchsgüterleiste (die Heilmittel an) und mehreren Questgegenständen: Die beiden
         Leisten liegen nicht übereinander.
       - Sammeln mit Auto-Loot: eine Ader Heavy Thorium am Berg Hyjal abbauen; die Markierung zeigt Bergbau 300.
+  - **Umgesetzt (26.11.2026, EldoUI 0.7.4001, Issue #11):** `upstream-release` hält jetzt auch 0.7.4000
+    (`611cfd3`) und 0.7.4001 (`6b657da`), jedes ZIP byte-genau gegen seinen Commit geprüft (`git archive`, `diff -r`).
+    Der Versionswächter hatte nur 0.7.4001 gemeldet: Am 25.11. fand er 0.7.4000, aber GitHub antwortete beim Anlegen
+    des Issues mit HTTP 500 (der Lauf wurde rot, wie vorgesehen). `efe68ce` mergt 0.7.4001 nach dem Fork, davor
+    `81f0090` EldoUIs Doku-Historie bis 0.7.4001.
+    - Umfang 0.7.3100 → 0.7.4001: 68 Dateien, rund +2.830/−1.890 Zeilen. Neu ist `Data/RecipeThresholds.lua` (die
+      Schwellen für Fertigkeitsanstiege von WoW: Forever, in der TOC), entfallen ist `Modules/MinimapLayer.lua`: Die
+      Minikarte bietet keinen Layerwechsel mehr an. Das meiste sind Spieler ohne Realmnamen (Profile, Charakterdaten,
+      Auktionspreise, Post, Spielernotizen mit dem vollen Namen in Anführungszeichen), der Start erst, wenn das Spiel
+      den Charakter kennt (`Core/Init.lua`), Aktionsleiste 1 bei Übernahme und Fahrzeug, Questies Verfolgung und die
+      Schätzung des Instanzlimits (Standard wieder fünf pro Stunde).
+    - Konflikte: TOC (Version) und CHANGELOG. Doku: `current-release.md`, `getting-started.md`, `modules.md` und
+      `showcase/features/interface.md` mit EldoUIs Text und dem Namen conUI, in `group.md` einmal den Namen ersetzt.
+    - Fork-Fixes gegen 0.7.4001 geprüft (`fehler.md`): keiner ist doppelt. Fork-Features: keins ist doppelt; die
+      Schaltflächen des Forks im Addon-Fach der Minikarte (RestedXP-Schrittliste) bleiben, der Layer-Chip daneben ist weg.
+    - Deutsches Paket: 82 Texte sind raus, die 28 neuen übersetzt, 2 davon aus EldoUIs eigener Loot-Guide-Tabelle.
+      Wieder vollständig: 21.610 von 21.610. Von den 82 gehörten 60 zum Layerwechsel (`MinimapLayer.lua` und seine
+      Optionen in `Minimap.lua`), 22 zu Instanzprotokoll und Instanzlimit, Post, Spielernotizen, Questies Verfolgung und
+      den geschätzten Berufsfarben des Loot Guides und des Berufsplaners. Der Commit `e63540c` nennt 72 und zählt die
+      Berufsfarben nicht auf; berichtigt nach der zweiten Gegenprüfung.
+    - Prüfungen: ein neuer WoW-API-Name (`GetCurrentRegion`), zwei nicht mehr benutzte raus; der Test der Profilseite
+      bekommt einen Nachbau von `E:CreateProfile`. Offline-Start: 635 Dateien, 103 Module (84 an), 0 Fehler, englischer
+      und deutscher Client.
+    - Version `0.7.4001-p1`. Im Spiel ist das Update noch nicht getestet.
+    - Im Spiel prüfen (vorher `WTF` sichern; alte `EldoUI*`-Ordner löschen, das neue ZIP entpacken und das Spiel ganz
+      neu starten, die TOC hat eine neue Datei):
+      - Login: `/eui errors` ohne neue Fehler; der Hinweis „Was ist neu“ zu 0.7.4001 kommt einmal, deutsch. Profil und
+        Einstellungen sind dieselben wie vorher.
+      - Minikarte: kein Layer-Chip mehr, die Schaltfläche der RestedXP-Schrittliste im Addon-Fach wie vorher.
+      - Profile: „Neues Profil“ mit einem Namen, den es schon in anderer Schreibweise gibt, sagt, dass es ihn gibt.
+      - Spielernotizen: `/eui note "Vorname Nachname" Text` speichert eine Notiz.
+      - Berufe: Rezeptfarben und Berufsplaner mit den Schwellen von WoW: Forever.
+    - Zweite Gegenprüfung (26.11.2026, ein unabhängiger Prüfer über den ganzen PR, ohne diesen Ordner zu kennen):
+      Importe byte-genau gegen beide ZIPs, die Merges mit `--remerge-diff` nachgesehen (nur Versionszeilen und
+      CHANGELOG), keine doppelten Fixes, alle Zahlen, Hashes und Testergebnisse nachgerechnet und gegen den alten Code
+      nachgeprüft. Keine hohen oder mittleren Befunde. Was er fand und was daraus wurde:
+
+      | Befund | Gewicht | Reaktion |
+      |---|---|---|
+      | Gildenhandwerker: Ein Charakter aus einer alten Liste („Joe“) und einer neuen („Joe Cutter“) steht doppelt da | niedrig | behoben: der Vorname allein weicht einer vollen Zeile mit diesem Vornamen und derselben Klasse (`Shadowed`) |
+      | Gildenhandwerker: Ein Mitglied online heißt genau so wie der Vorname, das Flüstern ging trotzdem an „Vorname Nachname“ eines anderen | niedrig | behoben |
+      | Gildenhandwerker: Ein Vorname allein aus einer alten Liste kann das falsche Mitglied online treffen (der eigentliche ist offline) | niedrig | bleibt: so beschrieben; das Flüstern schickt erst Enter ab |
+      | Post: Zwei eigene Charaktere mit demselben Vornamen, „Zuletzt“ riet einen | niedrig | behoben: ein solcher Vorname bleibt, wie er ist |
+      | Ist das Trennzeichen des Spiels kein Leerzeichen, passte ein mit Leerzeichen getippter Name nicht | niedrig | behoben: `C.NameKey` vergleicht in einer Schreibweise |
+      | 72 statt 60 Layer-Texte; F03 statt F11 bei `UnitFrames.lua`; `MailName` im Kopf des Post-Tests; der Schlüssel trägt den Realm, nur ohne lesbaren Realm das Regelwerk | niedrig (Doku) | berichtigt |
+      | Gildenhandwerker zeigten volle Namen gleich welchem Namensformat | kosmetisch | behoben: `E:FormatNameString` |
+      | „Instance ruleset unavailable.“ als „Regelwerk der Instanzen …“ | kosmetisch | jetzt „Regelwerk für die Instanzzählung nicht verfügbar.“ |
+      | „Fertigkeitssteigerungen“ in einem Loot-Guide-Text statt „Fertigkeitsanstiege“ | kosmetisch | bleibt: der Text kommt aus EldoUIs eigener Loot-Guide-Tabelle (so verlangt es der Ablauf) |
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.

@@ -144,6 +144,8 @@ Add({ addon = "Dominos", module = "MicroMenu", feature = "bags", scope = "overla
 	label = "Bag bar", note = "Dominos always has a bag bar of the same buttons." }) -- no-L (maintainer note, never shown)
 Add({ addon = "Dominos_Progress", module = "StatusBars", feature = "xp", scope = "overlap", exclusive = true,
 	label = "Experience bar", note = "Dominos Progress draws its own experience bar." }) -- no-L (maintainer note, never shown)
+Add({ addon = "EasyExperienceBar", module = "StatusBars", feature = "xp", scope = "overlap", covers = "part",
+	label = "Experience bar", note = "Draws its own experience bar and shows leveling progress." }) -- no-L (maintainer note, never shown)
 Add({ addon = "Dominos_Progress", module = "StatusBars", feature = "rep", scope = "overlap", exclusive = true,
 	label = "Reputation bar", note = "Dominos Progress draws its own reputation bar." }) -- no-L (maintainer note, never shown)
 Add({ addon = "ElvUI", module = "MicroMenu", feature = "micro", scope = "overlap", exclusive = true, label = "Micro menu", covers = "full",
@@ -357,6 +359,8 @@ local MORE = {
 	{ "TransmogLootHelper", "Appearances", "full", "Marks the appearances you still need on items and tooltips." },
 	{ "DarkMode", "Skins", "part", "Darkens Blizzard's windows; Window Skins restyle them." },
 	{ "ShamanForever", "ShamanTotems", "part", "Its own shaman HUD with a totem bar." },
+	{ "ForeverTotems", "ShamanTotems", "part", "Its own totem bar with timers and sets." },
+	{ "ForeverQuestTint", "QuestTint", "part", "Marks new WoW: Forever quests in the quest windows." },
 	-- A whole UI: each EldoUI module that draws the same frames.
 	{ "AzeriteUI5_JuNNeZ_Edition", "UnitFrames", "full", "A whole UI with its own unit frames." },
 	{ "AzeriteUI5_JuNNeZ_Edition", "ActionBars", "full", "A whole UI with its own action bars." },
@@ -421,6 +425,7 @@ local ALONGSIDE = {
 	{ "BugSack", "Chat", "full", "Keeps Lua errors out of chat; EldoUI's error log passes errors on to it." },
 	{ "CharacterNotes", "PlayerNotes", "full", "Notes on other players." },
 	{ "Myslot", "Snapshots", "part", "Manual import and export of bars, macros and bindings; neither restores without the player choosing it." },
+	{ "AccWideUILayoutSelection", "Snapshots", "part", "Synchronizes character settings account-wide. Snapshots provides player-controlled copies." },
 	{ "iWillRemember", "PlayerNotes", "full", "Marks on players you grouped with." },
 	{ "LagBar", "InfoBar", "full", "Latency and frame rate." },
 	{ "xanDurability", "InfoBar", "full", "Durability." },
@@ -531,7 +536,6 @@ local NONE = {
 	MageTravel = "A mage's own teleports and portals in one list.",
 	MobAbilities = "What a mob cast in front of the player, from the game's own spell data.",
 	Notifications = "Places and styles Blizzard's own toasts and banners.",
-	QuestTint = "Marks the quests new in WoW: Forever.",
 	RaidTools = "A bar of the game's own group tools; it shows next to any raid addon.",
 	ReadyReport = "A panel of what each member is missing at a ready check.",
 	SpellEfficiency = "Worked out from the spell tooltip's own numbers.",

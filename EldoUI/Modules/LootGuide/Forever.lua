@@ -148,6 +148,78 @@ local function Store()
 	return char.forever
 end
 
+-- Index observed drops once for the account. Source identity is the dungeon
+-- and encounter, so alts contribute to the same count without merging bosses.
+local indexedRecords, observedSources
+local function InvalidateObservedSources()
+	observedSources = nil
+	if LG.ClearTooltipCache then LG:ClearTooltipCache() end
+end
+
+if E.Characters and E.Characters.RegisterCallback then
+	E.Characters.RegisterCallback(LG, "Forgotten", InvalidateObservedSources)
+end
+
+local function IndexDungeonDrops(index, dungeon, entry)
+	if type(entry) ~= "table" or type(entry.bosses) ~= "table" or type(entry.loot) ~= "table" then return end
+	for encounter, drops in pairs(entry.loot) do
+		local boss = entry.bosses[encounter]
+		if type(encounter) == "number" and type(drops) == "table"
+			and type(boss) == "table" and type(boss.name) == "string" and boss.name ~= "" then
+			local key = dungeon.key .. ":" .. encounter
+			for itemID, count in pairs(drops) do
+				if type(itemID) == "number" and type(count) == "number" and count > 0 and count < math.huge then
+					local item = index[itemID] or {}
+					index[itemID] = item
+					local row = item[key] or { kind = "observed", dungeon = dungeon, encounter = encounter, name = boss.name, count = 0 }
+					item[key] = row
+					row.count = row.count + count
+					if boss.name < row.name then row.name = boss.name end
+				end
+			end
+		end
+	end
+end
+
+local function IndexObservedSources(records)
+	local index = {}
+	for _, data in pairs(records) do
+		local forever = type(data) == "table" and data.forever
+		if type(forever) == "table" then
+			for _, dungeon in ipairs(LG.FOREVER) do
+				IndexDungeonDrops(index, dungeon, forever[dungeon.key])
+			end
+		end
+	end
+	return index
+end
+
+local function ObservedItem(itemID)
+	local records = type(EldoUIDB) == "table" and EldoUIDB.lootGuide
+	if type(records) ~= "table" then return end
+	if not observedSources or indexedRecords ~= records then
+		indexedRecords, observedSources = records, IndexObservedSources(records)
+	end
+	return observedSources[itemID]
+end
+
+function LG:HasForeverItemSource(itemID)
+	return ObservedItem(itemID) ~= nil
+end
+
+function LG:ForeverItemSources(itemID)
+	local item = ObservedItem(itemID)
+	if not item then return end
+	local list = {}
+	for _, row in pairs(item) do list[#list + 1] = row end
+	table.sort(list, function(a, b)
+		if a.count ~= b.count then return a.count > b.count end
+		if a.dungeon ~= b.dungeon then return a.dungeon.key < b.dungeon.key end
+		return a.encounter < b.encounter
+	end)
+	return list
+end
+
 function LG:ForeverLearned(key)
 	local store = Store()
 	local entry = store and store[key]
@@ -238,6 +310,7 @@ function LG:LearnForeverBoss(encounterID, name, npc, cutoff)
 		for _ in pairs(entry.bosses) do count = count + 1 end
 		boss = { name = name, order = count + 1 }
 		entry.bosses[encounterID] = boss
+		InvalidateObservedSources()
 	end
 	boss.kills = (tonumber(boss.kills) or 0) + 1
 	local kill = { key = key, character = character, encounter = encounterID, npc = npc, cutoff = cutoff, items = {}, history = {} }
@@ -262,6 +335,7 @@ function LG:LearnForeverLoot(encounterID, itemID)
 		entry.loot[encounterID] = drops
 	end
 	drops[itemID] = (tonumber(drops[itemID]) or 0) + 1
+	InvalidateObservedSources()
 	self:Fire("forever")
 end
 

@@ -34,6 +34,8 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
 | F25 | Das Koordinatenfeld (und der Wegpfeil) lässt sich nicht verschieben: im Verschiebemodus nur unter „Alle Rahmen“ (im Spiel gefunden) | niedrig | behoben (im Spiel offen) | `d1fece9` |
 | F26 | In einer Gruppe keine Schadenszahlen über Gegnern: Plakettenzahlen aus, Blizzards trotzdem auf 0 (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `1c693b8` |
+| F27 | Post: Ein Twink aus dem Adressbuch kommt nur mit Vornamen ins Feld „An“, der Brief scheitert (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `3058828`, `0e18af3` |
+| F28 | Gildenhandwerker: Listen und „Flüstern“ nur mit Vornamen, Handwerker erscheinen offline (bei F27 gefunden) | mittel | behoben (im Spiel offen) | `493c8cf` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -97,6 +99,22 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
 | F24 | Nein: In `Modules/Bags/Core.lua` gibt EldoUI nur `CanBuyTab` als `M.CanBuyBankTab` heraus, für die neue Schaltfläche „Nächsten Bankreiter kaufen“ auf der Seitenleiste des Bankfensters (`Modules/Bags/BankActions.lua`). Sie ist wie das Plus auf der Taschenleiste seit 0.7.3005 die Kaufschaltfläche des Spiels; ohne sie öffnet sie Blizzards Bankfenster (`M:ShowBlizzardBank`, wie bisher). Neue Aufrufe von `OpenAllBags`, `CloseAllBags` oder `ToggleAllBags` gibt es nicht (im ganzen Addon gesucht; die Textprüfung in `tools/bags/test_game_bag_code.lua` liest nur `Bags/Core.lua`, `InfoBar.lua` und `FlightView.lua`). Die Gegenprüfung fand dabei einen alten Weg, den F24 nicht abdeckte: den Finder (siehe F24, inzwischen behoben). | Alles. |
 | F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderungen in `InfoBar.lua` sind der neue Block „PvP rank“ und die Trefferwertung in den Blöcken Hit und Spell hit. | Alles. |
 | F01–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
+
+## Nach dem Update auf EldoUI 0.7.4001 (26.11.2026)
+
+Der Fork steht seit `efe68ce` auf EldoUI 0.7.4001 (vorher 0.7.3100; dazwischen 0.7.4000). Geprüft wurde jeder Fix
+gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geändert: `EldoUI.toc`, `CHANGELOG.md`,
+`Core/Commands.lua`, `Core/Init.lua`, `Core/Share.lua`, `Data/AddonFit.lua`, `Modules/ActionBars.lua`,
+`Modules/Auction.lua`, `Modules/Minimap.lua` und `Modules/UnitFrames.lua` (dazu die Titelzeilen der TOCs von
+`EldoUI_Locale_daDK` und `EldoUI_LootSim`). Konflikte gab es nur in der TOC (Versionszeile) und im CHANGELOG.
+
+| Nr. | In 0.7.4001 | Was im Fork bleibt |
+|---|---|---|
+| F18 | Nein: EldoUI ändert in `ProfileRefresh` nur, was „Neues Profil“ aufruft (`E:CreateProfile`, lehnt einen Namen ab, den ein anderes Profil in anderer Groß-/Kleinschreibung hat) und dass `E:SetProfile` selbst bis nach dem Kampf wartet. Der Weg der Zeilen zur Seite (F18) ist unverändert. | Alles. Der Test `tools/config/test_profile_page.lua` bekommt einen Nachbau von `E:CreateProfile`. |
+| F19, F15 | Nein: EldoUI baut in `Modules/ActionBars.lua` die Seiten für Übernahme, Fahrzeug und Gestaltwandel um (`NativePages`, Seiten über 18 an Leiste 1). Die ausgeblendeten Blizzard-Leisten (F19) und ihre Rückkehr (F15) berührt das nicht. | Alles. |
+| F22 | Nein: EldoUIs Änderungen in `Modules/Auction.lua` sind die gespeicherten Preise je Markt ohne Realmnamen, die Suche und die Preise in Tooltips; `RestoreNative` und `ShowPage` (F22) sind unverändert. | Alles. |
+| F11 | Nein: In `Modules/UnitFrames.lua` ändert EldoUI nur die Test-Auren (`ReleaseAuras`, `EndTest`); die Castbar (`Present`, F11) ist unverändert. | Alles. |
+| F01–F26 sonst | Nein: Code an diesen Stellen gleich. Der Layerwechsel (`Modules/MinimapLayer.lua`, F05) ist in 0.7.4000 ganz entfallen. | Alles. |
 
 ---
 
@@ -719,6 +737,95 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
   Entwicklungsrechner gibt es kein Lua.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
+### F27 – Post: Twinks aus dem Adressbuch nur mit Vornamen (mittel, im Spiel gefunden)
+- **Gefunden:** 26.11.2026 beim Spielen. Im Fenster „Post verschicken“ bietet das Adressbuch (der Pfeil im Feld „An“)
+  unter „Twinks“ die eigenen Charaktere an. Ein Klick trug nur den Vornamen ein, und das Verschicken scheiterte: Auf
+  WoW: Forever braucht ein Brief den Vor- und den Nachnamen.
+- **Stelle:** `Modules/Mail.lua` (`Alts`, das Menü in `M:CreateAddressBook`)
+- **Ursache:** `Alts` nahm den Namen aus dem Eintrag des Charakterspeichers (`record.name`, `Core/CharacterStore.lua`,
+  `C:Me`). Dort steht nur der Vorname (`E:PlayerName`). Den vollen Namen hält der Schlüssel des Eintrags:
+  „Vorname Nachname - <Realm>“, ohne lesbaren Realm mit dem Regelwerk (`E:CharacterName`, `ResolveCharacterKey`,
+  `Core/Database.lua`). Der Fehler stammt aus EldoUI und steckt
+  auch in 0.7.4001.
+- **Umsetzung:**
+  - Neu ist `C.FullName(key, record)` (`Core/CharacterStore.lua`): Beginnt der Name im Schlüssel mit dem Vornamen und
+    einem Leerzeichen, kommt der Rest als Nachname dazu, mit dem Trennzeichen des Spiels
+    (`Constants.CharacterNameSeparatorConsts`, sonst ein Leerzeichen, wie `E:UnitWhisperName`). Ein Schlüssel ohne
+    Nachnamen (andere Clients, ein Nachname, den das Spiel geheim hielt, ein alter Schlüssel) gibt den Vornamen, wie
+    bisher.
+  - `Alts` (`Modules/Mail.lua`) nimmt diesen Namen; das Menü zeigt denselben, den es einträgt.
+  - `C:FindCharacter` erkennt auch den vollen Namen. Sonst zählte ein Brief an „Vorname Nachname“ nicht mehr für den
+    Briefkasten des Twinks (`C:CaptureSendMail`, Befund der Gegenprüfung).
+  - „Zuletzt“ merkt sich einen Empfänger erst, wenn der Brief abging (`MAIL_SEND_SUCCESS`), nicht schon beim Aufruf von
+    `SendMail`. Sonst stand der abgelehnte Vorname oben in der Liste, und das automatische Ausfüllen trug ihn wieder
+    ein (Befund der Gegenprüfung, Code von EldoUI).
+  - `FixRecent`: Ein Vorname eines eigenen Charakters, den ältere Versionen unter „Zuletzt“ gespeichert haben, wird zum
+    vollen Namen, auch in der gespeicherten Liste. Teilen sich zwei eigene Charaktere den Vornamen, bleibt er, wie er
+    ist. Doppelte fallen weg, auch in zwei Schreibweisen (`C.NameKey`: Trennzeichen des Spiels wie Leerzeichen), der
+    neueste Platz bleibt.
+- **Übergang:** Den Nachnamen von Hand ergänzen.
+- **Test:** `tools/mail/test_alt_recipient.lua` (35 Prüfungen, im ganzen Offline-Start): Twink mit Nachnamen in Liste,
+  Menü und Feld „An“, auch mit dem Trennzeichen des Spiels und einem, das kein Text ist; alter Schlüssel ohne
+  Nachnamen; ein Schlüssel mit fremdem Namen; andere Fraktion, anderes Regelwerk und der eigene Charakter bleiben
+  draußen; `FindCharacter` mit vollem Namen und der Brief im Briefkasten des Twinks; „Zuletzt“ nach `MAIL_FAILED` und
+  nach `MAIL_SEND_SUCCESS`; alte Vornamen in „Zuletzt“ und im automatischen Ausfüllen, ein geteilter Vorname, beide
+  Schreibweisen. Mit dem Code vor F27 schlagen 16 der ersten 32 Prüfungen fehl, mit der ersten Fassung (`3058828`) 7;
+  die drei letzten schlagen vor der zweiten Gegenprüfung fehl.
+- **Gegenprüfung (26.11.2026):** Ein unabhängiger Prüfer hat beide Diffs gelesen, ohne diesen Ordner zu kennen. Er fand
+  keinen Fehler, der den Fix aufhält. Ohne Abweichung: der Schlüssel trennt immer mit Leerzeichen, `FullName` setzt das
+  Trennzeichen des Spiels ein wie die Flüsternamen, der Realm-Teil wird am ersten „ - “ abgeschnitten, ein
+  `record.name` mit vollem Namen bleibt, andere Clients bekommen den Vornamen. Seine Befunde und was daraus wurde:
+
+  | Befund | Gewicht | Reaktion |
+  |---|---|---|
+  | Ein Brief an den vollen Namen zählt nicht mehr für den Briefkasten des Twinks (`FindCharacter` kannte nur den Vornamen) | mittel | behoben |
+  | „Zuletzt“ merkt sich auch abgelehnte Namen; der alte Vorname kommt per automatischem Ausfüllen zurück | niedrig (EldoUIs Code) | behoben, dazu `FixRecent` |
+  | Ein Twink mit altem Schlüssel ohne Nachnamen (seit den Schlüsseln mit vollem Namen nicht eingeloggt) bekommt weiter nur den Vornamen; ein über die GUID gehaltener Schlüssel behält nach einer Namensänderung den alten Nachnamen | niedrig–mittel (plausibel) | bleibt: Der Twink einmal einloggen; Namensänderungen sind selten |
+  | Der Test rief `store.InvalidateKeys` (gibt es nicht); „6 Prüfungen fehlschlagen“ war nur mit nachträglich ausgegebenem `M.Alts` nachvollziehbar | niedrig | `ForgetKeys`; der Test bricht ohne `M.Alts` nicht mehr ab, Zahlen oben neu |
+
+- **Offen (nicht geändert):**
+  - Dieselbe Lücke bei den Gildenhandwerkern: siehe F28 (behoben).
+  - `E:CharacterName` (`Core/Database.lua`) hängt den Nachnamen an, auch wenn der erste Wert ihn schon enthält (wenn
+    `UnitName` statt `UnitNameUnmodified` antwortet). Der Schlüssel hieße dann „Vorname Nachname Nachname“ (Code von
+    EldoUI, laut Prüfer plausibel, nicht beobachtet).
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
+### F28 – Gildenhandwerker nur mit Vornamen (mittel, bei F27 gefunden)
+- **Gefunden:** 26.11.2026 von der Gegenprüfung zu F27, nicht im Spiel beobachtet. Der Nutzer wollte es mit behoben
+  haben.
+- **Stelle:** `Modules/Characters/GuildCrafters.lua` (`M:MyRecipeList`, `M:ScanGuildOnline`, `M:CrafterOnline`,
+  `M:WhisperCrafter`)
+- **Ursache:** Die Rezeptlisten, die man mit der Gilde teilt, nennen jeden Charakter mit `record.name`, also nur mit dem
+  Vornamen. „Flüstern“ auf dem Reiter Handwerker flüstert diesen Namen an; auf Forever braucht ein Flüstern Vor- und
+  Nachnamen. Die Online-Markierung vergleicht den Namen mit der Gildenliste, die Mitglieder mit Nachnamen führt
+  (laut Prüfer; die Post nutzt die Namen der Gildenliste ebenfalls direkt). Der Fehler stammt aus EldoUI.
+- **Umsetzung:**
+  - `MyRecipeList` nennt jeden Charakter mit vollem Namen (`C.FullName`, wie F27). Ein Schlüssel ohne Nachnamen gibt
+    den Vornamen, wie bisher. Das Format der Nachricht trägt Leerzeichen schon.
+  - `CrafterOnline`: Ein voller Name ist online, wenn die Gildenliste ihn hat, oder bei einer Gildenliste ohne
+    Nachnamen über den Vornamen. Ein Vorname allein (eine Liste aus einer älteren Version) ist online, wenn ein
+    Mitglied mit diesem Vornamen online ist (Vornamen sind auf Forever nicht eindeutig; so gut wie vorher).
+  - „Flüstern“: Ein Vorname allein wird zum vollen Namen des einen Mitglieds online, das ihn hat
+    (`M:CrafterWhisperName`). Bei zweien oder keinem bleibt er, wie er ist, ebenso wenn ein Mitglied online genau so
+    heißt.
+  - Ein Vorname allein aus einer alten Liste weicht einer vollen Zeile mit diesem Vornamen und derselben Klasse
+    (`Shadowed`): wahrscheinlich derselbe Charakter, von einem anderen Charakter des Spielers neu geschickt.
+  - Die Namen erscheinen im Namensformat des Spielers (`E:FormatNameString`, Allgemein > Namensformat).
+  - `Core/CharacterStore.lua` gibt sein Trennzeichen heraus (`C.SurnameSeparator`).
+- **Übergang:** Wer seine Liste mit einer älteren Version geschickt hat, schickt sie einmal neu („Meine Rezepte
+  senden“). Bis dahin hilft der Vorname-Abgleich mit der Gildenliste.
+- **Test:** `tools/characters/test_guild_crafter_names.lua` (26 Prüfungen, im ganzen Offline-Start): die eigene Liste
+  mit vollem Namen, auch durch das Nachrichtenformat; online mit vollem Namen, mit dem Trennzeichen des Spiels, mit
+  einer Gildenliste ohne Nachnamen und für Vornamen aus alten Listen; „Flüstern“ an den vollen Namen, an den vollen
+  Namen der Gildenliste, unverändert bei zwei, keinem oder einem genau so heißenden Mitglied; alte und neue Liste
+  desselben Charakters, das Namensformat. Mit dem alten Code schlagen 9 der ersten 20 Prüfungen fehl; vier der sechs
+  neuen schlagen vor der zweiten Gegenprüfung fehl.
+- **Gegenprüfung (26.11.2026):** von der zweiten Gegenprüfung über den ganzen PR mit gelesen; ihre Befunde und was
+  daraus wurde stehen in `verbesserungen.md` unter D1 (0.7.4001).
+- **Nicht im Spiel prüfbar gewesen:** wie die Gildenliste und der Absender einer Addon-Nachricht auf Forever einen
+  Namen schreiben (mit oder ohne Nachnamen). Der Code nimmt beides.
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -756,6 +863,9 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F26 | allein: `/dump C_CVar.GetCVar("floatingCombatTextCombatDamage_v2")`, einen Gegner angreifen | `"0"`; die Zahlen stehen auf der Plakette des Ziels | offen |
 | F26 | außerhalb des Kampfs einer Gruppe beitreten, derselbe Befehl, einen Gegner angreifen | `"1"`; Blizzards eigene Schadenszahlen über dem Gegner, keine Plakettenzahlen | offen (Gruppe) |
 | F26 | die Gruppe verlassen, derselbe Befehl | wieder `"0"`, wieder Plakettenzahlen | offen (Gruppe) |
+| F27 | am Briefkasten „Post verschicken“, Pfeil im Feld „An“ → „Twinks“ → einen eigenen Charakter wählen, etwas schicken | im Menü und im Feld steht „Vorname Nachname“, der Brief geht ab | offen |
+| F27 | den Briefkasten schließen und wieder öffnen, „Post verschicken“ | das Feld „An“ füllt sich mit „Vorname Nachname“, auch wenn vorher ein Brief an den Vornamen allein gescheitert war; beim Twink liegt der Brief im Briefkasten-Block der Infoleiste | offen |
+| F28 | in einer Gilde mit einem zweiten EldoUI- oder conUI-Spieler: beide „Eure Rezepte mit der Gilde teilen“ an, beide „Meine Rezepte senden“; auf dem Reiter Handwerker ein Rezept suchen, „Flüstern“ | die Handwerker stehen mit Vor- und Nachnamen da, online richtig markiert; das Flüstern geht an „Vorname Nachname“ und kommt an | offen (Gilde) |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |

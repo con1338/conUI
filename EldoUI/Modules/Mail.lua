@@ -29,8 +29,8 @@
 --     window's place.
 -- Saved data:
 --   profile.modules.Mail   the settings below, per profile
---   EldoUIDB.mailRecent    [realm] = recent recipient names, newest first
---   EldoUIDB.mailSent      [realm] = the sent log, newest first
+--   EldoUIDB.mailRecent    [realm or ruleset] = recent recipient names, newest first
+--   EldoUIDB.mailSent      [realm or ruleset] = the sent log, newest first
 -- Written from scratch for EldoUI; no code or media from other addons.
 local _, E = ...
 local L = E.L
@@ -116,7 +116,12 @@ local function Accent()
 	return c[1], c[2], c[3]
 end
 
-local function Realm() return GetRealmName() end
+local function HistoryKey()
+	local realm = E:ReadableRealmName()
+	if realm or not (E.IsForeverClient and E:IsForeverClient()) then return realm end
+	local ruleset = E:KnownRulesetName()
+	if ruleset then return "Ruleset/" .. ruleset end
+end
 
 ---------------------------------------------------------------------------
 -- Small flat widgets for EldoUI's own frames here
@@ -491,21 +496,25 @@ end
 
 ---------------------------------------------------------------------------
 -- Address book, autofill and Alt-click attach
--- Saved data: EldoUIDB.mailRecent[realm name] = { "name", ... } newest
--- first, at most the "Recent recipients to remember" setting.
+-- Recent recipients saved by realm or confirmed ruleset, newest first.
 ---------------------------------------------------------------------------
-E:RegisterStore("mailRecent", { owner = "Mail", key = "realm", shape = "recent recipient names per realm, newest first" })
+E:RegisterStore("mailRecent", { owner = "Mail", key = "realm", shape = "recent recipient names per realm or ruleset, newest first" })
 
-local function Recent()
+local function RecentHistory(key)
+	if not key or type(EldoUIDB) ~= "table" then return {} end
 	EldoUIDB.mailRecent = EldoUIDB.mailRecent or {}
-	EldoUIDB.mailRecent[Realm()] = EldoUIDB.mailRecent[Realm()] or {}
-	return EldoUIDB.mailRecent[Realm()]
+	EldoUIDB.mailRecent[key] = EldoUIDB.mailRecent[key] or {}
+	return EldoUIDB.mailRecent[key]
 end
+
+local function Recent() return RecentHistory(HistoryKey()) end
 M.RecentRecipients = Recent
 
 local function Remember(name)
-	if type(name) ~= "string" or name == "" then return end
-	local list = Recent()
+	name = E.Plain(name)
+	local key = HistoryKey()
+	if not key or type(name) ~= "string" or name == "" then return end
+	local list = RecentHistory(key)
 	for i = #list, 1, -1 do
 		if list[i]:lower() == name:lower() then table.remove(list, i) end
 	end
@@ -514,7 +523,9 @@ local function Remember(name)
 end
 
 -- Your other characters on this realm and faction (the character store,
--- Core/CharacterStore.lua): { name, class, level }, by name.
+-- Core/CharacterStore.lua): { name, first, class, level }, by name. `name`
+-- is the one a letter goes to: on Forever the first name and the surname
+-- (store.FullName), `first` the first name alone.
 local function Alts()
 	local alts = {}
 	local store = E.Characters
@@ -522,12 +533,49 @@ local function Alts()
 	for _, key in ipairs(store:Keys("faction")) do
 		local record = store:Get(key)
 		if key ~= E.charKey and record and type(record.name) == "string" then
-			alts[#alts + 1] = { name = record.name, class = record.class, level = record.level }
+			alts[#alts + 1] = { name = store.FullName(key, record), first = record.name, class = record.class, level = record.level }
 		end
 	end
 	table.sort(alts, function(a, b) return a.name < b.name end)
 	return alts
 end
+
+M.Alts = Alts
+
+-- A recent name that is one of your characters' first name alone: up to
+-- 0.7.4001 the address book filled in only that, and Recent kept it,
+-- though on Forever the letter failed (it needs the surname). Such names
+-- become the full name, in the saved list too, so Recent and the autofill
+-- offer the name that works. A first name two of your characters share
+-- stays as it is (it can't be told which one). Doubles go, in any spelling;
+-- the newest place stays.
+local function FixRecent(list)
+	local store = E.Characters
+	local full = {}
+	for _, alt in ipairs(Alts()) do
+		if alt.first ~= alt.name then
+			local first = alt.first:lower()
+			full[first] = full[first] == nil and alt.name or false
+		end
+	end
+	if not next(full) then return list end
+	local seen, fixed = {}, {}
+	for _, name in ipairs(list) do
+		if type(name) == "string" then
+			name = full[name:lower()] or name
+			local key = store.NameKey(name)
+			if not seen[key] then
+				seen[key] = true
+				fixed[#fixed + 1] = name
+			end
+		end
+	end
+	wipe(list)
+	for index, name in ipairs(fixed) do list[index] = name end
+	return list
+end
+
+M.FixRecent = FixRecent
 
 local function Friends()
 	local list = {}
@@ -570,15 +618,19 @@ function M:CreateAddressBook()
 	Tip(button, L["Address book"], L["Recent recipients, your alts, friends and guild."])
 	button:SetScript("OnClick", function(b)
 		if IsInGuild() and C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster() end
+		local scope = HistoryKey()
+		self.addressBookScope = scope
 		E.UIKit.ContextMenu(b, function(_, root)
-			local function Section(title, names)
+			local function Section(title, names, historyScope)
 				if #names == 0 then return end
 				local sub = root:CreateButton(title)
 				for _, name in ipairs(names) do
-					sub:CreateButton(name, function() SetRecipient(name) end)
+					sub:CreateButton(name, function()
+						if not historyScope or HistoryKey() == historyScope then SetRecipient(name) end
+					end)
 				end
 			end
-			Section(L["Recent"], Recent())
+			Section(L["Recent"], FixRecent(RecentHistory(scope)), scope)
 			-- Alts in class color with their level.
 			local alts = Alts()
 			if #alts > 0 then
@@ -591,11 +643,16 @@ function M:CreateAddressBook()
 			end
 			Section(L["Friends"], Friends())
 			Section(L["Guild (online)"], Guild())
-			root:CreateDivider()
-			root:CreateButton(L["Clear recent"], function()
-				E:ShowConfirm({ title = L["Clear recent"], text = L["Forget every recent recipient on this realm?"],
-					accept = L["Clear recent"], danger = true, onAccept = function() wipe(Recent()) end })
-			end)
+			if scope then
+				root:CreateDivider()
+				root:CreateButton(L["Clear recent"], function()
+					if HistoryKey() ~= scope then return end
+					E:ShowConfirm({ title = L["Clear recent"], text = L["Clear the current list of recent recipients?"],
+						accept = L["Clear recent"], danger = true, onAccept = function()
+							if HistoryKey() == scope then wipe(RecentHistory(scope)) end
+						end })
+				end)
+			end
 		end, { at = "owner" })
 	end)
 	button:Hide()
@@ -648,18 +705,41 @@ end
 -- Sent log: EldoUIDB.mailSent[realm] = { { t, to, s, items = { { id, n, link } }, m, cod } }
 ---------------------------------------------------------------------------
 local pendingSend
+-- The recipient Recent keeps once the letter went out (MAIL_SEND_SUCCESS):
+-- a name the game turned down (MAIL_FAILED) is not offered again.
+local pendingRecipient
 
-E:RegisterStore("mailSent", { owner = "Mail", key = "realm", shape = "letters you sent per realm, newest first, at most the \"Letters to keep\" setting" })
+E:RegisterStore("mailSent", { owner = "Mail", key = "realm", shape = "letters you sent per realm or ruleset, newest first, at most the \"Letters to keep\" setting" })
 
-local function SentLog()
+local function SentHistory(key)
+	if not key or type(EldoUIDB) ~= "table" then return {} end
 	EldoUIDB.mailSent = EldoUIDB.mailSent or {}
-	EldoUIDB.mailSent[Realm()] = EldoUIDB.mailSent[Realm()] or {}
-	return EldoUIDB.mailSent[Realm()]
+	EldoUIDB.mailSent[key] = EldoUIDB.mailSent[key] or {}
+	return EldoUIDB.mailSent[key]
 end
+
+local function SentLog() return SentHistory(HistoryKey()) end
 M.SentLog = SentLog
 
+local function AskClearSentLog(scope, immediate, announce)
+	if not scope or HistoryKey() ~= scope then return end
+	local function Clear()
+		if HistoryKey() ~= scope then return end
+		wipe(SentHistory(scope))
+		M:UpdateLog()
+		if announce then M:Print(L["Sent log cleared."]) end
+	end
+	if immediate then return Clear() end
+	local accept = Clear
+	if announce then accept = function() E:RunConfigRow(Clear) end end
+	E:ShowConfirm({ title = L["Clear log"], text = L["Clear the current sent log? This can't be undone."],
+		accept = L["Clear log"], danger = true, onAccept = accept })
+end
+
 local function CaptureSend(recipient, subject)
-	if not M.active or not M.db.sentLog then return end
+	pendingSend = nil
+	local scope = HistoryKey()
+	if not scope or not M.active or not M.db.sentLog then return end
 	local items = {}
 	for i = 1, ATTACHMENTS_MAX_SEND or 12 do
 		local name, itemID, texture, count = GetSendMailItem(i)
@@ -669,18 +749,22 @@ local function CaptureSend(recipient, subject)
 		end
 	end
 	pendingSend = {
-		t = time(), to = recipient, s = subject,
-		items = items,
-		m = GetSendMailMoney and GetSendMailMoney() or 0,
-		cod = GetSendMailCOD and GetSendMailCOD() or 0,
+		scope = scope,
+		letter = {
+			t = time(), to = recipient, s = subject,
+			items = items,
+			m = GetSendMailMoney and GetSendMailMoney() or 0,
+			cod = GetSendMailCOD and GetSendMailCOD() or 0,
+		},
 	}
 end
 
 local function CommitSend()
-	if not pendingSend then return end
-	local log = SentLog()
-	table.insert(log, 1, pendingSend)
+	local pending = pendingSend
 	pendingSend = nil
+	if not pending or pending.scope ~= HistoryKey() then return end
+	local log = SentHistory(pending.scope)
+	table.insert(log, 1, pending.letter)
 	while #log > (M.db.sentMax or 200) do table.remove(log) end
 	if M.logFrame and M.logFrame:IsShown() then M:UpdateLog() end
 end
@@ -741,19 +825,13 @@ function M:CreateLog()
 	frame.empty:SetPoint("CENTER")
 
 	local clear = FlatButton(frame, L["Clear log"], 90, 20)
+	frame.clear = clear
 	clear:SetPoint("BOTTOMRIGHT", -8, 8)
 	-- Asks first on the shared dialog shell; Shift-click clears at once.
 	clear:SetScript("OnClick", function()
-		local function Clear()
-			wipe(SentLog())
-			M:UpdateLog()
-		end
-		if IsShiftKeyDown() then
-			Clear()
-		else
-			E:ShowConfirm({ title = L["Clear log"], text = L["Empty the whole sent mail log? This can't be undone."],
-				accept = L["Clear log"], danger = true, onAccept = Clear })
-		end
+		local scope = frame.historyScope
+		if HistoryKey() ~= scope then M:UpdateLog(); return end
+		AskClearSentLog(scope, IsShiftKeyDown())
 	end)
 	frame.hint = E.UIKit.Text(frame, E.tokens.size.small, "LEFT", "secondary")
 	frame.hint:SetPoint("BOTTOMLEFT", 10, 12)
@@ -783,6 +861,7 @@ local function LogRow(frame, i)
 	row:SetScript("OnClick", function(self)
 		local entry = self.entry
 		if not entry or not entry.to then return end
+		if not self.historyScope or HistoryKey() ~= self.historyScope then M:UpdateLog(); return end
 		if SendMailFrame and SendMailFrame:IsShown() then
 			SetRecipient(entry.to)
 		elseif MailFrameTab2 and MailFrameTab_OnClick then
@@ -792,7 +871,7 @@ local function LogRow(frame, i)
 	end)
 	row:SetScript("OnEnter", function(self)
 		local entry = self.entry
-		if not entry then return end
+		if not entry or not self.historyScope or HistoryKey() ~= self.historyScope then return end
 		local sr, sg, sb = unpack(E.tokens.text.secondary)
 		E.UIKit.AnchorTooltip(self)
 		GameTooltip:AddLine(L["To %s"]:format(entry.to or "?"))
@@ -839,18 +918,34 @@ end
 function M:UpdateLog()
 	local frame = self.logFrame
 	if not frame or not frame:IsShown() then return end
+	local scope = HistoryKey()
+	if scope ~= frame.historyScope then
+		frame.offset = 0
+		-- A reused row keeps its hover state until the pointer leaves it.
+		if GameTooltip:IsShown() then
+			local owner = E.PlainCall(GameTooltip.GetOwner, GameTooltip)
+			for _, row in ipairs(frame.rows) do
+				if owner == row then
+					GameTooltip:Hide()
+					break
+				end
+			end
+		end
+	end
+	frame.historyScope = scope
+	frame.clear:SetEnabled(scope ~= nil)
 	-- Folded (case, accents, Cyrillic) like the names it is compared with.
 	local filter = E:FoldText(frame.search:GetText() or "")
 	local items = {}
-	for _, entry in ipairs(SentLog()) do
+	for _, entry in ipairs(SentHistory(scope)) do
 		if MatchesLog(entry, filter) then items[#items + 1] = entry end
 	end
 	frame.offset = max(0, min(frame.offset, max(0, #items - (frame.visible or 1))))
-	frame.count:SetText(L["%d letters"]:format(#items))
+	frame.count:SetText(scope and L["%d letters"]:format(#items) or "")
 	for i = 1, frame.visible or 0 do
 		local row = frame.rows[i]
 		local entry = items[frame.offset + i]
-		row.entry = entry
+		row.entry, row.historyScope = entry, scope
 		if entry then
 			row.date:SetText(E:When(entry.t))
 			row.to:SetText(entry.to or "?")
@@ -873,7 +968,8 @@ function M:UpdateLog()
 		end
 	end
 	frame.empty:SetShown(#items == 0)
-	frame.empty:SetText(filter == "" and L["No mail sent yet."] or L["Nothing matches."])
+	frame.empty:SetText(not scope and L["Mail history is unavailable."]
+		or (filter == "" and L["No mail sent yet."] or L["Nothing matches."]))
 end
 
 function M:ToggleLog()
@@ -1073,7 +1169,7 @@ function M:SetupHooks()
 	self.hooked = true
 	hooksecurefunc("SendMail", function(recipient, subject)
 		if not M.active then return end
-		if Improve() then Remember(recipient) end
+		pendingRecipient = Improve() and recipient or nil
 		CaptureSend(recipient, subject)
 	end)
 	if SendMailFrame then
@@ -1081,9 +1177,12 @@ function M:SetupHooks()
 			if not M.active then return end
 			M:UpdateInbox()
 			M:UpdateSendMail()
-			if Improve("autofill") and SendMailNameEditBox:GetText() == "" and Recent()[1] then
-				SendMailNameEditBox:SetText(Recent()[1])
-				SendMailNameEditBox:HighlightText()
+			if Improve("autofill") and SendMailNameEditBox:GetText() == "" then
+				local recipient = FixRecent(Recent())[1]
+				if recipient then
+					SendMailNameEditBox:SetText(recipient)
+					SendMailNameEditBox:HighlightText()
+				end
 			end
 		end)
 	end
@@ -1154,7 +1253,19 @@ function M:OnEnable()
 		self.lastCount = count
 		self:RequestInbox()
 	end)
-	self:RegisterEvent("MAIL_SEND_SUCCESS", CommitSend)
+	self:RegisterEvent("MAIL_SEND_SUCCESS", function()
+		local recipient = pendingRecipient
+		pendingRecipient = nil
+		if recipient and Improve() then Remember(recipient) end
+		CommitSend()
+	end)
+	self:RegisterEvent("GAME_RULES_CHANGED", function()
+		local menu = E.UIKit.GetMenu()
+		if self.addressBook and menu and menu.owner == self.addressBook and self.addressBookScope ~= HistoryKey() then
+			E.UIKit.CloseMenu()
+		end
+		self:UpdateLog()
+	end)
 	-- Gamepad and mouse interface swap: EldoUI's buttons follow.
 	self:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION", function()
 		if not self.toolbar then return end
@@ -1163,7 +1274,7 @@ function M:OnEnable()
 		if self.logFrame and not Additions() then self.logFrame:Hide() end
 	end)
 	self:RegisterEvent("MAIL_FAILED", function()
-		pendingSend = nil
+		pendingSend, pendingRecipient = nil, nil
 		-- A run stops on the first error.
 		if run then M:StopRun(L["Stopped: the game reported a mail error."]) end
 	end)
@@ -1180,8 +1291,9 @@ end
 -- up again keeps everything; switching to a profile with lower limits
 -- trims nothing.
 function M:TrimLists()
-	if type(EldoUIDB) ~= "table" then return end
-	local recent, log = Recent(), SentLog()
+	local scope = HistoryKey()
+	if not scope or type(EldoUIDB) ~= "table" then return end
+	local recent, log = RecentHistory(scope), SentHistory(scope)
 	while #recent > (self.db.recentMax or 20) do table.remove(recent) end
 	while #log > (self.db.sentMax or 200) do table.remove(log) end
 	self:UpdateLog()
@@ -1199,10 +1311,10 @@ function M:ScheduleTrim()
 		trimRecent, trimSent = recent, sent
 		return
 	end
-	local token = trimToken
+	local token, scope = trimToken, HistoryKey()
 	C_Timer.After(1, function()
 		if token ~= trimToken then return end
-		M:TrimLists()
+		if scope and HistoryKey() == scope then M:TrimLists() end
 		trimRecent, trimSent = M.db.recentMax or 20, M.db.sentMax or 200
 	end)
 end
@@ -1247,10 +1359,10 @@ M.options = {
 	{ type = "toggle", key = "altClick", disabled = HandledBy("altClick"), label = "Alt-click a bag item to attach it", desc = "Alt+Shift-click attaches every stack of that item." },
 
 	{ type = "tab", label = "Sent log" },
-	{ type = "toggle", key = "sentLog", label = "Keep a log of sent mail", desc = "Remembers every letter you send on this realm: recipient, subject, items, gold and cash on delivery. A button opens it beside the mailbox; /eui sentmail too." },
+	{ type = "toggle", key = "sentLog", label = "Keep a log of sent mail", desc = "Remembers each letter in the current sent log, including its recipient, subject, items, gold, and cash on delivery. Open it beside the mailbox or with /eui sentmail." },
 	{ type = "range", key = "sentMax", label = "Letters to keep", desc = "The oldest entries drop off after this many.", min = 50, max = 500, step = 50, dependsOn = "sentLog" },
-	{ type = "execute", confirm = true, label = "Clear the sent log", desc = "Forgets every logged letter for this realm.",
-		func = function() wipe(SentLog()); M:UpdateLog(); M:Print(L["Sent log cleared."]) end },
+	{ type = "execute", label = "Clear the sent log", desc = "Clears every letter in the current sent log.",
+		func = function() AskClearSentLog(HistoryKey(), false, true) end },
 
 	{ type = "tab", label = "Look" },
 	{ less = true, type = "toggle", key = "unreadAccent", label = "Unread senders in the accent color", desc = "With the EldoUI skin on: unread letters show the sender in the accent color, read ones in gray." },

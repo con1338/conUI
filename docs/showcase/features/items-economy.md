@@ -20,7 +20,7 @@ Alt-click an item in your bags to disenchant it, or Alt-click a lockbox to pick 
 
 ## Loot Guide
 
-A loot journal for dungeons and raids, best-in-slot sets, a wishlist, search and item pages, and loot lines in item tooltips. The data (drops, chances, creatures and quests) comes from the separate EldoUI_LootData folder, which is generated from CMaNGOS classic-db: Classic values, so WoW: Forever may differ. Open it with `/lg`. All nine WoW: Forever dungeons have their own pages with their level range and zone; a boss joins its page the first time you defeat it, with the items you see it drop.
+A loot journal for dungeons and raids, best-in-slot sets, a wishlist, search and item pages, and loot lines in item tooltips. The data (drops, chances, creatures and quests) comes from the separate EldoUI_LootData folder, which is generated from CMaNGOS classic-db: Classic values, so WoW: Forever may differ. Open it with `/lg`. All nine WoW: Forever dungeons have their own pages with their level range and zone; a boss joins its page the first time you defeat it, with the items you see it drop. With Drop chances set to Seen or Both, item tooltips show which WoW: Forever dungeon boss you saw drop the item and the number of drops observed across your characters.
 
 ## My Adventure
 
@@ -35,6 +35,8 @@ Upgrade arrows from a stat-weight scale in tooltips, bags, merchants, loot rolls
 Shopping lists, quick selling with price checks, canceling, full scans, crafting costs, disenchant values and a price database for the auction house.
 
 Shopping also shows deals from searches and full scans you start. Set a target price on the watch list, open an exact result in Buy, and see a warning when your proposed sale is far below the usual price.
+
+Prices and posting history stay with their faction or neutral market. Saved prices are available once the game identifies the market.
 
 Item tooltips show the last auction price and a usual price once your searches cover at least three days. An arrow marks three days of clearly higher or lower prices, and the tooltip says when a vendor pays more after the auction house takes its share. Hold Shift for the last seven daily lows. Quick Sell suggests the usual price if there are no current listings and you have no remembered price.
 

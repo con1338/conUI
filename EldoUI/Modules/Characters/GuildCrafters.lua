@@ -97,6 +97,10 @@ end
 -- The wire format: one line per character and profession
 --   C <tab> name <tab> CLASS
 --   P <tab> profession <tab> rank <tab> packed recipe IDs
+-- On Forever a whisper needs the first name and the surname, so the name
+-- is the full one (Store().FullName: the store's record keeps the first
+-- name only, its key both). Lists from an older EldoUI name the first name
+-- alone; the online mark and the whisper look those up in the roster.
 ---------------------------------------------------------------------------
 local function Field(text)
 	return (tostring(text or ""):gsub("[\t\n|]", ""))
@@ -114,7 +118,9 @@ function M:MyRecipeList()
 				any = true
 			end
 		end
-		if any and #chars < MAX_CHARS then chars[#chars + 1] = { name = record.name, class = record.class, profs = profs } end
+		if any and #chars < MAX_CHARS then
+			chars[#chars + 1] = { name = Store().FullName(key, record) or record.name, class = record.class, profs = profs }
+		end
 	end
 	return chars
 end
@@ -245,7 +251,24 @@ end
 -- Online members (from the guild roster the game already has)
 ---------------------------------------------------------------------------
 local online = {}
+-- First name -> the online member's full name, or false when two online
+-- members share it (first names are not unique on Forever).
+local onlineFirst = {}
 local onlineDirty = true
+
+-- A name's first name and surname (nil without one), split at the game's
+-- surname separator or a space.
+local function SplitName(name)
+	local separator = Store().SurnameSeparator()
+	local at = name:find(separator, 1, true)
+	if not at and separator ~= " " then
+		separator = " "
+		at = name:find(separator, 1, true)
+	end
+	if not at then return name, nil end
+	local surname = name:sub(at + #separator)
+	return name:sub(1, at - 1), surname ~= "" and surname or nil
+end
 
 -- The roster changes often in a big guild: the online set is only marked
 -- out of date, and read again when something asks who is online.
@@ -255,13 +278,22 @@ end
 
 function M:ScanGuildOnline()
 	wipe(online)
+	wipe(onlineFirst)
 	onlineDirty = false
 	if not (Try(IsInGuild) and GetNumGuildMembers and GetGuildRosterInfo) then return end
 	local count = Try(GetNumGuildMembers) or 0
 	for index = 1, math.min(count, 1000) do
 		local ok, name, _, _, _, _, _, _, _, isOnline = pcall(GetGuildRosterInfo, index)
 		name, isOnline = Readable(name), Readable(isOnline)
-		if ok and type(name) == "string" and isOnline then online[OwnerName(name):lower()] = true end
+		if ok and type(name) == "string" and isOnline then
+			local full = OwnerName(name)
+			online[full:lower()] = true
+			local first, surname = SplitName(full)
+			if surname then
+				local key = first:lower()
+				onlineFirst[key] = onlineFirst[key] == nil and full or false
+			end
+		end
 	end
 end
 
@@ -269,7 +301,23 @@ function M:CrafterOnline(name)
 	if type(name) ~= "string" then return false end
 	-- Without a shared list nobody asks; with one, the roster is read once.
 	if onlineDirty and next(Peers()) ~= nil then self:ScanGuildOnline() end
-	return online[name:lower()] == true
+	if online[name:lower()] == true then return true end
+	local first, surname = SplitName(name)
+	-- A first name alone (a list from an older EldoUI): someone online by it.
+	if not surname then return onlineFirst[name:lower()] ~= nil end
+	-- A full name, and a roster that names members without their surname.
+	return online[first:lower()] == true
+end
+
+-- The name a whisper to a crafter goes to: a first name alone becomes the
+-- full name of the one online member who has it; otherwise as it is.
+function M:CrafterWhisperName(name)
+	if type(name) ~= "string" or select(2, SplitName(name)) then return name end
+	if onlineDirty then self:ScanGuildOnline() end
+	-- A member online by exactly this name is the one.
+	if online[name:lower()] then return name end
+	local full = onlineFirst[name:lower()]
+	return type(full) == "string" and full or name
 end
 
 ---------------------------------------------------------------------------
@@ -365,13 +413,29 @@ function M:RecipesForItem(item)
 	return found
 end
 
+-- A crafter named by the first name alone (a list from an older EldoUI)
+-- while the same recipe's crafters also name someone in full with that
+-- first name and class: most likely the same character, sent again in full
+-- from another of the player's characters. The full row stands for both.
+local function Shadowed(crafter, crafters)
+	local first, surname = SplitName(crafter.name)
+	if surname then return false end
+	first = first:lower()
+	for _, other in ipairs(crafters) do
+		local otherFirst, otherSurname = SplitName(other.name)
+		if otherSurname and otherFirst:lower() == first and other.class == crafter.class then return true end
+	end
+	return false
+end
+
 -- Crafters of a set of recipes: one row per character, online first.
 function M:CraftersOf(recipeIDs)
 	local index, rows, seen = Index(), {}, {}
 	for _, id in ipairs(recipeIDs) do
-		for _, crafter in ipairs(index[id] or {}) do
+		local crafters = index[id] or {}
+		for _, crafter in ipairs(crafters) do
 			local key = crafter.name:lower()
-			if not seen[key] then
+			if not seen[key] and not Shadowed(crafter, crafters) then
 				seen[key] = true
 				local isOnline = self:CrafterOnline(crafter.name)
 				if isOnline or self.db.crafterOffline then
@@ -390,9 +454,11 @@ end
 ---------------------------------------------------------------------------
 -- The tooltip line and the Loot Guide line
 ---------------------------------------------------------------------------
+-- In the player's name format (General > Name format), like other names.
 local function CrafterName(row)
 	local r, g, b = M.ClassColor(row.class)
-	return Kit.Hex(r, g, b) .. row.name .. "|r"
+	local name = E.FormatNameString and E:FormatNameString(row.name) or row.name
+	return Kit.Hex(r, g, b) .. tostring(name or row.name) .. "|r"
 end
 
 -- The text after "Guild crafters:" in the chosen form, or nil.
@@ -479,7 +545,7 @@ local function SearchRows(filter)
 		if match then
 			for _, crafter in ipairs(crafters) do
 				local isOnline = M:CrafterOnline(crafter.name)
-				if isOnline or M.db.crafterOffline then
+				if (isOnline or M.db.crafterOffline) and not Shadowed(crafter, crafters) then
 					rows[#rows + 1] = { id = id, recipe = name, name = crafter.name, owner = crafter.owner, class = crafter.class,
 						prof = crafter.prof, rank = crafter.rank, online = isOnline, at = crafter.at }
 				end
@@ -500,7 +566,7 @@ function M:WhisperCrafter(row)
 		or Text(C_Spell and C_Spell.GetSpellLink and Try(C_Spell.GetSpellLink, row.id))) or Text(row.recipe) or ""
 	-- Only a prefilled edit box: the player presses Enter.
 	if ChatFrameUtil and ChatFrameUtil.SendTellWithMessage then
-		ChatFrameUtil.SendTellWithMessage(row.name, link)
+		ChatFrameUtil.SendTellWithMessage(M:CrafterWhisperName(row.name), link)
 		return true
 	end
 	return false

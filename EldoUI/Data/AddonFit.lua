@@ -20,13 +20,6 @@ local L = E.L
 local Key = E.Key
 local Fit = E.addonFit
 
--- The layer addon's network (Modules/MinimapLayer.lua). EldoUI speaks the
--- same addon messages, written from scratch, so players of either can hop
--- through the other. Checked against release 1.14.25.
-E.LayerNetwork = {
-	folder = "LayerSwap", slash = "LAYERSWAP", prefix = "LayerSwap",
-}
-
 ---------------------------------------------------------------------------
 -- Slots: the mover whose spot it is, its size on the 1440 canvas while
 -- that mover is missing, and where the spot is when no point is found.

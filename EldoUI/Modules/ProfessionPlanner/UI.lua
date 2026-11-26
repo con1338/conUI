@@ -477,7 +477,7 @@ local function BuildPlan(content)
 	frame.note:SetPoint("TOPLEFT", frame.summary, "BOTTOMLEFT", 0, -4)
 	frame.note:SetPoint("TOPRIGHT", frame.summary, "BOTTOMRIGHT", 0, -4)
 	frame.note:SetWordWrap(true)
-	frame.note:SetText(L["Colors come from your profession window where you opened it, else from Classic's usual steps; crafts per point follow the public Classic chance. Both are estimates. Prices are EldoUI's saved auction and vendor prices."])
+	frame.note:SetText(L["Plan colors use the Forever skill-up thresholds where available. Missing thresholds and crafts per point are estimated. Prices come from your saved auction and vendor prices."])
 	frame.steps = Kit.CreateTable(frame, {
 		{ key = "from", title = L["Skill"], width = 90, value = function(row) return row.from end,
 			text = function(row) return ("%d-%d"):format(row.from, row.to) end },

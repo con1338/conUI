@@ -339,7 +339,7 @@ function PQ.QuestTitle(questID)
 end
 
 function PQ:CanShare(questID)
-	if not (self.active and Read(IsInGroup) and C_QuestLog) then return false end
+	if InCombatLockdown() or not (self.active and Read(IsInGroup) and C_QuestLog) then return false end
 	if not Read(C_QuestLog.GetLogIndexForQuestID, questID) then return false end
 	return Read(C_QuestLog.IsPushableQuest, questID) == true
 end
@@ -602,6 +602,9 @@ function PQ:OnEnable()
 	end)
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", function() PQ:OnRoster() end)
 	self:RegisterEvent("GROUP_LEFT", function() PQ:OnRoster() end)
+	local combatChanged = function() PQ:Changed() end
+	self:RegisterEvent("PLAYER_REGEN_DISABLED", combatChanged)
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", combatChanged)
 	if self.CreatePanel then self:CreatePanel() end
 	if self.ApplyVisibility then self:ApplyVisibility() end
 	if Read(IsInGroup) then self:StartSession() end
@@ -613,7 +616,8 @@ function PQ:OnDisable()
 	if self.frame then E:DetachVisibility(self.frame) end
 	self.visibilityBlock = nil
 	self:UnregisterUnitEvent("UNIT_QUEST_LOG_CHANGED", "player")
-	for _, event in ipairs({ "QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "GROUP_ROSTER_UPDATE", "GROUP_LEFT" }) do
+	for _, event in ipairs({ "QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN",
+		"GROUP_ROSTER_UPDATE", "GROUP_LEFT", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
 		self:UnregisterEvent(event)
 	end
 	if self.commOn then

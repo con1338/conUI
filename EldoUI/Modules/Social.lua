@@ -892,8 +892,12 @@ end
 -- The name to show and to add: "Name" on your realm, else "Name-Realm".
 function M.GroupedName(entry)
 	if type(entry) ~= "table" or type(entry.name) ~= "string" then return nil end
+	if entry.region then
+		return E.PlainCall(GetCurrentRegion) == entry.region and entry.name or nil
+	end
+	if entry.realm == "?" or E.PlainCall(RegionalUniqueNamesEnabled) == true then return nil end
 	local realm = MyRealm()
-	if entry.realm and entry.realm ~= "?" and entry.realm ~= realm then return entry.name .. "-" .. entry.realm end
+	if entry.realm and entry.realm ~= realm then return entry.name .. "-" .. entry.realm end
 	return entry.name
 end
 
@@ -973,21 +977,22 @@ local function GroupedRowCreate(row)
 end
 
 local function GroupedRowUpdate(row, item)
-	local name = M.GroupedName(item) or item.key
+	local name = M.GroupedName(item)
+	local label = name or item.name
 	local friend = M.IsWoWFriend(name)
 	local notes = Notes()
 	local mark = item.mark and notes and notes.MARKS[item.mark]
 	local sub = GroupedInfo(item, friend)
 	row:SetRow({
-		name = name,
+		name = label,
 		class = M.db.classColors and item.class or nil,
 		status = mark and MARK_TOKENS[item.mark] or nil,
 		statusText = mark and mark.label or nil,
 		sub = sub,
-		hide = { add = friend },
+		hide = { add = not name or friend, invite = not name, whisper = not name },
 	})
 	-- The whole second line on hover, for when the row cuts it short.
-	row.kitTipTitle, row.kitTipText = name, sub
+	row.kitTipTitle, row.kitTipText = label, sub
 	if SetClassIcon(row.icon.icon, item.class) == false then
 		row.icon:SetIcon("Interface\\Icons\\INV_Misc_GroupNeedMore")
 		E:TrimIcon(row.icon.icon)
