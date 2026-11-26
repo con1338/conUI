@@ -22,9 +22,9 @@
 --     OpenWorldMap / OpenMapToUserWaypoint / OpenMapToEventPoi.
 -- This runs the real Finder entries (PANELS, PanelCall), the Menu block's
 -- OpenFromMenu and E:FollowLink (Core/ChatLinks.lua) against stubs, and a
--- text check makes sure no Lua file the TOCs load calls the game's map
--- openers, directly or by name in quotes, and that only Core/ChatLinks.lua
--- calls SetItemRef.
+-- text check makes sure no Lua file the TOCs load (and no key binding)
+-- uses the game's map openers, called, handed on as a value or by name in
+-- quotes, and that only Core/ChatLinks.lua hands links to SetItemRef.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/maps/") or "./"
 
 local function ReadFile(path)
@@ -158,11 +158,16 @@ end
 ---------------------------------------------------------------------------
 -- Links in EldoUI's message windows (E:FollowLink, Core/ChatLinks.lua)
 ---------------------------------------------------------------------------
+local modified = false
 do
 	local links = ReadFile("EldoUI/Core/ChatLinks.lua")
 	local chunk = Between(links, "local function PlainMapID(value)", "\n---------------------------------------------------------------------------\n-- Item, spell",
 		"ChatLinks.lua FollowLink")
 	local waypoint = { uiMapID = 1429, position = { x = 0.4, y = 0.6 } }
+	local tooltip = { shown = false }
+	function tooltip:IsShown() return self.shown end
+	function tooltip:SetOwner() calls[#calls + 1] = { name = "SetOwner" } end
+	function tooltip:ItemRefSetHyperlink(link) calls[#calls + 1] = { name = "ItemRefSetHyperlink", link = link } end
 	local env = setmetatable({
 		E = E,
 		C_Map = {
@@ -179,6 +184,12 @@ do
 		SetItemRef = function(link, text, button, frame)
 			calls[#calls + 1] = { name = "SetItemRef", link = link, text = text, button = button, frame = frame }
 		end,
+		IsModifiedClick = function() return modified end,
+		GetFixedLink = function(text) return "fixed:" .. text end,
+		HandleModifiedItemClick = function(link) calls[#calls + 1] = { name = "HandleModifiedItemClick", link = link } end,
+		ItemRefTooltip = tooltip,
+		ShowUIPanel = function(frame) if frame == tooltip then tooltip.shown = true end end,
+		UIParent = {},
 	}, { __index = _G })
 	env._G = env -- rawget(_G, "C_EventScheduler") reads the stub
 	local fn = assert(loadstring(chunk, "=ChatLinks.lua FollowLink"))
@@ -204,6 +215,17 @@ do
 	open = Called("OpenWorldMapAt")
 	Check(open ~= nil and open.mapID == 1453, "an event link opens the map on the event's map through the game's request")
 	Check(Called("SetItemRef") == nil and NoGameOpener(), "an event link runs none of the game's map code")
+	local tip = Called("ItemRefSetHyperlink")
+	Check(tip ~= nil and tip.link == "eventpoi:77", "an event link still shows its tooltip, as SetItemRef did after the game's handler")
+
+	Reset()
+	modified = true
+	E:FollowLink("eventpoi:78", "|Heventpoi:78|h[Another event]|h", "LeftButton")
+	modified = false
+	local insert = Called("HandleModifiedItemClick")
+	Check(insert ~= nil and insert.link == "fixed:|Heventpoi:78|h[Another event]|h", "a Shift-click on an event link still puts it in chat")
+	Check(Called("ItemRefSetHyperlink") == nil and Called("OpenWorldMapAt") == nil and NoGameOpener(),
+		"an event without a map opens no map, and a modified click shows no tooltip")
 
 	Reset()
 	local chat = {}
@@ -223,16 +245,20 @@ end
 local OPENERS = { "ToggleQuestLog", "ToggleWorldMap", "OpenWorldMap", "OpenQuestLog", "OpenMapToUserWaypoint",
 	"OpenMapToEventPoi", "QuestMapFrame_OpenToQuestDetails" }
 
--- Lines that call one (not C_Map.OpenWorldMap, not a method of EldoUI's
--- own), outside comments.
+-- Lines that use one as code: a call, or the function handed on as a value
+-- (pcall(ToggleWorldMap), C_Timer.After(0, ToggleQuestLog), _G.OpenWorldMap()).
+-- Not C_Map.OpenWorldMap and not a method of EldoUI's own (E:OpenWorldMapAt);
+-- outside comments.
 local function DirectCalls(text)
 	local found = {}
 	for line in text:gmatch("[^\n]+") do
-		local code = line:gsub("%-%-.*$", "")
+		local code = " " .. line:gsub("%-%-.*$", "") .. " "
+		local hit = false
 		for _, name in ipairs(OPENERS) do
-			if code:find("[^%w_.:\"']" .. name .. "%s*%(") or code:find("^" .. name .. "%s*%(") then found[#found + 1] = line end
+			if code:find("[^%w_.:\"']" .. name .. "[^%w_\"']") or code:find("_G%." .. name .. "[^%w_]") then hit = true end
 		end
-		if code:find("QuestLogMicroButton:Click%(") or code:find("ZoneTextButton:Click%(") then found[#found + 1] = line end
+		if code:find("QuestLogMicroButton:Click%(") or code:find("ZoneTextButton:Click%(") then hit = true end
+		if hit then found[#found + 1] = line end
 	end
 	return found
 end
@@ -252,12 +278,15 @@ local function NamedCalls(text)
 	return found
 end
 
--- Lines that hand a link to SetItemRef (a post-hook only follows the game).
+-- Lines that hand a link to SetItemRef, or hand SetItemRef on as a value
+-- (pcall(SetItemRef, ...), local ref = SetItemRef). A post-hook only follows
+-- the game, and a type(SetItemRef) check calls nothing.
 local function ItemRefCalls(text)
 	local found = {}
 	for line in text:gmatch("[^\n]+") do
-		local code = line:gsub("%-%-.*$", "")
-		if not code:find("hooksecurefunc%(") and (code:find("SetItemRef%s*%(") or code:find("SetItemRef%s*,")) then
+		local code = (line:gsub("%-%-.*$", ""):gsub("type%(%s*SetItemRef%s*%)", ""))
+		if not code:find("hooksecurefunc%(") and (code:find("SetItemRef%s*%(") or code:find("SetItemRef%s*,")
+			or code:find("=%s*SetItemRef%s*$") or code:find("=%s*SetItemRef[%s;]") or code:find("%(%s*SetItemRef%s*%)")) then
 			found[#found + 1] = line
 		end
 	end
@@ -289,6 +318,10 @@ do
 			end
 		end
 	end
+	-- Key bindings run their Lua as EldoUI's too.
+	local bindings = ReadFile("EldoUI/Bindings.xml")
+	for _, line in ipairs(DirectCalls(bindings)) do bad[#bad + 1] = "EldoUI/Bindings.xml: " .. line:gsub("^%s+", "") end
+	for _, line in ipairs(ItemRefCalls(bindings)) do refs[#refs + 1] = "EldoUI/Bindings.xml: " .. line:gsub("^%s+", "") end
 	Check(files > 500, ("the TOCs list the addon's Lua files (%d found)"):format(files))
 	Check(#bad == 0, "no Lua file opens the map or the quest log with the game's code: " .. table.concat(bad, " | "))
 	Check(#refs == 0, "only Core/ChatLinks.lua hands links to SetItemRef: " .. table.concat(refs, " | "))
@@ -296,6 +329,11 @@ do
 	-- game's own request and post-hooks alone.
 	Check(#DirectCalls("\tif x then ToggleQuestLog() end\n") == 1, "counter-check: a direct ToggleQuestLog() is found")
 	Check(#DirectCalls("\tbutton = QuestLogMicroButton:Click()\n") == 1, "counter-check: a click on the quest log button is found")
+	Check(#DirectCalls("\tpcall(ToggleWorldMap)\n\tC_Timer.After(0, ToggleQuestLog)\n\tclose:SetScript(\"OnClick\", OpenQuestLog)\n") == 3,
+		"counter-check: a map opener handed on as a value is found")
+	Check(#DirectCalls("\t_G.ToggleWorldMap()\n") == 1, "counter-check: a map opener through _G is found")
+	Check(#DirectCalls("\tfunction M:ToggleWorldMap() end\n\tlocal function OpenWorldMapAt() end\n") == 0,
+		"counter-check: EldoUI's own names that only look alike are no call")
 	Check(#DirectCalls("\tlocal open = C_Map and C_Map.OpenWorldMap\n\tpcall(C_Map.OpenWorldMap, id)\n") == 0,
 		"counter-check: the game's own request C_Map.OpenWorldMap is no call")
 	Check(#DirectCalls("\tE:OpenWorldMapAt()\n\tLG:OpenWorldMapAt(id)\n") == 0, "counter-check: EldoUI's own OpenWorldMapAt is no call")
@@ -305,6 +343,10 @@ do
 		"counter-check: a link handed to SetItemRef is found")
 	Check(#ItemRefCalls("\tpcall(SetItemRef, link, text)\n") == 1, "counter-check: SetItemRef through pcall is found")
 	Check(#ItemRefCalls('\thooksecurefunc("SetItemRef", OnItemRef)\n') == 0, "counter-check: a SetItemRef post-hook is no call")
+	Check(#ItemRefCalls("\tlocal ref = SetItemRef\n\tC_Timer.After(0, function() end) run(SetItemRef)\n") == 2,
+		"counter-check: SetItemRef handed on as a value is found")
+	Check(#ItemRefCalls('\tif type(SetItemRef) == "function" then\n\tif x and SetItemRef then\n') == 0,
+		"counter-check: a check that SetItemRef exists is no call")
 end
 
 print(("%d checks passed, %d failed"):format(passed, failures))
