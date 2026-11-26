@@ -3469,7 +3469,7 @@ E:RegisterLocale("deDE", function() return {
 	["Instance"] = "Instanz",
 	["Instance Log"] = "Instanzprotokoll",
 	["Instance difficulty"] = "Instanzschwierigkeit",
-	["Instance ruleset unavailable."] = "Regelwerk der Instanzen nicht verfügbar.",
+	["Instance ruleset unavailable."] = "Regelwerk für die Instanzzählung nicht verfügbar.",
 	["Instance run"] = "Instanzdurchlauf",
 	["Instances per day"] = "Instanzen pro Tag",
 	["Instances per hour"] = "Instanzen pro Stunde",

@@ -15,7 +15,10 @@
 -- from an older EldoUI) is online by the roster's first names; Whisper goes
 -- to the full name, a first name alone becomes the one online member's full
 -- name, and stays as it is when two online members share it or none has
--- it; no errors.
+-- it, or when a member online has exactly that name; a first name alone
+-- from an older list yields to a full row with that first name and class
+-- (one character, sent twice), but not to one of another class; the names
+-- show in the player's name format; no errors.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/characters/") or "./"
 
 local passed, failed = 0, 0
@@ -152,6 +155,44 @@ if joe then
 	M:WhisperCrafter(joe)
 	Check(told == "Joe", "nobody online has it: it stays as it is")
 end
+Roster({ { "Mira-Realm", true }, { "Mira Stone-Realm", true } })
+Check(type(M.CrafterWhisperName) == "function" and M:CrafterWhisperName("Mira") == "Mira",
+	"a member online by exactly the first name: Whisper goes to them")
+
+---------------------------------------------------------------------------
+-- One character in an old list and a new one
+---------------------------------------------------------------------------
+M.OnCrafterMessage(List({ "C\tJoe Cutter\tROGUE", "P\tTailoring\t120\t2389" }), "Joeshard Cutter-Realm")
+M.OnCrafterMessage(List({ "C\tJoe\tPRIEST", "P\tTailoring\t80\t2389" }), "Joe Priest-Realm")
+Roster({ { "Joe Cutter-Realm", true } })
+rows = M.CrafterSearchRows("")
+local names = {}
+for _, row in ipairs(rows) do
+	if not row.asked then names[#names + 1] = row.name .. "/" .. tostring(row.class) end
+end
+local joined = table.concat(names, ",")
+Check(joined:find("Joe Cutter/ROGUE", 1, true) and not joined:find("Joe/ROGUE", 1, true),
+	"the Crafters tab: the old \"Joe\" yields to \"Joe Cutter\" of the same class (got " .. joined .. ")")
+Check(joined:find("Joe/PRIEST", 1, true) ~= nil, "the Crafters tab: a \"Joe\" of another class stays")
+-- The recipe's ID as the packed list gives it.
+local recipeID
+for _, row in ipairs(rows) do recipeID = recipeID or row.id end
+local tipRows = M:CraftersOf({ recipeID })
+local tipNames = {}
+for _, row in ipairs(tipRows) do tipNames[#tipNames + 1] = row.name .. "/" .. tostring(row.class) end
+local tipJoined = table.concat(tipNames, ",")
+Check(tipJoined:find("Joe Cutter/ROGUE", 1, true) and not tipJoined:find("Joe/ROGUE", 1, true) and tipJoined:find("Joe/PRIEST", 1, true),
+	"the tooltip line's crafters: the same (got " .. tipJoined .. ")")
+
+-- The player's name format.
+local names_db = E.db.general.names
+local format = names_db.format
+names_db.format = "first"
+local line = M:CrafterLineText(tipRows, "names") or ""
+Check(line:find("Mira", 1, true) and not line:find("Mira Stone", 1, true), "name format First name: the line names \"Mira\" (got " .. line .. ")")
+names_db.format = format
+line = M:CrafterLineText(tipRows, "names") or ""
+Check(line:find("Mira Stone", 1, true) ~= nil, "name format as the game shows it: \"Mira Stone\"")
 rawset(_G, "ChatFrameUtil", ChatUtil)
 rawset(_G, "Constants", GameConstants)
 

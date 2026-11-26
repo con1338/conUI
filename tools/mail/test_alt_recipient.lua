@@ -1,5 +1,6 @@
 -- Offline test for the Mail address book's alts (EldoUI/Modules/Mail.lua,
--- MailName and Alts). Run from the repository root:
+-- Alts and FixRecent; EldoUI/Core/CharacterStore.lua, C.FullName and
+-- C:FindCharacter). Run from the repository root:
 --   lua5.1 tools/mail/test_alt_recipient.lua
 -- Seen in the game (26.11.2026): picking one of your characters under
 -- Alts in the address book put only the first name into To:, and the
@@ -16,7 +17,9 @@
 -- (C:FindCharacter, C:CaptureSendMail). Recent keeps a recipient only once
 -- the letter went out, not after MAIL_FAILED; an alt's first name alone
 -- left in Recent by older versions becomes the full name, also for the
--- autofill. No errors.
+-- autofill, but not a first name two of your characters share; a full name
+-- typed with a space is the same as the one the game joins with its own
+-- separator. No errors.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/mail/") or "./"
 
 local passed, failed = 0, 0
@@ -209,6 +212,24 @@ recent[1], recent[2], recent[3], recent[4] = "brakka", "Friend Name", "Brakka St
 if type(M.FixRecent) == "function" then M.FixRecent(recent) end
 Check(recent[1] == "Brakka Steinfaust" and recent[2] == "Friend Name" and recent[3] == "Old" and recent[4] == nil,
 	"an alt's first name left in Recent: the full name, once, in its newest place")
+-- Two of your characters with the same first name: which one is unknown.
+local twinKey = "Brakka Eisenherz - " .. realmKey
+all[twinKey] = { name = "Brakka", class = "PALADIN", level = 20, faction = me.faction, realmKey = realmKey, realm = me.realm }
+store:ForgetKeys()
+wipe(recent)
+recent[1] = "Brakka"
+if type(M.FixRecent) == "function" then M.FixRecent(recent) end
+Check(recent[1] == "Brakka", "a first name two of your characters share stays as it is")
+all[twinKey] = nil
+store:ForgetKeys()
+-- The game's own separator, and the same name typed with a space.
+constants.CharacterNameSeparatorConsts = { CHARACTERNAME_SURNAME_SEPARATOR = "\194\160" }
+Check(store:FindCharacter("Brakka Steinfaust", realmKey) == brakkaKey, "the game's separator: a full name typed with a space finds the alt")
+wipe(recent)
+recent[1], recent[2] = "Brakka Steinfaust", "Brakka"
+if type(M.FixRecent) == "function" then M.FixRecent(recent) end
+Check(recent[1] == "Brakka Steinfaust" and recent[2] == nil, "the game's separator: both spellings are one name in Recent")
+constants.CharacterNameSeparatorConsts = nil
 wipe(recent)
 recent[1] = "Brakka"
 typed = nil

@@ -314,6 +314,8 @@ end
 function M:CrafterWhisperName(name)
 	if type(name) ~= "string" or select(2, SplitName(name)) then return name end
 	if onlineDirty then self:ScanGuildOnline() end
+	-- A member online by exactly this name is the one.
+	if online[name:lower()] then return name end
 	local full = onlineFirst[name:lower()]
 	return type(full) == "string" and full or name
 end
@@ -411,13 +413,29 @@ function M:RecipesForItem(item)
 	return found
 end
 
+-- A crafter named by the first name alone (a list from an older EldoUI)
+-- while the same recipe's crafters also name someone in full with that
+-- first name and class: most likely the same character, sent again in full
+-- from another of the player's characters. The full row stands for both.
+local function Shadowed(crafter, crafters)
+	local first, surname = SplitName(crafter.name)
+	if surname then return false end
+	first = first:lower()
+	for _, other in ipairs(crafters) do
+		local otherFirst, otherSurname = SplitName(other.name)
+		if otherSurname and otherFirst:lower() == first and other.class == crafter.class then return true end
+	end
+	return false
+end
+
 -- Crafters of a set of recipes: one row per character, online first.
 function M:CraftersOf(recipeIDs)
 	local index, rows, seen = Index(), {}, {}
 	for _, id in ipairs(recipeIDs) do
-		for _, crafter in ipairs(index[id] or {}) do
+		local crafters = index[id] or {}
+		for _, crafter in ipairs(crafters) do
 			local key = crafter.name:lower()
-			if not seen[key] then
+			if not seen[key] and not Shadowed(crafter, crafters) then
 				seen[key] = true
 				local isOnline = self:CrafterOnline(crafter.name)
 				if isOnline or self.db.crafterOffline then
@@ -436,9 +454,11 @@ end
 ---------------------------------------------------------------------------
 -- The tooltip line and the Loot Guide line
 ---------------------------------------------------------------------------
+-- In the player's name format (General > Name format), like other names.
 local function CrafterName(row)
 	local r, g, b = M.ClassColor(row.class)
-	return Kit.Hex(r, g, b) .. row.name .. "|r"
+	local name = E.FormatNameString and E:FormatNameString(row.name) or row.name
+	return Kit.Hex(r, g, b) .. tostring(name or row.name) .. "|r"
 end
 
 -- The text after "Guild crafters:" in the chosen form, or nil.
@@ -525,7 +545,7 @@ local function SearchRows(filter)
 		if match then
 			for _, crafter in ipairs(crafters) do
 				local isOnline = M:CrafterOnline(crafter.name)
-				if isOnline or M.db.crafterOffline then
+				if (isOnline or M.db.crafterOffline) and not Shadowed(crafter, crafters) then
 					rows[#rows + 1] = { id = id, recipe = name, name = crafter.name, owner = crafter.owner, class = crafter.class,
 						prof = crafter.prof, rank = crafter.rank, online = isOnline, at = crafter.at }
 				end

@@ -546,19 +546,26 @@ M.Alts = Alts
 -- 0.7.4001 the address book filled in only that, and Recent kept it,
 -- though on Forever the letter failed (it needs the surname). Such names
 -- become the full name, in the saved list too, so Recent and the autofill
--- offer the name that works. Doubles go; the newest place stays.
+-- offer the name that works. A first name two of your characters share
+-- stays as it is (it can't be told which one). Doubles go, in any spelling;
+-- the newest place stays.
 local function FixRecent(list)
+	local store = E.Characters
 	local full = {}
 	for _, alt in ipairs(Alts()) do
-		if alt.first ~= alt.name then full[alt.first:lower()] = alt.name end
+		if alt.first ~= alt.name then
+			local first = alt.first:lower()
+			full[first] = full[first] == nil and alt.name or false
+		end
 	end
 	if not next(full) then return list end
 	local seen, fixed = {}, {}
 	for _, name in ipairs(list) do
 		if type(name) == "string" then
 			name = full[name:lower()] or name
-			if not seen[name:lower()] then
-				seen[name:lower()] = true
+			local key = store.NameKey(name)
+			if not seen[key] then
+				seen[key] = true
 				fixed[#fixed + 1] = name
 			end
 		end

@@ -453,6 +453,17 @@ end
 
 C.SurnameSeparator = SurnameSeparator
 
+-- A name in one spelling for comparing: lower case, with the game's surname
+-- separator as a space (a name typed with a space and one the game joined
+-- are the same).
+function C.NameKey(name)
+	if type(name) ~= "string" then return nil end
+	name = name:lower()
+	local separator = SurnameSeparator()
+	if separator ~= " " then name = (name:gsub(separator:gsub("%p", "%%%0"), " ")) end
+	return name
+end
+
 function C.FullName(key, record)
 	local name = type(record) == "table" and record.name
 	if type(name) ~= "string" then return nil end
@@ -467,12 +478,12 @@ end
 -- letter needs both, Modules/Mail.lua).
 function C:FindCharacter(name, realm)
 	if type(name) ~= "string" or IsSecret(name) or IsSecret(realm) then return end
-	name = name:lower()
+	name = C.NameKey(name)
 	realm = NormalRealm(realm or E:ReadableRealmName())
 	if not realm then return end
 	for key, record in pairs(self:All()) do
 		if type(record) == "table" and type(record.name) == "string"
-			and (record.name:lower() == name or C.FullName(key, record):lower() == name)
+			and (C.NameKey(record.name) == name or C.NameKey(C.FullName(key, record)) == name)
 			and (NormalRealm(record.realm) == realm or NormalRealm(record.realmKey) == realm) then
 			return key, record
 		end
