@@ -127,6 +127,8 @@ check_tests() {
 	lua5.1 tools/tooltip/test_tooltip_mover.lua || bad+=("$name")
 	name="Mail: the address book's alts with their surname (F27)"; step "$name"
 	lua5.1 tools/mail/test_alt_recipient.lua || bad+=("$name")
+	name="Guild crafters: lists and whispers with the surname (F28)"; step "$name"
+	lua5.1 tools/characters/test_guild_crafter_names.lua || bad+=("$name")
 	name="conUI name: prose is renamed, names stay"; step "$name"
 	lua5.1 tools/brand/test_brand.lua || bad+=("$name")
 	name="German pack: Fork.lua rules"; step "$name"

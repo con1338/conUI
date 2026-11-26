@@ -451,6 +451,8 @@ local function SurnameSeparator()
 	return type(separator) == "string" and separator ~= "" and separator or " "
 end
 
+C.SurnameSeparator = SurnameSeparator
+
 function C.FullName(key, record)
 	local name = type(record) == "table" and record.name
 	if type(name) ~= "string" then return nil end
