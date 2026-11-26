@@ -98,6 +98,22 @@ bei den Tastenbelegungen (EldoUIs neue Tasten der Verbrauchsgüterleiste neben d
 | F23 | Nein: Der Gilden-Tooltip ist unverändert. EldoUIs Änderungen in `InfoBar.lua` sind der neue Block „PvP rank“ und die Trefferwertung in den Blöcken Hit und Spell hit. | Alles. |
 | F01–F22 | Nein: Code an diesen Stellen gleich. | Alles. |
 
+## Nach dem Update auf EldoUI 0.7.4001 (26.11.2026)
+
+Der Fork steht seit `efe68ce` auf EldoUI 0.7.4001 (vorher 0.7.3100; dazwischen 0.7.4000). Geprüft wurde jeder Fix
+gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geändert: `EldoUI.toc`, `CHANGELOG.md`,
+`Core/Commands.lua`, `Core/Init.lua`, `Core/Share.lua`, `Data/AddonFit.lua`, `Modules/ActionBars.lua`,
+`Modules/Auction.lua`, `Modules/Minimap.lua` und `Modules/UnitFrames.lua` (dazu die Titelzeilen der TOCs von
+`EldoUI_Locale_daDK` und `EldoUI_LootSim`). Konflikte gab es nur in der TOC (Versionszeile) und im CHANGELOG.
+
+| Nr. | In 0.7.4001 | Was im Fork bleibt |
+|---|---|---|
+| F18 | Nein: EldoUI ändert in `ProfileRefresh` nur, was „Neues Profil“ aufruft (`E:CreateProfile`, lehnt einen Namen ab, den ein anderes Profil in anderer Groß-/Kleinschreibung hat) und dass `E:SetProfile` selbst bis nach dem Kampf wartet. Der Weg der Zeilen zur Seite (F18) ist unverändert. | Alles. Der Test `tools/config/test_profile_page.lua` bekommt einen Nachbau von `E:CreateProfile`. |
+| F19, F15 | Nein: EldoUI baut in `Modules/ActionBars.lua` die Seiten für Übernahme, Fahrzeug und Gestaltwandel um (`NativePages`, Seiten über 18 an Leiste 1). Die ausgeblendeten Blizzard-Leisten (F19) und ihre Rückkehr (F15) berührt das nicht. | Alles. |
+| F22 | Nein: EldoUIs Änderungen in `Modules/Auction.lua` sind die gespeicherten Preise je Markt ohne Realmnamen, die Suche und die Preise in Tooltips; `RestoreNative` und `ShowPage` (F22) sind unverändert. | Alles. |
+| F03 | Nein: In `Modules/UnitFrames.lua` ändert EldoUI nur die Test-Auren (`ReleaseAuras`, `EndTest`). | Alles. |
+| F01–F26 sonst | Nein: Code an diesen Stellen gleich. Der Layerwechsel (`Modules/MinimapLayer.lua`, F05) ist in 0.7.4000 ganz entfallen. | Alles. |
+
 ---
 
 ## Import und Nachrichten anderer Spieler

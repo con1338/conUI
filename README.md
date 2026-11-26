@@ -13,10 +13,10 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > Das gemeinsame Profil heißt bei einer neuen Installation „conUI 1440p“; wer schon ein „EldoUI 1440p“ hat,
 > behält es. Icon und Logo sind eigene Grafiken des Forks (`tools/brand/gen_logo.py`).
 > Es enthält die Git-Historie des Upstream-Repositorys sowie den Addon-Code aus dem Release
-> [EldoUI 0.7.3100](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3100) (Ordner `EldoUI*/`). Die Releases
+> [EldoUI 0.7.4001](https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.4001) (Ordner `EldoUI*/`). Die Releases
 > liegen unverändert im Branch `upstream-release` und kommen von dort per Merge nach `main`.
 > Änderungen gegenüber dem Original sind in der Git-Historie dieses Repositorys nachvollziehbar.
-> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 21.664 Texte,
+> Eigene Ergänzungen des Forks: das vollständige deutsche Sprachpaket `EldoUI_Locale_deDE` (alle 21.610 Texte,
 > Werkzeuge und Glossar in `tools/locale/`), das Plugin `EldoUI_GroupBoard` (Gruppen-Pinnwand: LFM/LFG-Beiträge
 > aus dem Chat in einem Fenster, siehe [`EldoUI_GroupBoard/README.md`](EldoUI_GroupBoard/README.md), Tests in
 > `tools/groupboard/`) und die Code-Review-Notizen in `review/`.
@@ -24,7 +24,7 @@ Ein Fork und Weiterentwicklung von [EldoUI](https://github.com/Eldodeldo/EldoUI)
 > deutsche Texte). Ein Tag `v*` baut
 > das fertige ZIP auf der Releases-Seite dieses Repos, und ein täglicher Versionswächter meldet neue
 > WoW: Forever-Patches und EldoUI-Versionen als Issue. Wie das alles läuft: [`tools/ci/README.md`](tools/ci/README.md).
-> Fork-Versionen tragen die Endung `-pN` (`0.7.3100-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
+> Fork-Versionen tragen die Endung `-pN` (`0.7.4001-p1`); Fehlerberichte aus dem Spiel führen zu diesem Repo.
 > Das Original-README folgt. Das Wiki in `docs/wiki/` spricht noch vom „0.7.1000 setup“: 0.7.1000 ist EldoUIs
 > Ausgangsstand für Profile und Presets. Was sich seitdem geändert hat, steht im [CHANGELOG](CHANGELOG.md) und in
 > [`docs/wiki/current-release.md`](docs/wiki/current-release.md). Geändert sind im Original der Name (conUI

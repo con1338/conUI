@@ -76,8 +76,9 @@ Spieltests aller umgesetzten Punkte (jeweils unter „Im Spiel prüfen“).
 ## A – Deutsche Übersetzung
 
 > **Umgesetzt:** `EldoUI_Locale_deDE` ist vollständig (20.827 von 20.827 Texten; seit EldoUI 0.7.3001 wieder
-> vollständig mit 21.525, seit 0.7.3005 mit 21.557, seit 0.7.3100 mit 21.664, siehe D1), Anrede „Ihr/Euch“,
-> Begriffe des deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/` (`deDE.py status|check|xref`).
+> vollständig mit 21.525, seit 0.7.3005 mit 21.557, seit 0.7.3100 mit 21.664, seit 0.7.4001 mit 21.610, siehe
+> D1), Anrede „Ihr/Euch“, Begriffe des deutschen Clients. Werkzeuge, Prüfungen und Glossar: `tools/locale/`
+> (`deDE.py status|check|xref`).
 > Im Code: deutsches Datumsformat (`Core/Dates.lua`) und `E:InSentence` für Wörter, die in Sätze eingesetzt
 > werden.
 > Nicht geprüft am deutschen Client sind Zauber-, Gegenstands- und Gebietsnamen, die die Übersetzer aus dem
@@ -1293,6 +1294,35 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       - `/eui move` mit voller Verbrauchsgüterleiste (die Heilmittel an) und mehreren Questgegenständen: Die beiden
         Leisten liegen nicht übereinander.
       - Sammeln mit Auto-Loot: eine Ader Heavy Thorium am Berg Hyjal abbauen; die Markierung zeigt Bergbau 300.
+  - **Umgesetzt (26.11.2026, EldoUI 0.7.4001, Issue #11):** `upstream-release` hält jetzt auch 0.7.4000
+    (`611cfd3`) und 0.7.4001 (`6b657da`), jedes ZIP byte-genau gegen seinen Commit geprüft (`git archive`, `diff -r`).
+    Der Versionswächter hatte nur 0.7.4001 gemeldet: Am 25.11. fand er 0.7.4000, aber GitHub antwortete beim Anlegen
+    des Issues mit HTTP 500 (der Lauf wurde rot, wie vorgesehen). `efe68ce` mergt 0.7.4001 nach dem Fork, davor
+    `81f0090` EldoUIs Doku-Historie bis 0.7.4001.
+    - Umfang 0.7.3100 → 0.7.4001: 68 Dateien, rund +2.830/−1.890 Zeilen. Neu ist `Data/RecipeThresholds.lua` (die
+      Schwellen für Fertigkeitsanstiege von WoW: Forever, in der TOC), entfallen ist `Modules/MinimapLayer.lua`: Die
+      Minikarte bietet keinen Layerwechsel mehr an. Das meiste sind Spieler ohne Realmnamen (Profile, Charakterdaten,
+      Auktionspreise, Post, Spielernotizen mit dem vollen Namen in Anführungszeichen), der Start erst, wenn das Spiel
+      den Charakter kennt (`Core/Init.lua`), Aktionsleiste 1 bei Übernahme und Fahrzeug, Questies Verfolgung und die
+      Schätzung des Instanzlimits (Standard wieder fünf pro Stunde).
+    - Konflikte: TOC (Version) und CHANGELOG. Doku: `current-release.md`, `getting-started.md`, `modules.md` und
+      `showcase/features/interface.md` mit EldoUIs Text und dem Namen conUI, in `group.md` einmal den Namen ersetzt.
+    - Fork-Fixes gegen 0.7.4001 geprüft (`fehler.md`): keiner ist doppelt. Fork-Features: keins ist doppelt; die
+      Schaltflächen des Forks im Addon-Fach der Minikarte (RestedXP-Schrittliste) bleiben, der Layer-Chip daneben ist weg.
+    - Deutsches Paket: 82 Texte sind raus (72 davon gehörten zum Layerwechsel), die 28 neuen übersetzt, 2 davon aus
+      EldoUIs eigener Loot-Guide-Tabelle. Wieder vollständig: 21.610 von 21.610.
+    - Prüfungen: ein neuer WoW-API-Name (`GetCurrentRegion`), zwei nicht mehr benutzte raus; der Test der Profilseite
+      bekommt einen Nachbau von `E:CreateProfile`. Offline-Start: 635 Dateien, 103 Module (84 an), 0 Fehler, englischer
+      und deutscher Client.
+    - Version `0.7.4001-p1`. Im Spiel ist das Update noch nicht getestet.
+    - Im Spiel prüfen (vorher `WTF` sichern; alte `EldoUI*`-Ordner löschen, das neue ZIP entpacken und das Spiel ganz
+      neu starten, die TOC hat eine neue Datei):
+      - Login: `/eui errors` ohne neue Fehler; der Hinweis „Was ist neu“ zu 0.7.4001 kommt einmal, deutsch. Profil und
+        Einstellungen sind dieselben wie vorher.
+      - Minikarte: kein Layer-Chip mehr, die Schaltfläche der RestedXP-Schrittliste im Addon-Fach wie vorher.
+      - Profile: „Neues Profil“ mit einem Namen, den es schon in anderer Schreibweise gibt, sagt, dass es ihn gibt.
+      - Spielernotizen: `/eui note "Vorname Nachname" Text` speichert eine Notiz.
+      - Berufe: Rezeptfarben und Berufsplaner mit den Schwellen von WoW: Forever.
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.
