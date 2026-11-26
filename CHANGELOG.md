@@ -40,6 +40,103 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 - While EldoUI places RestedXP's guide, layouts also place RestedXP's arrow right under the layout's waypoint arrow spot (EldoUI's own arrow keeps the spot), and its active items and targets beside the guide, where move mode moves them too. Dragging them in RestedXP moves their spot; a click alone does not. With the guide kept in RestedXP, or TomTom on the arrow spot, they go back where RestedXP had them. A window you had placed yourself stays there until you pick Put it on the layout spot on the Other addons page, where Place RestedXP arrow and windows switches all three off.
 - Other addons that the layout places: a frame that loses its spot (to another addon, or because its spot is not for it now) goes back where it was, a click on a frame no longer counts as a drag, and the Other addons page names only the spots an addon really has.
 
+## [0.7.4001] - 2026-11-26
+
+### Setup and profiles
+
+#### Fixed
+
+- Creating or renaming a profile rejects a name that differs from another profile only by capitalization.
+
+### Journal
+
+#### Fixed
+
+- Item tooltips name the WoW: Forever dungeon bosses you saw drop the item and show how often it dropped.
+
+## [0.7.4000] - 2026-11-25
+
+### Highlights
+
+- The Minimap no longer offers layer hopping in WoW: Forever.
+- EldoUI shows one quest list while the supported quest addon's tracker and integration are enabled.
+- EldoUI keeps your saved profile and character data when it can identify your character without a realm name.
+- The Profession Planner uses WoW: Forever skill-up thresholds where available.
+
+### Unit frames
+
+#### Fixed
+
+- Sample auras no longer overlap live auras when entering test mode or re-enabling the frames.
+
+### Group frames
+
+#### Fixed
+
+- The instance counter now estimates five entries per hour by default and keeps saved custom limits.
+- Use Same run as last in the instance log to combine entries for the same dungeon run.
+
+### Nameplates
+
+#### Fixed
+
+- Quest progress matches your full character name when another player shares your first name.
+
+### Action bars
+
+#### Fixed
+
+- Action Bar 1 shows the correct abilities during priest overrides, possession, and vehicle use.
+- Spell menus show the highest known ranks and refresh after combat.
+- Range colors update correctly when a button's action changes.
+
+### Tooltips
+
+#### Fixed
+
+- Tooltips for characters whose identity the game restricts stay stable when you press Shift or change tooltip options.
+
+### Bags and loot
+
+#### Fixed
+
+- Saved auction prices and history stay with their market when realm information is unavailable.
+- Crafting shows WoW: Forever skill-up thresholds where available, and the Profession Planner uses them for its leveling plans.
+- The Loot Guide shows updated binding for Bronze Mace and item levels for the four Darkmoon Cards.
+
+### Leveling and quests
+
+#### Fixed
+
+- EldoUI shows one quest list while the supported quest addon's tracker and integration are enabled.
+- Party Quests makes Share available again after combat.
+- The quest tracker stays hidden during boss fights when the boss addon's hide option is enabled.
+
+### Map and minimap
+
+#### Fixed
+
+- The Minimap no longer offers layer hopping in WoW: Forever.
+
+### Other addons
+
+#### Improved
+
+- EldoUI recognizes more experience bars, shaman totem bars, quest highlighting, and account-wide interface settings.
+
+### Saved settings
+
+#### Fixed
+
+- EldoUI keeps your saved profile and character data when it can identify your character without a realm name.
+- Mail keeps recent recipients and sent history separate between Forever rulesets when realm names are unavailable.
+
+### General
+
+#### Fixed
+
+- Player Notes keeps characters with the same first name separate when realm information is unavailable.
+
 ## [0.7.3100] - 2026-11-21
 
 ### Setup and profiles
@@ -2551,7 +2648,9 @@ The versions from 0.5.0 to 0.6.6005 in short: what they brought that is still in
 - **Paladin:** The Blessing Plan (/eui blessings) plans which blessing each paladin keeps up on each class.
 - **Shaman:** Shaman Totems: a totem bar, a cooldown bar with your shield, weapon imbues, Reincarnation and Ankhs, up to eight totem loadouts, and a group plan for Mana Tide Totem and the resistance totems.
 
-[Unreleased]: https://github.com/Eldodeldo/EldoUI/compare/v0.7.3100...HEAD
+[Unreleased]: https://github.com/Eldodeldo/EldoUI/compare/v0.7.4001...HEAD
+[0.7.4001]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.4001
+[0.7.4000]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.4000
 [0.7.3100]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3100
 [0.7.3006]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3006
 [0.7.3005]: https://github.com/Eldodeldo/EldoUI/releases/tag/v0.7.3005
