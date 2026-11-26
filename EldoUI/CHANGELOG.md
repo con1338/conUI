@@ -38,7 +38,7 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 #### Fixed
 
 - The coordinate box and the waypoint arrow can be dragged as soon as move mode opens: they now show in Combat mode, the view it starts in. The coordinate box's right-click menu has Move, and a switched-off arrow leaves no box in move mode.
-- Pressing L, M or Escape no longer logs "Blocked: EldoUI tried to call the protected function SetPassThroughButtons()" over and over. The quest log from the Finder and from the Info Bar's Menu block, and a map pin, world quest or event link clicked in EldoUI's message windows, now open the map through the game's own request, like the Info Bar's map blocks; before, they ran the game's map code from EldoUI's and left the map tainted until a reload. A map pin link sets the waypoint as before, without the game's ping on it.
+- The quest log from the Finder and from the Info Bar's Menu block, and a map pin, world quest or event link clicked in EldoUI's message windows, open the map through the game's own request now, like the Info Bar's map blocks. Before, they ran the game's map code from EldoUI's code and left the map tainted until a reload, and pressing L, M or Escape then logged "Blocked: EldoUI tried to call the protected function SetPassThroughButtons()" over and over. The quest log entries open the map the way you last left it (with or without the quest log) and no longer close an open map. A map pin link sets the waypoint as before, without the game's ping on it.
 
 ### Other addons
 
