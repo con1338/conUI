@@ -522,8 +522,28 @@ local function Remember(name)
 	while #list > M.db.recentMax do table.remove(list) end
 end
 
+-- The name a letter to one of your characters goes to. On Forever a
+-- letter needs the first name and the surname, but the store's record
+-- keeps the first name only (`name`, Core/CharacterStore.lua); its key
+-- keeps both: "First Surname - <realm key>" (E:CharacterName,
+-- Core/Database.lua). A key without the surname (other clients, a surname
+-- the game kept secret, an older key) gives the first name, as before.
+local function MailName(key, record)
+	local name = record.name
+	local keyed = type(key) == "string" and key:match("^(.-) %- ")
+	if type(keyed) ~= "string" or keyed == name or keyed:sub(1, #name + 1) ~= name .. " " then return name end
+	local surname = keyed:sub(#name + 2)
+	if surname == "" then return name end
+	-- The separator the game puts between the two (E:UnitWhisperName).
+	local consts = Constants and Constants.CharacterNameSeparatorConsts
+	local separator = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR
+	if type(separator) ~= "string" or separator == "" then separator = " " end
+	return name .. separator .. surname
+end
+
 -- Your other characters on this realm and faction (the character store,
--- Core/CharacterStore.lua): { name, class, level }, by name.
+-- Core/CharacterStore.lua): { name, class, level }, by name; `name` is the
+-- one a letter goes to (MailName).
 local function Alts()
 	local alts = {}
 	local store = E.Characters
@@ -531,12 +551,14 @@ local function Alts()
 	for _, key in ipairs(store:Keys("faction")) do
 		local record = store:Get(key)
 		if key ~= E.charKey and record and type(record.name) == "string" then
-			alts[#alts + 1] = { name = record.name, class = record.class, level = record.level }
+			alts[#alts + 1] = { name = MailName(key, record), class = record.class, level = record.level }
 		end
 	end
 	table.sort(alts, function(a, b) return a.name < b.name end)
 	return alts
 end
+
+M.Alts = Alts
 
 local function Friends()
 	local list = {}
