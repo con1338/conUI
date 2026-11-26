@@ -1355,8 +1355,11 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       `showcase/features/interface.md` mit EldoUIs Text und dem Namen conUI, in `group.md` einmal den Namen ersetzt.
     - Fork-Fixes gegen 0.7.4001 geprüft (`fehler.md`): keiner ist doppelt. Fork-Features: keins ist doppelt; die
       Schaltflächen des Forks im Addon-Fach der Minikarte (RestedXP-Schrittliste) bleiben, der Layer-Chip daneben ist weg.
-    - Deutsches Paket: 82 Texte sind raus (72 davon gehörten zum Layerwechsel), die 28 neuen übersetzt, 2 davon aus
-      EldoUIs eigener Loot-Guide-Tabelle. Wieder vollständig: 21.610 von 21.610.
+    - Deutsches Paket: 82 Texte sind raus, die 28 neuen übersetzt, 2 davon aus EldoUIs eigener Loot-Guide-Tabelle.
+      Wieder vollständig: 21.610 von 21.610. Von den 82 gehörten 60 zum Layerwechsel (`MinimapLayer.lua` und seine
+      Optionen in `Minimap.lua`), 22 zu Instanzprotokoll und Instanzlimit, Post, Spielernotizen, Questies Verfolgung und
+      den geschätzten Berufsfarben des Loot Guides und des Berufsplaners. Der Commit `e63540c` nennt 72 und zählt die
+      Berufsfarben nicht auf; berichtigt nach der zweiten Gegenprüfung.
     - Prüfungen: ein neuer WoW-API-Name (`GetCurrentRegion`), zwei nicht mehr benutzte raus; der Test der Profilseite
       bekommt einen Nachbau von `E:CreateProfile`. Offline-Start: 635 Dateien, 103 Module (84 an), 0 Fehler, englischer
       und deutscher Client.
@@ -1369,6 +1372,22 @@ Inspect-Anfragen, automatische Loot-Verteilung.
       - Profile: „Neues Profil“ mit einem Namen, den es schon in anderer Schreibweise gibt, sagt, dass es ihn gibt.
       - Spielernotizen: `/eui note "Vorname Nachname" Text` speichert eine Notiz.
       - Berufe: Rezeptfarben und Berufsplaner mit den Schwellen von WoW: Forever.
+    - Zweite Gegenprüfung (26.11.2026, ein unabhängiger Prüfer über den ganzen PR, ohne diesen Ordner zu kennen):
+      Importe byte-genau gegen beide ZIPs, die Merges mit `--remerge-diff` nachgesehen (nur Versionszeilen und
+      CHANGELOG), keine doppelten Fixes, alle Zahlen, Hashes und Testergebnisse nachgerechnet und gegen den alten Code
+      nachgeprüft. Keine hohen oder mittleren Befunde. Was er fand und was daraus wurde:
+
+      | Befund | Gewicht | Reaktion |
+      |---|---|---|
+      | Gildenhandwerker: Ein Charakter aus einer alten Liste („Joe“) und einer neuen („Joe Cutter“) steht doppelt da | niedrig | behoben: der Vorname allein weicht einer vollen Zeile mit diesem Vornamen und derselben Klasse (`Shadowed`) |
+      | Gildenhandwerker: Ein Mitglied online heißt genau so wie der Vorname, das Flüstern ging trotzdem an „Vorname Nachname“ eines anderen | niedrig | behoben |
+      | Gildenhandwerker: Ein Vorname allein aus einer alten Liste kann das falsche Mitglied online treffen (der eigentliche ist offline) | niedrig | bleibt: so beschrieben; das Flüstern schickt erst Enter ab |
+      | Post: Zwei eigene Charaktere mit demselben Vornamen, „Zuletzt“ riet einen | niedrig | behoben: ein solcher Vorname bleibt, wie er ist |
+      | Ist das Trennzeichen des Spiels kein Leerzeichen, passte ein mit Leerzeichen getippter Name nicht | niedrig | behoben: `C.NameKey` vergleicht in einer Schreibweise |
+      | 72 statt 60 Layer-Texte; F03 statt F11 bei `UnitFrames.lua`; `MailName` im Kopf des Post-Tests; der Schlüssel trägt den Realm, nur ohne lesbaren Realm das Regelwerk | niedrig (Doku) | berichtigt |
+      | Gildenhandwerker zeigten volle Namen gleich welchem Namensformat | kosmetisch | behoben: `E:FormatNameString` |
+      | „Instance ruleset unavailable.“ als „Regelwerk der Instanzen …“ | kosmetisch | jetzt „Regelwerk für die Instanzzählung nicht verfügbar.“ |
+      | „Fertigkeitssteigerungen“ in einem Loot-Guide-Text statt „Fertigkeitsanstiege“ | kosmetisch | bleibt: der Text kommt aus EldoUIs eigener Loot-Guide-Tabelle (so verlangt es der Ablauf) |
 - **D2 CI** per GitHub Action:
   - `luac -p`, luacheck und TOC-Check;
   - bei Tag `v*` ein ZIP mit den sechs Addon-Ordnern.

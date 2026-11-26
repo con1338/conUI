@@ -113,7 +113,7 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
 | F18 | Nein: EldoUI ändert in `ProfileRefresh` nur, was „Neues Profil“ aufruft (`E:CreateProfile`, lehnt einen Namen ab, den ein anderes Profil in anderer Groß-/Kleinschreibung hat) und dass `E:SetProfile` selbst bis nach dem Kampf wartet. Der Weg der Zeilen zur Seite (F18) ist unverändert. | Alles. Der Test `tools/config/test_profile_page.lua` bekommt einen Nachbau von `E:CreateProfile`. |
 | F19, F15 | Nein: EldoUI baut in `Modules/ActionBars.lua` die Seiten für Übernahme, Fahrzeug und Gestaltwandel um (`NativePages`, Seiten über 18 an Leiste 1). Die ausgeblendeten Blizzard-Leisten (F19) und ihre Rückkehr (F15) berührt das nicht. | Alles. |
 | F22 | Nein: EldoUIs Änderungen in `Modules/Auction.lua` sind die gespeicherten Preise je Markt ohne Realmnamen, die Suche und die Preise in Tooltips; `RestoreNative` und `ShowPage` (F22) sind unverändert. | Alles. |
-| F03 | Nein: In `Modules/UnitFrames.lua` ändert EldoUI nur die Test-Auren (`ReleaseAuras`, `EndTest`). | Alles. |
+| F11 | Nein: In `Modules/UnitFrames.lua` ändert EldoUI nur die Test-Auren (`ReleaseAuras`, `EndTest`); die Castbar (`Present`, F11) ist unverändert. | Alles. |
 | F01–F26 sonst | Nein: Code an diesen Stellen gleich. Der Layerwechsel (`Modules/MinimapLayer.lua`, F05) ist in 0.7.4000 ganz entfallen. | Alles. |
 
 ---
@@ -744,7 +744,8 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
 - **Stelle:** `Modules/Mail.lua` (`Alts`, das Menü in `M:CreateAddressBook`)
 - **Ursache:** `Alts` nahm den Namen aus dem Eintrag des Charakterspeichers (`record.name`, `Core/CharacterStore.lua`,
   `C:Me`). Dort steht nur der Vorname (`E:PlayerName`). Den vollen Namen hält der Schlüssel des Eintrags:
-  „Vorname Nachname - <Regelwerk>“ (`E:CharacterName`, `Core/Database.lua`). Der Fehler stammt aus EldoUI und steckt
+  „Vorname Nachname - <Realm>“, ohne lesbaren Realm mit dem Regelwerk (`E:CharacterName`, `ResolveCharacterKey`,
+  `Core/Database.lua`). Der Fehler stammt aus EldoUI und steckt
   auch in 0.7.4001.
 - **Umsetzung:**
   - Neu ist `C.FullName(key, record)` (`Core/CharacterStore.lua`): Beginnt der Name im Schlüssel mit dem Vornamen und
@@ -759,14 +760,17 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
     `SendMail`. Sonst stand der abgelehnte Vorname oben in der Liste, und das automatische Ausfüllen trug ihn wieder
     ein (Befund der Gegenprüfung, Code von EldoUI).
   - `FixRecent`: Ein Vorname eines eigenen Charakters, den ältere Versionen unter „Zuletzt“ gespeichert haben, wird zum
-    vollen Namen, auch in der gespeicherten Liste. Doppelte fallen weg, der neueste Platz bleibt.
+    vollen Namen, auch in der gespeicherten Liste. Teilen sich zwei eigene Charaktere den Vornamen, bleibt er, wie er
+    ist. Doppelte fallen weg, auch in zwei Schreibweisen (`C.NameKey`: Trennzeichen des Spiels wie Leerzeichen), der
+    neueste Platz bleibt.
 - **Übergang:** Den Nachnamen von Hand ergänzen.
-- **Test:** `tools/mail/test_alt_recipient.lua` (32 Prüfungen, im ganzen Offline-Start): Twink mit Nachnamen in Liste,
+- **Test:** `tools/mail/test_alt_recipient.lua` (35 Prüfungen, im ganzen Offline-Start): Twink mit Nachnamen in Liste,
   Menü und Feld „An“, auch mit dem Trennzeichen des Spiels und einem, das kein Text ist; alter Schlüssel ohne
   Nachnamen; ein Schlüssel mit fremdem Namen; andere Fraktion, anderes Regelwerk und der eigene Charakter bleiben
   draußen; `FindCharacter` mit vollem Namen und der Brief im Briefkasten des Twinks; „Zuletzt“ nach `MAIL_FAILED` und
-  nach `MAIL_SEND_SUCCESS`; alte Vornamen in „Zuletzt“ und im automatischen Ausfüllen. Mit dem Code vor F27 schlagen 16
-  Prüfungen fehl, mit der ersten Fassung (`3058828`) 7.
+  nach `MAIL_SEND_SUCCESS`; alte Vornamen in „Zuletzt“ und im automatischen Ausfüllen, ein geteilter Vorname, beide
+  Schreibweisen. Mit dem Code vor F27 schlagen 16 der ersten 32 Prüfungen fehl, mit der ersten Fassung (`3058828`) 7;
+  die drei letzten schlagen vor der zweiten Gegenprüfung fehl.
 - **Gegenprüfung (26.11.2026):** Ein unabhängiger Prüfer hat beide Diffs gelesen, ohne diesen Ordner zu kennen. Er fand
   keinen Fehler, der den Fix aufhält. Ohne Abweichung: der Schlüssel trennt immer mit Leerzeichen, `FullName` setzt das
   Trennzeichen des Spiels ein wie die Flüsternamen, der Realm-Teil wird am ersten „ - “ abgeschnitten, ein
@@ -802,14 +806,22 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
     Nachnamen über den Vornamen. Ein Vorname allein (eine Liste aus einer älteren Version) ist online, wenn ein
     Mitglied mit diesem Vornamen online ist (Vornamen sind auf Forever nicht eindeutig; so gut wie vorher).
   - „Flüstern“: Ein Vorname allein wird zum vollen Namen des einen Mitglieds online, das ihn hat
-    (`M:CrafterWhisperName`). Bei zweien oder keinem bleibt er, wie er ist.
+    (`M:CrafterWhisperName`). Bei zweien oder keinem bleibt er, wie er ist, ebenso wenn ein Mitglied online genau so
+    heißt.
+  - Ein Vorname allein aus einer alten Liste weicht einer vollen Zeile mit diesem Vornamen und derselben Klasse
+    (`Shadowed`): wahrscheinlich derselbe Charakter, von einem anderen Charakter des Spielers neu geschickt.
+  - Die Namen erscheinen im Namensformat des Spielers (`E:FormatNameString`, Allgemein > Namensformat).
   - `Core/CharacterStore.lua` gibt sein Trennzeichen heraus (`C.SurnameSeparator`).
 - **Übergang:** Wer seine Liste mit einer älteren Version geschickt hat, schickt sie einmal neu („Meine Rezepte
   senden“). Bis dahin hilft der Vorname-Abgleich mit der Gildenliste.
-- **Test:** `tools/characters/test_guild_crafter_names.lua` (20 Prüfungen, im ganzen Offline-Start): die eigene Liste
+- **Test:** `tools/characters/test_guild_crafter_names.lua` (26 Prüfungen, im ganzen Offline-Start): die eigene Liste
   mit vollem Namen, auch durch das Nachrichtenformat; online mit vollem Namen, mit dem Trennzeichen des Spiels, mit
   einer Gildenliste ohne Nachnamen und für Vornamen aus alten Listen; „Flüstern“ an den vollen Namen, an den vollen
-  Namen der Gildenliste, unverändert bei zwei oder keinem. Mit dem alten Code schlagen 9 Prüfungen fehl.
+  Namen der Gildenliste, unverändert bei zwei, keinem oder einem genau so heißenden Mitglied; alte und neue Liste
+  desselben Charakters, das Namensformat. Mit dem alten Code schlagen 9 der ersten 20 Prüfungen fehl; vier der sechs
+  neuen schlagen vor der zweiten Gegenprüfung fehl.
+- **Gegenprüfung (26.11.2026):** von der zweiten Gegenprüfung über den ganzen PR mit gelesen; ihre Befunde und was
+  daraus wurde stehen in `verbesserungen.md` unter D1 (0.7.4001).
 - **Nicht im Spiel prüfbar gewesen:** wie die Gildenliste und der Absender einer Addon-Nachricht auf Forever einen
   Namen schreiben (mit oder ohne Nachnamen). Der Code nimmt beides.
 - **Im Spiel prüfen:** siehe Tabelle unten.
