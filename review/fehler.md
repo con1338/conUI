@@ -34,7 +34,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
 | F25 | Das Koordinatenfeld (und der Wegpfeil) lässt sich nicht verschieben: im Verschiebemodus nur unter „Alle Rahmen“ (im Spiel gefunden) | niedrig | behoben (im Spiel offen) | `d1fece9` |
 | F26 | In einer Gruppe keine Schadenszahlen über Gegnern: Plakettenzahlen aus, Blizzards trotzdem auf 0 (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `1c693b8` |
-| F27 | Post: Ein Twink aus dem Adressbuch kommt nur mit Vornamen ins Feld „An“, der Brief scheitert (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `3058828` |
+| F27 | Post: Ein Twink aus dem Adressbuch kommt nur mit Vornamen ins Feld „An“, der Brief scheitert (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `3058828`, `0e18af3` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -746,16 +746,46 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
   „Vorname Nachname - <Regelwerk>“ (`E:CharacterName`, `Core/Database.lua`). Der Fehler stammt aus EldoUI und steckt
   auch in 0.7.4001.
 - **Umsetzung:**
-  - Neu ist `MailName(key, record)`: Beginnt der Name im Schlüssel mit dem Vornamen und einem Leerzeichen, kommt der Rest
-    als Nachname dazu, mit dem Trennzeichen des Spiels (`Constants.CharacterNameSeparatorConsts`, sonst ein
-    Leerzeichen, wie `E:UnitWhisperName`). Ein Schlüssel ohne Nachnamen (andere Clients, ein Nachname, den das Spiel
-    geheim hielt, ein alter Schlüssel) gibt den Vornamen, wie bisher.
-  - Das Menü zeigt denselben Namen, den es einträgt.
+  - Neu ist `C.FullName(key, record)` (`Core/CharacterStore.lua`): Beginnt der Name im Schlüssel mit dem Vornamen und
+    einem Leerzeichen, kommt der Rest als Nachname dazu, mit dem Trennzeichen des Spiels
+    (`Constants.CharacterNameSeparatorConsts`, sonst ein Leerzeichen, wie `E:UnitWhisperName`). Ein Schlüssel ohne
+    Nachnamen (andere Clients, ein Nachname, den das Spiel geheim hielt, ein alter Schlüssel) gibt den Vornamen, wie
+    bisher.
+  - `Alts` (`Modules/Mail.lua`) nimmt diesen Namen; das Menü zeigt denselben, den es einträgt.
+  - `C:FindCharacter` erkennt auch den vollen Namen. Sonst zählte ein Brief an „Vorname Nachname“ nicht mehr für den
+    Briefkasten des Twinks (`C:CaptureSendMail`, Befund der Gegenprüfung).
+  - „Zuletzt“ merkt sich einen Empfänger erst, wenn der Brief abging (`MAIL_SEND_SUCCESS`), nicht schon beim Aufruf von
+    `SendMail`. Sonst stand der abgelehnte Vorname oben in der Liste, und das automatische Ausfüllen trug ihn wieder
+    ein (Befund der Gegenprüfung, Code von EldoUI).
+  - `FixRecent`: Ein Vorname eines eigenen Charakters, den ältere Versionen unter „Zuletzt“ gespeichert haben, wird zum
+    vollen Namen, auch in der gespeicherten Liste. Doppelte fallen weg, der neueste Platz bleibt.
 - **Übergang:** Den Nachnamen von Hand ergänzen.
-- **Test:** `tools/mail/test_alt_recipient.lua` (18 Prüfungen, im ganzen Offline-Start): Twink mit Nachnamen in Liste,
-  Menü und Feld „An“; alter Schlüssel ohne Nachnamen; ein Schlüssel mit fremdem Namen; das Trennzeichen des Spiels und
-  eines, das kein Text ist; andere Fraktion, anderes Regelwerk und der eigene Charakter bleiben draußen. Mit dem alten
-  Code schlagen 6 Prüfungen fehl.
+- **Test:** `tools/mail/test_alt_recipient.lua` (32 Prüfungen, im ganzen Offline-Start): Twink mit Nachnamen in Liste,
+  Menü und Feld „An“, auch mit dem Trennzeichen des Spiels und einem, das kein Text ist; alter Schlüssel ohne
+  Nachnamen; ein Schlüssel mit fremdem Namen; andere Fraktion, anderes Regelwerk und der eigene Charakter bleiben
+  draußen; `FindCharacter` mit vollem Namen und der Brief im Briefkasten des Twinks; „Zuletzt“ nach `MAIL_FAILED` und
+  nach `MAIL_SEND_SUCCESS`; alte Vornamen in „Zuletzt“ und im automatischen Ausfüllen. Mit dem Code vor F27 schlagen 16
+  Prüfungen fehl, mit der ersten Fassung (`3058828`) 7.
+- **Gegenprüfung (26.11.2026):** Ein unabhängiger Prüfer hat beide Diffs gelesen, ohne diesen Ordner zu kennen. Er fand
+  keinen Fehler, der den Fix aufhält. Ohne Abweichung: der Schlüssel trennt immer mit Leerzeichen, `FullName` setzt das
+  Trennzeichen des Spiels ein wie die Flüsternamen, der Realm-Teil wird am ersten „ - “ abgeschnitten, ein
+  `record.name` mit vollem Namen bleibt, andere Clients bekommen den Vornamen. Seine Befunde und was daraus wurde:
+
+  | Befund | Gewicht | Reaktion |
+  |---|---|---|
+  | Ein Brief an den vollen Namen zählt nicht mehr für den Briefkasten des Twinks (`FindCharacter` kannte nur den Vornamen) | mittel | behoben |
+  | „Zuletzt“ merkt sich auch abgelehnte Namen; der alte Vorname kommt per automatischem Ausfüllen zurück | niedrig (EldoUIs Code) | behoben, dazu `FixRecent` |
+  | Ein Twink mit altem Schlüssel ohne Nachnamen (seit den Schlüsseln mit vollem Namen nicht eingeloggt) bekommt weiter nur den Vornamen; ein über die GUID gehaltener Schlüssel behält nach einer Namensänderung den alten Nachnamen | niedrig–mittel (plausibel) | bleibt: Der Twink einmal einloggen; Namensänderungen sind selten |
+  | Der Test rief `store.InvalidateKeys` (gibt es nicht); „6 Prüfungen fehlschlagen“ war nur mit nachträglich ausgegebenem `M.Alts` nachvollziehbar | niedrig | `ForgetKeys`; der Test bricht ohne `M.Alts` nicht mehr ab, Zahlen oben neu |
+
+- **Offen (nicht geändert):**
+  - Dieselbe Lücke an anderer Stelle: Die Gildenhandwerker (`Modules/Characters/GuildCrafters.lua`) teilen und
+    flüstern den Vornamen aus `record.name`; „Handwerker anflüstern“ dürfte auf Forever scheitern, und der Vergleich mit
+    der Gildenliste zeigt Handwerker vielleicht immer als offline (laut Prüfer, nicht im Spiel geprüft). Gehört nicht zu
+    dieser Meldung.
+  - `E:CharacterName` (`Core/Database.lua`) hängt den Nachnamen an, auch wenn der erste Wert ihn schon enthält (wenn
+    `UnitName` statt `UnitNameUnmodified` antwortet). Der Schlüssel hieße dann „Vorname Nachname Nachname“ (Code von
+    EldoUI, laut Prüfer plausibel, nicht beobachtet).
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
 ## Sonstiges
@@ -796,6 +826,7 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F26 | außerhalb des Kampfs einer Gruppe beitreten, derselbe Befehl, einen Gegner angreifen | `"1"`; Blizzards eigene Schadenszahlen über dem Gegner, keine Plakettenzahlen | offen (Gruppe) |
 | F26 | die Gruppe verlassen, derselbe Befehl | wieder `"0"`, wieder Plakettenzahlen | offen (Gruppe) |
 | F27 | am Briefkasten „Post verschicken“, Pfeil im Feld „An“ → „Twinks“ → einen eigenen Charakter wählen, etwas schicken | im Menü und im Feld steht „Vorname Nachname“, der Brief geht ab | offen |
+| F27 | den Briefkasten schließen und wieder öffnen, „Post verschicken“ | das Feld „An“ füllt sich mit „Vorname Nachname“, auch wenn vorher ein Brief an den Vornamen allein gescheitert war; beim Twink liegt der Brief im Briefkasten-Block der Infoleiste | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |
