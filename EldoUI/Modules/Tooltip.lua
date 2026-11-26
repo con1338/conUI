@@ -1742,6 +1742,24 @@ function SmartAdjust(tooltip)
 	end
 end
 
+-- The corner the tooltip grows from on the mover: the corner of the mover's
+-- own anchor point. Move mode picks that point by the third of the screen
+-- the mover sits in (Core/Movers.lua), and the Positions page can set it.
+-- So a mover dragged to the left grows the tooltip to the right, one at the
+-- top grows it downwards, and one in the middle grows it from its middle.
+-- Upwards stays the rule outside the top third. The layouts' spots are
+-- bottom-right, as before.
+local function GrowPoint()
+	local mover = E.movers and E.movers.EldoUI_Tooltip
+	local point = mover and mover:GetNumPoints() > 0 and mover:GetPoint(1)
+	if type(point) ~= "string" then return "BOTTOMRIGHT" end
+	local vertical = point:find("TOP") and "TOP" or "BOTTOM"
+	local horizontal = point:find("LEFT") and "LEFT" or point:find("RIGHT") and "RIGHT" or ""
+	return vertical .. horizontal
+end
+
+M.GrowPoint = GrowPoint
+
 -- The bag window that is open right now: EldoUI's, else Blizzard's combined bags.
 local function OpenBagWindow()
 	local bags = E.modules.Bags
@@ -1767,12 +1785,17 @@ local function OnDefaultAnchor(tooltip, parent)
 	elseif M.anchor then
 		tooltip:ClearAllPoints()
 		local bags = mode == "smart" and OpenBagWindow()
+		-- Only bags that cover the mover's spot move the tooltip: a mover
+		-- dragged elsewhere keeps it there while the bags are open.
+		if bags and not Overlaps(bags, M.anchor) then bags = nil end
 		if bags then
 			-- The bags fill the zone; sit on top of them instead.
 			tooltip:SetPoint("BOTTOMRIGHT", bags, "TOPRIGHT", 0, 8)
 		else
-			-- Fixed and Smart rest on the mover (dragged, layout or imported spot).
-			tooltip:SetPoint("BOTTOMRIGHT", M.anchor, "BOTTOMRIGHT", 0, 0)
+			-- Fixed and Smart rest on the mover (dragged, layout or imported
+			-- spot), growing away from the screen edge it is near.
+			local point = GrowPoint()
+			tooltip:SetPoint(point, M.anchor, point, 0, 0)
 		end
 		if mode == "smart" then smartOwner = parent end
 	end
@@ -1874,7 +1897,10 @@ function M:OnEnable()
 	if not self.anchor then
 		self.anchor = CreateFrame("Frame", "EldoUI_Tooltip", UIParent)
 		self.anchor:SetSize(250, 120)
-		E:CreateMover(self.anchor, "EldoUI_Tooltip", L["Tooltip"], DEFAULT_POINT)
+		-- Part of Combat mode, the view move mode opens in: the tooltip sits
+		-- on the main screen like the minimap. Outside it the box showed only
+		-- under All frames, and the tooltip looked stuck on the right.
+		E:CreateMover(self.anchor, "EldoUI_Tooltip", L["Tooltip"], DEFAULT_POINT, { combat = true })
 	end
 	if not self.hooked then
 		self.hooked = true
@@ -1989,6 +2015,10 @@ M.options = {
 	{ disabled = E:BlizzardNeeds(ELEMENT, "move"), type = "select", key = "anchor", label = "Attach to",
 		desc = "Fixed: the Tooltip mover. Cursor: above or beside the cursor. Smart: the mover, above open bags, stepping aside from what you point at. Blizzard: the game's spot. Needs Move.",
 		values = { fixed = "Fixed (mover)", cursor = "Cursor", cursorLeft = "Cursor left", cursorRight = "Cursor right", smart = "Smart", blizzard = "Blizzard (Edit Mode)" } },
+	{ disabled = E:BlizzardNeeds(ELEMENT, "move"), type = "execute", label = "Move",
+		desc = "Unlock EldoUI frames to drag the tooltip (mover \"Tooltip\"). It grows away from the screen edge you put it near.",
+		hidden = function() return M.db.anchor ~= "fixed" and M.db.anchor ~= "smart" end,
+		func = function() E:MoveFrame("EldoUI_Tooltip") end },
 	{ type = "execute", label = "Preview", desc = "Shows a sample tooltip for 5 seconds. It updates as you change settings.",
 		func = function() M:Preview() end },
 	{ disabled = E:BlizzardNeeds(ELEMENT, "move"), type = "range", unit = "px", key = "cursorX", label = "Cursor offset X", min = -100, max = 100, step = 1, desc = "Horizontal distance from the cursor.", hidden = function() return not CURSOR_ANCHORS[M.db.anchor] end },
