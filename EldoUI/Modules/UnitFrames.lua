@@ -3951,6 +3951,7 @@ end
 
 local function ShowTest(frame, index)
 	frame.testing = true
+	ReleaseAuras(frame)
 	UnbindTexts(frame)
 	UnregisterUnitWatch(frame)
 	frame:Show()
@@ -4986,7 +4987,7 @@ function M:OnDisable()
 	E:RunOutOfCombat(function()
 		self.testMode = nil
 		for _, frame in pairs(self.frames) do
-			frame.testing = nil
+			EndTest(frame)
 			UnregisterUnitWatch(frame)
 			frame:UnregisterAllEvents()
 			frame:Hide()

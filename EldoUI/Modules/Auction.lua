@@ -277,58 +277,56 @@ local function Store()
 end
 M.Store = Store
 
--- Forever groups realms into one auction house per ruleset (PvE, PvP,
--- Hardcore, RP); elsewhere connected realms share one. Faction is kept
--- apart as well.
-local function RulesetName()
-	local rules = C_GameRules and C_GameRules.IsGameRuleActive
-	local enum = Enum.GameRule
-	if not rules or not enum then return "PvE" end
-	for _, entry in ipairs({ { "PvPRuleset", "PvP" }, { "RPRuleset", "RP" }, { "HardcoreRuleset", "HC" } }) do
-		if enum[entry[1]] and Get(rules, enum[entry[1]]) then return entry[2] end
-	end
-	return "PvE"
-end
-
--- Each auction house is its own market: your faction's, and the neutral
--- one the goblin auctioneers share (Booty Bay, Gadgetzan, Everlook). Prices
--- are kept per house: "<realm> - Alliance", "<realm> - Horde" or
--- "<realm> - Neutral". While a neutral house is open, its prices are the
--- ones read and saved; otherwise your faction's.
-local realmName, house
+-- Continue using the existing regional and named-market keys. Only a
+-- confirmed ruleset or a readable legacy realm can own saved prices.
+local legacySource, legacyRealm, house
 local function RealmKey()
-	if not realmName then
-		if RegionalUniqueNamesEnabled and Get(RegionalUniqueNamesEnabled) then
-			realmName = "Region-" .. RulesetName()
-		else
-			local connected = {}
-			for _, name in ipairs(Get(C_AutoComplete and C_AutoComplete.GetAutoCompleteRealms) or {}) do connected[#connected + 1] = name end
-			table.sort(connected)
-			realmName = connected[1] or Get(GetNormalizedRealmName) or GetRealmName()
+	local normalized = E.PlainCall(GetNormalizedRealmName)
+	local realm = type(normalized) == "string" and normalized ~= "" and normalized or E:ReadableRealmName()
+	if E.PlainCall(RegionalUniqueNamesEnabled) == true or (E:IsForeverClient() and not realm) then
+		local ruleset = E:KnownRulesetName()
+		if not ruleset then return end
+		realm = "Region-" .. ruleset
+	else
+		if not realm then return end
+		if realm ~= legacySource then
+			local connected = E.PlainCall(C_AutoComplete and C_AutoComplete.GetAutoCompleteRealms)
+			local first
+			if type(connected) == "table" and (not canaccesstable or canaccesstable(connected)) then
+				for _, entry in ipairs(connected) do
+					local name = E.Plain(entry)
+					if type(name) == "string" and name ~= "" and (not first or name < first) then first = name end
+				end
+			end
+			legacySource, legacyRealm = realm, first or realm
 		end
+		realm = legacyRealm
 	end
-	return ("%s - %s"):format(realmName, house or UnitFactionGroup("player") or "Neutral")
+	local faction = house or E.PlainCall(UnitFactionGroup, "player")
+	if faction ~= "Alliance" and faction ~= "Horde" and faction ~= "Neutral" then return end
+	return ("%s - %s"):format(realm, faction)
 end
 
--- The house the auctioneer you talk to belongs to: an auctioneer of
--- neither faction runs a neutral house.
+-- A visit needs a readable auctioneer faction. Away from the auction
+-- house the player's faction still selects the saved market.
 local NEUTRAL_CUT, FACTION_CUT = 0.15, 0.05
 local function ReadHouse()
-	if not UnitExists("npc") then return nil end
-	local faction = UnitFactionGroup("npc")
-	if IsSecret(faction) then return nil end
-	if faction == "Alliance" or faction == "Horde" then return nil end
-	return "Neutral"
+	if E.PlainCall(UnitExists, "npc") ~= true then return "Unknown" end
+	local faction = E.PlainCall(UnitFactionGroup, "npc")
+	if faction == "Alliance" or faction == "Horde" or faction == "Neutral" then return faction end
+	return "Unknown"
 end
 M.ReadHouse = ReadHouse
 function M.SetHouse(kind)
 	house = kind
 end
 function M.House()
-	return house or "faction"
+	if house == "Neutral" or house == "Unknown" then return house end
+	return "faction"
 end
 -- The share of a sale the house keeps.
 function M.HouseCut()
+	if house == "Unknown" then return end
 	return house == "Neutral" and NEUTRAL_CUT or FACTION_CUT
 end
 
@@ -410,6 +408,7 @@ end
 -- Houses other than this one that still have plain tables.
 local function UnpackedOthers()
 	local store, here, list, seen = Store(), RealmKey(), {}, {}
+	if not here then return list end
 	for _, part in pairs(PACK_PARTS) do
 		for key, value in pairs(store[part]) do
 			if key ~= here and not seen[key] and type(value) == "table" then
@@ -440,24 +439,27 @@ local function PackOthers(now)
 end
 
 local function PriceDB(key)
-	local prices = Store().prices
 	key = key or RealmKey()
+	if not key then return end
+	local prices = Store().prices
 	UnpackHouse(key)
 	prices[key] = prices[key] or {}
 	return prices[key]
 end
 
-local function PostedDB()
+local function PostedDB(key)
+	key = key or RealmKey()
+	if not key then return end
 	local posted = Store().posted
-	local key = RealmKey()
 	UnpackHouse(key)
 	posted[key] = posted[key] or {}
 	return posted[key]
 end
 
-local function PostHistory()
+local function PostHistory(key)
+	key = key or RealmKey()
+	if not key then return end
 	local history = Store().history
-	local key = RealmKey()
 	UnpackHouse(key)
 	history[key] = history[key] or {}
 	return history[key]
@@ -468,7 +470,8 @@ M.RealmKey, M.PackHouse, M.UnpackHouse, M.PackOthers = RealmKey, PackHouse, Unpa
 -- Logout: with the module off, this house is packed too (the module
 -- on keeps it as it is, for the next visit).
 function M.PackAtLogout()
-	if not M.active then PackHouse(RealmKey()) end
+	local market = RealmKey()
+	if market and not M.active then PackHouse(market) end
 end
 
 -- These run whether the module is on or off.
@@ -486,7 +489,7 @@ function M.SavedPricesText()
 	local store, here = Store(), RealmKey()
 	local size = E.Characters and E.Characters.Size
 	local plain, packed = 0, 0
-	if size then
+	if size and here then
 		for _, part in pairs(PACK_PARTS) do plain = plain + size(E.Characters, store[part][here]) end
 	end
 	for _, text in pairs(store.packed) do
@@ -540,6 +543,7 @@ end
 local function SavePrice(key, price, market)
 	if not key or not IsPrice(price) then return end
 	local db = PriceDB(market)
+	if not db then return end
 	local record = db[key] or {}
 	db[key] = record
 	local today = Today()
@@ -564,8 +568,9 @@ local function SavePrice(key, price, market)
 end
 
 -- Lowest price per key seen in one search, saved together.
-local function SaveBatch(batch)
-	for key, price in pairs(batch) do SavePrice(key, price) end
+local function SaveBatch(batch, market)
+	if not market then return end
+	for key, price in pairs(batch) do SavePrice(key, price, market) end
 end
 
 -- A full scan brings tens of thousands of prices: they are written a few
@@ -603,7 +608,7 @@ end
 
 -- Takes the table over: nothing may change it afterwards.
 local function QueueBatch(batch, market)
-	if not next(batch) then return end
+	if not market or not next(batch) then return end
 	saveQueue[#saveQueue + 1] = { batch = batch, market = market }
 	if not saveNext then
 		saveNext = true
@@ -622,7 +627,8 @@ function M:IsSavingPrices()
 end
 
 function M:GetPrice(key)
-	local record = key and PriceDB()[key]
+	local db = key and PriceDB()
+	local record = db and db[key]
 	return record and record.l, record
 end
 
@@ -633,7 +639,8 @@ function M:GetUsualPrice(link, itemID)
 	local key = DBKeyFromLink(type(link) == "string" and link or nil, itemID)
 	if IsSecret(key) then return end
 	if type(key) ~= "string" and (type(key) ~= "number" or not (key > 0 and key < math.huge) or key % 1 ~= 0) then return end
-	local history = PriceHistory(PriceDB()[key])
+	local db = PriceDB()
+	local history = db and PriceHistory(db[key])
 	return history and history.usual
 end
 
@@ -1308,7 +1315,11 @@ end
 -- sorted by price, or nil when the search failed.
 ---------------------------------------------------------------------------
 local itemSearch
-local othersLowest = {}   -- key -> lowest price from other sellers this session
+local othersLowest = {}   -- item -> market and lowest price from other sellers
+function M.OtherLowest(key)
+	local record = othersLowest[key]
+	return record and record.market == RealmKey() and record.price or nil
+end
 
 local function FinishItemSearch(list)
 	local request = itemSearch
@@ -1317,10 +1328,15 @@ local function FinishItemSearch(list)
 	if list then
 		table.sort(list, function(a, b) return a.price < b.price end)
 		local key = request.dbKey
-		if list[1] then SavePrice(key, list[1].price) end
 		othersLowest[key] = nil
-		for _, entry in ipairs(list) do
-			if not entry.own then othersLowest[key] = entry.price; break end
+		if request.market and request.market == RealmKey() then
+			if list[1] then SavePrice(key, list[1].price, request.market) end
+			for _, entry in ipairs(list) do
+				if not entry.own then
+					othersLowest[key] = { market = request.market, price = entry.price }
+					break
+				end
+			end
 		end
 	end
 	request.done(list)
@@ -1345,7 +1361,9 @@ end
 -- Searches in the game's own Buy tab are remembered too: EldoUI reads the
 -- results the game already sent and asks the auction house for nothing.
 local function SaveBrowsePrices(results)
-	if not Deals.ReadableTable(results) then return end
+	local tracked = Deals.nativePending or Deals.nativeSearch
+	local market = RealmKey()
+	if not market or not tracked or tracked.market ~= market or not Deals.ReadableTable(results) then return end
 	local batch = {}
 	for _, result in ipairs(results) do
 		if Deals.ReadableTable(result) and IsPrice(result.minPrice) then
@@ -1354,16 +1372,18 @@ local function SaveBrowsePrices(results)
 			if key and (not batch[key] or result.minPrice < batch[key]) then batch[key] = result.minPrice end
 		end
 	end
-	SaveBatch(batch)
+	SaveBatch(batch, market)
 end
 
 -- The lowest price of an item list from the game's own buy screen.
 local function SaveLowest(key, list)
+	local request = Deals.nativeItemSearch
+	if not request or request.key ~= key or not request.market or request.market ~= RealmKey() then return end
 	local lowest
 	for _, entry in ipairs(list or {}) do
 		if not lowest or entry.price < lowest then lowest = entry.price end
 	end
-	if key and lowest then SavePrice(key, lowest) end
+	if lowest then SavePrice(key, lowest, request.market) end
 end
 
 local function CollectItems(itemKey)
@@ -1388,7 +1408,8 @@ local function CollectItems(itemKey)
 end
 
 function M:SearchItem(itemKey, commodity, done)
-	local request = { itemKey = itemKey, itemID = itemKey.itemID, commodity = commodity, done = done, dbKey = DBKeyFromItemKey(itemKey) }
+	local request = { itemKey = itemKey, itemID = itemKey.itemID, commodity = commodity, done = done,
+		dbKey = DBKeyFromItemKey(itemKey), market = RealmKey() }
 	if itemSearch then
 		local old = itemSearch
 		itemSearch = nil
@@ -1401,6 +1422,7 @@ function M:SearchItem(itemKey, commodity, done)
 	end)
 	WhenReady(function()
 		if itemSearch ~= request then return end
+		request.sending = true
 		local ok
 		if commodity then
 			ok = Call(AH.SendSearchQuery, itemKey, PriceSorts(), true)
@@ -1408,6 +1430,7 @@ function M:SearchItem(itemKey, commodity, done)
 			ok = Call(AH.SendSellSearchQuery, itemKey, PriceSorts(), true)
 			if not ok then ok = Call(AH.SendSearchQuery, itemKey, PriceSorts(), true) end
 		end
+		request.sending = nil
 		if not ok then return FinishItemSearch(nil) end
 		request.sent = true
 	end)
@@ -1875,9 +1898,8 @@ function M:SetupAuctionHouse()
 	end
 	if type(AuctionHouseFrame.SendBrowseQuery) == "function" then
 		hooksecurefunc(AuctionHouseFrame, "SendBrowseQuery", function(frame)
-			if frame == AuctionHouseFrame and Allowed("improve") and Additions() and frame:IsVisible() and not Deals.shoppingSearch then
-				Deals.nativePending = Deals:NewResults()
-				Deals.nativeSearch = nil
+			if frame == AuctionHouseFrame and M.active and not Deals.shoppingSearch then
+				Deals.nativePending, Deals.nativeSearch = Deals:NewResults(), nil
 			end
 		end)
 	end
@@ -1994,7 +2016,8 @@ do
 	end
 
 	function Deals:Usual(key, db)
-		local history = key and PriceHistory((db or PriceDB())[key])
+		db = db or PriceDB()
+		local history = key and db and PriceHistory(db[key])
 		return history and history.usual
 	end
 
@@ -2118,7 +2141,7 @@ do
 	end
 
 	function Deals:FinishResults(results, field)
-		if not results or results.market ~= RealmKey() then return end
+		if not results or not results.market or results.market ~= RealmKey() then return end
 		self.completions = (self.completions or 0) + 1
 		results.order = self.completions
 		self[field] = results
@@ -2134,7 +2157,7 @@ do
 	function Deals:OnNativeBrowse(added, results)
 		if not self.nativePending and not (added and self.nativeSearch) then return end
 		local search = self.nativePending or self.nativeSearch
-		if not ReadableTable(results) or search.market ~= RealmKey() then return end
+		if not ReadableTable(results) or not search.market or search.market ~= RealmKey() then return end
 		if not added then wipe(search.rows) end
 		for _, result in ipairs(results) do self:BrowseRow(search, result) end
 		if not added then
@@ -2166,21 +2189,35 @@ function M:FullScanWait()
 	return max(0, FULL_SCAN_COOLDOWN - (time() - last))
 end
 
-function M:CanFullScan()
+local function ScanSupported()
 	return AH and AH.ReplicateItems ~= nil and AH.GetNumReplicateItems ~= nil and not fullScan
 end
 
+function M:CanFullScan()
+	return ScanSupported() and RealmKey() ~= nil
+end
+
 function M:FullScan()
-	if not self:CanFullScan() then return end
+	if not ScanSupported() then return end
+	local market = RealmKey()
+	if not market then
+		self:SetStatus(L["The full scan isn't available right now."])
+		return
+	end
 	local wait = self:FullScanWait()
 	if wait > 0 then
 		self:SetStatus(L["A full scan is possible again in %d min."]:format(math.ceil(wait / 60)))
 		return
 	end
-	local requested = { requested = true, market = RealmKey() }
+	local requested = { requested = true, market = market }
 	fullScan = requested
 	WhenReady(function()
 		if fullScan ~= requested then return end
+		if requested.market ~= RealmKey() then
+			fullScan = nil
+			M:UpdateScanButton()
+			return
+		end
 		if Call(AH.ReplicateItems) then
 			local store = Store()
 			store.fullScan = store.fullScan or {}
@@ -2224,6 +2261,11 @@ end
 local function ReadReplicate()
 	local scan = fullScan
 	if not scan then return end
+	if scan.results.market ~= RealmKey() then
+		fullScan = nil
+		M:UpdateScanButton()
+		return
+	end
 	local last = min(scan.count - 1, scan.index + 499)
 	for index = scan.index, last do
 		local name, icon, count, quality, usable, _, _, _, _, buyout, _, _, _, _, _, _, itemID =
@@ -2265,6 +2307,11 @@ end
 
 function M:OnReplicateList()
 	if not fullScan or not fullScan.requested then return end
+	if fullScan.market ~= RealmKey() then
+		fullScan = nil
+		self:UpdateScanButton()
+		return
+	end
 	local count = E.PlainCall(AH.GetNumReplicateItems)
 	if not Deals.Whole(count, 0) then count = 0 end
 	local results = Deals:NewResults()
@@ -2293,7 +2340,7 @@ end
 function M:UpdateScanButton()
 	local button = Shopping.scanButton
 	if not button then return end
-	button:SetEnabled(self:CanFullScan() and true or false)
+	button:SetEnabled(ScanSupported() and true or false)
 end
 
 ---------------------------------------------------------------------------
@@ -2396,7 +2443,8 @@ function Shopping:AddBrowseResults(results, exact)
 			if entry.price and (not batch[key] or entry.price < batch[key]) then batch[key] = entry.price end
 		end
 	end
-	SaveBatch(batch)
+	local resultsMarket = shop.dealResults and shop.dealResults.market
+	if resultsMarket and resultsMarket == RealmKey() then SaveBatch(batch, resultsMarket) end
 	self:Rebuild()
 end
 
@@ -2591,7 +2639,7 @@ do
 		local results = self.search
 		if self.source.selected == "scan" then results = self.scan end
 		local display = {}
-		if results and results.market == RealmKey() then
+		if results and results.market and results.market == RealmKey() then
 			local prices = PriceDB(results.market)
 			for key, row in pairs(results.rows) do
 				local usual = row.usual
@@ -2610,8 +2658,8 @@ do
 	function Deals:RebuildWatch()
 		local display = {}
 		local market = RealmKey()
-		local search = self.search and self.search.market == market and self.search
-		local scan = self.scan and self.scan.market == market and self.scan
+		local search = market and self.search and self.search.market == market and self.search
+		local scan = market and self.scan and self.scan.market == market and self.scan
 		if search and scan and scan.order > search.order then search, scan = scan, search end
 		for key, target in pairs(self:WatchTargets() or {}) do
 			if self.Whole(target, 1) then
@@ -3597,7 +3645,8 @@ function Selling:SelectEntry(entry)
 	end
 	-- Starting values until the price check answers.
 	self.quantity:SetNumber(self:PostLimit())
-	local start = (M.db.rememberPrice and PostedDB()[sell.dbKey]) or M:GetPrice(sell.dbKey)
+	local rememberedPrices = M.db.rememberPrice and PostedDB()
+	local start = (rememberedPrices and rememberedPrices[sell.dbKey]) or M:GetPrice(sell.dbKey)
 	self.price:SetValue(start or 0)
 	self:UpdateDetails()
 	self:LayoutGrid()
@@ -3622,7 +3671,8 @@ function Selling:SelectEntry(entry)
 			self.price:SetValue(lowest.own and lowest.price or Undercut(lowest.price, entry.itemID))
 			Status(L["%d listings. Lowest %s."]:format(#list, Money(lowest.price)))
 		else
-			local suggestion = M.db.rememberPrice and PostedDB()[sell.dbKey]
+			local posted = M.db.rememberPrice and PostedDB()
+			local suggestion = posted and posted[sell.dbKey]
 			-- A new suggestion should only replace the price this search supplied.
 			if not suggestion and self.price:GetValue() == (start or 0) then
 				local _, record = M:GetPrice(sell.dbKey)
@@ -3674,17 +3724,20 @@ function Selling:UpdateDetails()
 	end
 	local quantity = self.quantity:GetNumber() or 0
 	local price = self.price:GetValue()
-	local receive = math.floor(price * (1 - M.HouseCut()))
+	local cut = M.HouseCut()
+	local receive = cut and math.floor(price * (1 - cut))
 	if entry then
 		self.deposit:SetText(L["Deposit: %s"]:format(Money(self:Deposit(quantity))))
-		self.total:SetText(L["Total: %s, you receive %s"]:format(Money(price * quantity), Money(receive * quantity)))
+		local total = Money(price * quantity)
+		self.total:SetText(receive and L["Total: %s, you receive %s"]:format(total, Money(receive * quantity))
+			or L["Total: %s"]:format(total))
 	else
 		-- Nothing to sell: no deposit or total to show.
 		self.deposit:SetText("")
 		self.total:SetText("")
 	end
 	local vendor = entry and VendorPrice(entry.itemID) or 0
-	local vendorWarning = entry and price > 0 and receive < vendor and L["Below the vendor price"]
+	local vendorWarning = entry and price > 0 and receive and receive < vendor and L["Below the vendor price"]
 	local usualWarning = entry and Deals:Warning(DBKeyFromLink(entry.link, entry.itemID), price)
 	self.warning:SetText(vendorWarning and E:TextHex("bad") .. vendorWarning .. "|r" or "")
 	self.usualWarning:SetText(usualWarning or "")
@@ -3716,6 +3769,7 @@ function Selling:Post()
 		return
 	end
 	local duration = self:Duration()
+	local market = RealmKey()
 	local ok, result
 	if sell.commodity then
 		ok, result = pcall(AH.PostCommodity, location, duration, quantity, price)
@@ -3732,10 +3786,12 @@ function Selling:Post()
 		E:Debug("Auction post:", result)
 		return
 	end
-	PostedDB()[sell.dbKey] = price
-	local history = PostHistory()
-	table.insert(history, 1, { i = sell.dbKey, p = price, q = quantity, t = time() })
-	while #history > POST_HISTORY_MAX do table.remove(history) end
+	if market and market == RealmKey() then
+		PostedDB(market)[sell.dbKey] = price
+		local history = PostHistory(market)
+		table.insert(history, 1, { i = sell.dbKey, p = price, q = quantity, t = time() })
+		while #history > POST_HISTORY_MAX do table.remove(history) end
+	end
 	self.post:Disable()
 	self:ClearItem()
 	M:SetStatus(L["Posted %d x %s at %s each."]:format(quantity, entry.name, Money(price)))
@@ -3767,7 +3823,7 @@ function Selling:RefreshRight()
 		for day, price in pairs(record and record.d or {}) do items[#items + 1] = { day = day, price = price } end
 		self.historyList:SetEmptyText(L["No saved prices yet. Search or scan to collect them."])
 	else
-		for _, entry in ipairs(PostHistory()) do
+		for _, entry in ipairs(PostHistory() or {}) do
 			if entry.i == key then items[#items + 1] = { time = entry.t, price = entry.p, quantity = entry.q } end
 		end
 		self.yoursList:SetEmptyText(L["You haven't posted this item with EldoUI yet."])
@@ -4037,7 +4093,7 @@ end
 -- Undercut: a lower price from someone else in your last scan.
 local function Undercutted(entry)
 	if entry.sold or not entry.price then return false end
-	local lowest = othersLowest[entry.key]
+	local lowest = M.OtherLowest(entry.key)
 	if not lowest then
 		local last = M:GetPrice(entry.key)
 		lowest = last
@@ -4164,7 +4220,7 @@ function Cancelling:Create(frame)
 		onEnter = function(entry, row)
 			GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
 			if entry.link then GameTooltip:SetHyperlink(entry.link) else GameTooltip:SetItemByID(entry.itemKey.itemID) end
-			local lowest = othersLowest[entry.key] or M:GetPrice(entry.key)
+			local lowest = M.OtherLowest(entry.key) or M:GetPrice(entry.key)
 			if lowest then
 				GameTooltip:AddLine(" ")
 				GameTooltip:AddDoubleLine(L["Lowest seen"], Money(lowest), 0.6, 0.8, 1, 1, 1, 1)
@@ -4216,14 +4272,17 @@ end
 function M:OnAuctionHouseClosed()
 	self:StopFullScan()
 	Deals.search, Deals.nativePending, Deals.nativeSearch, Deals.shoppingSearch, Deals.selected = nil, nil, nil, nil, nil
-	shop.dealResults = nil
+	shop.dealResults, Deals.nativeItemSearch = nil, nil
 	wipe(shop.results)
 	wipe(shop.byKey)
 	shop.done, shop.last = nil, nil
-	if house then
-		-- Back to your faction's prices; the neutral house is packed.
-		house = nil
-		C_Timer.After(1, function() PackOthers() end)
+	local neutralKey = house == "Neutral" and RealmKey()
+	house = nil
+	if neutralKey then
+		C_Timer.After(1, function()
+			local currentKey = RealmKey()
+			if currentKey and currentKey ~= neutralKey then PackHouse(neutralKey) end
+		end)
 	end
 	ClearWaiter()
 	itemSearch = nil
@@ -4373,7 +4432,8 @@ local function AuctionPriceText(link, id, count)
 	if not history or not history.usual then return text end
 	text = text .. " · " .. E:Plural(history.count, "usual %s over %d day", "usual %s over %d days"):format(TipMoney(history.usual), history.count)
 	if M.db.tooltipTrend then text = text .. PriceTrend(history) end
-	if M.db.tooltipVendorNote and VendorPrice(link or id) > floor(history.usual * (1 - M.HouseCut())) then
+	local cut = M.HouseCut()
+	if cut and M.db.tooltipVendorNote and VendorPrice(link or id) > floor(history.usual * (1 - cut)) then
 		text = text .. " · " .. L["Sell to a vendor"]
 	end
 	return text
@@ -4462,8 +4522,48 @@ M.HookTooltips = HookTooltips
 ---------------------------------------------------------------------------
 -- Module
 ---------------------------------------------------------------------------
+function Deals:HookMarketRequests()
+	if self.marketHooks or not AH then return end
+	self.marketHooks = true
+	local function CaptureBrowse()
+		if M.active and not self.shoppingSearch then
+			self.nativePending, self.nativeSearch = self:NewResults(), nil
+		end
+	end
+	for _, method in ipairs({ "SendBrowseQuery", "SearchForFavorites" }) do
+		if type(AH[method]) == "function" then hooksecurefunc(AH, method, CaptureBrowse) end
+	end
+	local function CaptureItemMarket(key)
+		if not M.active then return end
+		if itemSearch and itemSearch.sending then
+			self.nativeItemSearch = nil
+		elseif key then
+			self.nativeItemSearch = { key = key, market = RealmKey() }
+		else
+			self.nativeItemSearch = nil
+		end
+	end
+	local function CaptureItem(itemKey)
+		local key = self.ItemKey(itemKey)
+		CaptureItemMarket(key and DBKeyFromItemKey(key))
+	end
+	local function CaptureCommodity(itemID)
+		itemID = E.Plain(itemID)
+		CaptureItemMarket(self.Whole(itemID, 1) and DBKey(itemID))
+	end
+	-- Loading more results extends the existing query's cache.
+	for _, method in ipairs({ "SendSearchQuery", "SendSellSearchQuery", "RefreshItemSearchResults" }) do
+		if type(AH[method]) == "function" then hooksecurefunc(AH, method, CaptureItem) end
+	end
+	if type(AH.RefreshCommoditySearchResults) == "function" then
+		hooksecurefunc(AH, "RefreshCommoditySearchResults", CaptureCommodity)
+	end
+end
+
 function M:OnEnable()
+	if AuctionHouseFrame and AuctionHouseFrame:IsShown() then M.SetHouse(ReadHouse()) end
 	HookTooltips()
+	Deals:HookMarketRequests()
 	-- Events this client doesn't know are skipped instead of failing.
 	local valid = C_EventUtils and C_EventUtils.IsEventValid
 	for event, handler in pairs(AH_EVENTS) do
@@ -4492,7 +4592,9 @@ end
 function M:OnDisable()
 	ClearWaiter()
 	self:StopFullScan()
+	M.SetHouse(nil)
 	Deals.search, Deals.scan, Deals.nativePending, Deals.nativeSearch, Deals.shoppingSearch = nil, nil, nil, nil, nil
+	Deals.nativeItemSearch = nil
 	shop.searching, shop.queue, shop.current, shop.dealResults = false, {}, nil, nil
 	itemSearch = nil
 	if Shopping.searchButton then Shopping.searchButton:Enable() end
@@ -4609,8 +4711,20 @@ M.options = {
 		desc = "Blizzard's auction window. Its size, dragging and resets are on the Move windows page; where it opens is its mover in move mode.",
 		func = function() E:ToggleConfig("windows") end },
 	{ type = "header", label = "Data" },
-	{ type = "execute", confirm = true, label = "Clear saved prices", desc = "Forgets every saved auction price for this realm and faction.",
-		func = function() wipe(PriceDB()); M:Print(L["Saved prices cleared."]) end },
+	{ type = "execute", label = "Clear saved prices", desc = "Forgets every saved auction price for this realm and faction.",
+		disabled = function() return RealmKey() == nil end,
+		func = function()
+			local market = RealmKey()
+			if not market then return end
+			E:ShowConfirm({ title = L["Clear saved prices"], text = L["Forgets every saved auction price for this realm and faction."],
+				accept = L["Clear saved prices"], danger = true, onAccept = function()
+					E:RunConfigRow(function()
+						if market ~= RealmKey() then return end
+						wipe(PriceDB(market))
+						M:Print(L["Saved prices cleared."])
+					end)
+				end })
+		end },
 	{ type = "description", label = function() return M.SavedPricesText() end },
 }
 

@@ -2,7 +2,7 @@
 ## Title: |cff33aaffEldo|rUI Loot Sim
 ## Notes: The Loot Guide's simulator: estimates your DPS against a target dummy from your own character sheet and public Classic combat rules. Loads only when you press a sim button.
 ## Author: Eldodeldo
-## Version: 0.7.3100
+## Version: 0.7.4000
 ## Group: EldoUI
 ## Category: User Interface
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga

@@ -9,9 +9,7 @@
 --     (released or resurrected at the door) that never count twice
 --   * the hourly (and optional daily) count per ruleset, shown as an
 --     estimate, with a free-slot notice on a timer at the exact expiry
---   * same-run detection: the instance part (zone UID, field 5) of creature
---     and spell cast GUIDs the game hands out; walking out and back into
---     the same instance merges the two entries
+--   * the manual Same run as last action for eligible entries
 --   * the raid lockouts of each character (GetSavedInstanceInfo)
 --   * the "Instances" datatext and /eui instances
 --   * the run recorder for other modules: M:EnsureRecorder(owner,
@@ -22,16 +20,11 @@
 --     M:Runs(charKey) lists one character's runs (newest first);
 --     run.bosses counts the bosses killed (ENCOUNTER_END / BOSS_KILL).
 --
--- How the limit works: the server lets an account enter a limited number
--- of new instances per hour, counted over all characters on the same
--- ruleset (the "realm" on Forever). The default is 10 per hour with no
--- daily limit: the Forever server runs the modern instance rules, and the
--- instance trackers made for the Forever client use the same numbers.
--- Older guides give five per hour; when the server refuses an entry
--- earlier, the refusal notice offers its count as the new limit. Dungeons
--- and raids for up to 20 players count; a 40-player raid does not (it has
--- its own saved lockout) unless "Count raids" is on. EldoUI only sees your
--- own entries, so the count is an estimate and is labeled as one.
+-- The hourly estimate pools recorded runs on the same ruleset across
+-- characters. It defaults to five, with no daily limit. When the server
+-- refuses an entry, the refusal notice can offer the observed count as
+-- the estimate's limit. Dungeons and raids for up to 20 players count
+-- toward the estimate. A 40-player raid counts when "Count raids" is on.
 --
 -- Rules (Midnight / Forever): presentation only. Optional logging runs the
 -- game's own combat log without reading it. Nothing is sent to other
@@ -59,10 +52,9 @@ local M = E:NewModule("Instances", {
 	defaults = {
 		enabled = false,
 		-- Limit
-		hourlyLimit = 10,
+		hourlyLimit = 5,
 		dailyLimit = 0,          -- 0: no daily limit
 		countRaids = false,
-		detectSameRun = true,
 		keepRuns = 250,
 		combatLogging = "off",
 		-- Notices (own chat only)
@@ -70,7 +62,6 @@ local M = E:NewModule("Instances", {
 		noticeArgentDawn = true,
 		noticeRaid = false,
 		noticePvP = true,
-		noticeMerge = true,
 		noticeFree = true,
 		freeSound = "none",
 		-- End-of-run summary (Stats.lua)
@@ -174,7 +165,7 @@ end
 
 -- The listeners the run recorder keeps while the module is off: the zone
 -- state machine and the run's stats. Notices, resets and lockouts stay off.
-local RECORDER_KEYS = { zone = true, stats = true, pvp = true, zoneuid = true, bosses = true }
+local RECORDER_KEYS = { zone = true, stats = true, pvp = true, bosses = true }
 local recorderFrame = CreateFrame("Frame")
 recorderFrame:SetScript("OnEvent", function(_, event, ...)
 	if M.active then return end
@@ -240,7 +231,6 @@ local function SyncRecorder()
 		end
 	elseif not M.active then
 		M.current = nil
-		M:WatchZoneUID()
 	end
 end
 M.SyncRecorder = SyncRecorder
@@ -328,8 +318,8 @@ end
 -- instanceID, difficulty, difficultyName, kind ("party", "raid", "pvp"),
 -- enter, leave (server time), enterLevel, leaveLevel, enterXP, enterXPMax,
 -- leaveXP, enterMoney, leaveMoney, and the stats Stats.lua collects
--- (xp, kills, money, rep, currency, group, honor, ...). zoneUID is the
--- instance part of GUIDs seen inside; merged counts the entries folded in.
+-- (xp, kills, money, rep, currency, group, honor, ...). The merged field
+-- counts the entries folded in.
 -- bossEncounters maps confirmed encounter IDs to public names, or false
 -- if only the ID was available.
 -- group = { [name] = { level, class, guild, role, realm, key, first, last,
@@ -388,7 +378,7 @@ function M:Store()
 	if type(store.runs) ~= "table" then store.runs = {} end
 	if type(store.chars) ~= "table" then store.chars = {} end
 	store.nextID = tonumber(store.nextID) or 1
-	if not checked[store.chars] then
+	if not checked[store.chars] and self:CharKey() then
 		checked[store.chars] = true
 		self:MoveCharKey(store)
 	end
@@ -400,9 +390,12 @@ end
 -- instance record and runs with it, once. Another character with the same
 -- first name never does.
 function M:MoveCharKey(store)
-	if type(E.charKeyMovedFrom) ~= "string" then return end
-	local old = ("%s - %s"):format(E:PlayerName() or "?", self:RealmKey())
-	local new = self:CharKey()
+	local prior = E.Plain(E.charKeyMovedFrom)
+	local oldName = type(prior) == "string" and prior:match("^(.-) %- ")
+	local realm = self:RealmKey()
+	local new = realm and self:CharKey(realm)
+	if not oldName or not new then return end
+	local old = ("%s - %s"):format(oldName, realm)
 	if old == new then return end
 	if store.chars[old] ~= nil and store.chars[new] == nil then
 		store.chars[new], store.chars[old] = store.chars[old], nil
@@ -420,11 +413,16 @@ end
 
 -- The realm key the hourly limit is shared on: the ruleset on Forever.
 function M:RealmKey()
-	return E:RealmKey()
+	return E:KnownRealmKey()
 end
 
-function M:CharKey()
-	return ("%s - %s"):format(E:CharacterName() or "?", self:RealmKey())
+-- Use the name admitted by the database so a temporarily unavailable
+-- surname does not detach this character from its recorded runs.
+function M:CharKey(realm)
+	realm = realm or self:RealmKey()
+	local key = E.Plain(E.charKey)
+	local name = type(key) == "string" and key:match("^(.-) %- ")
+	if realm and name and name ~= "" then return ("%s - %s"):format(name, realm) end
 end
 
 -- The run and record key of a character in the Characters store: the name
@@ -438,15 +436,17 @@ function M:KeyFor(charKey)
 	local record = C and C.Get and C:Get(charKey)
 	local name = charKey:match("^(.-) %- ") or (type(record) == "table" and record.name)
 	if type(name) ~= "string" or name == "" then return nil end
+	local realm = E:ReadableRealmName()
 	local realmKey = type(record) == "table" and (record.realmKey
-		or (record.realm == GetRealmName() and self:RealmKey())) or nil
+		or (realm and record.realm == realm and self:RealmKey())) or nil
 	if not realmKey then return nil end
 	return ("%s - %s"):format(name, tostring(realmKey))
 end
 
 function M:CharRecord(key)
-	local chars = self:Store().chars
 	key = key or self:CharKey()
+	if not key then return nil end
+	local chars = self:Store().chars
 	if type(chars[key]) ~= "table" then chars[key] = {} end
 	return chars[key]
 end
@@ -484,6 +484,7 @@ end
 -- The run of this character that is still open (entered, not left).
 function M:OpenRun()
 	local key = self:CharKey()
+	if not key then return nil end
 	for _, run in ipairs(self:Runs()) do
 		if run.char == key then
 			if not run.leave then return run end
@@ -495,6 +496,7 @@ end
 -- This character's newest run, open or not.
 function M:LastRun()
 	local key = self:CharKey()
+	if not key then return nil end
 	for _, run in ipairs(self:Runs()) do
 		if run.char == key then return run end
 	end
@@ -551,6 +553,7 @@ function M:CountedRuns(window, now)
 	now = now or self:Now()
 	local realm = self:RealmKey()
 	local list = {}
+	if not realm then return list end
 	for _, run in ipairs(self:Runs()) do
 		if run.realm == realm and self:Counts(run) then
 			local at = self:CountTime(run, now)
@@ -580,7 +583,7 @@ function M:Summary(now)
 	now = now or self:Now()
 	local hourList = self:CountedRuns(HOUR, now)
 	local dayList = self:CountedRuns(DAY, now)
-	local hourLimit = max(1, floor(tonumber(self.db.hourlyLimit) or 10))
+	local hourLimit = max(1, floor(tonumber(self.db.hourlyLimit) or self.defaults.hourlyLimit))
 	local dayLimit = max(0, floor(tonumber(self.db.dailyLimit) or 0))
 	local wait = WaitFor(hourList, hourLimit, HOUR, now)
 	if dayLimit > 0 and wait ~= nil then
@@ -667,6 +670,7 @@ end
 
 -- The count line: "3/5 this hour (estimate) · 7 in 24 h · next in 23m".
 function M:CountLine(now)
+	if not self:RealmKey() then return L["Instance ruleset unavailable."] end
 	local hour, day, wait, hourLimit, dayLimit = self:Summary(now)
 	local color = hour >= hourLimit and RED or (hour >= hourLimit - 1 and YELLOW or GREEN)
 	local parts = { (L["%s%d/%d|r this hour (estimate)"]):format(color, hour, hourLimit) }
@@ -697,7 +701,7 @@ function M:ScheduleFree()
 	if not wait or wait <= 0 then return end
 	self.freeTimer = C_Timer.NewTimer(wait + 0.5, function()
 		self.freeTimer = nil
-		if not self.active then return end
+		if not self.active or not self:RealmKey() then return end
 		local hour, _, left, hourLimit = self:Summary()
 		if left == 0 then
 			if self.db.noticeFree then
@@ -942,12 +946,15 @@ end
 M.SameInstance = SameInstance
 
 function M:NewRun(here, how)
+	local realm = self:RealmKey()
+	local char = realm and self:CharKey(realm)
+	if not char then return nil end
 	local store = self:Store()
 	local level, xp, xpMax = PlayerXP()
 	local _, class = UnitClass("player")
 	local run = {
 		id = store.nextID,
-		char = self:CharKey(), name = E:PlayerName(), class = Plain(class), realm = self:RealmKey(),
+		char = char, name = E:PlayerName(), class = Plain(class), realm = realm,
 		instance = here.instance, instanceID = here.instanceID, kind = here.kind,
 		difficulty = here.difficulty, difficultyName = here.difficultyName, maxPlayers = here.maxPlayers,
 		enter = self:Now(), enterLevel = level, enterXP = xp, enterXPMax = xpMax, enterMoney = Money(),
@@ -973,7 +980,6 @@ function M:SetCurrent(run)
 	self.bossRunLeaving = nil
 	self.current = run
 	if self.OnCurrentChanged then self:OnCurrentChanged(run) end
-	self:WatchZoneUID()
 end
 
 function M:Resume(run, why)
@@ -1001,6 +1007,7 @@ end
 
 function M:StartRun(here, how)
 	local run = self:NewRun(here, how)
+	if not run then return nil end
 	self:SetCurrent(run)
 	if self.OnRunStarted then self:OnRunStarted(run) end
 	self:EnteredNotice(run)
@@ -1065,7 +1072,6 @@ function M:Merge(newer, older)
 		older.groupSize, older.groupLevelSum, older.groupLevelCount = newer.groupSize, newer.groupLevelSum, newer.groupLevelCount
 	end
 	older.merged = (older.merged or 0) + 1 + (newer.merged or 0)
-	older.zoneUID = older.zoneUID or newer.zoneUID
 	older.leave, older.leaveLevel, older.leaveXP, older.leaveXPMax, older.leaveMoney =
 		newer.leave, newer.leaveLevel, newer.leaveXP, newer.leaveXPMax, newer.leaveMoney
 	older.logout, older.ghostOut = newer.logout, newer.ghostOut
@@ -1104,73 +1110,6 @@ function M:ManualMerge(id)
 end
 
 ---------------------------------------------------------------------------
--- Same-run detection: the zone UID in creature and cast GUIDs
--- ("Creature-0-<server>-<instance>-<zoneUID>-<npc>-<spawn>",
--- "Cast-<kind>-<server>-<instance>-<zoneUID>-<spell>-<cast>").
----------------------------------------------------------------------------
-local NPC_TYPES = { Creature = true, Vehicle = true }
-
-function M.ZoneUIDFromGUID(guid, types)
-	if type(guid) ~= "string" or IsSecret(guid) then return nil end
-	local kind, _, _, _, zoneUID = strsplit("-", guid)
-	if not (kind and (types or NPC_TYPES)[kind]) then return nil end
-	if type(zoneUID) ~= "string" or zoneUID == "" or zoneUID == "0" then return nil end
-	return zoneUID
-end
-
-local function UnitZoneUID(unit)
-	if InCombatLockdown() then return nil end
-	if not Plain(UnitExists(unit)) then return nil end
-	local player, controlled = UnitIsPlayer(unit), UnitPlayerControlled(unit)
-	if IsSecret(player) or IsSecret(controlled) or player or controlled then return nil end
-	return M.ZoneUIDFromGUID(UnitGUID(unit))
-end
-
-local CAST_TYPES = { Cast = true }
-
-function M:SeeZoneUID(zoneUID)
-	local run = self.current
-	if not run or run.zoneUID or not zoneUID or run.kind == "pvp" then return end
-	run.zoneUID = zoneUID
-	self:WatchZoneUID()
-	if not self.db.detectSameRun then return end
-	local previous = self:PreviousRun(run)
-	if previous and previous.zoneUID == zoneUID and SameInstance(previous, run) then
-		self:Merge(run, previous)
-		if self.db.noticeMerge then
-			self:Notice((L["%s: same run as before, merged (%s)."]):format(self:RunTitle(previous), self:CountLine()))
-		end
-	end
-end
-
-local ZONE_EVENTS = { "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED" }
-
-local function OnZoneEvent(event, unit, castGUID)
-	if event == "PLAYER_TARGET_CHANGED" then
-		M:SeeZoneUID(UnitZoneUID("target"))
-	elseif event == "UPDATE_MOUSEOVER_UNIT" then
-		M:SeeZoneUID(UnitZoneUID("mouseover"))
-	elseif event == "NAME_PLATE_UNIT_ADDED" then
-		if type(unit) == "string" and not IsSecret(unit) then M:SeeZoneUID(UnitZoneUID(unit)) end
-	elseif unit == "player" and not InCombatLockdown() then
-		M:SeeZoneUID(M.ZoneUIDFromGUID(castGUID, CAST_TYPES))
-	end
-end
-
--- The GUID listeners run only while a run inside still needs its zone UID.
-function M:WatchZoneUID()
-	local run = self.current
-	local want = (self.active or self.recorderOn) and run and not run.zoneUID and run.kind ~= "pvp"
-	if want and not self.watchingZone then
-		self.watchingZone = true
-		for _, event in ipairs(ZONE_EVENTS) do self:Listen(event, "zoneuid", OnZoneEvent) end
-	elseif not want and self.watchingZone then
-		self.watchingZone = nil
-		for _, event in ipairs(ZONE_EVENTS) do self:StopListening(event, "zoneuid") end
-	end
-end
-
----------------------------------------------------------------------------
 -- Entering and leaving
 ---------------------------------------------------------------------------
 -- Was the player a ghost on this loading screen (released, or just
@@ -1182,11 +1121,15 @@ function M:GhostZoning()
 	return not IsSecret(ghost) and ghost == true
 end
 
-function M:OnEnteringWorld(isLogin, isReload)
+function M:OnEnteringWorld(isLogin, isReload, deferredGhost)
 	ApplyCombatLog()
 	local here = self:Here()
+	local realm = self:RealmKey()
 	local open = self:OpenRun()
-	local ghost = self:GhostZoning()
+	if not realm and self.current and not self.current.leave then open = self.current end
+	local ghost = deferredGhost
+	if ghost == nil then ghost = self:GhostZoning() end
+	self.pendingScopeEntry = nil
 	self.ghostUntil = nil
 	local now = self:Now()
 	if here then
@@ -1197,6 +1140,10 @@ function M:OnEnteringWorld(isLogin, isReload)
 			return
 		end
 		if open then self:CloseRun(open, "switch") end
+		if not realm then
+			self.pendingScopeEntry = { login = isLogin, reload = isReload, ghost = ghost }
+			return
+		end
 		local last = self:LastRun()
 		if last and SameInstance(last, here) and last.leave then
 			-- A reload brings back the run the logout closed.
@@ -1214,6 +1161,8 @@ function M:OnEnteringWorld(isLogin, isReload)
 		self:StartRun(here, isLogin and "login" or nil)
 	elseif open then
 		self:CloseRun(open, ghost and "ghost" or "left")
+	elseif not realm then
+		self.pendingScopeEntry = { login = isLogin, reload = isReload, ghost = ghost }
 	end
 end
 
@@ -1328,6 +1277,9 @@ function M:RequestLockouts()
 end
 
 function M:ReadLockouts()
+	local realm = self:RealmKey()
+	local key = realm and self:CharKey(realm)
+	if not key then return end
 	local count = Plain(Try(GetNumSavedInstances))
 	if type(count) ~= "number" then return end
 	local now = self:Now()
@@ -1346,10 +1298,10 @@ function M:ReadLockouts()
 			}
 		end
 	end
-	local record = self:CharRecord()
+	local record = self:CharRecord(key)
 	local _, class = UnitClass("player")
 	record.class = Plain(class) or record.class
-	record.realm = self:RealmKey()
+	record.realm = realm
 	record.lockouts = list
 	record.lockoutsAt = now
 	self:Changed("lockouts")
@@ -1363,6 +1315,7 @@ function M:Lockouts()
 	local now = self:Now()
 	local mine, realm = self:CharKey(), self:RealmKey()
 	local list = {}
+	if not realm then return list end
 	for key, record in pairs(self:Store().chars) do
 		if type(record) == "table" and type(record.lockouts) == "table" and (record.realm == nil or record.realm == realm) then
 			for _, lock in ipairs(record.lockouts) do
@@ -1384,7 +1337,7 @@ end
 -- Datatext
 ---------------------------------------------------------------------------
 function M:DataText()
-	if not self.active then return GREY .. L["Instances"] .. "|r" end
+	if not self.active or not self:RealmKey() then return GREY .. L["Instances"] .. "|r" end
 	local hour, _, wait, hourLimit = self:Summary()
 	if wait == 0 then
 		local color = hour >= hourLimit - 1 and YELLOW or GREEN
@@ -1400,6 +1353,7 @@ function M:FillTooltip(tooltip)
 		E.UIKit.TipText(tooltip, E:ModuleOffNote("Instances"))
 		return
 	end
+	if not self:RealmKey() then return end
 	local now = self:Now()
 	local run = self.current
 	if run then
@@ -1464,7 +1418,7 @@ end
 
 E:RegisterDataText("Instances", {
 	title = "Instances",
-	events = { "PLAYER_ENTERING_WORLD", "UPDATE_INSTANCE_INFO" },
+	events = { "PLAYER_ENTERING_WORLD", "UPDATE_INSTANCE_INFO", "GAME_RULES_CHANGED" },
 	poll = true,
 	interval = 15,
 	text = function() return M:DataText() end,
@@ -1537,6 +1491,10 @@ function M:ForceRun()
 		self:Notice(L["You are not inside an instance."])
 		return
 	end
+	if not self:RealmKey() then
+		self:Notice(L["Instance ruleset unavailable."])
+		return
+	end
 	local open = self:OpenRun()
 	if open then self:CloseRun(open, "switch") end
 	self:StartRun(here, "manual")
@@ -1581,6 +1539,7 @@ local function OnEnteringWorld(_, isLogin, isReload)
 end
 
 local function OnLeavingWorld()
+	M.pendingScopeEntry = nil
 	M.bossRunLeaving = true
 	local ghost = UnitIsGhost("player")
 	if not IsSecret(ghost) and ghost then M.ghostUntil = GetTime() + GHOST_LEAVE_WINDOW end
@@ -1596,11 +1555,20 @@ local function OnLogout()
 		combatLog.owned, combatLog.manual = nil, nil
 		ReleaseAdvancedLog()
 	end
+	M.pendingScopeEntry = nil
 	local open = M:OpenRun()
+	if not open and not M:RealmKey() then open = M.current end
 	if open then M:CloseRun(open, "logout") end
 end
 
+local function OnRulesChanged()
+	local pending = M.pendingScopeEntry
+	if pending and M:RealmKey() then M:OnEnteringWorld(pending.login, pending.reload, pending.ghost) end
+	M:Changed("runs")
+end
+
 M:Listen("PLAYER_ENTERING_WORLD", "zone", OnEnteringWorld)
+M:Listen("GAME_RULES_CHANGED", "zone", OnRulesChanged)
 M:Listen("PLAYER_LEAVING_WORLD", "zone", OnLeavingWorld)
 M:Listen("PLAYER_UNGHOST", "zone", OnUnghost)
 M:Listen("PLAYER_LOGOUT", "zone", OnLogout)
@@ -1685,7 +1653,6 @@ function M:OnDisable()
 	ApplyCombatLog()
 	for event in pairs(eventHandlers) do self:UnregisterEvent(event) end
 	self.current = nil
-	self:WatchZoneUID()
 	if self.freeTimer then
 		self.freeTimer:Cancel()
 		self.freeTimer = nil

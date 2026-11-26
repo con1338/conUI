@@ -444,14 +444,14 @@ end
 function M:Plan(skillLine, from, to)
 	local plan = { steps = {}, total = 0, unpriced = 0, gaps = {}, skill = skillLine, from = from, to = to }
 	local LG = LootGuide()
-	if not (LG and LG.ProfessionCrafts and LG.SkillBand) or not from or not to or to <= from then return plan end
+	if not (LG and LG.ProfessionCrafts and LG.SkillThresholds) or not from or not to or to <= from then return plan end
 	local crafts = Try(LG.ProfessionCrafts, LG, skillLine) or {}
 	local candidates = {}
 	for _, craft in ipairs(crafts) do
 		local known = LG.CraftKnown and LG:CraftKnown(craft.id)
 		if craft.rank and (known or not self.db.planKnownOnly) and #(craft.reagents or {}) > 0 then
-			local _, estimated, thresholds = LG:SkillBand(craft, from)
-			local recipe = { id = craft.id, result = craft.result, count = craft.count or 1, reagents = craft.reagents, rank = craft.rank }
+			local thresholds, estimated = LG:SkillThresholds(craft)
+			local recipe = { id = craft.id, result = craft.result, count = craft.count or 1, reagents = craft.reagents, rank = thresholds.orange }
 			candidates[#candidates + 1] = { craft = craft, recipe = recipe, thresholds = thresholds, estimated = estimated,
 				known = known, cost = self:CraftCost(recipe) }
 		end
@@ -479,7 +479,8 @@ function M:Plan(skillLine, from, to)
 		else
 			if not current or current.candidate ~= best then
 				current = { candidate = best, recipe = best.recipe, from = skill, to = skill, crafts = 0, cost = best.cost and 0 or nil,
-					band = skill < best.thresholds.yellow and "orange" or "yellow", known = best.known, estimated = best.estimated }
+					band = skill >= best.thresholds.green and "green" or (skill >= best.thresholds.yellow and "yellow" or "orange"),
+					known = best.known, estimated = best.estimated }
 				plan.steps[#plan.steps + 1] = current
 			end
 			current.to = skill + 1

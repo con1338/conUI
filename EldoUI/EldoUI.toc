@@ -4,7 +4,7 @@
 ## Author: Eldodeldo
 ## X-License: Apache-2.0
 ## X-Copyright: Copyright 2026 Eldodeldo
-## Version: 0.7.3100
+## Version: 0.7.4000
 ## IconTexture: Interface\AddOns\EldoUI\Media\Textures\EldoIcon.tga
 ## AddonCompartmentFunc: EldoUI_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: EldoUI_OnAddonCompartmentEnter
@@ -147,7 +147,6 @@ Modules\InfoBar\Rolls.lua
 Modules\InfoBar\Group.lua
 Modules\InfoBar\Calendar.lua
 Modules\Minimap.lua
-Modules\MinimapLayer.lua
 Modules\StatusBars.lua
 Modules\MicroMenu.lua
 Modules\Maps\Core.lua
@@ -171,6 +170,7 @@ Data\Zones.lua
 Data\StoryWorld.lua
 Data\Forever.lua
 Data\ItemOverlay.lua
+Data\RecipeThresholds.lua
 Modules\ZoneInfo.lua
 Modules\MapNotes\Core.lua
 Modules\MapNotes\Pins.lua

@@ -35,6 +35,7 @@ local L = E.L
 local LAB = _G.LibStub("LibActionButton-1.0")
 
 local NUM_BARS = 8
+local LAST_STANDARD_PAGE = 18
 
 -- Per-bar settings. Style presets set only the look (size, spacing,
 -- texts); M:FillDefaults still fills in keys an older profile or a plugin
@@ -1259,11 +1260,17 @@ end
 -- Paging
 ---------------------------------------------------------------------------
 local function PageIndex(fn, fallback)
-	if C_ActionBar and C_ActionBar[fn] then
-		local ok, value = pcall(C_ActionBar[fn])
-		if ok and type(value) == "number" and value > 0 then return value end
-	end
+	local value = E.PlainCall(C_ActionBar and C_ActionBar[fn])
+	if type(value) == "number" and value > 0 and value % 1 == 0 then return value end
 	return fallback
+end
+
+local function NativePages()
+	return {
+		override = PageIndex("GetOverrideBarIndex", LAST_STANDARD_PAGE),
+		vehicle = PageIndex("GetVehicleBarIndex", 16),
+		shapeshift = PageIndex("GetTempShapeshiftBarIndex", 17),
+	}
 end
 
 local function ModifierPaging(db)
@@ -1276,15 +1283,16 @@ local function ModifierPaging(db)
 end
 
 -- The page driver for bar `index`.
-function M:PagingDriver(index)
+function M:PagingDriver(index, nativePages)
 	local db = self.db.bars[index]
 	local parts = {}
+	if index == 1 then nativePages = nativePages or NativePages() end
 	-- Bar 1 shows the vehicle's abilities when asked to, and always when
 	-- EldoUI hides Blizzard's override bar (otherwise they'd be unreachable).
 	local vehicle = self.db.pageVehicle or (self.OverrideBarHidden and self:OverrideBarHidden())
 	if index == 1 and vehicle then
-		parts[#parts + 1] = ("[overridebar] %d"):format(PageIndex("GetOverrideBarIndex", 18))
-		parts[#parts + 1] = ("[vehicleui][possessbar] %d"):format(PageIndex("GetVehicleBarIndex", 16))
+		parts[#parts + 1] = ("[overridebar] %d"):format(nativePages.override)
+		parts[#parts + 1] = ("[vehicleui][possessbar] %d"):format(nativePages.vehicle)
 	end
 	if type(db.customPaging) == "string" and db.customPaging:find("%S") then
 		parts[#parts + 1] = (db.customPaging:gsub(";%s*$", ""))
@@ -1292,7 +1300,7 @@ function M:PagingDriver(index)
 	for _, part in ipairs(ModifierPaging(db)) do parts[#parts + 1] = part end
 	if index == 1 then
 		if self.db.pageForms then
-			parts[#parts + 1] = ("[shapeshift] %d"):format(PageIndex("GetTempShapeshiftBarIndex", 17))
+			parts[#parts + 1] = ("[shapeshift] %d"):format(nativePages.shapeshift)
 		end
 		for page = 2, 6 do parts[#parts + 1] = ("[bar:%d] %d"):format(page, page) end
 		if self.db.pageForms then
@@ -1330,13 +1338,13 @@ local function CreateBar(index)
 	local header = CreateFrame("Frame", name, UIParent, "SecureHandlerStateTemplate")
 	header.index = index
 	header.buttons = {}
+	header.extendedPages = {}
 	header.eldoMover = name
 	for slot = 1, 12 do
 		local button = LAB:CreateButton(slot, name .. "Button" .. slot, header)
 		M.UseActionSlotAPI(button)
-		-- Every bar can page (bar 1 always, the others through modifier or
-		-- custom paging), so each button knows all 18 pages.
-		for page = 1, 18 do
+		-- Every bar can use the standard pages, including with custom paging.
+		for page = 1, LAST_STANDARD_PAGE do
 			button:SetState(page, "action", (page - 1) * 12 + slot)
 		end
 		button:SetState(0, "action", (info.page - 1) * 12 + slot)
@@ -1610,7 +1618,18 @@ local function LayoutBar(header, index)
 	M:PlaceFrame(header, M:BarUsesMover(index), blizzardBar)
 
 	-- Paging and visibility.
-	RegisterStateDriver(header, "page", M:PagingDriver(index))
+	local nativePages = NativePages()
+	-- Install native page actions before the driver can select them. Other
+	-- bars can also refer to these pages through their custom paging rules.
+	for _, page in pairs(nativePages) do
+		if page > LAST_STANDARD_PAGE and not header.extendedPages[page] then
+			for slot, button in ipairs(header.buttons) do
+				button:SetState(page, "action", (page - 1) * 12 + slot)
+			end
+			header.extendedPages[page] = true
+		end
+	end
+	RegisterStateDriver(header, "page", M:PagingDriver(index, nativePages))
 	local show = barDB.enabled and not M:HiddenForGamepad() and M:OwnBarAllowed(index)
 	-- Bar 1 showing the vehicle's actions must stay in vehicles.
 	local keep = index == 1 and function() return M:BarOneInVehicle() end or nil

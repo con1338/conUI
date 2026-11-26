@@ -643,8 +643,8 @@ J:RegisterSource("playernotes", {
 		local M = E.PlayerNotes
 		local list = {}
 		if not (M and M.Store) then return list end
-		for name, entry in pairs(M:Store()) do
-			local key = type(entry) == "table" and J:Key(name)
+		for noteKey, entry in pairs(M:Store()) do
+			local key = type(entry) == "table" and J:Key(M:JournalName(noteKey))
 			if key then
 				list[#list + 1] = { key = key, name = key, grouped = tonumber(entry.grouped), last = tonumber(entry.last),
 					class = entry.class, mark = entry.mark, hasNote = type(entry.note) == "string" and entry.note ~= "" or nil }

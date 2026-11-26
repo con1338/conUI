@@ -42,4 +42,6 @@ E.defaultChanges = {
 	-- A new whisper opens its window (out of combat; after the fight when it
 	-- arrives in combat), so it is no longer missed in the dock.
 	{ schema = 5, path = "modules.Messages.openOnReceive", from = "dock", to = "window", keep = false },
+	-- The instance estimate follows the new dungeon limit for profiles using the default.
+	{ schema = 6, path = "modules.Instances.hourlyLimit", from = 10, to = 5, keep = false },
 }

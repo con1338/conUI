@@ -280,8 +280,8 @@ function C:Me()
 	end
 	local _, class = UnitClass("player")
 	me.name = E:PlayerName()
-	me.realm = GetRealmName()
-	me.realmKey = E:RealmKey()
+	me.realm = E:ReadableRealmName() or me.realm
+	me.realmKey = E:KnownRealmKey() or me.realmKey
 	me.class = class or me.class
 	me.faction = Plain(UnitFactionGroup("player")) or me.faction
 	-- A character's level never goes down: a lower answer (a read while
@@ -318,8 +318,11 @@ end
 -- Forever). A record saved before realmKey existed only knows its realm
 -- name: it matches when that is the current realm.
 local function SameRealm(record, me)
-	if record.realmKey and me.realmKey then return record.realmKey == me.realmKey end
-	return record.realm ~= nil and record.realm == me.realm
+	local savedKey, currentKey = record.realmKey, me.realmKey
+	if type(savedKey) == "string" and savedKey ~= "" and type(currentKey) == "string" and currentKey ~= "" then
+		return savedKey == currentKey
+	end
+	return type(record.realm) == "string" and record.realm ~= "" and record.realm == me.realm
 end
 C.SameRealm = SameRealm
 
@@ -327,8 +330,10 @@ C.SameRealm = SameRealm
 -- current realm key once, so "This realm" scopes, the Mail address book,
 -- the Gold datatext and recipe owners list them again.
 function C:BackfillRealmKeys()
-	local realm, realmKey = GetRealmName(), E:RealmKey()
-	if type(realm) ~= "string" or realmKey == nil then return 0 end
+	local realm = E:ReadableRealmName()
+	if not realm then return 0 end
+	local realmKey = E:KnownRealmKey()
+	if not realmKey then return 0 end
 	local filled = 0
 	for _, record in pairs(self:All()) do
 		if type(record) == "table" and record.realmKey == nil and record.realm == realm then
@@ -427,13 +432,17 @@ end
 
 -- A character by name (and realm), for mail recipients.
 local function NormalRealm(realm)
-	return (tostring(realm or "")):gsub("[%s%-']", ""):lower()
+	realm = Plain(realm)
+	if type(realm) ~= "string" then return nil end
+	local key = realm:gsub("[%s%-']", ""):lower()
+	return key ~= "" and key or nil
 end
 
 function C:FindCharacter(name, realm)
-	if type(name) ~= "string" then return end
+	if type(name) ~= "string" or IsSecret(name) or IsSecret(realm) then return end
 	name = name:lower()
-	realm = NormalRealm(realm or GetRealmName())
+	realm = NormalRealm(realm or E:ReadableRealmName())
+	if not realm then return end
 	for key, record in pairs(self:All()) do
 		if type(record) == "table" and type(record.name) == "string" and record.name:lower() == name
 			and (NormalRealm(record.realm) == realm or NormalRealm(record.realmKey) == realm) then
@@ -1164,7 +1173,9 @@ end
 local function CurrentGuildKey()
 	local name = Read(IsInGuild) and Read(GetGuildInfo, "player")
 	if type(name) ~= "string" or IsSecret(name) or name == "" then return end
-	return name .. " - " .. GetRealmName(), name
+	local realm = E:ReadableRealmName()
+	if not realm then return end
+	return name .. " - " .. realm, name, realm
 end
 C.CurrentGuildKey = CurrentGuildKey
 
@@ -1175,7 +1186,7 @@ end
 
 function Scan.guildTab(tab)
 	if not (GetGuildBankItemLink and GetGuildBankItemInfo and GetGuildBankTabInfo) then return end
-	local key, name = CurrentGuildKey()
+	local key, name, realm = CurrentGuildKey()
 	if not key or not tab or tab < 1 then return end
 	local numTabs = Read(GetNumGuildBankTabs) or 0
 	if tab > numTabs then return end
@@ -1184,7 +1195,7 @@ function Scan.guildTab(tab)
 	local guilds = C:Guilds()
 	local guild = guilds[key] or {}
 	guilds[key] = guild
-	guild.name, guild.realm, guild.realmKey, guild.faction = name, GetRealmName(), E:RealmKey(), Plain(UnitFactionGroup("player"))
+	guild.name, guild.realm, guild.realmKey, guild.faction = name, realm, E:KnownRealmKey() or guild.realmKey, Plain(UnitFactionGroup("player"))
 	guild.tabs = guild.tabs or {}
 	local items = {}
 	for slot = 1, (rawget(_G, "MAX_GUILDBANK_SLOTS_PER_TAB") or 98) do
@@ -1216,13 +1227,12 @@ function C:GuildKeys(scope)
 	for key, guild in pairs(self:Guilds()) do
 		if type(guild) == "table" then
 			local keep = true
-			local realm = guild.realmKey or guild.realm
 			if scope == "char" then
 				keep = key == CurrentGuildKey()
 			elseif scope == "faction" then
-				keep = (realm == RealmOf(me) or guild.realm == me.realm) and (guild.faction == nil or guild.faction == me.faction)
+				keep = SameRealm(guild, me) and (guild.faction == nil or guild.faction == me.faction)
 			elseif scope == "realm" then
-				keep = realm == RealmOf(me) or guild.realm == me.realm
+				keep = SameRealm(guild, me)
 			end
 			if keep then list[#list + 1] = key end
 		end
@@ -1447,7 +1457,8 @@ function C:Forget(key, settings)
 	local instances = E.modules and E.modules.Instances
 	if instances and instances.ForgetCharacter then
 		local name = key:match("^(.-) %- ") or (record and record.name)
-		local realmKey = record and record.realmKey or (record and record.realm == GetRealmName() and E:RealmKey()) or nil
+		local realm = E:ReadableRealmName()
+		local realmKey = record and (record.realmKey or (realm and record.realm == realm and E:KnownRealmKey()))
 		if type(name) == "string" and realmKey then
 			local ok, err = pcall(instances.ForgetCharacter, instances, ("%s - %s"):format(name, tostring(realmKey)))
 			if not ok then geterrorhandler()(err) end

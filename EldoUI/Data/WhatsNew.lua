@@ -18,6 +18,17 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.4000",
+		date = Key("November 2026"),
+		summary = Key("1 improvement and 18 fixes."),
+		items = {
+			Key("The Minimap no longer offers layer hopping in WoW: Forever."),
+			Key("EldoUI shows one quest list while the supported quest addon's tracker and integration are enabled."),
+			Key("EldoUI keeps your saved profile and character data when it can identify your character without a realm name."),
+			Key("The Profession Planner uses WoW: Forever skill-up thresholds where available."),
+		},
+	},
+	{
 		version = "0.7.3100",
 		date = Key("November 2026"),
 		summary = Key("4 new features, 10 improvements and 8 fixes."),

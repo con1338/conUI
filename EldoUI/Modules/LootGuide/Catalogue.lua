@@ -198,8 +198,10 @@ function LG:ProfessionCrafts(skill)
 	local store = KnownStore()
 	for spellID, seen in pairs(store and store.seen or {}) do
 		if type(seen) == "table" and seen.skill == tonumber(skill) and not listed[spellID] then
-			list[#list + 1] = { id = spellID, result = seen.result or 0, count = seen.count or 1, reagents = seen.reagents or {},
-				recipes = {}, skill = seen.skill, seen = true }
+			list[#list + 1] = self:ApplyCraftLearnRank({
+				id = spellID, result = seen.result or 0, count = seen.count or 1, reagents = seen.reagents or {},
+				recipes = {}, skill = seen.skill, seen = true,
+			})
 		end
 	end
 	table.sort(list, function(a, b)
@@ -209,11 +211,9 @@ function LG:ProfessionCrafts(skill)
 	return list
 end
 
--- Skill color bands. The profession window's own color wins (seen when
--- you opened it); else Classic's usual steps above the learn rank: yellow
--- from +25, green from +37, gray from +50 (an estimate, said so in the
--- tooltip). Returns band ("orange" | "yellow" | "green" | "gray" | "red"
--- (not learnable yet)), estimated, thresholds.
+-- The client table supplies yellow and gray. Green begins at the
+-- rounded-down midpoint. The learn requirement remains a separate value.
+-- Older or unmatched recipes retain the usual estimated steps.
 local BAND_STEPS = { yellow = 25, green = 37, grey = 50 }
 LG.BAND_STEPS = BAND_STEPS
 
@@ -227,13 +227,10 @@ end
 
 -- What the profession window shows for a recipe (read-only): its skill
 -- line, result and reagents, so crafts appear without the loot data too.
-local function SeenRecipe(util, recipeID)
+local function SeenRecipe(util, recipeID, profession)
 	local entry = {}
-	if util.GetProfessionInfoByRecipeID then
-		local ok, info = pcall(util.GetProfessionInfoByRecipeID, recipeID)
-		if ok and type(info) == "table" then
-			entry.skill = tonumber(Plain(info.parentProfessionID)) or tonumber(Plain(info.professionID))
-		end
+	if profession then
+		entry.skill = tonumber(Plain(profession.parentProfessionID)) or tonumber(Plain(profession.professionID))
 	end
 	if util.GetRecipeSchematic then
 		local ok, schematic = pcall(util.GetRecipeSchematic, recipeID, false)
@@ -251,19 +248,34 @@ local function SeenRecipe(util, recipeID)
 	if entry.skill and PROFESSION_BY_ID[entry.skill] and entry.result then return entry end
 end
 
+function LG:SkillThresholds(craft)
+	local learn = craft.rank or 1
+	local source = E.recipeThresholds and E.recipeThresholds[craft.id]
+	local yellow, grey = craft.yellow, craft.grey
+	local learnConfirmed = craft.learnConfirmed == true
+	if source and source[1] == craft.skill then
+		yellow, grey = source[2], source[3]
+	end
+	if yellow and grey and 0 < yellow and yellow <= grey then
+		return { orange = learn, yellow = yellow, green = math.floor((yellow + grey) / 2), grey = grey,
+			learnConfirmed = learnConfirmed }, false
+	end
+	return { orange = learn, yellow = learn + BAND_STEPS.yellow, green = learn + BAND_STEPS.green, grey = learn + BAND_STEPS.grey,
+		learnConfirmed = learnConfirmed }, true
+end
+
 function LG:SkillBand(craft, skill)
 	if not craft then return end
-	local learn = craft.rank or 1
-	local thresholds = { orange = learn, yellow = learn + BAND_STEPS.yellow, green = learn + BAND_STEPS.green, grey = learn + BAND_STEPS.grey }
+	local thresholds, estimated = self:SkillThresholds(craft)
 	local store = KnownStore()
 	local seen = store and store.band and store.band[craft.id]
-	if seen then return seen, false, thresholds end
-	if not skill then return nil, true, thresholds end
-	if skill < learn then return "red", true, thresholds end
-	if skill >= thresholds.grey then return "grey", true, thresholds end
-	if skill >= thresholds.green then return "green", true, thresholds end
-	if skill >= thresholds.yellow then return "yellow", true, thresholds end
-	return "orange", true, thresholds
+	if not skill then return nil, estimated, thresholds end
+	if type(seen) == "table" and seen.skill == skill then return seen.color, estimated, thresholds end
+	if skill < thresholds.orange and (thresholds.learnConfirmed or estimated) then return "red", estimated, thresholds end
+	if skill >= thresholds.grey then return "grey", estimated, thresholds end
+	if skill >= thresholds.green then return "green", estimated, thresholds end
+	if skill >= thresholds.yellow then return "yellow", estimated, thresholds end
+	return "orange", estimated, thresholds
 end
 
 LG.BAND_COLORS = {
@@ -280,21 +292,30 @@ end
 local DIFFICULTY = { optimal = "orange", medium = "yellow", easy = "green", trivial = "grey",
 	[0] = "orange", [1] = "yellow", [2] = "green", [3] = "grey" }
 
+local function SaveObservedBand(store, recipeID, color, skill)
+	skill = tonumber(Plain(skill))
+	if color and skill and skill > 0 then store.band[recipeID] = { skill = skill, color = color } end
+end
+
 function LG:ScanTradeSkill()
 	local store = KnownStore(true)
 	if not store then return 0 end
+	if type(store.band) ~= "table" then store.band = {} end
 	local count = 0
 	local util = C_TradeSkillUI
 	if util and util.GetAllRecipeIDs and util.GetRecipeInfo then
-		local ok, ids = pcall(util.GetAllRecipeIDs)
-		if ok and type(ids) == "table" then
+		local ids = E.PlainCall(util.GetAllRecipeIDs)
+		if type(ids) == "table" then
 			for _, recipeID in ipairs(ids) do
-				local fine, info = pcall(util.GetRecipeInfo, recipeID)
-				if fine and type(info) == "table" and Plain(info.learned) then
+				local info = E.PlainCall(util.GetRecipeInfo, recipeID)
+				if type(info) == "table" and Plain(info.learned) then
 					store.known[recipeID] = true
-					if not store.seen[recipeID] then store.seen[recipeID] = SeenRecipe(util, recipeID) end
+					local profession = E.PlainCall(util.GetProfessionInfoByRecipeID, recipeID)
+					if type(profession) ~= "table" then profession = nil end
+					if not store.seen[recipeID] then store.seen[recipeID] = SeenRecipe(util, recipeID, profession) end
 					local band = DIFFICULTY[Plain(info.relativeDifficulty) or -1] or DIFFICULTY[Plain(info.difficulty) or ""]
-					if band then store.band[recipeID] = band end
+					-- The cached player rank can still be from before this list update.
+					SaveObservedBand(store, recipeID, band, profession and profession.skillLevel)
 					count = count + 1
 				end
 			end
@@ -304,6 +325,7 @@ function LG:ScanTradeSkill()
 	local numSkills, skillInfo, recipeLink = rawget(_G, "GetNumTradeSkills"), rawget(_G, "GetTradeSkillInfo"), rawget(_G, "GetTradeSkillRecipeLink")
 	if count == 0 and numSkills and skillInfo and recipeLink then
 		local ok, total = pcall(numSkills)
+		local _, skill = E.PlainCallEach(rawget(_G, "GetTradeSkillLine"))
 		for index = 1, ok and tonumber(Plain(total)) or 0 do
 			local _, kind = skillInfo(index)
 			kind = Plain(kind)
@@ -312,7 +334,7 @@ function LG:ScanTradeSkill()
 				local spellID = type(link) == "string" and tonumber(link:match("enchant:(%d+)") or link:match("spell:(%d+)"))
 				if spellID then
 					store.known[spellID] = true
-					if DIFFICULTY[kind] then store.band[spellID] = DIFFICULTY[kind] end
+					SaveObservedBand(store, spellID, DIFFICULTY[kind], skill)
 					count = count + 1
 				end
 			end

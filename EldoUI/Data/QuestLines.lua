@@ -2,7 +2,7 @@
 -- WoW: Forever's quest lines as the client lists them: the line's English
 -- name and its quests in order (QuestLine, QuestLineXQuest). In the game
 -- C_QuestLine.GetQuestLineQuests answers first.
--- Client tables: QuestLine and QuestLineXQuest of WoW: Forever 1.60.1.70938.
+-- Client tables: QuestLine and QuestLineXQuest of WoW: Forever 1.60.1.71037.
 local _, E = ...
 
 E.QuestLines = {
