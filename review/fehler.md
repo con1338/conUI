@@ -35,6 +35,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F25 | Das Koordinatenfeld (und der Wegpfeil) lässt sich nicht verschieben: im Verschiebemodus nur unter „Alle Rahmen“ (im Spiel gefunden) | niedrig | behoben (im Spiel offen) | `d1fece9` |
 | F26 | In einer Gruppe keine Schadenszahlen über Gegnern: Plakettenzahlen aus, Blizzards trotzdem auf 0 (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `1c693b8` |
 | F27 | Post: Ein Twink aus dem Adressbuch kommt nur mit Vornamen ins Feld „An“, der Brief scheitert (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `3058828`, `0e18af3` |
+| F28 | Gildenhandwerker: Listen und „Flüstern“ nur mit Vornamen, Handwerker erscheinen offline (bei F27 gefunden) | mittel | behoben (im Spiel offen) | `493c8cf` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -779,13 +780,38 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
   | Der Test rief `store.InvalidateKeys` (gibt es nicht); „6 Prüfungen fehlschlagen“ war nur mit nachträglich ausgegebenem `M.Alts` nachvollziehbar | niedrig | `ForgetKeys`; der Test bricht ohne `M.Alts` nicht mehr ab, Zahlen oben neu |
 
 - **Offen (nicht geändert):**
-  - Dieselbe Lücke an anderer Stelle: Die Gildenhandwerker (`Modules/Characters/GuildCrafters.lua`) teilen und
-    flüstern den Vornamen aus `record.name`; „Handwerker anflüstern“ dürfte auf Forever scheitern, und der Vergleich mit
-    der Gildenliste zeigt Handwerker vielleicht immer als offline (laut Prüfer, nicht im Spiel geprüft). Gehört nicht zu
-    dieser Meldung.
+  - Dieselbe Lücke bei den Gildenhandwerkern: siehe F28 (behoben).
   - `E:CharacterName` (`Core/Database.lua`) hängt den Nachnamen an, auch wenn der erste Wert ihn schon enthält (wenn
     `UnitName` statt `UnitNameUnmodified` antwortet). Der Schlüssel hieße dann „Vorname Nachname Nachname“ (Code von
     EldoUI, laut Prüfer plausibel, nicht beobachtet).
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
+### F28 – Gildenhandwerker nur mit Vornamen (mittel, bei F27 gefunden)
+- **Gefunden:** 26.11.2026 von der Gegenprüfung zu F27, nicht im Spiel beobachtet. Der Nutzer wollte es mit behoben
+  haben.
+- **Stelle:** `Modules/Characters/GuildCrafters.lua` (`M:MyRecipeList`, `M:ScanGuildOnline`, `M:CrafterOnline`,
+  `M:WhisperCrafter`)
+- **Ursache:** Die Rezeptlisten, die man mit der Gilde teilt, nennen jeden Charakter mit `record.name`, also nur mit dem
+  Vornamen. „Flüstern“ auf dem Reiter Handwerker flüstert diesen Namen an; auf Forever braucht ein Flüstern Vor- und
+  Nachnamen. Die Online-Markierung vergleicht den Namen mit der Gildenliste, die Mitglieder mit Nachnamen führt
+  (laut Prüfer; die Post nutzt die Namen der Gildenliste ebenfalls direkt). Der Fehler stammt aus EldoUI.
+- **Umsetzung:**
+  - `MyRecipeList` nennt jeden Charakter mit vollem Namen (`C.FullName`, wie F27). Ein Schlüssel ohne Nachnamen gibt
+    den Vornamen, wie bisher. Das Format der Nachricht trägt Leerzeichen schon.
+  - `CrafterOnline`: Ein voller Name ist online, wenn die Gildenliste ihn hat, oder bei einer Gildenliste ohne
+    Nachnamen über den Vornamen. Ein Vorname allein (eine Liste aus einer älteren Version) ist online, wenn ein
+    Mitglied mit diesem Vornamen online ist (Vornamen sind auf Forever nicht eindeutig; so gut wie vorher).
+  - „Flüstern“: Ein Vorname allein wird zum vollen Namen des einen Mitglieds online, das ihn hat
+    (`M:CrafterWhisperName`). Bei zweien oder keinem bleibt er, wie er ist.
+  - `Core/CharacterStore.lua` gibt sein Trennzeichen heraus (`C.SurnameSeparator`).
+- **Übergang:** Wer seine Liste mit einer älteren Version geschickt hat, schickt sie einmal neu („Meine Rezepte
+  senden“). Bis dahin hilft der Vorname-Abgleich mit der Gildenliste.
+- **Test:** `tools/characters/test_guild_crafter_names.lua` (20 Prüfungen, im ganzen Offline-Start): die eigene Liste
+  mit vollem Namen, auch durch das Nachrichtenformat; online mit vollem Namen, mit dem Trennzeichen des Spiels, mit
+  einer Gildenliste ohne Nachnamen und für Vornamen aus alten Listen; „Flüstern“ an den vollen Namen, an den vollen
+  Namen der Gildenliste, unverändert bei zwei oder keinem. Mit dem alten Code schlagen 9 Prüfungen fehl.
+- **Nicht im Spiel prüfbar gewesen:** wie die Gildenliste und der Absender einer Addon-Nachricht auf Forever einen
+  Namen schreiben (mit oder ohne Nachnamen). Der Code nimmt beides.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
 ## Sonstiges
@@ -827,6 +853,7 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F26 | die Gruppe verlassen, derselbe Befehl | wieder `"0"`, wieder Plakettenzahlen | offen (Gruppe) |
 | F27 | am Briefkasten „Post verschicken“, Pfeil im Feld „An“ → „Twinks“ → einen eigenen Charakter wählen, etwas schicken | im Menü und im Feld steht „Vorname Nachname“, der Brief geht ab | offen |
 | F27 | den Briefkasten schließen und wieder öffnen, „Post verschicken“ | das Feld „An“ füllt sich mit „Vorname Nachname“, auch wenn vorher ein Brief an den Vornamen allein gescheitert war; beim Twink liegt der Brief im Briefkasten-Block der Infoleiste | offen |
+| F28 | in einer Gilde mit einem zweiten EldoUI- oder conUI-Spieler: beide „Eure Rezepte mit der Gilde teilen“ an, beide „Meine Rezepte senden“; auf dem Reiter Handwerker ein Rezept suchen, „Flüstern“ | die Handwerker stehen mit Vor- und Nachnamen da, online richtig markiert; das Flüstern geht an „Vorname Nachname“ und kommt an | offen (Gilde) |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |
