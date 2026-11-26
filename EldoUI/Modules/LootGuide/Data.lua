@@ -1036,7 +1036,9 @@ end
 -- Does the Loot Guide show where this item comes from? MobInfo asks this
 -- (through E:LootGuideKnows) so a tooltip never shows the same drops twice.
 function LG:KnowsItem(itemID)
-	if not self.active or not LD then return false end
+	if not self.active then return false end
+	if self:ShowsForeverItemSource(itemID) then return true end
+	if not LD then return false end
 	local list = self:ItemSources(itemID)
 	return list ~= nil and #list > 0
 end

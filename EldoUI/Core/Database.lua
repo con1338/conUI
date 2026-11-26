@@ -3068,6 +3068,19 @@ function E:RefreshModules(filter, queued)
 	end
 end
 
+-- Create from the Profiles page or slash command, preserving the order of
+-- combat-deferred profile requests and checking for collisions at execution.
+function E:CreateProfile(name, onExists)
+	if not CurrentProfile(self.db, self.profileName) or E.Secret(name) or type(name) ~= "string" or name == "" then return false end
+	local existing = self:FindProfileName(name)
+	if existing then
+		if onExists then onExists(existing) end
+		return false
+	end
+	if QueueProfileWork(self, function() self:CreateProfile(name, onExists) end, name) then return false end
+	return self:SetProfile(name)
+end
+
 -- Switch the current character to a profile, creating it if needed.
 function E:SetProfile(name, silent)
 	if not CurrentAccount(true) or E.Secret(name) or type(name) ~= "string" or name == "" then return false end
@@ -3396,7 +3409,9 @@ function E:RenameProfile(old, new)
 	if not name then return false, err end
 	if not EldoUIDB.profiles[old] then return false, self.L["There is no profile with that name."] end
 	if name == old then return true end
-	if EldoUIDB.profiles[name] then return false, self.L["A profile with that name already exists."] end
+	if EldoUIDB.profiles[name] or self:FindProfileName(name, old) then
+		return false, self.L["A profile with that name already exists."]
+	end
 	EldoUIDB.profiles[name] = EldoUIDB.profiles[old]
 	EldoUIDB.profiles[old] = nil
 	for char, profile in pairs(EldoUIDB.profileKeys) do
@@ -3558,6 +3573,16 @@ function E:GetProfileList()
 	for name, profile in pairs(EldoUIDB.profiles) do if CurrentProfile(profile, name) then table.insert(list, name) end end
 	table.sort(list)
 	return list
+end
+
+-- Prefer an exact saved name when older profiles differ only by case.
+function E:FindProfileName(name, except)
+	if not CurrentAccount() or E.Secret(name) or type(name) ~= "string" then return nil end
+	if name ~= except and rawget(EldoUIDB.profiles, name) ~= nil then return name end
+	local lower = name:lower()
+	for _, profile in ipairs(self:GetProfileList()) do
+		if profile ~= except and profile:lower() == lower then return profile end
+	end
 end
 
 -- A saved profile's own table, to read from (nil when there is none). A

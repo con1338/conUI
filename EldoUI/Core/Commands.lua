@@ -582,16 +582,6 @@ end, "Layout & frames")
 ---------------------------------------------------------------------------
 -- Profiles & sharing
 ---------------------------------------------------------------------------
--- A profile name as typed, matched to an existing profile (exact first,
--- then ignoring case), or nil.
-local function FindProfile(name)
-	if EldoUIDB.profiles[name] then return name end
-	local lower = name:lower()
-	for _, profile in ipairs(E:GetProfileList()) do
-		if profile:lower() == lower then return profile end
-	end
-end
-
 -- The same Accept / Cancel question the Profiles page asks, on the shared
 -- dialog shell (E:ShowConfirm).
 local function ConfirmSlash(text, func)
@@ -618,7 +608,7 @@ Add("profile", Key("list | use <name> | new <name> | copy <from> | reset | delet
 		end
 	elseif action == "use" and name ~= "" then
 		-- Only existing profiles: a typo must not switch to a new, empty one.
-		local profile = FindProfile(name)
+		local profile = E:FindProfileName(name)
 		if not profile then
 			E:Print(L["No profile named %q. %s shows them; %s makes a new one."]:format(name, E:Highlight("/eui profile list"), E:Highlight(("/eui profile new %s"):format(name))))
 		elseif profile == E.profileName then
@@ -630,13 +620,13 @@ Add("profile", Key("list | use <name> | new <name> | copy <from> | reset | delet
 		local checked, reason = E:CheckProfileName(name)
 		if not checked then
 			E:Print(reason)
-		elseif FindProfile(checked) then
-			E:Print(L["A profile named %s already exists. Use %s."]:format(FindProfile(checked), E:Highlight(("/eui profile use %s"):format(FindProfile(checked)))))
 		else
-			E:SetProfile(checked)
+			E:CreateProfile(checked, function(existing)
+				E:Print(L["A profile named %s already exists. Use %s."]:format(existing, E:Highlight(("/eui profile use %s"):format(existing))))
+			end)
 		end
 	elseif action == "copy" and name ~= "" then
-		local profile = FindProfile(name)
+		local profile = E:FindProfileName(name)
 		if not profile then
 			E:Print(L["No profile named %q."]:format(name))
 		elseif profile == E.profileName then
@@ -668,7 +658,7 @@ Add("profile", Key("list | use <name> | new <name> | copy <from> | reset | delet
 			end)
 		end)
 	elseif action == "delete" and name ~= "" then
-		local profile = FindProfile(name)
+		local profile = E:FindProfileName(name)
 		if not profile or profile == E.profileName then
 			E:Print(L["Can't delete that profile (it doesn't exist, or it's the one you're using)."])
 		else

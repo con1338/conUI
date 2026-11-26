@@ -18,6 +18,15 @@ local Key = E.Key
 
 E.whatsNew = {
 	{
+		version = "0.7.4001",
+		date = Key("November 2026"),
+		summary = Key("2 fixes."),
+		items = {
+			Key("Setup and profiles: Creating or renaming a profile rejects a name that differs from another profile only by capitalization."),
+			Key("Journal: Item tooltips name the WoW: Forever dungeon bosses you saw drop the item and show how often it dropped."),
+		},
+	},
+	{
 		version = "0.7.4000",
 		date = Key("November 2026"),
 		summary = Key("1 improvement and 18 fixes."),

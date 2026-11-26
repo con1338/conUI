@@ -105,6 +105,7 @@ end
 -- Drop chance text by the Drop chances option
 ---------------------------------------------------------------------------
 local function ChanceRight(entry, itemID)
+	if entry.kind == "observed" then return (L["%d seen by you"]):format(entry.count) end
 	local mode = LG.db.dropRates
 	if mode == "off" then return end
 	local Kit = LG.Kit
@@ -133,7 +134,9 @@ local function SourceLeft(entry)
 	end
 	local name = entry.name or (entry.kind == "npc" and L["NPC #%s"]:format(tostring(entry.id))) or L["Container"]
 	local where
-	if entry.instance then
+	if entry.kind == "observed" then
+		where = LG:DataName("instance", entry.dungeon.map, entry.dungeon.name)
+	elseif entry.instance then
 		where = LG:InstanceName(entry.instance)
 	elseif entry.kind == "npc" then
 		local bits = {}
@@ -151,12 +154,21 @@ local function SourceLeft(entry)
 	return name
 end
 
+local function ObservedDropsOn()
+	local mode = LG.db.dropRates
+	return mode == "seen" or mode == "both"
+end
+
+function LG:ShowsForeverItemSource(itemID)
+	return SourceOn("drops") and ObservedDropsOn() and self:HasForeverItemSource(itemID)
+end
+
 -- The drop sources (not quest rewards) of an item, best first.
 local function Drops(itemID)
-	local list, more = LG:ItemSources(itemID)
-	if not list then return end
-	local drops = {}
-	for _, entry in ipairs(list) do
+	local drops = ObservedDropsOn() and LG:ForeverItemSources(itemID) or {}
+	local list, more
+	if LG:HasData() then list, more = LG:ItemSources(itemID) end
+	for _, entry in ipairs(list or {}) do
 		if entry.kind == "npc" or entry.kind == "object" or entry.kind == "world" then drops[#drops + 1] = entry end
 	end
 	return drops, more or 0
@@ -217,7 +229,7 @@ end
 -- Sections
 ---------------------------------------------------------------------------
 local function SourceSection(tooltip, link, itemID, add, info)
-	if not LG.active or IsCompare(tooltip) or not LG:HasData() then return end
+	if not LG.active or IsCompare(tooltip) then return end
 	itemID = ItemID(link, itemID)
 	if not itemID then return end
 	local shift = info and info.shift or IsShiftKeyDown()
@@ -238,7 +250,7 @@ local function SourceSection(tooltip, link, itemID, add, info)
 				last[1] = last[1] .. Hex(GREY) .. " " .. (L["(+%d more)"]):format(hidden) .. "|r"
 			end
 		end
-		if SourceOn("vendors") then
+		if LG:HasData() and SourceOn("vendors") then
 			local vendors, hidden = VendorRows(itemID, limit)
 			for _, row in ipairs(vendors or {}) do rows[#rows + 1] = row end
 			if vendors and hidden > 0 then
