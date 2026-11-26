@@ -36,6 +36,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F26 | In einer Gruppe keine Schadenszahlen über Gegnern: Plakettenzahlen aus, Blizzards trotzdem auf 0 (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `1c693b8` |
 | F27 | Post: Ein Twink aus dem Adressbuch kommt nur mit Vornamen ins Feld „An“, der Brief scheitert (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `3058828`, `0e18af3` |
 | F28 | Gildenhandwerker: Listen und „Flüstern“ nur mit Vornamen, Handwerker erscheinen offline (bei F27 gefunden) | mittel | behoben (im Spiel offen) | `493c8cf` |
+| F29 | Weltkarte und Questlog: L, M und Escape melden immer wieder „Blocked: EldoUI tried to call the protected function SetPassThroughButtons()“ (EldoUI-Issue #5) | mittel | behoben (plausibel, im Spiel offen) | |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -826,6 +827,73 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
   Namen schreiben (mit oder ohne Nachnamen). Der Code nimmt beides.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
+### F29 – Weltkarte und Questlog: Kartenpins blockiert (mittel, EldoUI-Issue #5)
+- **Gefunden:** 26.11.2026 im Upstream-Issue [Eldodeldo/EldoUI#5](https://github.com/Eldodeldo/EldoUI/issues/5) (EldoUI
+  0.7.4000, Fehlerbericht über EldoUIs Discord). Der Fork steht auf 0.7.4001; die Stellen unten sind dort unverändert,
+  und upstream gibt es nach 0.7.4001 nichts Neues. Der Fehler steckt also auch in conUI. Vier Einträge im Bericht:
+  - „Blocked: EldoUI tried to call the protected function Button:SetPassThroughButtons()“, 46-mal. Stapel:
+    `TOGGLEGAMEMENU` → `ToggleGameMenu` → `CloseAllWindows` → `CloseWindows` → `HideUIPanel` → (Rückruf
+    `ClearFocusedQuestID` der Karte) → `QuestDataProvider:RefreshAllData` → `AddQuest` → `AcquirePin` →
+    `CheckMouseButtonPassthrough` → `SetPassThroughButtons`.
+  - Dasselbe als „Frame:SetPassThroughButtons()“, 2-mal: `TOGGLEQUESTLOG` → `ToggleQuestLog` → `SetDisplayState` →
+    `ShowUIPanel` → `RefreshAllDataProviders` → `WaypointLocationDataProvider:RefreshAllData` → `AcquirePin`.
+  - „Core/Errors.lua:-1: insecure scripts exceeded execution limit for addon EldoUI“, 50-mal (siehe unten).
+  - „Core/Skin.lua:318: script ran too long“ aus `Modules/Skins.lua:2131`, einmal am 18.11. (siehe unten).
+  - Als Auslöser nennt der Bericht nur „pressing Minimap botton“, unter „Other addons“ steht „MinimapBottom“.
+- **Vorgehen:** Blizzards Code aus Gethe/wow-ui-source, Zweig `forever` (1.60.1, Build 71139), wie bei F24. Kein Spiel.
+- **Ursache:** `SetPassThroughButtons` ist geschützt (`IsProtectedFunction = true` in der API-Doku), und jeder Kartenpin
+  ruft es in `AcquirePin` auf. Jeder Pin, den die Karte in einem verunreinigten Lauf holt, wird also blockiert, auch
+  außerhalb des Kampfes. Beide Stapel beginnen bei Tasten des Spiels: Der Zustand der Karte war schon verunreinigt.
+  EldoUI kennt den Weg selbst (Kommentare in `Core/UIKit.lua` bei `Kit.GameButton` und in `Modules/InfoBar.lua` bei
+  den sicheren Blöcken): Eine aus Addon-Code geöffnete Karte bleibt verunreinigt, und die späteren Öffnungen des Spiels
+  bekommen ihre geschützten Aufrufe blockiert. Deshalb öffnet EldoUI die Karte sonst über die Anfrage des Spiels
+  (`E:OpenWorldMapAt`, `C_Map.OpenWorldMap`: das Spiel beantwortet sie über das Ereignis `WORLD_MAP_OPEN` selbst) oder
+  per sicherem Klick auf den Knopf des Spiels. Drei Wege liefen trotzdem durch den Kartencode des Spiels:
+  - Der Finder (`/eui find`, Eintrag „Questlog“) rief `ToggleQuestLog` auf (`PANELS`, `fn = "ToggleQuestLog"`). Das
+    Questlog sitzt auf der Weltkarte (`QuestLogOwnerMixin`); `SetDisplayState`, `ShowUIPanel`, `SetUIPanelAttribute`
+    und der erste Aufbau der Pins liefen so als EldoUI-Code. Der Eintrag „Weltkarte“ daneben nutzte schon die Anfrage.
+  - Der Block „Menü“ der Infoleiste klickte die Mikroknöpfe aus EldoUIs Code (`button:Click()`), auch
+    `QuestLogMicroButton`.
+  - EldoUIs eigene Nachrichtenfenster (Flüsterfenster `Modules/Messages.lua`, Nachrichtenbereich
+    `Modules/Chat/Messages.lua`, „Bisher“ im Journal) gaben jeden Link an `SetItemRef` weiter. Für Kartenpin-Links
+    (`worldmap:`), Weltquest- und Ereignis-Links ruft das Spiel dort `OpenMapToUserWaypoint`, `OpenWorldMap` bzw.
+    `OpenMapToEventPoi` auf, alles Lua-Code der Karte.
+  Welchen Weg der Spieler im Bericht genommen hat, lässt sich nicht sagen: „Minimap button“ passt zu einem
+  Infoleisten-Panel an der Unterkante der Minimap (Block „Menü“). Plausibel, nicht bewiesen; andere Wege (etwa die
+  Uhr der Minimap, die `ToggleCalendar` aufruft) verunreinigen andere Fenster, nicht die Karte.
+- **Umsetzung:**
+  - Finder: „Questlog“ trägt `map = true` und öffnet wie „Weltkarte“ über `E:OpenWorldMapAt`, nicht im Kampf
+    (`combat = false`; `ToggleQuestLog` aus Addon-Code ist im Kampf ohnehin gesperrt).
+  - Infoleiste, Block „Menü“ (`Modules/MicroMenu.lua`): Die Einträge laufen über `M.OpenFromMenu`. Für
+    `QuestLogMicroButton` steht in `GAME_REQUESTS` die Anfrage des Spiels; die anderen Einträge klicken wie bisher.
+  - Neu ist `E:FollowLink(link, text, button, frame)` in `Core/ChatLinks.lua`. Es gibt jeden Link an `SetItemRef`
+    weiter, außer `worldmap:`, `worldquest:` und `eventpoi:`. Ein Kartenpin-Link setzt den Wegpunkt wie das Spiel
+    (`C_Map.GetUserWaypointFromHyperlink`, `C_Map.SetUserWaypoint`) und öffnet die Karte auf seiner Karte; ein
+    Ereignis-Link auf der Karte des Ereignisses (`C_EventScheduler.GetEventUiMapID`); ein Weltquest-Link öffnet die
+    Karte. Das Anpingen des Pins entfällt (es liefe über die Rückrufe der Karte, wieder als EldoUI-Code). Die drei
+    Nachrichtenfenster rufen `E:FollowLink` statt `SetItemRef`.
+- **Übergang:** Ein schon verunreinigter Zustand bleibt bis zum nächsten `/reload`.
+- **Test:** `tools/maps/test_map_open_code.lua` (38 Prüfungen): die echten Finder-Einträge „Questlog“ und „Weltkarte“
+  (`PANELS`, `PanelCall`), `OpenFromMenu` aus `MicroMenu.lua` (Questlog über die Anfrage, andere Knöpfe per Klick,
+  nichts im Kampf) und `E:FollowLink` (Kartenpin, Weltquest, Ereignis über die Anfrage, alles andere unverändert an
+  `SetItemRef`) gegen Stubs. Eine Textprüfung über alle Lua-Dateien der TOCs: kein direkter Aufruf und kein Name in
+  Anführungszeichen von `ToggleQuestLog`, `ToggleWorldMap`, `OpenWorldMap`, `OpenQuestLog`, `OpenMapToUserWaypoint`,
+  `OpenMapToEventPoi`, `QuestMapFrame_OpenToQuestDetails`, kein Klick auf `QuestLogMicroButton` oder den
+  Zonen-Knopf der Minimap, und `SetItemRef` nur in `Core/ChatLinks.lua` (Nachhaken zählen nicht). Mit dem alten Code
+  schlagen die Finder-Prüfungen und die `SetItemRef`-Prüfung fehl, die Menü-Prüfung findet `OpenFromMenu` nicht.
+- **Nicht geändert:**
+  - Fehler 3 („insecure scripts exceeded execution limit“ in `Core/Errors.lua`) ist eine Folge: Das Spiel meldet jeden
+    blockierten Aufruf sofort (`ADDON_ACTION_BLOCKED`, noch im blockierten Lauf), und EldoUIs Fehlerfänger zählt jeden
+    der 46 Pins mit. Wiederholungen kosten dort wenig (kein Stapel, Benachrichtigung erst im nächsten Frame); ohne die
+    Blockaden fällt der Eintrag weg. Ohne Spiel nicht weiter eingrenzbar.
+  - Fehler 4 („script ran too long“ in `Core/Skin.lua`) stammt vom 18.11., also aus 0.7.3004/0.7.3005: Beim Laden
+    eines Blizzard-Addons skinnt EldoUI dessen Fenster in einem Durchgang (`M:Watch` → `M:SetupWindow`), und der
+    Abgleich in `ClosePass` brauchte einmal zu lange. Einmalig, ohne Messung im Spiel keine sichere Änderung.
+  - Andere Fenster öffnet EldoUI weiter aus eigenem Code (Uhr der Minimap: `ToggleCalendar`/`ToggleTimeManager`,
+    Infoleiste und Finder: `ToggleCharacter`, `ToggleFriendsFrame` usw., Block „Menü“: die übrigen Mikroknöpfe).
+    Nach EldoUIs eigener Regel bleiben auch diese Fenster danach verunreinigt; Meldungen dazu gibt es bisher keine.
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -866,6 +934,10 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F27 | am Briefkasten „Post verschicken“, Pfeil im Feld „An“ → „Twinks“ → einen eigenen Charakter wählen, etwas schicken | im Menü und im Feld steht „Vorname Nachname“, der Brief geht ab | offen |
 | F27 | den Briefkasten schließen und wieder öffnen, „Post verschicken“ | das Feld „An“ füllt sich mit „Vorname Nachname“, auch wenn vorher ein Brief an den Vornamen allein gescheitert war; beim Twink liegt der Brief im Briefkasten-Block der Infoleiste | offen |
 | F28 | in einer Gilde mit einem zweiten EldoUI- oder conUI-Spieler: beide „Eure Rezepte mit der Gilde teilen“ an, beide „Meine Rezepte senden“; auf dem Reiter Handwerker ein Rezept suchen, „Flüstern“ | die Handwerker stehen mit Vor- und Nachnamen da, online richtig markiert; das Flüstern geht an „Vorname Nachname“ und kommt an | offen (Gilde) |
+| F29 | `/reload`; im Finder (`/eui find`) „Questlog“ wählen, schließen; danach mit L und M öffnen und mit Escape schließen | die Karte öffnet sich; kein neuer Eintrag „SetPassThroughButtons()“ in `/eui errors` | offen |
+| F29 | `/reload`; im Block „Menü“ der Infoleiste „Questlog“ wählen; danach L, M und Escape | wie oben | offen |
+| F29 | in EldoUIs Flüsterfenster einen Kartenpin-Link (`[Map Pin Location]`, etwa von einem Mitspieler geflüstert) anklicken; danach L, M und Escape | die Karte öffnet auf dem Pin, der Wegpunkt steht; kein neuer Eintrag „SetPassThroughButtons()“ | offen |
+| F29 | nach den Schritten oben `/run local p=WorldMapFrame.pinPools print((issecurevariable(p,"QuestPinTemplate")),(issecurevariable(p,"WaypointLocationPinTemplate")),(issecurevariable(WorldMapFrame,"isMaximized")))` | dreimal `true` (auch für einen Pool, den es noch nicht gibt) | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |
