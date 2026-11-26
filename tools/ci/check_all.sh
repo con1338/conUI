@@ -123,6 +123,8 @@ check_tests() {
 	lua5.1 tools/auction/test_native_screens.lua || bad+=("$name")
 	name="Bags: EldoUI's bag window never runs the game's bag code (F24)"; step "$name"
 	lua5.1 tools/bags/test_game_bag_code.lua || bad+=("$name")
+	name="Maps: EldoUI never opens the map or the quest log with the game's map code (F29)"; step "$name"
+	lua5.1 tools/maps/test_map_open_code.lua || bad+=("$name")
 	name="Tooltip: the mover in Combat mode, the tooltip grows away from the edge"; step "$name"
 	lua5.1 tools/tooltip/test_tooltip_mover.lua || bad+=("$name")
 	name="Mail: the address book's alts with their surname (F27)"; step "$name"

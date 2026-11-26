@@ -746,6 +746,29 @@ function E:MenuEntries()
 	return list
 end
 
+-- The Menu block's entries click the game's own micro buttons. The quest
+-- log sits on the world map: a click on its button from EldoUI's code runs
+-- the map's code as EldoUI's, the map's state stays tainted, and the game's
+-- later opens of it (L, M, Escape) get their map pins blocked
+-- ("SetPassThroughButtons()"; review/fehler.md F29). That entry asks the
+-- game to open the map instead (E:OpenWorldMapAt), like the Info Bar's
+-- Quests block without its secure overlay.
+local GAME_REQUESTS = {
+	QuestLogMicroButton = function() return E:OpenWorldMapAt() end,
+}
+M.GAME_REQUESTS = GAME_REQUESTS -- exposed for inspection
+
+local function OpenFromMenu(name, button)
+	if InCombatLockdown() then return end
+	local request = GAME_REQUESTS[name]
+	if request then
+		request()
+	else
+		button:Click()
+	end
+end
+M.OpenFromMenu = OpenFromMenu
+
 E:RegisterDataText("Menu", {
 	text = function()
 		local r, g, b = unpack(E.media.accentColor)
@@ -763,7 +786,7 @@ E:RegisterDataText("Menu", {
 				local inMenu = Usable(button) and (button:GetParent() == MicroMenu or (saved[button] and saved[button].parent == MicroMenu))
 				if inMenu then
 					local entry = root:CreateButton(MicroLabel(button, info[2]), function()
-						if not InCombatLockdown() then button:Click() end
+						OpenFromMenu(info[1], button)
 					end)
 					if entry and entry.SetEnabled then entry:SetEnabled(button:IsEnabled()) end
 				end

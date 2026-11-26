@@ -382,7 +382,9 @@ local PANELS = {
 	{ text = "Spellbook", util = "ToggleSpellBookFrame", icon = "Interface\\Icons\\INV_Misc_Book_09", combat = false }, -- no-L (translated where shown)
 	{ text = "Talents", util = "ToggleClassTalentOrSpecFrame", icon = "Interface\\Icons\\INV_Misc_Book_11", combat = false }, -- no-L (translated where shown)
 	{ text = "Professions", fn = "ToggleProfessionsBook", icon = "Interface\\Icons\\Trade_BlackSmithing" }, -- no-L (translated where shown)
-	{ text = "Quest log", fn = "ToggleQuestLog", icon = "Interface\\Icons\\INV_Misc_Note_01" }, -- no-L (translated where shown)
+	-- The quest log sits on the world map: like the map it opens through the
+	-- game's own request (`map`), never the game's ToggleQuestLog from here.
+	{ text = "Quest log", map = true, icon = "Interface\\Icons\\INV_Misc_Note_01", combat = false }, -- no-L (translated where shown)
 	{ text = "World map", map = true, icon = "Interface\\Icons\\INV_Misc_Map_01", combat = false }, -- no-L (translated where shown)
 	{ text = "Bags", bags = true, icon = "Interface\\Icons\\INV_Box_02" }, -- no-L (translated where shown)
 	{ text = "Friends", fn = "ToggleFriendsFrame", icon = "Interface\\Icons\\INV_Letter_15" }, -- no-L (translated where shown)
@@ -404,7 +406,11 @@ local PANELS = {
 M.PANELS = PANELS
 
 local function PanelCall(panel)
-	-- The world map opens through the game's own request (E:OpenWorldMapAt).
+	-- The world map and the quest log on it open through the game's own
+	-- request (E:OpenWorldMapAt). The game's toggles called from EldoUI's code
+	-- run the map's code as EldoUI's: the map's state is then tainted, and
+	-- the game's later opens of it (L, M, Escape) get their map pins blocked
+	-- ("SetPassThroughButtons()"; review/fehler.md F29).
 	if panel.map then
 		return C_Map and type(C_Map.OpenWorldMap) == "function" and function() E:OpenWorldMapAt() end or nil
 	end

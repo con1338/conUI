@@ -64,6 +64,69 @@ end
 if type(SetItemRef) == "function" then hooksecurefunc("SetItemRef", OnItemRef) end
 
 ---------------------------------------------------------------------------
+-- A link clicked in one of EldoUI's own message windows
+---------------------------------------------------------------------------
+-- E:FollowLink(link, text, button, frame) hands the click to the game's
+-- SetItemRef, as a chat window does. Except the links that open the world
+-- map (a map pin, a world quest, an event spot): the game's handlers for
+-- them run the map's own code (OpenWorldMap), and called from an EldoUI
+-- window that code runs as EldoUI's. The map's state then stays tainted,
+-- and the game's later opens of it (L, M, Escape) get their map pins
+-- blocked: "Blocked: EldoUI tried to call the protected function
+-- SetPassThroughButtons()" (review/fehler.md F29). Those links set the
+-- waypoint as the game does and open the map through the game's own
+-- request (E:OpenWorldMapAt), without the game's ping on the pin; an event
+-- link keeps its tooltip and Shift-click, as with SetItemRef.
+local function PlainMapID(value)
+	if E:IsSecret(value) or type(value) ~= "number" then return nil end
+	return value
+end
+
+local MAP_LINKS = {
+	worldmap = function(link)
+		local map = C_Map
+		if not (map and type(map.GetUserWaypointFromHyperlink) == "function" and type(map.SetUserWaypoint) == "function") then return end
+		local ok, waypoint = pcall(map.GetUserWaypointFromHyperlink, link)
+		if not ok or E:IsSecret(waypoint) or type(waypoint) ~= "table" then return end
+		local done, set = pcall(map.SetUserWaypoint, waypoint)
+		if done and set and not E:IsSecret(set) then E:OpenWorldMapAt(PlainMapID(waypoint.uiMapID)) end
+	end,
+	eventpoi = function(link, text)
+		local scheduler = rawget(_G, "C_EventScheduler")
+		local areaPoiID = tonumber((link:match("^eventpoi:(%d+)")))
+		local mapID
+		if areaPoiID and scheduler and type(scheduler.GetEventUiMapID) == "function" then
+			local ok, id = pcall(scheduler.GetEventUiMapID, areaPoiID)
+			mapID = ok and PlainMapID(id) or nil
+		end
+		if mapID then E:OpenWorldMapAt(mapID) end
+		-- The game's handler leaves the rest to SetItemRef ("Unhandled"): a
+		-- modified click puts the link in chat, a click shows its tooltip.
+		-- The same steps here, without the handler's map code.
+		if IsModifiedClick() then
+			local fix = rawget(_G, "GetFixedLink")
+			local fixed = type(fix) == "function" and type(text) == "string" and fix(text) or text
+			if type(HandleModifiedItemClick) == "function" then HandleModifiedItemClick(fixed) end
+		else
+			local tip = rawget(_G, "ItemRefTooltip")
+			if not (tip and type(tip.ItemRefSetHyperlink) == "function") then return end
+			ShowUIPanel(tip)
+			if not tip:IsShown() then tip:SetOwner(UIParent, "ANCHOR_PRESERVE") end
+			tip:ItemRefSetHyperlink(link)
+		end
+	end,
+	worldquest = function() E:OpenWorldMapAt() end,
+}
+E.MAP_LINKS = MAP_LINKS -- exposed for inspection
+
+function E:FollowLink(link, text, button, frame)
+	local kind = type(link) == "string" and not E:IsSecret(link) and link:match("^([%w_]+):")
+	local open = kind and MAP_LINKS[kind]
+	if open then return open(link, text) end
+	return SetItemRef(link, text, button, frame)
+end
+
+---------------------------------------------------------------------------
 -- Item, spell and quest links into the chat box (or a focused EldoUI box)
 ---------------------------------------------------------------------------
 -- Blizzard's own code puts a shift-clicked link in with
