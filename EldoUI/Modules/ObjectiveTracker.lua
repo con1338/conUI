@@ -114,6 +114,21 @@ local BOX = "EldoUI_Quests"
 -- Only while the box exists (Move and scale on), so Show can bring it back.
 local function BoxHidden() return Can("move") and E:IsHidden(BOX) end
 
+local function QuestieFrame()
+	local frame = _G.Questie_BaseFrame
+	return E:SkinUsable(frame) and frame or nil
+end
+
+local function QuestieOwnsTracker()
+	if not Can() or not M:QuestieLoaded() then return false end
+	local frame = QuestieFrame()
+	return frame and E.PlainCall(frame.IsShown, frame) == true
+end
+
+local function TrackerHidden()
+	return M.active and (E:BlizzardHidden(ELEMENT) or BoxHidden() or M.userCollapsed or QuestieOwnsTracker())
+end
+
 ---------------------------------------------------------------------------
 -- Pins: keep a frame on EldoUI's anchor. Blizzard (Edit Mode's layout
 -- passes, the right managed frame container) or another addon re-anchors
@@ -467,8 +482,17 @@ local function SkinHeader(header, atlas)
 	SkinMinimize(header)
 end
 
--- Another module's control on the top row (nil: none): the header lines
--- make room for it.
+-- Read the corner only after the game has laid the frame out.
+local function TrackerCorner(tracker)
+	if not (tracker and E.RectReady(tracker)) then return end
+	local right, top = E.PlainCall(tracker.GetRight, tracker), E.PlainCall(tracker.GetTop, tracker)
+	local scale = E.PlainCall(tracker.GetEffectiveScale, tracker)
+	local parent = UIParent:GetEffectiveScale()
+	if type(right) == "number" and type(top) == "number" and type(scale) == "number" and parent > 0 then
+		return { right * scale / parent, top * scale / parent }
+	end
+end
+
 -- The per-character fold (Quality of Life's button and /eui tracker). Like
 -- Hide, the tracker is parked off screen and invisible; Blizzard's own
 -- SetCollapsed is never called from EldoUI (see the taint notes above). The
@@ -477,22 +501,17 @@ function M:SetUserCollapsed(collapsed)
 	collapsed = collapsed and true or false
 	if (self.userCollapsed or false) == collapsed then return end
 	local tracker = Tracker()
-	-- Its corner is read only once the game has laid the tracker out (see
-	-- the taint notes); otherwise the button keeps its own spot.
-	if collapsed and tracker and not self.userCollapsed and E.RectReady(tracker) then
-		local right, top = E.PlainCall(tracker.GetRight, tracker), E.PlainCall(tracker.GetTop, tracker)
-		local scale = E.PlainCall(tracker.GetEffectiveScale, tracker)
-		local parent = UIParent:GetEffectiveScale()
-		if type(right) == "number" and type(top) == "number" and type(scale) == "number" and parent > 0 then
-			self.foldSpot = { right * scale / parent, top * scale / parent }
+	if collapsed and tracker then
+		if pinned[tracker] == AnchorOffscreen then
+			self.foldSpot = self.parkedCorner
 		else
-			self.foldSpot = nil
+			self.foldSpot = TrackerCorner(tracker)
 		end
 	end
 	self.userCollapsed = collapsed or nil
 	if not collapsed then self.foldSpot = nil end
 	if tracker then
-		if not collapsed and not Can("move") and not Can("hide") and not Can("replace") and not BoxHidden() then
+		if not collapsed and not Can("move") and not TrackerHidden() then
 			Unpin(tracker, true)
 		end
 		self:ApplyPosition()
@@ -502,9 +521,10 @@ end
 
 -- Where the folded tracker's top right corner was (UIParent units), or nil.
 function M:FoldSpot()
-	return self.active and self.userCollapsed and self.foldSpot or nil
+	return self.active and self.userCollapsed and not QuestieOwnsTracker() and self.foldSpot or nil
 end
 
+-- Leave room for another module's control on the top row.
 function M:SetHeaderControl(control)
 	if headerControl == control then return end
 	headerControl = control
@@ -766,8 +786,8 @@ end
 -- too; after the fight the rule decides again.
 local function BossModHides()
 	if not (E.BossModHidesTracker and E:BossModHidesTracker()) then return false end
-	local fighting = IsEncounterInProgress and IsEncounterInProgress()
-	return E.Plain(fighting) == true
+	local encounter = C_InstanceEncounter
+	return E.PlainCall(encounter and encounter.IsEncounterInProgress) == true
 end
 M.BossModHides = BossModHides
 
@@ -818,15 +838,15 @@ end
 
 -- Visibility: the shared rules drive the tracker's alpha while the
 -- Improve switch is on. Alpha only: the tracker is never folded or hidden,
--- so its quest item buttons keep working in combat. With the Hide switch
--- or a hidden box the tracker is parked off screen and invisible
+-- so its quest item buttons keep working in combat. While hidden or while
+-- Questie's tracker is shown, Blizzard's list is parked off screen
 -- (ApplyPosition); the alpha follows at once, also in combat.
 function M:UpdateAlpha()
 	self:UpdateQuestieAlpha()
 	local tracker = Tracker()
 	if not tracker then return end
 	self:MigrateVisibility()
-	local hidden = self.active and (E:BlizzardHidden(ELEMENT) or BoxHidden() or self.userCollapsed)
+	local hidden = TrackerHidden()
 	if self.active and not hidden and Allowed("improve") then
 		if type(self.db.visibility) ~= "table" then self.db.visibility = E:VisibilityDefaults() end
 		E:AttachVisibility(tracker, self.db.visibility, { inInstance = InTrackedInstance, forceHide = BossModHides })
@@ -849,8 +869,13 @@ end
 function M:ApplyPosition()
 	local tracker = Tracker()
 	local boxHidden = BoxHidden()
-	local hidden = Can("hide") or Can("replace") or boxHidden or (self.active and self.userCollapsed)
+	local hidden = TrackerHidden()
 	local move = Can("move")
+	if not hidden then
+		self.parkedCorner = nil
+	elseif tracker and pinned[tracker] ~= AnchorOffscreen then
+		self.parkedCorner = TrackerCorner(tracker)
+	end
 	if move then
 		self:CreateHolder()
 		self:SizeHolder()
@@ -874,7 +899,7 @@ function M:ApplyPosition()
 	elseif move then
 		Pin(tracker, AnchorToHolder, { holder = self.holder, scale = function() return M.db.scale or 1 end })
 	else
-		Unpin(tracker)
+		Unpin(tracker, pinned[tracker] == AnchorOffscreen)
 	end
 end
 
@@ -888,13 +913,22 @@ local questieBusy = false
 
 local function QuestieAnchor() return "TOPRIGHT", M.holder, "TOPRIGHT", 0, 0 end
 
-local function QuestieFrame()
-	local frame = _G.Questie_BaseFrame
-	return E:SkinUsable(frame) and frame or nil
-end
-
 function M:QuestieLoaded()
 	return C_AddOns.IsAddOnLoaded("Questie")
+end
+
+local questieVisibilityHooks = setmetatable({}, { __mode = "k" })
+local QUESTIE_VISIBILITY = "objectiveTracker:questieVisibility"
+local function QuestieVisibilityChanged(frame)
+	if not Can() or not M:QuestieLoaded() or frame ~= QuestieFrame() then return end
+	if QuestieOwnsTracker() then M:UpdateAlpha() end
+	-- The journal dock follows Refresh. Wait for Questie's visibility
+	-- callback to finish before moving the column or restoring its alpha.
+	E:Debounce(QUESTIE_VISIBILITY, 0, function()
+		E:RunOutOfCombat(function()
+			if Can() then M:Refresh() end
+		end, QUESTIE_VISIBILITY)
+	end)
 end
 
 -- The Questie rows show only while Questie is loaded.
@@ -911,6 +945,12 @@ end
 function M:ApplyQuestie()
 	local base = QuestieFrame()
 	if not base then return end
+	if self.active and self:QuestieLoaded() and not questieVisibilityHooks[base] then
+		questieVisibilityHooks[base] = true
+		base:HookScript("OnShow", QuestieVisibilityChanged)
+		base:HookScript("OnHide", QuestieVisibilityChanged)
+		QuestieVisibilityChanged(base)
+	end
 	-- The quest addon can build its tracker in combat (the wait below finds
 	-- it then); sizing the holder and pinning the tracker wait for the end
 	-- of combat.
@@ -1448,7 +1488,7 @@ end
 -- While the tracker is hidden (its Hide switch, or its box hidden in move
 -- mode) the rules have nothing to fade: the rows stay in view, grayed, and
 -- say why.
-local function TrackerHidden()
+local function TrackerHiddenHint()
 	if M.active and (E:BlizzardHidden(ELEMENT) or BoxHidden()) then
 		return L["The tracker is hidden (Hide switch or its box in move mode), so these rules apply once it shows again."]
 	end
@@ -1493,7 +1533,7 @@ M.options = {
 	{ type = "description", label = "Turn on Improve on the Blizzard UI page to use these.", hidden = function() return Allowed("improve") end },
 	{ type = "description", label = "The tracker turns see-through or invisible but is never hidden, so quest item buttons keep working in combat. Hover it to see it fully.", hidden = Off("improve") },
 }
-for _, row in ipairs(E:VisibilityOptions("visibility", { label = "Visibility", hidden = Off("improve"), disabled = TrackerHidden,
+for _, row in ipairs(E:VisibilityOptions("visibility", { label = "Visibility", hidden = Off("improve"), disabled = TrackerHiddenHint,
 	instanceText = Key("the instance types checked under Instances"), db = function() return M.db end })) do
 	table.insert(M.options, row)
 end
@@ -1509,7 +1549,7 @@ for _, kind in ipairs({
 	{ "scenario", E.Key("Scenarios"), E.Key("Scenarios and other instanced events that the game calls a scenario.") },
 }) do
 	table.insert(M.options, { type = "toggle", key = "instanceTypes." .. kind[1], label = kind[2], desc = kind[3], hidden = NoInstanceRule,
-		disabled = TrackerHidden })
+		disabled = TrackerHiddenHint })
 end
 for _, row in ipairs({
 	{ type = "tab", label = "Quest item" },
@@ -1530,9 +1570,9 @@ for _, row in ipairs({
 	} },
 
 	{ type = "tab", label = "Questie", empty = E.Key("These settings show when Questie is loaded.") },
-	{ type = "description", label = "Questie's tracker can share the EldoUI look and the Quest tracker mover.", hidden = NoQuestie },
+	{ type = "description", label = "While Questie's quest tracker is shown, the game's tracker is hidden. Questie can also share the EldoUI look and the Quest tracker mover.", hidden = NoQuestie },
 	{ type = "toggle", key = "questie.skin", hidden = NoQuestie, label = "EldoUI background on Questie's tracker", desc = "Questie's tracker gets the EldoUI panel instead of its own background. Needs the tracker's Skin switch." },
-	{ type = "toggle", key = "questie.move", hidden = NoQuestie, label = "Put Questie's tracker on the mover", desc = "Questie's tracker sits on the Quest tracker mover; drag that mover instead of Questie's frame. Needs the tracker's Move and scale switch. Turn on Hide for Blizzard's tracker if both show." },
+	{ type = "toggle", key = "questie.move", hidden = NoQuestie, label = "Put Questie's tracker on the mover", desc = "Questie's tracker sits on the Quest tracker mover; drag that mover instead of Questie's frame. Needs the tracker's Move and scale switch." },
 }) do
 	table.insert(M.options, row)
 end

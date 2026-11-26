@@ -2118,10 +2118,8 @@ local function ProfileRefresh()
 		p.new = nil
 		if not name then
 			E:Print(err)
-		elseif EldoUIDB.profiles[name] then
-			E:Print(L["A profile with that name already exists."])
 		else
-			E:RunOutOfCombat(function() E:SetProfile(name) end)
+			E:CreateProfile(name, function() E:Print(L["A profile with that name already exists."]) end)
 		end
 	elseif p.rename and p.rename ~= "" then
 		local new = p.rename
@@ -2160,8 +2158,7 @@ local function ProfileRefresh()
 			E:RefreshConfig()
 		end, true)
 	elseif p.current and p.current ~= E.profileName then
-		local name = p.current
-		E:RunOutOfCombat(function() E:SetProfile(name) end)
+		E:SetProfile(p.current)
 	elseif p.perCharacter ~= nil and p.perCharacter ~= E:ModuleStatesPerCharacter() then
 		local on = p.perCharacter
 		E:RunOutOfCombat(function() E:SetModuleStatesPerCharacter(on) end)

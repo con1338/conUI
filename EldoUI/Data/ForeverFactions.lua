@@ -6,11 +6,11 @@
 -- items: "name|quality|class|subclass|slot|itemLevel|reqLevel|classMask|side|set|faction:standing"
 -- (standing 0 Hated .. 7 Exalted). The battleground reputations' rewards are in
 -- Data/PvPRewards.lua. Names, standings and bars on screen come from the game.
--- Client tables of WoW: Forever 1.60.1.70862.
+-- Client tables of WoW: Forever 1.60.1.71037.
 local _, E = ...
 
 E.foreverFactions = {
-	build = "1.60.1.70862",
+	build = "1.60.1.71037",
 	factions = {
 		{ 2586, "A", nil, "Azeroth Commerce Authority" },
 		{ 2587, "H", nil, "Durotar Supply and Logistics" },

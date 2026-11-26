@@ -60,27 +60,87 @@ function M:Store()
 end
 
 local function MyRealm()
-	local realm = GetNormalizedRealmName and Clean(GetNormalizedRealmName())
-	return type(realm) == "string" and realm ~= "" and realm or "?"
+	local realm = Clean(Try(GetNormalizedRealmName))
+	return type(realm) == "string" and realm ~= "" and realm or nil
 end
 
--- "Name" or "Name-Realm" -> "Name-Realm" (first letter capitalized).
-function M.Key(name)
+local function RegionalKey(name)
+	if type(name) ~= "string" then return nil end
+	local consts = Constants and Constants.CharacterNameSeparatorConsts
+	local separator = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR or " "
+	local first, surname = name:match("^([^%s%-%c:|]+)" .. separator:gsub("%p", "%%%0") .. "([^%s%-%c:|]+)$")
+	if not first then return nil end
+	local region = Clean(Try(GetCurrentRegion))
+	if type(region) ~= "number" or region < 1 or region % 1 ~= 0 then return nil, true end
+	first = first:sub(1, 1):upper() .. first:sub(2)
+	surname = surname:sub(1, 1):upper() .. surname:sub(2)
+	return ("Forever:%d:%s%s%s"):format(region, first, separator, surname), true
+end
+
+local function NameKey(name, ownRealm)
+	name = Clean(name)
 	if type(name) ~= "string" then return nil end
 	name = name:match("^%s*(.-)%s*$")
 	if name == "" then return nil end
 	local short, realm = name:match("^([^%-]+)%-(.+)$")
+	local regional = Clean(Try(RegionalUniqueNamesEnabled)) == true
+	if regional then
+		local key, complete = RegionalKey(short or name)
+		if complete or not realm then return key end
+	end
 	short = short or name
-	realm = realm or MyRealm()
+	realm = realm or ownRealm
+	if not realm then return nil end
+	realm = realm:gsub("[%s%-]", "")
+	if realm == "" or realm == "?" then return nil end
 	short = short:sub(1, 1):upper() .. short:sub(2)
-	return short .. "-" .. realm:gsub("[%s%-]", "")
+	local key = short .. "-" .. realm
+	if not regional or M:Get(key) then return key end
+end
+
+function M.Key(name)
+	return NameKey(name, MyRealm())
+end
+
+-- A native character name may carry a separate realm suffix. A regional
+-- identity still requires the complete character name before that suffix.
+function M.CharacterKey(name)
+	if Clean(Try(RegionalUniqueNamesEnabled)) ~= true then return M.Key(name) end
+	name = Clean(name)
+	if type(name) ~= "string" then return nil end
+	return (RegionalKey(name:match("^([^%-]+)%-.+$") or name))
+end
+
+-- Saved keys carry the scope. A label or game action uses the actual name.
+local function NoteParts(key)
+	local region, full = key:match("^Forever:(%d+):(.+)$")
+	if region then return full, nil, tonumber(region) end
+	local name, realm = key:match("^([^%-]+)%-(.+)$")
+	return name or key, realm
+end
+
+local function NoteLabel(key)
+	local name, _, region = NoteParts(key)
+	return region and name or key
+end
+
+function M:JournalName(key)
+	if type(key) ~= "string" then return nil end
+	local name, realm, region = NoteParts(key)
+	if region then return Clean(Try(GetCurrentRegion)) == region and name or nil end
+	if realm ~= "?" and Clean(Try(RegionalUniqueNamesEnabled)) ~= true then return key end
 end
 
 function M:UnitKey(unit)
 	if not (unit and UnitIsPlayer and Clean(UnitIsPlayer(unit))) then return nil end
 	if UnitIsUnit and Clean(UnitIsUnit(unit, "player")) then return nil end
+	if Clean(Try(RegionalUniqueNamesEnabled)) == true then
+		return (RegionalKey(Clean(Try(E.UnitWhisperName, E, unit))))
+	end
+	local realm = MyRealm()
+	if not realm and E:IsForeverClient() then return nil end
 	-- "Name-Realm" the way chat senders are keyed, never with the surname.
-	local key = self.Key(E:UnitNameKey(unit, true))
+	local key = NameKey(E:UnitNameKey(unit, true), realm)
 	if not key then return nil end
 	-- A note kept under "Name-Surname" by an earlier version moves to the
 	-- right key the first time the player is seen again.
@@ -88,7 +148,7 @@ function M:UnitKey(unit)
 		local ok, name, second = pcall(UnitFullName, unit)
 		name, second = ok and Clean(name), ok and Clean(second)
 		if type(name) == "string" and name ~= "" and type(second) == "string" and second ~= "" then
-			local old = self.Key(name .. "-" .. second)
+			local old = NameKey(name .. "-" .. second, realm)
 			local players = self:Store()
 			if old and old ~= key and players[old] and not players[key] then
 				players[key], players[old] = players[old], nil
@@ -158,9 +218,10 @@ end
 
 function M:FindByJournal(journalKey)
 	if type(journalKey) ~= "string" then return nil end
-	if links[journalKey] then return links[journalKey] end
+	local linked = links[journalKey]
+	if linked and self:JournalName(linked) then return linked end
 	for key, record in pairs(self:Store()) do
-		if type(record) == "table" and record.journal == journalKey then return key end
+		if type(record) == "table" and record.journal == journalKey and self:JournalName(key) then return key end
 	end
 	return nil
 end
@@ -206,13 +267,16 @@ function M:ScanGroup()
 		wipe(inGroup)
 		return
 	end
-	local present = {}
+	local previous, present = {}, {}
+	for _, key in pairs(inGroup) do previous[key] = true end
 	for _, unit in ipairs(units) do
-		local key = UnitExists and UnitExists(unit) and self:UnitKey(unit)
+		local exists = Clean(Try(UnitExists, unit))
+		local own = exists and Clean(Try(UnitIsUnit, unit, "player"))
+		local key = exists and not own and self:UnitKey(unit)
 		if key then
-			present[key] = true
-			if not inGroup[key] then
-				inGroup[key] = true
+			present[unit] = key
+			if not previous[key] then
+				previous[key] = true
 				local record = self:Get(key)
 				if self.db.journal then
 					record = Record(key)
@@ -229,15 +293,16 @@ function M:ScanGroup()
 				end
 				if self.db.warnAvoid and record and record.mark == "avoid" then
 					M:PushAlert({ key = "note-avoid-" .. key, title = "Player Notes",
-						text = (L["%s joined your group. You marked them Avoid%s"]):format(key, record.note and (": " .. record.note) or "."),
+						text = (L["%s joined your group. You marked them Avoid%s"]):format(NoteLabel(key), record.note and (": " .. record.note) or "."),
 						icon = 132331, duration = 12 })
 				end
 			end
+		elseif exists ~= false and not own then
+			-- A present member may briefly have an unreadable name or region.
+			present[unit] = inGroup[unit]
 		end
 	end
-	for key in pairs(inGroup) do
-		if not present[key] then inGroup[key] = nil end
-	end
+	inGroup = present
 end
 
 -- The players you grouped with, the last one first (the friends
@@ -249,9 +314,9 @@ function M:RecentlyGrouped(limit)
 	local list = {}
 	for key, record in pairs(self:Store()) do
 		if type(key) == "string" and type(record) == "table" and record.grouped and record.last then
-			local name, realm = key:match("^([^%-]+)%-(.+)$")
+			local name, realm, region = NoteParts(key)
 			list[#list + 1] = {
-				key = key, name = name or key, realm = realm, class = record.class,
+				key = key, name = name, realm = realm, region = region, class = record.class,
 				grouped = record.grouped, last = record.last, zone = record.zone,
 				note = record.note, mark = record.mark,
 			}
@@ -337,7 +402,7 @@ end
 function M:EditNote(key)
 	if not key then return end
 	local record = self:Get(key)
-	E:ShowConfirm({ key = "ELDOUI_PLAYER_NOTE", title = L["Player Notes"], text = L["Note on %s"]:format(key), accept = ACCEPT,
+	E:ShowConfirm({ key = "ELDOUI_PLAYER_NOTE", title = L["Player Notes"], text = L["Note on %s"]:format(NoteLabel(key)), accept = ACCEPT,
 		edit = { text = record and record.note or "", maxLetters = 200 }, data = key,
 		onAccept = function(own, typed) M:SetNote(own, typed) end })
 end
@@ -346,10 +411,11 @@ local function MenuKey(context)
 	if type(context) ~= "table" then return nil end
 	if context.unit then
 		local key = M:UnitKey(context.unit)
-		if key then return key end
+		if key or Clean(Try(RegionalUniqueNamesEnabled)) == true or not MyRealm() then return key end
 	end
 	local name = Clean(context.name)
 	if type(name) ~= "string" then return nil end
+	if Clean(Try(RegionalUniqueNamesEnabled)) == true then return M.CharacterKey(name) end
 	local server = Clean(context.server)
 	return M.Key(server and server ~= "" and (name .. "-" .. server) or name)
 end
@@ -388,7 +454,8 @@ end
 
 function M:Command(arg)
 	arg = (arg or ""):match("^%s*(.-)%s*$")
-	local word, rest = arg:match("^(%S*)%s*(.-)$")
+	local word, rest = arg:match('^"([^"]+)"%s*(.-)$')
+	if not word then word, rest = arg:match("^(%S*)%s*(.-)$") end
 	local lower = (word or ""):lower()
 	if lower == "" or lower == "list" then
 		local rows = {}
@@ -396,29 +463,32 @@ function M:Command(arg)
 			if record.note or record.mark then rows[#rows + 1] = { key, record } end
 		end
 		table.sort(rows, function(a, b) return a[1] < b[1] end)
-		if #rows == 0 then E:Print(L["No player notes yet. Right-click a player, or /eui note Name text."]) return end
+		if #rows == 0 then E:Print(L["No player notes yet. Right-click a player or use /eui note \"First Surname\" text."]) return end
 		for _, row in ipairs(rows) do
 			local mark = row[2].mark and MARKS[row[2].mark]
-			E:Print(("%s %s%s"):format(row[1], mark and (mark.color .. mark.label .. "|r ") or "", row[2].note or ""))
+			E:Print(("%s %s%s"):format(NoteLabel(row[1]), mark and (mark.color .. mark.label .. "|r ") or "", row[2].note or ""))
 		end
 	elseif lower == "good" or lower == "avoid" or lower == "clear" then
-		local key = M.Key(rest)
-		if not key then E:Print(L["/eui note "] .. lower .. " Name") return end
+		local key = M.Key(rest:match('^"([^"]+)"$') or rest)
+		if not key then E:Print(L["Player identity unavailable. Use the full name in quotes."]) return end
 		self:SetMark(key, lower ~= "clear" and lower or nil)
-		E:Print(lower == "clear" and L["%s: mark cleared."]:format(key) or L["%s: marked %s."]:format(key, MARKS[lower].label))
+		local label = NoteLabel(key)
+		E:Print(lower == "clear" and L["%s: mark cleared."]:format(label) or L["%s: marked %s."]:format(label, MARKS[lower].label))
 	else
 		local key = M.Key(word)
+		if not key then E:Print(L["Player identity unavailable. Use the full name in quotes."]) return end
+		local label = NoteLabel(key)
 		if rest == "" then
 			local record = self:Get(key)
-			E:Print((record and record.note) and ("%s: %s"):format(key, record.note) or L["%s: no note."]:format(key))
+			E:Print((record and record.note) and ("%s: %s"):format(label, record.note) or L["%s: no note."]:format(label))
 		else
 			self:SetNote(key, rest)
-			E:Print((L["Note on %s saved."]):format(key))
+			E:Print((L["Note on %s saved."]):format(label))
 		end
 	end
 end
 
-E:AddCommand("note", "[Name [text] | good Name | avoid Name | clear Name | list]  your notes on players", function(arg)
+E:AddCommand("note", "[Name [text] | good Name | avoid Name | clear Name | list]  use quotes for two-part names", function(arg)
 	if M.active then M:Command(arg) else E:Print(E:ModuleOffHint("PlayerNotes")) end
 end)
 
@@ -485,7 +555,7 @@ end
 -- Options and styles
 ---------------------------------------------------------------------------
 M.options = {
-	{ type = "description", label = "Right-click a player to add a note or mark them Good or Avoid. Notes stay on your computer. Also: /eui note Name text, /eui note list." },
+	{ type = "description", label = "Right-click a player to save notes and Good or Avoid marks locally. Use /eui note \"First Surname\" text or /eui note list." },
 	{ type = "toggle", key = "menu", label = "Right-click menu", desc = "Add note and mark entries to a player's right-click menu." },
 	{ type = "toggle", key = "tooltip", label = "Show on tooltips", desc = "Show your note and mark on the player's tooltip." },
 	{ type = "toggle", key = "journal", label = "Group journal", desc = "Remember who you grouped with, how often and when." },

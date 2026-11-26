@@ -1635,8 +1635,8 @@ end
 local function SecretUnitTooltip(tooltip)
 	if type(tooltip.GetUnit) ~= "function" then return false end
 	local ok, _, unit = pcall(tooltip.GetUnit, tooltip)
-	if not ok or E.Secret(unit) then return true end
-	return false
+	if not ok then return true end
+	return E.Secret(unit) or (type(unit) == "string" and unit ~= "" and E.IdentitySecret(unit))
 end
 
 -- A tooltip whose lines the game filled with secret values (a secret text
@@ -1664,8 +1664,7 @@ local function SecretLinesTooltip(tooltip)
 end
 
 -- True when the game's own redraw may run on this tooltip from EldoUI's
--- code: no secret unit and no secret line (a unit the game restricts, as
--- in a battleground, has its name line carry a secret unit).
+-- code: the unit's identity and the tooltip lines must be readable.
 function M.SafeToRedraw(tooltip)
 	return not (SecretUnitTooltip(tooltip) or SecretLinesTooltip(tooltip))
 end

@@ -586,11 +586,11 @@ end
 -- not know stay as they are.
 ---------------------------------------------------------------------------
 E.SCHEMA_VERSION = 1   -- the account file this EldoUI writes
-E.PROFILE_SCHEMA = 5   -- one profile this EldoUI writes
+E.PROFILE_SCHEMA = 6   -- one profile this EldoUI writes
 E.PROFILE_BASELINE = 1000 -- first supported profile generation
-local TakeProfilePreparation
+local TakeProfilePreparation, CharacterIdentity
 do
-	local prepared, admitted
+	local prepared, admitted, pendingRebind
 	-- The first supported generation writes schema 4. Later schema updates
 	-- may still read that shape; older shapes are not supported profiles.
 	local firstProfileSchema = 4
@@ -663,7 +663,13 @@ do
 		if not CurrentAccount() or not Same(EldoUIDB, root) or not Same(admitted.profiles, profiles)
 			or not Same(self.db, active) or not Same(self.profileName, name)
 			or not Same(rawget(profiles, name), expected) or not Same(rawget(admitted.keys, E.charKey), name) then return false end
-		return self:LoadDatabase()
+		-- A quick profile rebuild stays with this admitted character even
+		-- while live identity is temporarily unavailable.
+		pendingRebind = { root = root, key = admitted.character, aliases = {} }
+		local ok, loaded, reason = pcall(self.LoadDatabase, self)
+		pendingRebind = nil
+		if not ok then error(loaded, 0) end
+		return loaded, reason
 	end
 	InitialProfileSelection = function(name, grant)
 		if not CurrentAccount(true) or admitted.ready then return false end
@@ -738,8 +744,12 @@ do
 	-- This runs before saved-layout and profile-binding load hooks. Account
 	-- data and other characters' non-profile namespaces remain in place.
 	function E:PrepareProfileBaseline()
-		prepared, admitted, profileLoadBlocked = nil, nil, true
 		local root = rawget(_G, "EldoUIDB")
+		local rebind = pendingRebind
+		pendingRebind = nil
+		local identity = rebind and Same(rebind.root, root) and CurrentAccount() and rebind or CharacterIdentity()
+		if not identity then return false, "identity" end
+		prepared, admitted, profileLoadBlocked = nil, nil, true
 		if AccountRecovery and not AccountRecovery(root, false) then return false end
 		local cold = type(root) == "nil"
 		if not cold and not Plain(root) then return false end
@@ -771,7 +781,7 @@ do
 			rawset(root, "profileBaseline", self.PROFILE_BASELINE)
 		end
 		if cold then EldoUIDB = root end
-		prepared = { root = root, cold = cold, schema = schema, version = version }
+		prepared = { root = root, cold = cold, schema = schema, version = version, identity = identity }
 		return true
 	end
 	TakeProfilePreparation = function()
@@ -784,7 +794,7 @@ do
 		local profiles, private, keys = rawget(EldoUIDB, "profiles"), rawget(EldoUIDB, "private"), rawget(EldoUIDB, "profileKeys")
 		if not Plain(profiles) or not Plain(keys) or (type(private) ~= "nil" and not Plain(private)) then return false end
 		admitted = { root = EldoUIDB, profiles = profiles, ready = false }
-		return true, saved.cold
+		return true, saved.cold, saved.identity
 	end
 end
 local HISTORY_KEEP = 10
@@ -1176,10 +1186,14 @@ local function ShowNotices()
 end
 
 -- A few seconds after login: the chat lines, then the other profiles.
+local pendingProfilePass
 local function StartProfilePass()
 	if profileLoadBlocked then return end
-	local db = EldoUIDB
+	local db, pass = EldoUIDB, {}
+	pendingProfilePass = pass
 	C_Timer.After(PROFILE_PASS_DELAY, function()
+		if pendingProfilePass ~= pass then return end
+		pendingProfilePass = nil
 		if profileLoadBlocked or EldoUIDB ~= db then return end
 		ShowNotices()
 		E:UpdateAllProfiles()
@@ -2366,19 +2380,33 @@ end
 
 -- Forever groups its realms by ruleset: characters, auction houses and
 -- the hourly instance cap are shared per ruleset. The ruleset's short
--- name: "PvE", "PvP", "RP" or "HC". Which client this is comes from the
+-- name: "PvE", "PvP", "RP", "RP-PvP" or "HC". Which client this is comes from the
 -- one shared check, E:IsForeverClient (Core/Media.lua).
 
-function E:RulesetName()
-	local active, rules = C_GameRules and C_GameRules.IsGameRuleActive, Enum.GameRule
-	if type(active) ~= "function" or not rules then return "PvE" end
-	for _, entry in ipairs({ { "PvPRuleset", "PvP" }, { "RPRuleset", "RP" }, { "HardcoreRuleset", "HC" } }) do
-		if rules[entry[1]] then
-			local ok, on = pcall(active, rules[entry[1]])
-			if ok and on then return entry[2] end
-		end
-	end
+-- A saved-data scope requires the complete set of readable flags.
+function E:KnownRulesetName()
+	local active, rules = C_GameRules and C_GameRules.IsGameRuleActive, Enum and Enum.GameRule
+	if type(active) ~= "function" or not rules then return nil end
+	local pvpRule, rpRule, hardcoreRule = rules.PvPRuleset, rules.RPRuleset, rules.HardcoreRuleset
+	if type(pvpRule) ~= "number" or type(rpRule) ~= "number" or type(hardcoreRule) ~= "number" then return nil end
+	local pvp = E.PlainCall(active, pvpRule)
+	local rp = E.PlainCall(active, rpRule)
+	local hardcore = E.PlainCall(active, hardcoreRule)
+	if type(pvp) ~= "boolean" or type(rp) ~= "boolean" or type(hardcore) ~= "boolean" then return nil end
+	if hardcore then return not pvp and not rp and "HC" or nil end
+	if pvp and rp then return "RP-PvP" end
+	if pvp then return "PvP" end
+	if rp then return "RP" end
 	return "PvE"
+end
+
+function E:RulesetName()
+	return self:KnownRulesetName() or "PvE"
+end
+
+function E:ReadableRealmName()
+	local realm = E.PlainCall(GetRealmName)
+	return type(realm) == "string" and realm ~= "" and realm or nil
 end
 
 -- The "realm" new per-character data is keyed by (with E:PlayerName():
@@ -2387,6 +2415,11 @@ end
 function E:RealmKey()
 	if self:IsForeverClient() then return self:RulesetName() end
 	return GetRealmName()
+end
+
+function E:KnownRealmKey()
+	if self.IsForeverClient and self:IsForeverClient() then return self:KnownRulesetName() end
+	return self:ReadableRealmName()
 end
 
 -- The character's name as its saved data knows it. On Forever a first
@@ -2407,28 +2440,192 @@ function E:CharacterName()
 	return self:PlayerName()
 end
 
--- The key this character's data is saved under: "<name> - <realm>" with
--- the full name. When the surname can't be read yet, the key the character
--- data already holds for this GUID, so the key never flips between logins.
-local function CharacterKey()
-	local realm = GetRealmName()
-	local key = ("%s - %s"):format(E:CharacterName(), realm)
-	if E:CharacterName() ~= E:PlayerName() then return key end
-	local guid = UnitGUID and UnitGUID("player")
-	local list = type(EldoUIDB) == "table" and EldoUIDB.inventory
-	if type(guid) == "string" and not (issecretvalue and issecretvalue(guid)) and type(list) == "table" then
-		local suffix = " - " .. realm
-		for saved, record in pairs(list) do
-			if type(saved) == "string" and type(record) == "table" and record.guid == guid and saved ~= key
-				and saved:sub(-#suffix) == suffix and saved:sub(1, #E:PlayerName() + 1) == E:PlayerName() .. " " then
-				return saved
+local function ReadableText(value)
+	value = E.Plain(value)
+	return type(value) == "string" and value ~= "" and value or nil
+end
+
+local function SavedTable(root, key)
+	if E.Secret(root) or type(root) ~= "table" or getmetatable(root) ~= nil then return nil end
+	local value = rawget(root, key)
+	if not E.Secret(value) and type(value) == "table" and getmetatable(value) == nil then return value end
+end
+
+-- Saved variables may be absent until this character's first load.
+local function SavedCharacterStore(store)
+	return SavedTable(rawget(_G, "EldoUIDB"), store)
+end
+
+local function MyGuid()
+	return ReadableText(E.PlainCall(UnitGUID, "player"))
+end
+
+local function RecordGuid(store, key)
+	local record = SavedTable(SavedCharacterStore(store), key)
+	local guid = record and rawget(record, "guid")
+	return ReadableText(guid), E.Secret(guid)
+end
+
+-- The character data and journal both track the owner of a saved key.
+local function RecordOwner(key)
+	local inventory, inventoryHidden = RecordGuid("inventory", key)
+	local journal, journalHidden = RecordGuid("journal", key)
+	local conflict = inventoryHidden or journalHidden or (inventory and journal and inventory ~= journal)
+	return inventory or journal, conflict
+end
+
+local function RecordScope(record)
+	return record and ReadableText(rawget(record, "realmKey"))
+end
+
+local RULESET_NAMES = { PvE = true, PvP = true, RP = true, ["RP-PvP"] = true, HC = true }
+
+local function ScopeCompatible(record, scope)
+	local saved = record and rawget(record, "realmKey")
+	return not E.Secret(saved) and (type(saved) == "nil" or (scope and ReadableText(saved) == scope))
+end
+
+-- Older named-realm records may predate realmKey entirely. When the
+-- physical realm is unavailable, the GUID can still identify their key.
+local function LegacyPhysicalKey(realm, record, journal)
+	return realm and not RULESET_NAMES[realm] and ScopeCompatible(record, nil) and ScopeCompatible(journal, nil)
+end
+
+local function KnownScopeCharacterKey(scope, guid, realm, includeLegacy)
+	if not scope or not guid then return nil end
+	local inventory = SavedCharacterStore("inventory")
+	local journal = SavedCharacterStore("journal")
+	local stores = { inventory or {} }
+	if includeLegacy then stores[2] = journal end
+	local found, scopeSuffix = nil, " - " .. scope
+	for _, store in ipairs(stores) do
+		for key in pairs(store) do
+			local savedKey = ReadableText(key)
+			if savedKey and savedKey ~= found and SavedTable(store, savedKey)
+				and (not realm or savedKey:sub(-3) == " - " or savedKey:sub(-#scopeSuffix) == scopeSuffix) then
+				local record, note = SavedTable(inventory, savedKey), SavedTable(journal, savedKey)
+				local savedRealm = includeLegacy and savedKey:match("^.+ %- (.+)$")
+				local confirmed = RecordScope(record) == scope and ScopeCompatible(note, scope)
+					and (not RULESET_NAMES[savedRealm] or savedRealm == scope)
+				if confirmed or LegacyPhysicalKey(savedRealm, record, note) then
+					local owner, conflict = RecordOwner(savedKey)
+					if owner == guid and not conflict then
+						if found then return nil end
+						found = savedKey
+					end
+				end
 			end
 		end
 	end
-	return key
+	return found
 end
+
+-- The older keys this character's data could sit under: the first-name
+-- key ("First - Realm", 0.7.1001 and earlier) and the key built from
+-- UnitName.
+local function OldCharacterKeys(newKey, realm, first, unitName)
+	if not newKey or not realm then return {} end
+	local olds, seen = {}, { [newKey] = true }
+	local function Candidate(name)
+		if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) or name == "" then return end
+		local key = ("%s - %s"):format(name, realm)
+		if not seen[key] then seen[key] = true olds[#olds + 1] = key end
+	end
+	Candidate(first)
+	Candidate(unitName)
+	return olds
+end
+
+local function HasCharacterRecord(key)
+	for _, store in ipairs({ "inventory", "journal", "profileKeys", "private" }) do
+		local list = SavedCharacterStore(store)
+		if list and type(rawget(list, key)) ~= "nil" then return true end
+	end
+	return false
+end
+
+-- Preserve a verified existing key when the game withholds the realm.
+-- Fresh keys with no physical realm need the full name, GUID, and scope.
+local function ResolveCharacterKey(identity)
+	local realm, name, first = identity.realm, identity.name, identity.first
+	local guid, scope = identity.guid, identity.scope
+	local full = name and first and name ~= first
+	local owned = KnownScopeCharacterKey(scope, guid, realm, not realm)
+	if owned then return owned end
+
+	if not realm then
+		if not full or not scope or not guid then return nil end
+		local key = ("%s - %s"):format(name, scope)
+		local owner, conflict = RecordOwner(key)
+		local record = SavedTable(SavedCharacterStore("inventory"), key)
+		local journal = SavedTable(SavedCharacterStore("journal"), key)
+		if conflict or (owner and owner ~= guid) or not ScopeCompatible(record, scope)
+			or not ScopeCompatible(journal, scope) then return nil end
+		return key
+	end
+	if not name then return nil end
+	local key = ("%s - %s"):format(name, realm)
+	local inventory = SavedCharacterStore("inventory")
+	if not full and first and guid and inventory then
+		local suffix, prefix = " - " .. realm, first .. " "
+		local fullKey
+		for saved in pairs(inventory) do
+			local savedKey = ReadableText(saved)
+			if savedKey and savedKey ~= key and savedKey:sub(-#suffix) == suffix
+				and savedKey:sub(1, #prefix) == prefix then
+				local owner, conflict = RecordOwner(savedKey)
+				if owner == guid and not conflict then
+					if fullKey then return nil end
+					fullKey = savedKey
+				end
+			end
+		end
+		if fullKey then return fullKey, OldCharacterKeys(fullKey, realm, first, identity.unitName) end
+	end
+
+	local owner, conflict = RecordOwner(key)
+	local aliases = OldCharacterKeys(key, realm, first, identity.unitName)
+	local vacant = not HasCharacterRecord(key)
+	local admit = not conflict and (not owner or owner == guid)
+	for _, alias in ipairs(aliases) do
+		if not guid and vacant and HasCharacterRecord(alias) then return nil end
+		local oldOwner, oldConflict = RecordOwner(alias)
+		if guid and oldOwner == guid and not oldConflict then
+			if admit then return key, aliases end
+			-- Keep the verified older key when the destination belongs
+			-- to someone else.
+			return alias
+		end
+	end
+	if admit and not vacant then return key, aliases end
+	-- A physical realm name can change while identity and scope stay
+	-- the same. Keep its unique old key when no exact key is bound.
+	local verified = KnownScopeCharacterKey(scope, guid)
+	if verified then return verified end
+	if admit then return key, aliases end
+end
+
+CharacterIdentity = function()
+	local identity = {
+		realm = E:ReadableRealmName(),
+		name = ReadableText(E:CharacterName()),
+		first = ReadableText(E:PlayerName()),
+		unitName = ReadableText(E.PlainCall(UnitName, "player")),
+		guid = MyGuid(),
+		scope = E.IsForeverClient and E:IsForeverClient() and E:KnownRulesetName(),
+	}
+	local key, aliases = ResolveCharacterKey(identity)
+	if key then
+		identity.key, identity.aliases = key, aliases or {}
+		return identity
+	end
+end
+
 -- Read before the database loads (E.charKey is set only then).
-function E:CurrentCharacterKey() return CharacterKey() end
+function E:CurrentCharacterKey()
+	local identity = CharacterIdentity()
+	return identity and identity.key
+end
 
 -- Per-character settings: the profile choice and the character's own
 -- options. They come along only for the character whose GUID owns the old
@@ -2437,53 +2634,19 @@ function E:CurrentCharacterKey() return CharacterKey() end
 local SHARED_SETTINGS = { profileKeys = true, private = true, profileRules = true, keybindBackup = true,
 	installed = true, installerRun = true, installerLogin = true }
 
--- The GUID an old record names as its owner: the character data and the
--- journal store UnitGUID("player") with each character's record.
-local function RecordOwner(oldKey)
-	for _, store in ipairs({ "inventory", "journal" }) do
-		local list = EldoUIDB[store]
-		local record = type(list) == "table" and list[oldKey]
-		local guid = type(record) == "table" and record.guid
-		if type(guid) == "string" and guid ~= "" then return guid end
-	end
-	return nil
-end
-
--- The older keys this character's data could sit under: the first-name
--- key ("First - Realm", 0.7.1001 and earlier) and the key built from
--- UnitName.
-local function OldCharacterKeys(newKey)
-	local realm = GetRealmName()
-	local olds, seen = {}, { [newKey] = true }
-	local function Candidate(name)
-		if type(name) ~= "string" or (issecretvalue and issecretvalue(name)) or name == "" then return end
-		local key = ("%s - %s"):format(name, realm)
-		if not seen[key] then seen[key] = true olds[#olds + 1] = key end
-	end
-	Candidate(E:PlayerName())
-	Candidate((UnitName("player")))
-	return olds
-end
-
 -- The older keys of this character's name (other than its own key).
 function E:OlderCharacterKeys()
-	return OldCharacterKeys(self.charKey or CharacterKey())
+	local identity = CharacterIdentity()
+	return identity and identity.aliases or {}
 end
 
-local function MyGuid()
-	local guid = UnitGUID and UnitGUID("player")
-	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) or guid == "" then return nil end
-	return guid
-end
-
--- True when an older key of this character holds records its GUID owns,
--- so its saved settings there are this character's own.
+-- True when the current character owns an older key under a readable realm.
 function E:OwnsOlderCharacterKey()
-	if type(EldoUIDB) ~= "table" then return false end
-	local guid = MyGuid()
-	if not guid then return false end
-	for _, oldKey in ipairs(OldCharacterKeys(CharacterKey())) do
-		if RecordOwner(oldKey) == guid then return true end
+	local identity = CharacterIdentity()
+	if not identity or not identity.guid then return false end
+	for _, oldKey in ipairs(identity.aliases) do
+		local owner, conflict = RecordOwner(oldKey)
+		if owner == identity.guid and not conflict then return true end
 	end
 	return false
 end
@@ -2550,12 +2713,15 @@ end
 -- where per-character tables live (profileKeys, private, inventory,
 -- auction.chars and so on); the modules move what lies deeper.
 -- Returns the old key whose records moved here, or nil.
-local function MigrateCharacterKey(newKey)
-	local myGuid = MyGuid()
+local function MigrateCharacterKey(identity)
+	local newKey, myGuid = identity.key, identity.guid
+	if not myGuid or #identity.aliases == 0 then return nil end
+	local destinationOwner, destinationConflict = RecordOwner(newKey)
+	if destinationConflict or (destinationOwner and destinationOwner ~= myGuid) then return nil end
 	local claimed
-	for _, oldKey in ipairs(OldCharacterKeys(newKey)) do
-		local mine = myGuid ~= nil and RecordOwner(oldKey) == myGuid
-		if mine then
+	for _, oldKey in ipairs(identity.aliases) do
+		local owner, conflict = RecordOwner(oldKey)
+		if owner == myGuid and not conflict then
 			local copied = {}
 			local function Carry(t, settings)
 				if t[oldKey] == nil then return end
@@ -2613,25 +2779,38 @@ local function PairKey(oldKey, newKey) return oldKey .. "\n" .. newKey end
 -- nil. Only on WoW: Forever, and a name match needs the full name.
 function E:RulesetMoveCandidate(newKey)
 	if type(EldoUIDB) ~= "table" or not (self.IsForeverClient and self:IsForeverClient()) then return nil end
-	newKey = newKey or self.charKey or CharacterKey()
-	local guid, full = MyGuid(), self:CharacterName()
-	local byName = type(full) == "string" and full ~= self:PlayerName()
-	local realm = GetRealmName()
-	local answers = type(EldoUIDB.rulesetMoves) == "table" and EldoUIDB.rulesetMoves or {}
-	local found
+	newKey = newKey or self.charKey or self:CurrentCharacterKey()
+	if not newKey then return nil end
+	local guid, full, first = MyGuid(), ReadableText(self:CharacterName()), ReadableText(self:PlayerName())
+	local byName = full and first and full ~= first
+	local realm, scope = self:ReadableRealmName(), self:KnownRulesetName()
+	local answers = SavedTable(EldoUIDB, "rulesetMoves") or {}
+	local inventory = SavedTable(EldoUIDB, "inventory")
+	local found, from
 	for _, store in ipairs(RULESET_STORES) do
-		local list = EldoUIDB[store]
-		for key, record in pairs(type(list) == "table" and list or {}) do
-			local cut = type(key) == "string" and key:find(" - ", 1, true)
-			if cut and key ~= newKey and type(record) == "table" and answers[PairKey(key, newKey)] == nil then
-				local name, oldRealm = key:sub(1, cut - 1), key:sub(cut + 3)
-				local mine = (guid ~= nil and record.guid == guid) or (byName and name == full)
-				if mine and oldRealm ~= realm and (not found or key < found) then found = key end
+		local list = SavedTable(EldoUIDB, store)
+		for key in pairs(list or {}) do
+			local savedKey = ReadableText(key)
+			local cut = savedKey and savedKey:find(" - ", 1, true)
+			if cut and savedKey ~= newKey and SavedTable(list, savedKey) and answers[PairKey(savedKey, newKey)] == nil then
+				local name, oldRealm = savedKey:sub(1, cut - 1), savedKey:sub(cut + 3)
+				local owner, conflict = RecordOwner(savedKey)
+				local record = SavedTable(inventory, savedKey)
+				local oldScope = RecordScope(record)
+				local mine = not conflict and ((guid and owner == guid) or (byName and name == full))
+				local different
+				if scope and oldScope then
+					different = scope ~= oldScope
+				else
+					different = realm and oldRealm ~= "" and realm ~= oldRealm
+				end
+				if mine and different and (not found or savedKey < found) then
+					found, from = savedKey, oldRealm ~= "" and oldRealm or oldScope
+				end
 			end
 		end
 	end
-	if not found then return nil end
-	return found, found:sub(found:find(" - ", 1, true) + 3)
+	return found, from
 end
 
 -- Bring over: every per-character entry two levels into EldoUIDB moves
@@ -2649,8 +2828,20 @@ end
 
 function E:BringOverCharacter(oldKey, newKey)
 	newKey = newKey or self.charKey
-	if type(EldoUIDB) ~= "table" or type(oldKey) ~= "string" or oldKey == newKey then return false end
-	local oldGuid, newGuid = RecordOwner(oldKey), MyGuid()
+	if type(EldoUIDB) ~= "table" or type(oldKey) ~= "string" or type(newKey) ~= "string" or oldKey == newKey then
+		return false
+	end
+	local realm, scope
+	if newKey == self.charKey then
+		realm, scope = self:ReadableRealmName(), self:KnownRealmKey()
+		if not realm and not scope then return false end
+	end
+	local oldGuid, sourceConflict = RecordOwner(oldKey)
+	local destinationOwner, destinationConflict = RecordOwner(newKey)
+	local newGuid = MyGuid()
+	if not newGuid or sourceConflict or destinationConflict or (destinationOwner and destinationOwner ~= newGuid) then
+		return false
+	end
 	local function Take(t)
 		if t[oldKey] ~= nil then t[newKey], t[oldKey] = t[oldKey], nil end
 	end
@@ -2662,7 +2853,7 @@ function E:BringOverCharacter(oldKey, newKey)
 			end
 		end
 	end
-	if oldGuid and newGuid and oldGuid ~= newGuid then
+	if oldGuid and oldGuid ~= newGuid then
 		for _, store in ipairs(RULESET_STORES) do
 			local list = EldoUIDB[store]
 			local record = type(list) == "table" and list[newKey]
@@ -2672,6 +2863,13 @@ function E:BringOverCharacter(oldKey, newKey)
 			local ok, err = pcall(fn, EldoUIDB, oldKey, newKey, oldGuid, newGuid)
 			if not ok then geterrorhandler()(("EldoUI bringing over a moved character: %s"):format(tostring(err))) end
 		end
+	end
+	local record = SavedTable(SavedTable(EldoUIDB, "inventory"), newKey)
+	if record then
+		-- The next login needs the confirmed destination scope before it
+		-- can open the transferred profile and refresh the character record.
+		if realm then record.realm = realm end
+		if scope then record.realmKey = scope end
 	end
 	RunKeyMoves(oldKey, newKey)
 	MoveAnswers()[PairKey(oldKey, newKey)] = "moved"
@@ -2714,9 +2912,8 @@ E:RegisterEvent("PLAYER_LOGIN", function()
 end, RulesetMove)
 
 function E:InitializeDatabase()
-	-- Profile preparation retains whether the account itself was new.
-	-- Emptying old profiles must not replace an existing account schema.
-	local allowed, fresh = TakeProfilePreparation()
+	-- Use the identity chosen before profile preparation made any writes.
+	local allowed, fresh, identity = TakeProfilePreparation()
 	if not allowed then return false end
 	EldoUIDB = type(EldoUIDB) == "table" and EldoUIDB or {}
 	-- A profile list of the wrong kind is set aside in the file's own
@@ -2738,10 +2935,10 @@ function E:InitializeDatabase()
 	schemaRun.stores, schemaRun.backups, schemaRun.trimmed, schemaRun.shown, schemaRun.movedNotice = {}, 0, 0, nil, nil
 	RunRootChain(EldoUIDB, fresh)
 
-	self.charKey = CharacterKey()
+	self.charKey = identity.key
 	-- The older key whose records became this character's (modules that
 	-- keep their own per-character keys move theirs with it).
-	self.charKeyMovedFrom = MigrateCharacterKey(self.charKey)
+	self.charKeyMovedFrom = MigrateCharacterKey(identity)
 
 	self.global = EldoUIDB.global
 	EldoUIDB.private[self.charKey] = type(EldoUIDB.private[self.charKey]) == "table" and EldoUIDB.private[self.charKey] or {}
@@ -2751,8 +2948,9 @@ function E:InitializeDatabase()
 	if self.SetLanguage then self:SetLanguage(self.global.locale.language) end
 	HookModuleDB()
 
-	local profileName = EldoUIDB.profileKeys[self.charKey]
-	if type(profileName) ~= "string" or profileName == "" then profileName = "Default" end
+	local profileName = ReadableText(EldoUIDB.profileKeys[self.charKey])
+	local hadProfile = profileName ~= nil
+	profileName = profileName or "Default"
 	InitialProfileSelection(profileName, true)
 	if self:SetProfile(profileName, true) == false or not FinishProfilePreparation() then return false end
 
@@ -2762,7 +2960,7 @@ function E:InitializeDatabase()
 	if IsLoggedIn and IsLoggedIn() then
 		StartProfilePass()
 	end
-	return true
+	return true, hadProfile
 end
 
 ---------------------------------------------------------------------------
@@ -2868,6 +3066,19 @@ function E:RefreshModules(filter, queued)
 			self:RefreshModule(module, queued)
 		end
 	end
+end
+
+-- Create from the Profiles page or slash command, preserving the order of
+-- combat-deferred profile requests and checking for collisions at execution.
+function E:CreateProfile(name, onExists)
+	if not CurrentProfile(self.db, self.profileName) or E.Secret(name) or type(name) ~= "string" or name == "" then return false end
+	local existing = self:FindProfileName(name)
+	if existing then
+		if onExists then onExists(existing) end
+		return false
+	end
+	if QueueProfileWork(self, function() self:CreateProfile(name, onExists) end, name) then return false end
+	return self:SetProfile(name)
 end
 
 -- Switch the current character to a profile, creating it if needed.
@@ -3198,7 +3409,9 @@ function E:RenameProfile(old, new)
 	if not name then return false, err end
 	if not EldoUIDB.profiles[old] then return false, self.L["There is no profile with that name."] end
 	if name == old then return true end
-	if EldoUIDB.profiles[name] then return false, self.L["A profile with that name already exists."] end
+	if EldoUIDB.profiles[name] or self:FindProfileName(name, old) then
+		return false, self.L["A profile with that name already exists."]
+	end
 	EldoUIDB.profiles[name] = EldoUIDB.profiles[old]
 	EldoUIDB.profiles[old] = nil
 	for char, profile in pairs(EldoUIDB.profileKeys) do
@@ -3360,6 +3573,16 @@ function E:GetProfileList()
 	for name, profile in pairs(EldoUIDB.profiles) do if CurrentProfile(profile, name) then table.insert(list, name) end end
 	table.sort(list)
 	return list
+end
+
+-- Prefer an exact saved name when older profiles differ only by case.
+function E:FindProfileName(name, except)
+	if not CurrentAccount() or E.Secret(name) or type(name) ~= "string" then return nil end
+	if name ~= except and rawget(EldoUIDB.profiles, name) ~= nil then return name end
+	local lower = name:lower()
+	for _, profile in ipairs(self:GetProfileList()) do
+		if profile ~= except and profile:lower() == lower then return profile end
+	end
 end
 
 -- A saved profile's own table, to read from (nil when there is none). A

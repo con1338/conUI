@@ -782,11 +782,12 @@ do
 			local craft = guide and PlainTable(Read(guide.Craft, guide, recipe.id))
 			local info = C_TradeSkillUI and PlainTable(Read(C_TradeSkillUI.GetProfessionInfoByRecipeID, recipe.id))
 			local skill = info and Number(info.skillLevel)
-			local thresholds
-			if craft and guide.SkillBand then thresholds = select(3, guide:SkillBand(craft, skill)) end
+			local thresholds, estimated
+			if craft and guide.SkillThresholds then thresholds, estimated = guide:SkillThresholds(craft) end
 			if PlainTable(thresholds) and Number(thresholds.yellow) and Number(thresholds.green) and Number(thresholds.grey) then
-				lines[#lines + 1] = L["Skill %s. Estimated steps: orange to %d, yellow to %d, green to %d, then gray."]:format(
-					skill and tostring(skill) or "?", thresholds.yellow, thresholds.green, thresholds.grey)
+				local text = estimated and L["Skill %s. Estimated steps: orange to %d, yellow to %d, green to %d, then gray."]
+					or L["Skill %s. Orange below %d, yellow below %d, green below %d, then gray."]
+				lines[#lines + 1] = text:format(skill and tostring(skill) or "?", thresholds.yellow, thresholds.green, thresholds.grey)
 			else lines[#lines + 1] = L["Skill-up steps unavailable."] end
 		end
 		if db.recipePrices then
@@ -803,7 +804,8 @@ do
 				sale, vendor = sale and sale * recipe.count, vendor and vendor * recipe.count
 			else sale, vendor = nil, nil end
 			lines[#lines + 1] = L["Cost per craft: %s"]:format(Money(cost, complete))
-			local proceeds = sale and math.floor(sale * (1 - auction.HouseCut()))
+			local cut = sale and auction.HouseCut()
+			local proceeds = cut and math.floor(sale * (1 - cut))
 			lines[#lines + 1] = L["Auction value: %s. Profit: %s"]:format(Money(sale), Money(proceeds and cost and complete and proceeds - cost or nil))
 			lines[#lines + 1] = L["Vendor value: %s. Profit: %s"]:format(Money(vendor), Money(vendor and cost and complete and vendor - cost or nil))
 			if recipe.variable then lines[#lines + 1] = L["Sale values use the average output per craft."] end
@@ -2279,7 +2281,7 @@ M.options = {
 		local form = frame and frame.CraftingPage and frame.CraftingPage.SchematicForm
 		recipeSummary.Open(form)
 	end, disabled = E:BlizzardNeeds("professions", "improve") },
-	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipeSkill", label = "Recipe skill-up steps", desc = "Shows estimated skill-up thresholds for the selected recipe." },
+	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipeSkill", label = "Recipe skill-up steps", desc = "Shows skill-up thresholds for the selected recipe." },
 	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipePrices", label = "Recipe cost and profit", desc = "Shows reagent costs and possible auction or vendor profit from your saved prices. Missing prices stay marked." },
 	{ type = "toggle", disabled = E:BlizzardNeeds("professions", "improve"), key = "windows.professions.recipeCounts", label = "Crafts from your reagents", desc = "Shows how many crafts fit your bags, bank, and saved character inventories, with a button to list missing reagents." },
 	{ type = "toggle", key = "windows.professions.skin", label = "Skin the professions window", desc = "Panel, side tabs, recipe list, search, filter and gear slots." },

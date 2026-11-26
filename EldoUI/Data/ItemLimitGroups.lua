@@ -3,7 +3,7 @@
 -- trinket or one-hander and the "only one of these equipped" group it
 -- shares with others (ItemSparse.LimitCategory). Each group allows one;
 -- in the game C_Item.GetItemUniquenessByID answers first.
--- Client table: ItemSparse of WoW: Forever 1.60.1.70938.
+-- Client table: ItemSparse of WoW: Forever 1.60.1.71037.
 local _, E = ...
 
 E.ItemLimitGroups = {

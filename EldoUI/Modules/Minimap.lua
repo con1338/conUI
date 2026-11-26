@@ -63,13 +63,6 @@ local M = E:NewModule("Minimap", {
 		textSize = 13,
 		diel = true,               -- Forever's day/night indicator
 		dielPosition = "TOPRIGHT",
-		layer = true,              -- the layer chip (Modules/MinimapLayer.lua)
-		layerPosition = "BOTTOMLEFT",
-		layerNotice = false,       -- a chat line when your layer changes
-		layerHelp = false,         -- answer other players' hop requests (with a click to invite)
-		layerHelpAuto = false,     -- invite a player who asks without the card
-		layerAutoLeave = false,    -- leave the helper's group by itself once the layer changed
-		layerAddon = true,         -- with the layer addon installed, the chip opens it instead
 		wheelZoom = true,
 		overlaySize = 0.75,
 		overlayOpacity = 0.45,
@@ -244,8 +237,6 @@ function M:UpdatePlates()
 	self:UpdatePlate(self.zone)
 	self:UpdatePlate(self.coords)
 	self:UpdatePlate(self.clock.text)
-	local chip = self.Layer and self.Layer.chip
-	if chip then self:UpdatePlate(chip.text) end
 end
 
 ---------------------------------------------------------------------------
@@ -365,7 +356,6 @@ function M:CreateOverlay()
 	end)
 	diel:SetScript("OnLeave", GameTooltip_Hide)
 	self.diel = diel
-	if self.Layer then self.Layer.CreateChip(overlay) end
 
 	-- Everything starts hidden; ApplyImprove shows what is switched on.
 	self.zone:Hide()
@@ -443,7 +433,7 @@ end
 -- Corner placement: every item set to a position is stacked from that
 -- corner or edge inwards, 2 px apart, 4 px from the map edge.
 ---------------------------------------------------------------------------
-local ORDER = { "zone", "clock", "tracking", "calendar", "compartment", "diel", "event", "mail", "layer", "coords", "queue", "zoom", "expansion", "bin" }
+local ORDER = { "zone", "clock", "tracking", "calendar", "compartment", "diel", "event", "mail", "coords", "queue", "zoom", "expansion", "bin" }
 
 -- Blizzard frames per button key (some keys hold more than one frame).
 local function ButtonFrames(key)
@@ -871,9 +861,6 @@ function M:LayoutCorners()
 			if improve and db.showCoords then Add(key, self.coords, db.coordPosition) end
 		elseif key == "diel" then
 			if improve and db.diel and C_DateAndTime and C_DateAndTime.IsDayTime then Add(key, self.diel, db.dielPosition) end
-		elseif key == "layer" then
-			local chip = self.Layer and self.Layer.chip
-			if chip and self.Layer.ChipShown() then Add(key, chip, db.layerPosition) end
 		elseif key == "queue" then
 			if self.queueOnMap then Add(key, QueueStatusButton, db.buttons.queue, db.queue.scale) end
 		elseif key == "bin" then
@@ -1236,9 +1223,8 @@ function M:FollowMapShown()
 end
 
 -- On mouseover: the zone name shows while the cursor is anywhere on the
--- map, the clock, the layer chip and the corner buttons included. Leaving
--- the map for one of them is not leaving the map, so the name hides only
--- once the cursor is off the map's area.
+-- map, including the clock and the corner buttons. The name hides once
+-- the cursor leaves the map area.
 local function CursorOnMap()
 	local area = (M.mode == "replace" and M.holder) or Minimap
 	return area:IsMouseOver() or Minimap:IsMouseOver()
@@ -1426,7 +1412,6 @@ function M:ApplyImprove()
 		E:RestoreCVar("rotateMinimap", MAP)
 	end
 	if self.mode == "keep" and not (self.improved and db.showCoords) and Usable(coords) then Restore(coords) end
-	if self.Layer then self.Layer.Refresh() end
 	self:LayoutCorners()
 	self:ApplyPingNames()
 end
@@ -3243,7 +3228,6 @@ function M:Apply()
 	self:ApplyOwnButtons()
 	self:ApplyButtons()
 	self:ApplyQueue()
-	if self.Layer then self.Layer.Apply() end
 	self:LayoutCorners()
 	self.layingOut = false
 	if E.RefreshMinimapCluster then E:RefreshMinimapCluster() end
@@ -3288,7 +3272,6 @@ function M:OnDisable()
 	self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 	self:UnregisterEvent("PLAYER_REGEN_DISABLED")
 	self:UnregisterEvent("ADDON_LOADED")
-	if self.Layer then self.Layer.Disable() end
 	if self.badge then self.badge:Hide() end
 	for _, own in ipairs(self.ownButtons) do own.button:Hide() end
 	E:RunOutOfCombat(function()
@@ -3404,31 +3387,6 @@ for _, row in ipairs({
 	{ type = "toggle", key = "diel", label = "Day/night indicator", desc = "Forever's day and night cycle as a small icon on the map." },
 	{ type = "select", key = "dielPosition", label = "Indicator position", desc = "Corner or edge of the map.", values = POSITIONS },
 
-	{ type = "tab", label = "Layer hop" },
-	{ type = "description", label = "The chip needs Improve switched on for the minimap in Blizzard UI.", hidden = function() return E:BlizzardAllowed(MAP, "improve") end },
-	{ type = "toggle", key = "layer", label = "Layer chip",
-		desc = "The layer you are on as a short code on the map, read from the creatures around you. Click it to hop to another layer. Hidden in instances." },
-	{ type = "select", key = "layerPosition", label = "Chip position", desc = "Corner or edge of the map.", values = POSITIONS },
-	{ type = "toggle", key = "layerNotice", label = "Say when your layer changes", desc = "A line in your chat each time the layer you are on changes." }, -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-	{ type = "header", label = "Hopping" },
-	{ type = "description", label = function()
-			return L["Asks EldoUI and %s players in your zone in hidden whispers. A player on another layer invites you; you leave once your layer changes."]:format(E.LayerNetwork.folder)
-		end },
-	{ type = "toggle", key = "layerAutoLeave", label = "Leave the group by itself", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = "Leaves the helper's group a few seconds after your layer changed, so the helper is free for the next player. Off: a card offers Leave group." },
-	{ type = "toggle", key = "layerHelp", label = "Help others hop", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = function()
-			return L["Answers hop requests from EldoUI and %s players in your zone while you are on another layer, with an Invite card. Never in combat, in an instance or while listed in the group finder."]:format(E.LayerNetwork.folder)
-		end },
-	{ type = "toggle", key = "layerHelpAuto", label = "Invite without a card", -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = "Invites a player who asks at once, without the card. At most six invites in ten minutes.",
-		hidden = function() return not M.db.layerHelp end },
-	{ type = "toggle", key = "layerAddon", label = function() return L["Use %s"]:format(E.LayerNetwork.folder) end, -- lint: unused-key ok (Modules/MinimapLayer.lua reads it)
-		desc = function()
-			return L["Opens the %s window from the layer chip and lets it answer hop requests."]:format(E.LayerNetwork.folder)
-		end,
-		hidden = function() return not (M.Layer and M.Layer.AddonLoaded()) end },
-
 	{ type = "tab", label = "Buttons" },
 	{ type = "description", label = "Places Blizzard's minimap buttons in the map's corners. Needs \"Minimap buttons\" on in Blizzard UI (Move to place, Hide for \"Hidden\")." },
 	SwitchButton(BUTTONS, "move", E.Key("Let EldoUI place the minimap buttons"), E.Key("Turns on the Blizzard UI switch for the minimap buttons with Move.")),
@@ -3513,7 +3471,7 @@ for _, option in ipairs(BIN_OPTIONS) do table.insert(M.options, option) end
 do
 	local TEXT_ROWS = { showZone = true, zonePosition = "showZone", zoneSize = "showZone", showCoords = true,
 		coordDecimals = "showCoords", coordPosition = "showCoords", showClock = true, clockRealm = "showClock",
-		clockPosition = "showClock", textSize = true, pingNames = true, diel = true, dielPosition = "diel", layer = true, layerPosition = "layer" }
+		clockPosition = "showClock", textSize = true, pingNames = true, diel = true, dielPosition = "diel" }
 	local BIN_ROWS = { binSize = true, binPerRow = true, binSpacing = true, binSide = true, binManage = true,
 		binGrow = true, binMover = true, binKeepOpen = true, binAdd = true }
 	local needsImprove = E:BlizzardNeeds(MAP, "improve")

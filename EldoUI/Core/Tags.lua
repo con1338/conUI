@@ -790,7 +790,7 @@ do
 		local provider = C_TooltipInfo and C_TooltipInfo.GetUnit
 		local data = self.PlainCall(provider, unit)
 		if not Readable(data) or not Readable(data.lines) then return end
-		local me = self.PlainCall(UnitName, "player")
+		local me = self.PlainCall(self.CharacterName, self)
 		local mine, seen = true, false
 		for _, line in ipairs(data.lines) do
 			if Readable(line) then

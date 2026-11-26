@@ -664,6 +664,7 @@ local function NewCraft(spellID, facts)
 	end
 	if craft.result ~= 0 and craft.count == 0 then return end
 	if craft.result == 0 and craft.count ~= 0 then return end
+	craft.learnConfirmed = true
 	craft.yellow, craft.grey = CraftNumber(facts.yellow, 0), CraftNumber(facts.grey, 0)
 	if not (craft.yellow and craft.grey and craft.yellow < craft.grey) then return end
 	for item, count in pairs(facts.reagents) do
@@ -675,7 +676,7 @@ local function NewCraft(spellID, facts)
 	return craft
 end
 
-local function BuildCraft(spellID)
+local function DecodeCraft(spellID)
 	local packed = LD and LD.crafts and LD.crafts[spellID]
 	local hotfix = E.foreverData and E.foreverData.crafts and E.foreverData.crafts[spellID]
 	if type(packed) ~= "string" then return NewCraft(spellID, hotfix) end
@@ -719,12 +720,28 @@ local function BuildCraft(spellID)
 				craft[field] = value or craft[field]
 			end
 		end
+		if CraftNumber(hotfix.rank, 0) and type(hotfix.source) == "string" and hotfix.source ~= "" then
+			craft.learnConfirmed = true
+		end
 		local yellow, grey = CraftNumber(hotfix.yellow, 0), CraftNumber(hotfix.grey, 0)
 		if yellow and grey and yellow < grey then
 			craft.yellow, craft.grey = yellow, grey
 		end
 	end
 	return craft
+end
+
+function LG:ApplyCraftLearnRank(craft)
+	if not craft then return end
+	local source = E.recipeThresholds and E.recipeThresholds[craft.id]
+	if source and source[1] == craft.skill and source[4] > 0 then
+		craft.rank, craft.learnConfirmed = source[4], true
+	end
+	return craft
+end
+
+local function BuildCraft(spellID)
+	return LG:ApplyCraftLearnRank(DecodeCraft(spellID))
 end
 
 function LG:Craft(spellID)
@@ -1019,7 +1036,9 @@ end
 -- Does the Loot Guide show where this item comes from? MobInfo asks this
 -- (through E:LootGuideKnows) so a tooltip never shows the same drops twice.
 function LG:KnowsItem(itemID)
-	if not self.active or not LD then return false end
+	if not self.active then return false end
+	if self:ShowsForeverItemSource(itemID) then return true end
+	if not LD then return false end
 	local list = self:ItemSources(itemID)
 	return list ~= nil and #list > 0
 end
