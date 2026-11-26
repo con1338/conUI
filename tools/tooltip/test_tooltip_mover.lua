@@ -10,10 +10,12 @@
 -- on top of the open bags wherever the mover was.
 -- This starts all of EldoUI in the offline game (tools/harness/wow.lua).
 -- Checked: the mover is part of Combat mode; the tooltip grows from the
--- corner of the mover's own anchor point (the layouts' bottom-right spot as
--- before, a mover at the top left, the left, the top, the middle);
--- dragging the mover in move mode picks that point by the screen third;
--- Smart sits on top of open bags only while they cover the mover's spot;
+-- corner of the mover's own anchor point when it sits on the screen by a
+-- corner or an edge (the layouts' bottom-right spot as before, top left,
+-- left, top), also after a drag in move mode; a mover measured from the
+-- middle (an imported spot) or attached to another one gets the corner from
+-- the screen third it sits in; Smart sits on top of open bags only while
+-- they cover the mover's spot, and on them when they can't be measured;
 -- the cursor modes and Blizzard's spot are untouched; the options page's
 -- Move opens move mode in its view with the box selected, and hides for the
 -- modes without a mover; without the Move switch nothing moves; no errors.
@@ -92,13 +94,37 @@ Place("LEFT", 20, 0)
 Expect("a mover on the left", "BOTTOMLEFT")
 Place("TOP", 0, -20)
 Expect("a mover at the top", "TOP")
+-- Where a mover sits on screen (the offline game has no layout).
+local screenW, screenH = UIParent:GetSize()
+-- In the game a mover's effective scale is UIParent's (the offline game
+-- does not pass it on).
+local function At(x, y)
+	rawset(mover, "GetCenter", function() return x, y end)
+	rawset(mover, "GetEffectiveScale", function() return UIParent:GetEffectiveScale() end)
+end
 Place("CENTER", 0, 0)
+At(screenW / 2, screenH / 2)
 Expect("a mover in the middle", "BOTTOM")
+At(screenW - 150, 200)
+Expect("an imported spot measured from the middle, sitting bottom right", "BOTTOMRIGHT")
+At(150, screenH - 100)
+Expect("an imported spot measured from the middle, sitting top left", "TOPLEFT")
+-- Attached to another mover: the point is the link's side, not the screen's.
+local other = CreateFrame("Frame", "TestOtherFrame", UIParent)
+mover:ClearAllPoints()
+mover:SetPoint("LEFT", other, "RIGHT", 4, 0)
+At(400, screenH - 100)
+Expect("attached to the right of a frame at the top left", "TOPLEFT")
+mover:ClearAllPoints()
+mover:SetPoint("TOP", other, "BOTTOM", 0, -4)
+At(screenW - 150, 300)
+Expect("attached below a frame at the bottom right", "BOTTOMRIGHT")
+rawset(mover, "GetCenter", nil)
+rawset(mover, "GetEffectiveScale", nil)
 Place("BOTTOMRIGHT", -67, 538)
 Expect("back on the layout's spot", "BOTTOMRIGHT")
 
 -- A drag in move mode saves the point of the screen third the mover is in.
-local screenW, screenH = UIParent:GetSize()
 local width, height = mover:GetSize()
 E:SaveMoverFromRect("EldoUI_Tooltip", 10, screenH - height - 10)
 Check(mover:GetPoint(1) == "TOPLEFT", "dragged to the top left: the mover is measured from TOPLEFT (got " .. tostring(mover:GetPoint(1)) .. ")")
@@ -136,6 +162,14 @@ Check(shown.relative == M.anchor and shown.point == "TOPLEFT",
 bags:Hide()
 shown = Show()
 Check(shown.relative == M.anchor and shown.point == "TOPLEFT", "Smart: bags closed, on the mover")
+bags:Show()
+rawset(bags, "GetLeft", function() return nil end)
+shown = Show()
+Check(shown.relative == bags, "Smart: bags that can't be measured take the tooltip, as before")
+bags:Hide()
+for _, frame in ipairs({ bags, M.anchor }) do
+	for _, edge in ipairs({ "GetLeft", "GetRight", "GetBottom", "GetTop" }) do rawset(frame, edge, nil) end
+end
 if bagModule then bagModule.frame = ownFrame end
 
 ---------------------------------------------------------------------------
@@ -150,6 +184,13 @@ shown = Show(owner)
 Check(cursorAnchor == "ANCHOR_CURSOR_RIGHT" and shown.count == 0, "Cursor right: the tooltip follows the cursor, not the mover")
 M:Apply()
 Check(not mover:IsShown(), "Cursor right: move mode leaves the mover out")
+
+M.db.anchor = "blizzard"
+M:Apply()
+tip:ClearAllPoints()
+shown = Show()
+Check(shown.count == 0, "Blizzard's spot: EldoUI leaves the tooltip where the game puts it")
+Check(not mover:IsShown(), "Blizzard's spot: move mode leaves the mover out")
 
 M.db.anchor = "fixed"
 M:Apply()

@@ -522,28 +522,10 @@ local function Remember(name)
 	while #list > M.db.recentMax do table.remove(list) end
 end
 
--- The name a letter to one of your characters goes to. On Forever a
--- letter needs the first name and the surname, but the store's record
--- keeps the first name only (`name`, Core/CharacterStore.lua); its key
--- keeps both: "First Surname - <realm key>" (E:CharacterName,
--- Core/Database.lua). A key without the surname (other clients, a surname
--- the game kept secret, an older key) gives the first name, as before.
-local function MailName(key, record)
-	local name = record.name
-	local keyed = type(key) == "string" and key:match("^(.-) %- ")
-	if type(keyed) ~= "string" or keyed == name or keyed:sub(1, #name + 1) ~= name .. " " then return name end
-	local surname = keyed:sub(#name + 2)
-	if surname == "" then return name end
-	-- The separator the game puts between the two (E:UnitWhisperName).
-	local consts = Constants and Constants.CharacterNameSeparatorConsts
-	local separator = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR
-	if type(separator) ~= "string" or separator == "" then separator = " " end
-	return name .. separator .. surname
-end
-
 -- Your other characters on this realm and faction (the character store,
--- Core/CharacterStore.lua): { name, class, level }, by name; `name` is the
--- one a letter goes to (MailName).
+-- Core/CharacterStore.lua): { name, first, class, level }, by name. `name`
+-- is the one a letter goes to: on Forever the first name and the surname
+-- (store.FullName), `first` the first name alone.
 local function Alts()
 	local alts = {}
 	local store = E.Characters
@@ -551,7 +533,7 @@ local function Alts()
 	for _, key in ipairs(store:Keys("faction")) do
 		local record = store:Get(key)
 		if key ~= E.charKey and record and type(record.name) == "string" then
-			alts[#alts + 1] = { name = MailName(key, record), class = record.class, level = record.level }
+			alts[#alts + 1] = { name = store.FullName(key, record), first = record.name, class = record.class, level = record.level }
 		end
 	end
 	table.sort(alts, function(a, b) return a.name < b.name end)
@@ -559,6 +541,34 @@ local function Alts()
 end
 
 M.Alts = Alts
+
+-- A recent name that is one of your characters' first name alone: up to
+-- 0.7.4001 the address book filled in only that, and Recent kept it,
+-- though on Forever the letter failed (it needs the surname). Such names
+-- become the full name, in the saved list too, so Recent and the autofill
+-- offer the name that works. Doubles go; the newest place stays.
+local function FixRecent(list)
+	local full = {}
+	for _, alt in ipairs(Alts()) do
+		if alt.first ~= alt.name then full[alt.first:lower()] = alt.name end
+	end
+	if not next(full) then return list end
+	local seen, fixed = {}, {}
+	for _, name in ipairs(list) do
+		if type(name) == "string" then
+			name = full[name:lower()] or name
+			if not seen[name:lower()] then
+				seen[name:lower()] = true
+				fixed[#fixed + 1] = name
+			end
+		end
+	end
+	wipe(list)
+	for index, name in ipairs(fixed) do list[index] = name end
+	return list
+end
+
+M.FixRecent = FixRecent
 
 local function Friends()
 	local list = {}
@@ -613,7 +623,7 @@ function M:CreateAddressBook()
 					end)
 				end
 			end
-			Section(L["Recent"], RecentHistory(scope), scope)
+			Section(L["Recent"], FixRecent(RecentHistory(scope)), scope)
 			-- Alts in class color with their level.
 			local alts = Alts()
 			if #alts > 0 then
@@ -688,6 +698,9 @@ end
 -- Sent log: EldoUIDB.mailSent[realm] = { { t, to, s, items = { { id, n, link } }, m, cod } }
 ---------------------------------------------------------------------------
 local pendingSend
+-- The recipient Recent keeps once the letter went out (MAIL_SEND_SUCCESS):
+-- a name the game turned down (MAIL_FAILED) is not offered again.
+local pendingRecipient
 
 E:RegisterStore("mailSent", { owner = "Mail", key = "realm", shape = "letters you sent per realm or ruleset, newest first, at most the \"Letters to keep\" setting" })
 
@@ -1149,7 +1162,7 @@ function M:SetupHooks()
 	self.hooked = true
 	hooksecurefunc("SendMail", function(recipient, subject)
 		if not M.active then return end
-		if Improve() then Remember(recipient) end
+		pendingRecipient = Improve() and recipient or nil
 		CaptureSend(recipient, subject)
 	end)
 	if SendMailFrame then
@@ -1158,7 +1171,7 @@ function M:SetupHooks()
 			M:UpdateInbox()
 			M:UpdateSendMail()
 			if Improve("autofill") and SendMailNameEditBox:GetText() == "" then
-				local recipient = Recent()[1]
+				local recipient = FixRecent(Recent())[1]
 				if recipient then
 					SendMailNameEditBox:SetText(recipient)
 					SendMailNameEditBox:HighlightText()
@@ -1233,7 +1246,12 @@ function M:OnEnable()
 		self.lastCount = count
 		self:RequestInbox()
 	end)
-	self:RegisterEvent("MAIL_SEND_SUCCESS", CommitSend)
+	self:RegisterEvent("MAIL_SEND_SUCCESS", function()
+		local recipient = pendingRecipient
+		pendingRecipient = nil
+		if recipient and Improve() then Remember(recipient) end
+		CommitSend()
+	end)
 	self:RegisterEvent("GAME_RULES_CHANGED", function()
 		local menu = E.UIKit.GetMenu()
 		if self.addressBook and menu and menu.owner == self.addressBook and self.addressBookScope ~= HistoryKey() then
@@ -1249,7 +1267,7 @@ function M:OnEnable()
 		if self.logFrame and not Additions() then self.logFrame:Hide() end
 	end)
 	self:RegisterEvent("MAIL_FAILED", function()
-		pendingSend = nil
+		pendingSend, pendingRecipient = nil, nil
 		-- A run stops on the first error.
 		if run then M:StopRun(L["Stopped: the game reported a mail error."]) end
 	end)

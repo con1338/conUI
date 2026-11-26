@@ -8,11 +8,15 @@
 -- both ("First Surname - <realm key>").
 -- This starts all of EldoUI in the offline game (tools/harness/wow.lua).
 -- Checked: an alt with a surname in its key gets "First Surname" in the
--- list, in the menu's label and in To:; an alt whose key has no surname
--- (an older key) keeps its first name; a key whose name part is another
--- name entirely gives the record's name; the game's surname separator is
--- used; alts of the other faction or ruleset and this character stay out;
--- no errors.
+-- list, in the menu's label and in To:, also with the game's own surname
+-- separator; an alt whose key has no surname (an older key) keeps its
+-- first name; a key whose name part is another name entirely gives the
+-- record's name; alts of the other faction or ruleset and this character
+-- stay out. A letter to "First Surname" counts for that alt's mailbox
+-- (C:FindCharacter, C:CaptureSendMail). Recent keeps a recipient only once
+-- the letter went out, not after MAIL_FAILED; an alt's first name alone
+-- left in Recent by older versions becomes the full name, also for the
+-- autofill. No errors.
 local ROOT = (arg and arg[0] or ""):match("^(.-)tools/mail/") or "./"
 
 local passed, failed = 0, 0
@@ -27,6 +31,10 @@ World.globalNames = dofile(ROOT .. "tools/ci/globals.lua")
 assert(World.AddAddon("EldoUI"), "EldoUI/EldoUI.toc not found")
 for _, name in ipairs({ "EldoUI_Locale_daDK", "EldoUI_Locale_deDE" }) do World.AddAddon(name) end
 World.Install()
+
+-- The game's Send Mail tab, so EldoUI's OnShow (the autofill) has a frame
+-- to hook.
+CreateFrame("Frame", "SendMailFrame", UIParent)
 
 World.phase = "load"
 World.LoadAddOn("EldoUI")
@@ -60,16 +68,17 @@ Alt("Old - " .. realmKey, "Old", "MAGE", 12)
 Alt("Someone Else - " .. realmKey, "Other", "PRIEST", 20)
 Alt("Enemy Side - " .. realmKey, "Enemy", "ROGUE", 50, me.faction == "Horde" and "Alliance" or "Horde")
 Alt("Faraway Name - RP", "Faraway", "DRUID", 40, nil, realmKey == "RP" and "PvP" or "RP")
-if store.InvalidateKeys then store:InvalidateKeys() end
+store:ForgetKeys()
 
 -- The game's constants: no surname separator given (a space then).
 local GameConstants = rawget(_G, "Constants")
 local constants = {}
 rawset(_G, "Constants", constants)
 
+local function Alts() return type(M.Alts) == "function" and M.Alts() or {} end
 local function Names()
 	local names = {}
-	for _, alt in ipairs(M.Alts()) do names[alt.name] = alt end
+	for _, alt in ipairs(Alts()) do names[alt.name] = alt end
 	return names
 end
 local names = Names()
@@ -83,7 +92,7 @@ Check(names.Enemy == nil and names["Enemy Side"] == nil, "the other faction stay
 Check(names.Faraway == nil and names["Faraway Name"] == nil, "another ruleset stays out")
 local myName = me.name
 local mine = false
-for _, alt in ipairs(M.Alts()) do
+for _, alt in ipairs(Alts()) do
 	if alt.name == myName or (E.charKey and alt.name == E.charKey:match("^(.-) %- ")) then mine = true end
 end
 Check(not mine, "this character is not in its own list")
@@ -141,6 +150,74 @@ if button then
 		pick.fn()
 		Check(typed == "Brakka Steinfaust", "picking the alt puts \"Brakka Steinfaust\" into To: (got " .. tostring(typed) .. ")")
 	end
+	-- With the game's own separator, To: gets it too.
+	constants.CharacterNameSeparatorConsts = { CHARACTERNAME_SURNAME_SEPARATOR = "\194\160" }
+	button:GetScript("OnClick")(button)
+	pick = nil
+	for _, entry in ipairs(menu) do
+		if entry.label == "Alts" then
+			for _, alt in ipairs(entry.entries) do
+				if tostring(alt.label):find("Brakka\194\160Steinfaust", 1, true) then pick = alt end
+			end
+		end
+	end
+	if pick then pick.fn() end
+	Check(typed == "Brakka\194\160Steinfaust", "with the game's separator, To: gets it too")
+	constants.CharacterNameSeparatorConsts = nil
+end
+
+---------------------------------------------------------------------------
+-- A letter to "First Surname" counts for that alt's mailbox
+---------------------------------------------------------------------------
+local brakkaKey = "Brakka Steinfaust - " .. realmKey
+Check(store:FindCharacter("Brakka Steinfaust", realmKey) == brakkaKey, "the store finds the alt by its full name")
+Check(store:FindCharacter("brakka steinfaust", realmKey) == brakkaKey, "the full name in any case")
+Check(store:FindCharacter("Brakka", realmKey) == brakkaKey, "the first name alone still finds it")
+Check(store:FindCharacter("Brakka Anders", realmKey) == nil, "another surname is someone else")
+Check(store:FindCharacter("Old", realmKey) == "Old - " .. realmKey, "an older key: by the first name, as before")
+constants.CharacterNameSeparatorConsts = { CHARACTERNAME_SURNAME_SEPARATOR = "\194\160" }
+Check(store:FindCharacter("Brakka\194\160Steinfaust", realmKey) == brakkaKey, "the full name with the game's separator")
+constants.CharacterNameSeparatorConsts = nil
+local GetLink, GetItem = rawget(_G, "GetSendMailItemLink"), rawget(_G, "GetSendMailItem")
+rawset(_G, "GetSendMailItemLink", function(index) if index == 1 then return "|cffffffff|Hitem:2589::::::::|h[Linen Cloth]|h|r" end end)
+rawset(_G, "GetSendMailItem", function(index) if index == 1 then return "Linen Cloth", 2589, 132889, 5 end end)
+store:CaptureSendMail("Brakka Steinfaust")
+store:MailSent()
+local brakka = store:Get(brakkaKey)
+Check(brakka and type(brakka.mail) == "table" and #brakka.mail == 1, "a letter to \"Brakka Steinfaust\" shows in Brakka's mailbox at once")
+rawset(_G, "GetSendMailItemLink", GetLink)
+rawset(_G, "GetSendMailItem", GetItem)
+
+---------------------------------------------------------------------------
+-- Recent: only letters that went out; old first names become full names
+---------------------------------------------------------------------------
+local mail = E.db and E.db.blizzard and E.db.blizzard.mail
+Check(mail ~= nil, "the saved settings have the mail element")
+if mail then mail.enabled, mail.improve = true, true end
+M.db.addressBook, M.db.autofill = true, true
+local recent = M.RecentRecipients()
+wipe(recent)
+local SendMail = _G.SendMail
+SendMail("Brakka", "Hi", "")
+World.Fire("MAIL_FAILED")
+Check(#recent == 0, "a letter the game turned down: Recent keeps nothing")
+SendMail("Brakka Steinfaust", "Hi", "")
+World.Fire("MAIL_SEND_SUCCESS")
+Check(recent[1] == "Brakka Steinfaust", "a letter that went out: Recent has \"Brakka Steinfaust\" (got " .. tostring(recent[1]) .. ")")
+wipe(recent)
+recent[1], recent[2], recent[3], recent[4] = "brakka", "Friend Name", "Brakka Steinfaust", "Old"
+if type(M.FixRecent) == "function" then M.FixRecent(recent) end
+Check(recent[1] == "Brakka Steinfaust" and recent[2] == "Friend Name" and recent[3] == "Old" and recent[4] == nil,
+	"an alt's first name left in Recent: the full name, once, in its newest place")
+wipe(recent)
+recent[1] = "Brakka"
+typed = nil
+local frame = _G.SendMailFrame
+local onShow = frame and frame.GetScript and frame:GetScript("OnShow")
+Check(type(onShow) == "function", "Send Mail has EldoUI's OnShow (the autofill)")
+if box and type(onShow) == "function" then
+	onShow(frame)
+	Check(typed == "Brakka Steinfaust", "the autofill puts the full name into To: (got " .. tostring(typed) .. ")")
 end
 E.UIKit.ContextMenu = ContextMenu
 rawset(_G, "Constants", GameConstants)

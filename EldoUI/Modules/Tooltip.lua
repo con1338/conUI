@@ -1742,17 +1742,32 @@ function SmartAdjust(tooltip)
 	end
 end
 
--- The corner the tooltip grows from on the mover: the corner of the mover's
--- own anchor point. Move mode picks that point by the third of the screen
--- the mover sits in (Core/Movers.lua), and the Positions page can set it.
--- So a mover dragged to the left grows the tooltip to the right, one at the
--- top grows it downwards, and one in the middle grows it from its middle.
--- Upwards stays the rule outside the top third. The layouts' spots are
--- bottom-right, as before.
+-- The corner the tooltip grows from on the mover: the one nearest the
+-- screen edges the mover is near, so a mover dragged to the left grows the
+-- tooltip to the right and one at the top grows it downwards; otherwise it
+-- grows upwards, as before. The layouts' spots are bottom-right.
+-- A mover placed on the screen by a corner or an edge tells it with its
+-- own point: move mode measures a drag from the screen third the mover
+-- sits in (Core/Movers.lua, Measure), and the Positions page can set it.
+-- A mover on another one ("Attach to") or measured from the middle (an
+-- imported spot) gets it from where it sits, by the same thirds.
+local function ScreenCorner(mover)
+	local x, y = mover:GetCenter()
+	local width, height = UIParent:GetSize()
+	if not (x and y and width and height and width > 0 and height > 0) then return "BOTTOMRIGHT" end
+	local scale = (mover:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1)
+	x, y = x * scale, y * scale
+	local horizontal = x < width / 3 and "LEFT" or x > width * 2 / 3 and "RIGHT" or ""
+	return (y > height * 2 / 3 and "TOP" or "BOTTOM") .. horizontal
+end
+
 local function GrowPoint()
 	local mover = E.movers and E.movers.EldoUI_Tooltip
-	local point = mover and mover:GetNumPoints() > 0 and mover:GetPoint(1)
-	if type(point) ~= "string" then return "BOTTOMRIGHT" end
+	if not mover or mover:GetNumPoints() == 0 then return "BOTTOMRIGHT" end
+	local point, relative = mover:GetPoint(1)
+	local screen = relative == nil or relative == UIParent
+		or (E.GetMoverAnchor and relative == E:GetMoverAnchor(point))
+	if type(point) ~= "string" or point == "CENTER" or not screen then return ScreenCorner(mover) end
 	local vertical = point:find("TOP") and "TOP" or "BOTTOM"
 	local horizontal = point:find("LEFT") and "LEFT" or point:find("RIGHT") and "RIGHT" or ""
 	return vertical .. horizontal
@@ -1786,8 +1801,9 @@ local function OnDefaultAnchor(tooltip, parent)
 		tooltip:ClearAllPoints()
 		local bags = mode == "smart" and OpenBagWindow()
 		-- Only bags that cover the mover's spot move the tooltip: a mover
-		-- dragged elsewhere keeps it there while the bags are open.
-		if bags and not Overlaps(bags, M.anchor) then bags = nil end
+		-- dragged elsewhere keeps it there while the bags are open. Bags
+		-- that can't be measured count as covering it, as before.
+		if bags and Edges(bags) and Edges(M.anchor) and not Overlaps(bags, M.anchor) then bags = nil end
 		if bags then
 			-- The bags fill the zone; sit on top of them instead.
 			tooltip:SetPoint("BOTTOMRIGHT", bags, "TOPRIGHT", 0, 8)

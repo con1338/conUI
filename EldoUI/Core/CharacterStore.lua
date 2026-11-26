@@ -438,13 +438,39 @@ local function NormalRealm(realm)
 	return key ~= "" and key or nil
 end
 
+-- The name a letter or a whisper to one of your characters goes to. On
+-- Forever that is the first name and the surname, but the record keeps the
+-- first name only (`name`, C:Me); the key keeps both: "First Surname -
+-- <realm key>" (E:CharacterName, Core/Database.lua). Joined with the
+-- game's surname separator, as E:UnitWhisperName does. A key without the
+-- surname (other clients, a surname the game kept secret, an older key)
+-- gives the first name.
+local function SurnameSeparator()
+	local consts = Constants and Constants.CharacterNameSeparatorConsts
+	local separator = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR
+	return type(separator) == "string" and separator ~= "" and separator or " "
+end
+
+function C.FullName(key, record)
+	local name = type(record) == "table" and record.name
+	if type(name) ~= "string" then return nil end
+	local keyed = type(key) == "string" and key:match("^(.-) %- ")
+	if type(keyed) ~= "string" or keyed == name or keyed:sub(1, #name + 1) ~= name .. " " then return name end
+	local surname = keyed:sub(#name + 2)
+	if surname == "" then return name end
+	return name .. SurnameSeparator() .. surname
+end
+
+-- `name` is a first name, or on Forever the first name and the surname (a
+-- letter needs both, Modules/Mail.lua).
 function C:FindCharacter(name, realm)
 	if type(name) ~= "string" or IsSecret(name) or IsSecret(realm) then return end
 	name = name:lower()
 	realm = NormalRealm(realm or E:ReadableRealmName())
 	if not realm then return end
 	for key, record in pairs(self:All()) do
-		if type(record) == "table" and type(record.name) == "string" and record.name:lower() == name
+		if type(record) == "table" and type(record.name) == "string"
+			and (record.name:lower() == name or C.FullName(key, record):lower() == name)
 			and (NormalRealm(record.realm) == realm or NormalRealm(record.realmKey) == realm) then
 			return key, record
 		end
