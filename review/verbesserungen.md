@@ -35,6 +35,7 @@ Boss-Mod oder Nameplate-Scripting wie in Plater sind deshalb nicht machbar.
 | C9 | RestedXP: Schrittliste per Klick ein- und ausklappen, Knopf im Knopfsammler der Minikarte (Wunsch des Nutzers) | klein–mittel | umgesetzt | `7f2a0a8`, `c944dc7`, `8b4d37d` |
 | C10 | RestedXP: Schrift, Pfeil und Fenster mit einem Klick passend zu EldoUIs Textgröße (Wunsch des Nutzers) | klein | umgesetzt | `9df8a1d`, `fe372f7` |
 | C11 | RestedXP: Pfeil auf den Pfeil-Platz des Layouts, aktive Gegenstände und Ziele neben den Guide (Wunsch des Nutzers) | mittel | umgesetzt | `4a50a5d`, `9df8a1d`, `d25ae5e`, `fe372f7` |
+| C12 | Tooltip verschieben: Verschiebefeld im Kampfmodus, der Tooltip wächst vom Rand weg (Wunsch des Nutzers) | klein | umgesetzt | `853eb7e` |
 | D1 | Upstream-Updates: Releases unverändert importieren, Eigenes als Plugin | klein | umgesetzt | `c77d98e`, `8b8f957`, `c323ceb`, `775b23d`, `f9c0fc9` |
 | D2 | CI: Syntax, luacheck, TOC, Tests, Release-ZIP | klein–mittel | umgesetzt | `9eb8305` |
 | D3 | Version und Fehler-Links des Forks | klein | umgesetzt | `260d193` |
@@ -1159,6 +1160,34 @@ Inspect-Anfragen, automatische Loot-Verteilung.
     | B9 | Neuladen auch ohne neue Guide-Schrift; Kommentar „kein RXPItemFrame mit dem neuen Fenster“ falsch; Kopf veraltet; Standards aus RestedXPs Profilkopie; Ziel-Fenster ohne Größe als „geheim“ gemeldet; Status nannte den Ordner | klein | behoben; der Haken auf „Pfeil zurücksetzen“ bleibt (der Layout-Platz ist der Platz) |
     | B10 | Deutsch: „aktiven Ziele“, „eine andere Fensterskalierung als 100 %“, „stellt die früheren Werte wieder her“ | klein | korrigiert |
     | B11 | Testlücken zu B1 bis B8 | klein | ergänzt (82 Prüfungen) |
+- **C12 Tooltip verschieben:** Wunsch des Nutzers (26.11.2026): Der Tooltip im Spiel soll sich verschieben lassen,
+  er „klebt auf der rechten Seite“. Mit „Fest“ oder „Intelligent“ (Vorgabe) liegt der Tooltip auf dem Verschiebefeld
+  „Tooltip“ (`EldoUI_Tooltip`), das die Einrichtung freischaltet (Blizzard-UI > Tooltips: Verschieben). Drei Gründe,
+  warum es trotzdem festzusitzen schien:
+  - Der Verschiebemodus öffnet in der Ansicht „Kampfmodus“. Dort fehlte das Feld (nicht in `COMBAT_MOVERS`), es stand
+    nur unter „Alle Rahmen“, wie das Koordinatenfeld bei F25.
+  - Der Tooltip hing immer mit seiner rechten unteren Ecke an der rechten unteren Ecke des Felds. Ein Feld links oder
+    oben ließ ihn trotzdem nach links und oben wachsen.
+  - „Intelligent“ setzte ihn bei offenen Taschen immer auf die Taschen, egal wo das Feld lag; die Taschen stehen rechts.
+  - **Umgesetzt** (`Modules/Tooltip.lua`, Abschnitt „Anchor“):
+    - Das Feld gehört zum Kampfmodus (`combat = true` beim Anlegen, wie die Minikarte).
+    - `GrowPoint`: Der Tooltip wächst aus der Ecke des Ankerpunkts, den das Feld selbst hat. Den wählt der
+      Verschiebemodus nach dem Bildschirmdrittel, in dem das Feld liegt (`Measure`, `Core/Movers.lua`), und die Seite
+      Positionen kann ihn setzen. Links wächst er nach rechts, im oberen Drittel nach unten, in der Mitte von der Mitte
+      aus; sonst wie bisher nach oben. Die Plätze der Layouts sind rechts unten, dort ändert sich nichts.
+    - „Intelligent“ setzt ihn nur noch auf die Taschen, wenn sie das Feld überdecken (`Overlaps`).
+    - Tooltip > Position hat „Verschieben“ (`E:MoveFrame`, wie bei der Klassenleiste): öffnet den Verschiebemodus und
+      wählt den Kasten aus. Versteckt bei „Cursor“ und „Blizzard“, gesperrt ohne „Verschieben“ in Blizzard-UI. Der Text
+      ist deutsch in `Fork.lua`.
+  - **Test:** `tools/tooltip/test_tooltip_mover.lua` (37 Prüfungen, im ganzen Offline-Start): Feld im Kampfmodus; die
+    Wachstumsecke für den Layout-Platz, oben links, links, oben und Mitte, auch nach einem Zug im Verschiebemodus;
+    „Intelligent“ mit Taschen über und neben dem Feld; „Cursor“ und ohne „Verschieben“ unverändert; „Verschieben“ in den
+    Optionen. Mit dem alten Code schlagen 10 Prüfungen fehl.
+  - **Im Spiel prüfen:** `/eui move` öffnen (Ansicht „Kampfmodus“): Der Kasten „Tooltip“ ist da. Ihn nach links oben
+    ziehen, schließen, über eine Aktionstaste fahren: Der Tooltip steht oben links und wächst nach unten. Die Taschen
+    öffnen, über einen Gegenstand fahren: Er bleibt oben links. Zurück nach rechts unten: wie vorher. Tooltip >
+    Position > „Verschieben“ öffnet den Verschiebemodus mit dem Kasten ausgewählt. Fehlt der Kasten ganz, ist unter
+    Blizzard-UI > Tooltips „Verschieben“ aus.
 
 ## D – Infrastruktur für den Fork
 

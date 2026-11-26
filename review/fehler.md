@@ -34,6 +34,7 @@ plausibel = hängt von API-Verhalten ab, das sich ohne Spiel nicht prüfen läss
 | F24 | Nach einem Bankbesuch ist jeder Rechtsklick zum Benutzen aus den Taschen verboten, bis zum Reload (im Spiel gefunden) | hoch | behoben (im Spiel offen) | |
 | F25 | Das Koordinatenfeld (und der Wegpfeil) lässt sich nicht verschieben: im Verschiebemodus nur unter „Alle Rahmen“ (im Spiel gefunden) | niedrig | behoben (im Spiel offen) | `d1fece9` |
 | F26 | In einer Gruppe keine Schadenszahlen über Gegnern: Plakettenzahlen aus, Blizzards trotzdem auf 0 (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `1c693b8` |
+| F27 | Post: Ein Twink aus dem Adressbuch kommt nur mit Vornamen ins Feld „An“, der Brief scheitert (im Spiel gefunden) | mittel | behoben (im Spiel offen) | `3058828` |
 
 **Prüfung der Änderungen:** `luac5.1 -p` über alle 626 Dateien fehlerfrei; luacheck zeigt gegenüber dem
 Originalstand keine neue Warnung (259 vor und nach den Änderungen, ohne W113/W212); kein neuer unbekannter
@@ -735,6 +736,28 @@ gegen den Code von 0.7.4001 (nicht im Spiel). Beide hatten zehn Dateien geänder
   Entwicklungsrechner gibt es kein Lua.
 - **Im Spiel prüfen:** siehe Tabelle unten.
 
+### F27 – Post: Twinks aus dem Adressbuch nur mit Vornamen (mittel, im Spiel gefunden)
+- **Gefunden:** 26.11.2026 beim Spielen. Im Fenster „Post verschicken“ bietet das Adressbuch (der Pfeil im Feld „An“)
+  unter „Twinks“ die eigenen Charaktere an. Ein Klick trug nur den Vornamen ein, und das Verschicken scheiterte: Auf
+  WoW: Forever braucht ein Brief den Vor- und den Nachnamen.
+- **Stelle:** `Modules/Mail.lua` (`Alts`, das Menü in `M:CreateAddressBook`)
+- **Ursache:** `Alts` nahm den Namen aus dem Eintrag des Charakterspeichers (`record.name`, `Core/CharacterStore.lua`,
+  `C:Me`). Dort steht nur der Vorname (`E:PlayerName`). Den vollen Namen hält der Schlüssel des Eintrags:
+  „Vorname Nachname - <Regelwerk>“ (`E:CharacterName`, `Core/Database.lua`). Der Fehler stammt aus EldoUI und steckt
+  auch in 0.7.4001.
+- **Umsetzung:**
+  - Neu ist `MailName(key, record)`: Beginnt der Name im Schlüssel mit dem Vornamen und einem Leerzeichen, kommt der Rest
+    als Nachname dazu, mit dem Trennzeichen des Spiels (`Constants.CharacterNameSeparatorConsts`, sonst ein
+    Leerzeichen, wie `E:UnitWhisperName`). Ein Schlüssel ohne Nachnamen (andere Clients, ein Nachname, den das Spiel
+    geheim hielt, ein alter Schlüssel) gibt den Vornamen, wie bisher.
+  - Das Menü zeigt denselben Namen, den es einträgt.
+- **Übergang:** Den Nachnamen von Hand ergänzen.
+- **Test:** `tools/mail/test_alt_recipient.lua` (18 Prüfungen, im ganzen Offline-Start): Twink mit Nachnamen in Liste,
+  Menü und Feld „An“; alter Schlüssel ohne Nachnamen; ein Schlüssel mit fremdem Namen; das Trennzeichen des Spiels und
+  eines, das kein Text ist; andere Fraktion, anderes Regelwerk und der eigene Charakter bleiben draußen. Mit dem alten
+  Code schlagen 6 Prüfungen fehl.
+- **Im Spiel prüfen:** siehe Tabelle unten.
+
 ## Sonstiges
 
 - **Toter Code:** rund 25 ungenutzte lokale Funktionen und ungenutzte Variablen (luacheck W211). Reste von
@@ -772,6 +795,7 @@ Paladin Stufe 24, allein). „Keine Abweichung gemeldet“: Der Schritt war dran
 | F26 | allein: `/dump C_CVar.GetCVar("floatingCombatTextCombatDamage_v2")`, einen Gegner angreifen | `"0"`; die Zahlen stehen auf der Plakette des Ziels | offen |
 | F26 | außerhalb des Kampfs einer Gruppe beitreten, derselbe Befehl, einen Gegner angreifen | `"1"`; Blizzards eigene Schadenszahlen über dem Gegner, keine Plakettenzahlen | offen (Gruppe) |
 | F26 | die Gruppe verlassen, derselbe Befehl | wieder `"0"`, wieder Plakettenzahlen | offen (Gruppe) |
+| F27 | am Briefkasten „Post verschicken“, Pfeil im Feld „An“ → „Twinks“ → einen eigenen Charakter wählen, etwas schicken | im Menü und im Feld steht „Vorname Nachname“, der Brief geht ab | offen |
 | F17 | Persönliche Ressourcenanzeige (falls genutzt) | Leisten mit EldoUI-Textur | offen |
 | F17 | Blizzard-Raidframes mit „Improve“ und Click-Casting an; im Kampf jemanden in die Gruppe einladen oder einen Raid bilden lassen, nach dem Kampf mit einer Click-Cast-Bindung auf den neuen Frame klicken | Bindung wirkt sofort nach dem Kampf, nicht erst nach der nächsten Gruppenänderung | offen (Gruppe) |
 | F17 | Nameplates im EldoUI-Modus, an einer Gruppe Gegner vorbeilaufen | wie vorher; keine Lua-Fehler beim ersten Erscheinen der Plates | keine Abweichung gemeldet, keine Lua-Fehler im Log |

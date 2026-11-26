@@ -12,6 +12,12 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 - Fishing's Only the splash turns every other sound off while fishing: music, ambience, dialog, emote, pet and ping sounds. The sound effects with the splash stay on, and your own settings come back when fishing mode ends.
 
+### Tooltips
+
+#### Improved
+
+- The tooltip can be moved: move mode shows its box right away, in the Combat view it opens in, and Tooltip > Position has Move. The tooltip grows away from the screen edge you put it near, and Smart keeps it there while the bags are open unless they cover its spot.
+
 ### Combat
 
 #### Fixed
@@ -24,6 +30,7 @@ The in-game **What's New** page (`/eui whatsnew`) shows the highlights of each v
 
 - Right-clicking an item in EldoUI's bag window to use it (hearthstone, keys, recipes, or to put it into the trade window) is no longer blocked until a reload after a visit to the bank. EldoUI's bag window no longer runs the game's own bag code: bags opened from the Info Bar, with /eui find or with another window stay open until you close them.
 - Picking Bags in the Finder no longer blocks right-click use from the bags after a visit to the bank: it opens and closes EldoUI's bag window the same way the Info Bar does.
+- Picking one of your characters under Alts in the Send Mail address book fills in the first name and the surname, so the letter goes out instead of failing.
 
 ### Map and minimap
 
