@@ -398,8 +398,9 @@ function SV.HookLinks(frame)
 		local sentence = self.storyMap and self.storyMap[link]
 		if not sentence then
 			-- An item link: the game's own handling (Shift-click links it).
+			-- E:FollowLink: SetItemRef, but map links open the map the clean way (Core/ChatLinks.lua).
 			if type(link) == "string" and not link:find("^eldostory:") and SetItemRef then
-				pcall(SetItemRef, link, text, button, self)
+				pcall(E.FollowLink, E, link, text, button, self)
 			end
 			return
 		end
